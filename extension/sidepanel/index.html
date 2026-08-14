@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Testomat Run Panel</title>
+  <!-- Three layers, in this order: tokens (values) → components (the controls
+       every page shares) → this screen's own stylesheet (layout and the parts
+       that only exist here). Later file wins, so the panel can adjust a
+       component for its own layout, never the reverse. -->
+  <link rel="stylesheet" href="../shared/tokens.css" />
+  <link rel="stylesheet" href="../shared/components.css" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- The ONE script in the head, and the one place it can be: it pins the saved
+       colour scheme on <html> before the first paint, so a panel set to Light on
+       a dark OS never flashes dark on the way in. Everything else waits at the
+       bottom of the body with the rest of the wiring. -->
+  <script src="../shared/theme.js"></script>
+</head>
+<!-- `data-booting` is written into the markup, not set by a script, so the very
+     first paint already carries it: it is what hides the real (empty) tab row
+     while the placeholder below stands in for the whole panel. core/skeleton.js
+     drops it — and the container — on the first view the panel can actually
+     paint. -->
+<body data-booting="true">
+  <!-- Boot placeholder: opening the panel is token → projects → runs before one
+       row can be drawn, which used to be a white rectangle for as long as those
+       round trips took. This is where the panel's shape goes in the meantime —
+       but only when the boot is actually a wait: Skeleton.paintBoot()
+       (core/skeleton.js) ARMS it and fills it a quarter second later, so a fast
+       open lands on the real panel having drawn no skeleton at all. Built out of
+       the real components, so there is only ever one skeleton to keep in step
+       with a screen. Empty here on purpose. -->
+  <div id="boot-skeleton" class="boot-skeleton" aria-hidden="true"></div>
+
+  <!-- Panel header (#127), three rows top-down: the project strip, the tabs, and a
+       contextual Back+title row that exists only outside a tab root. The old
+       root header ("Testomat Run Panel") is gone — it spent a whole row saying
+       nothing the tab bar doesn't already say. -->
+
+  <!-- Row 1 — project switcher (#103): the active project, on EVERY tab — its own
+       slim strip, now the TOPMOST row: it scopes everything under it, tabs
+       included, so it reads as the thing the whole panel is pointed at rather
+       than a filter belonging to the open tab. Options come from the token's
+       project list (JWT /api/projects, id = slug); hidden until a project is
+       known. Switching resets the tabs (see core/project-switcher.js).
+       #126: a CUSTOM dropdown, not a <select> — Chrome renders a select popup at
+       OS level, which in a narrow side panel opens as a huge misplaced menu. The
+       whole control is one container (#project-dropdown) so the top-of-panel
+       rework (#127) can move it as a unit.
+       The strip also carries Refresh, pinned to its far right — see the button
+       at the end of the row. -->
+  <div id="project-bar" class="bar project-bar" hidden>
+    <span id="project-bar-label" class="project-bar-label">Project</span>
+    <div id="project-dropdown" class="project-dd">
+      <button id="project-trigger" class="btn tertiary size-sm project-trigger" type="button"
+              aria-haspopup="listbox" aria-expanded="false" aria-controls="project-list"
+              aria-labelledby="project-bar-label project-current">
+        <span id="project-current" class="project-current"></span>
+        <!-- Material Symbols keyboard_arrow_down (see shared/icons.js for the set). -->
+        <span class="md-icon project-caret" data-icon="keyboard_arrow_down"></span>
+      </button>
+      <div id="project-menu" class="menu project-menu" hidden>
+        <!-- Type-to-filter (#126): the owner has 16+ projects; matches title and slug. -->
+        <input id="project-filter" class="input size-sm project-filter" type="text" autocomplete="off"
+               spellcheck="false" placeholder="Filter projects…" aria-label="Filter projects"
+               aria-controls="project-list" />
+        <ul id="project-list" class="menu-list project-list" role="listbox" aria-label="Projects"></ul>
+        <!-- The filter matched nothing: the shared compact empty state (see the
+             EMPTY section of shared/components.css). Written out rather than
+             built by EmptyState.build() because it is markup that exists before
+             any script runs — icons.js hydrates the `data-icon` slot. -->
+        <div id="project-empty" class="empty compact" hidden>
+          <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
+          <div class="empty-body"><p class="empty-text">No project matches</p></div>
+        </div>
+      </div>
+    </div>
+    <!-- Panel-wide Refresh, top-right corner of the topmost row: it is scoped by
+         the project beside it, exactly like everything under it, so it re-pulls
+         the WHOLE panel — the open view's data plus both tab counts — rather
+         than the runs list it used to sit above. Material Symbols refresh;
+         handler is refreshAll() in core/views.js.
+         data-tip-side="bottom": this is the top row, a label above it would open
+         off the panel. -->
+    <button id="btn-refresh" class="icon-btn" data-tip="Refresh all data"
+            data-tip-side="bottom" aria-label="Refresh all data">
+      <span class="md-icon" data-icon="refresh" data-icon-size="20"></span>
+    </button>
+    <!-- …and the way OUT of the panel, to the right of it: the active project's
+         own page in the web app. An ANCHOR wearing the icon-button skin — the
+         same deal "New run" and the editor's "Open in Testomat ↗" make — so it
+         is a real link (middle-click, copy address) and not a scripted click.
+         href is built from the ACTIVE settings by renderProjectOpenLink()
+         (core/project-switcher.js); hidden until both halves are known. -->
+    <a id="project-open" class="icon-btn" target="_blank" rel="noopener noreferrer"
+       data-tip="Open this project in Testomat" data-tip-side="bottom"
+       aria-label="Open this project in Testomat" hidden>
+      <span class="md-icon" data-icon="open_in_new" data-icon-size="20"></span>
+    </a>
+    <!-- …and the strip's last control: which SURFACE this panel is in (#208).
+         The same document runs in Chrome's side panel and in a window of its own,
+         so this is one button with two states — "Open in window" here, "Dock to
+         side panel" over there. The static mark is the side-panel state's,
+         because that is what a fresh profile opens in; core/view-switch.js
+         repaints both the mark and the label once it knows which surface this
+         document actually is. -->
+    <button id="view-switch" class="icon-btn" type="button"
+            data-tip="Open in window" data-tip-side="bottom" aria-label="Open in window">
+      <span class="md-icon" data-icon="web_asset" data-icon-size="20"></span>
+    </button>
+  </div>
+
+  <!-- Row 2: the tab bar plus the Rec chip at its right end. The chip is a
+       SINGLE container (#rec-slot) on purpose — the placement is still open
+       (#127), so moving it is a matter of moving this one element. This is the
+       row that pins: the project strip above scrolls away, the tabs stay. -->
+  <div id="header-top" class="bar sticky stretch header-top">
+    <!-- Persistent tab bar, the three tabs sharing the row out between them
+         (`.tabs.fill`). The active tab is highlighted
+         (aria-selected). Tests/Runs are disabled until settings are configured.
+         Each tab is the library's icon+text variant; the two that COUNT something
+         also carry the count chip — the SMALL counter, so the number reads as a
+         footnote to the label rather than a second word — filled by setTabCount()
+         in core/views.js once
+         the number is actually known and hidden until then — a tab bar must not
+         guess. Settings counts nothing, so it stays icon+text. The count is
+         `aria-hidden`: the tab's own label already names the section, and a
+         screen reader reading "Tests 128" on every focus is noise. -->
+    <nav id="tabbar" class="tabs fill" role="tablist" aria-label="Sections">
+      <button id="tab-tests" class="tab" type="button" role="tab" aria-selected="false">
+        <span class="md-icon" data-icon="task" aria-hidden="true"></span>
+        <span class="tab-label">Tests</span>
+        <span id="tab-tests-count" class="counter size-sm" aria-hidden="true" hidden></span>
+      </button>
+      <button id="tab-runs" class="tab" type="button" role="tab" aria-selected="false">
+        <span class="md-icon" data-icon="play_arrow" aria-hidden="true"></span>
+        <span class="tab-label">Runs</span>
+        <span id="tab-runs-count" class="counter size-sm" aria-hidden="true" hidden></span>
+      </button>
+      <button id="tab-settings" class="tab" type="button" role="tab" aria-selected="false">
+        <span class="md-icon" data-icon="settings" aria-hidden="true"></span>
+        <span class="tab-label">Settings</span>
+      </button>
+    </nav>
+    <!-- Evidence recorder (M2 PR-1): Record toggle + attached-tab label. Shown on
+         the run + test views; the red dot pulses while a debugger session records.
+         The slot itself is hidden with the toggle so it costs the tabs no width. -->
+    <div id="rec-slot" class="rec-slot" hidden>
+      <span id="evidence-tab" class="evidence-tab" hidden></span>
+      <button id="evidence-toggle" class="btn pill size-xs evidence-toggle" hidden aria-pressed="false"
+              data-tip="Record the console & network log from the active tab">
+        <span class="rec-dot" aria-hidden="true"></span><span class="rec-text">Rec</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Row 3 — contextual row (#127): Back plus what is open, rendered ONLY outside
+       a tab root (a run, a test, a suite's test list, the suite picker). Tab roots
+       are already named by the highlighted tab, so they carry no row at all.
+
+       Outside a root this row is the panel's WHOLE chrome: the two rows above
+       stand down (see the immersive block in style.css) and the screen gets the
+       full height, the way the test editor does in its own tab. Which is why the
+       row now carries a trail as well as a title — with the tabs away, "Runs /
+       Manual tests at 03 Aug" is the only thing left saying where the tester
+       fell through to. Back keeps its place at the head of the row; the trail and
+       the open thing's own name stack beside it. -->
+  <!-- data-tip-side: every tip in this row (Back, the trail, the clamped title)
+       opens DOWNWARD, over the view — a label above would cover the only chrome
+       an immersed panel has left. -->
+  <div id="context-bar" class="bar context-bar" data-tip-side="bottom" hidden>
+    <button id="btn-back" class="icon-btn" data-tip="Back" aria-label="Back">
+      <!-- Material Symbols arrow_back. -->
+      <span class="md-icon" data-icon="arrow_back" data-icon-size="20"></span>
+    </button>
+    <div class="context-main">
+      <!-- Ancestors only — the last crumb of the path is the title under it, and a
+           breadcrumb never links to the page it is on. Filled by
+           renderContextCrumbs() (core/views.js). -->
+      <nav id="context-crumbs" class="crumbs" aria-label="Breadcrumb" hidden></nav>
+      <div id="context-title" class="context-title"></div>
+    </div>
+    <!-- The way out of the panel for whatever this row NAMES: the open suite, run
+         or test on its own page in the web app. The project strip carries the same
+         control for the project (#project-open) and the test page for a test case
+         (#113) — this is that one control for every contextual view, which is why
+         it lives in the row that says which one is open rather than three times
+         over inside the views.
+         An ANCHOR wearing the icon-button skin, like both of those: a way out has
+         to be middle-clickable and copyable. href + label are rebuilt per view by
+         renderContextOpenLink() (core/views.js); with nothing to link to it hides
+         rather than point at a 404. -->
+    <a id="context-open" class="icon-btn" target="_blank" rel="noopener noreferrer" hidden>
+      <span class="md-icon" data-icon="open_in_new" data-icon-size="20"></span>
+    </a>
+    <!-- (#rec-slot is moved in here while the row is up — see homeRecSlot().) -->
+  </div>
+
+  <!-- Degraded/login-blocked banner (Block 4): a slim dismissible strip on the
+       runs + run views naming what basic mode disables and how to restore it. -->
+  <div id="degraded-banner" class="banner warning degraded-banner" hidden role="status">
+    <span class="banner-text degraded-banner-text"></span>
+    <button id="degraded-banner-refresh" class="btn size-sm degraded-banner-refresh" type="button">Refresh</button>
+    <button id="degraded-banner-dismiss" class="icon-btn size-xs" type="button"
+            data-tip="Dismiss" aria-label="Dismiss"><span class="md-icon" data-icon="close"></span></button>
+  </div>
+
+  <!-- Offline queue (M4 cycle 2): a slim strip counting status writes that failed
+       on a network / paused-token error and are queued locally for replay. Retry
+       drains now; the count clears as entries sync. -->
+  <div id="pending-banner" class="banner accent pending-banner" hidden role="status">
+    <span class="banner-text pending-banner-text"></span>
+    <button id="pending-banner-retry" class="btn size-sm pending-banner-retry" type="button">Retry</button>
+  </div>
+
+  <main>
+    <!-- Read-only lockout (#155): a reader-role member, a company-readonly
+         account or an archived project gets 403 from v2 on EVERY request, GET
+         included (Api::V2::BaseController#set_project!), so the panel has nothing
+         honest to offer for that project. This replaces the tab content — the
+         project switcher and the Settings tab stay reachable, which is the way
+         out. Shown/hidden by views.js applyReadonlyBlock(). -->
+    <section id="readonly-block" class="notice warning" hidden role="status">
+      <h2 class="notice-title">Your access to this project is read-only</h2>
+      <p class="notice-text">
+        The panel can't run tests here. Pick another project above, or ask a project
+        owner for access that can write results.
+      </p>
+    </section>
+
+    <section id="view-settings" hidden>
+      <!-- No "Settings" heading: the tab above says it, and a screen does not
+           need its own title twice. -->
+
+      <!-- First-run connect screen: while NOTHING is saved this section renders
+           as a welcome card — the hero below plus the Connection block — and
+           every other setting is folded away by CSS
+           (#view-settings[data-mode="connect"], a whitelist so a row added later
+           stays out of the first run unless someone puts it there on purpose).
+           It is the same form, same ids, same Save & validate path: the connect
+           screen IS the Connection section, promoted. Mode is flipped by
+           applyConnectMode() in screens/settings.js. -->
+      <div id="connect-hero" class="connect-hero" hidden>
+        <svg class="connect-art" viewBox="0 0 128 96" width="128" height="96" aria-hidden="true">
+          <!-- The panel, drawn in the panel's own surface tokens… -->
+          <rect class="art-card" x="20.75" y="12.75" width="86.5" height="70.5" rx="11.5"/>
+          <path class="art-rule" d="M21 34.5h86"/>
+          <circle class="art-dot" cx="32" cy="23" r="2.5"/>
+          <circle class="art-dot" cx="41" cy="23" r="2.5"/>
+          <circle class="art-dot" cx="50" cy="23" r="2.5"/>
+          <path class="art-line" d="M33 48h42M33 60h28"/>
+          <!-- …and the credential it is waiting for. The ring is painted in the
+               page background so the badge punches through the card behind it. -->
+          <circle class="art-badge-ring" cx="92" cy="70" r="23.5"/>
+          <circle class="art-badge" cx="92" cy="70" r="20"/>
+          <!-- Material Symbols key, scaled from its 960 box onto this 128×96 art. -->
+          <path class="art-key" transform="translate(77.6 84.4) scale(0.03)"
+                d="M280-400q-33 0-56.5-23.5T200-480q0-33 23.5-56.5T280-560q33 0 56.5 23.5T360-480q0 33-23.5 56.5T280-400Zm0 160q-100 0-170-70T40-480q0-100 70-170t170-70q67 0 121.5 33t86.5 87h335q8 0 15.5 3t13.5 9l80 80q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L805-325q-5 5-12 8t-14 4q-7 1-14-1t-13-7l-52-39-57 43q-5 4-11 6t-12 2q-6 0-12.5-2t-11.5-6l-61-43h-47q-32 54-86.5 87T280-240Zm0-80q56 0 98.5-34t56.5-86h125l58 41v.5-.5l82-61 71 55 75-75h-.5.5l-40-40v-.5.5H435q-14-52-56.5-86T280-640q-66 0-113 47t-47 113q0 66 47 113t113 47Z"/>
+        </svg>
+        <h2 class="connect-title">Connect to Testomat.io</h2>
+        <p class="connect-sub">Paste a General token to load your projects and run
+          manual tests next to the site you are testing.</p>
+      </div>
+
+      <!-- Onboarding welcome checklist (M4): a first-run card guiding token →
+           project → first run. Auto-checks each step; hidden once all three are
+           done or dismissed (both states persist). See screens/onboarding.js. -->
+      <div id="onboarding-card" class="card accent onboarding-card" hidden>
+        <button id="onboarding-dismiss" class="icon-btn size-xs onboarding-dismiss" type="button"
+                data-tip="Dismiss" aria-label="Dismiss"><span class="md-icon" data-icon="close"></span></button>
+        <h3 class="onboarding-title">Welcome — 3 steps to your first run</h3>
+        <ol class="onboarding-steps">
+          <li id="onboarding-step-token" class="onboarding-step">
+            <span class="onboarding-check" aria-hidden="true"></span>
+            <a id="onboarding-token-link" href="https://app.testomat.io/account/access_tokens"
+               target="_blank" rel="noopener noreferrer">Get a General token</a>
+          </li>
+          <li id="onboarding-step-project" class="onboarding-step">
+            <span class="onboarding-check" aria-hidden="true"></span>
+            <span class="onboarding-step-text">Pick a project in the header</span>
+          </li>
+          <li id="onboarding-step-run" class="onboarding-step">
+            <span class="onboarding-check" aria-hidden="true"></span>
+            <span class="onboarding-step-text">Open your first run</span>
+          </li>
+        </ol>
+      </div>
+
+      <!-- Connection (#103): ONE credential — the account General token. The
+           panel resolves the projects it reaches itself, and the active one is
+           picked in the header switcher, not here. (#83 moved the instance URL
+           down to Advanced — every team project lives on app.)
+
+           FIRST section, and once connected a CARD rather than a form: a saved
+           token is not something you read or edit, so the box of dots that stood
+           here said nothing and invited a re-type. What is left is the two facts
+           that matter — which instance the panel is on, and the way out.
+           The token FIELD below belongs to the first-run screen; the full form
+           only brings it back for an instance it holds no token for
+           (syncTokenField() in screens/settings.js). -->
+      <h3 id="connection-title" class="settings-section-title">Connection</h3>
+      <div id="connection-card" class="card connection-card" hidden>
+        <!-- One line: the tick says connected, the host says to what, the button
+             is the way out. Where the token is kept is the Stored credentials
+             section's line to say, and it says it once. -->
+        <!-- Material Symbols check_circle --><span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
+        <p id="connection-host" class="connection-host"></p>
+        <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
+      </div>
+      <!-- Disconnect erases the active instance and reloads into the connect
+           screen, so this line only ever speaks for a failure. -->
+      <p id="connection-status" class="status-line" role="status"></p>
+      <label id="token-field">General token
+        <input id="set-token" class="input" type="password" placeholder="testomat_..." autocomplete="off" />
+      </label>
+      <!-- Token help: deep-links to the access-tokens page of the configured host
+           (derived from the Instance field down in Advanced; defaults to app.). -->
+      <p id="token-help" class="hint settings-help">
+        <a id="token-help-link" href="https://app.testomat.io/account/access_tokens"
+           target="_blank" rel="noopener noreferrer">Find it in Account → Access Tokens</a>
+      </p>
+
+      <!-- #104: the local "New test template" lived here. New tests are now
+           seeded from the PROJECT's own templates, picked in the editor. -->
+
+      <!-- Failure log: everything that governs what gets attached on a FAIL.
+           Ordered by what it acts on — the log first (its two toggles, then the
+           window they share), the recorded environment after. -->
+      <h3 class="settings-section-title">Failure log</h3>
+      <!-- Evidence auto-attach toggle: default ON (absent -> ON). OFF skips only
+           the FAIL log upload/link; the manual per-entry Attach still works. -->
+      <label class="choice checkbox-row">
+        <input id="set-evidence-autoattach" class="checkbox" type="checkbox" />
+        Attach console &amp; network log to failed tests
+      </label>
+      <!-- Response-body capture (#95): default ON (absent -> ON). OFF keeps the
+           request metadata and notes "(body capture disabled)" where a snippet
+           would be — the privacy valve for bodies leaving the browser. -->
+      <label class="choice checkbox-row">
+        <input id="set-evidence-bodies" class="checkbox" type="checkbox" />
+        Include response bodies of failed requests
+      </label>
+      <!-- Evidence recorder window (M2 PR-1): seconds of console/network history
+           attached on a failed test while recording. Absent -> 60, clamp 10-600.
+           A number field is sized by the number it takes, not by the column. -->
+      <label class="settings-field-sm">Log window (seconds)
+        <input id="set-evidence-window" class="input" type="number" min="10" max="600" step="10" placeholder="60" autocomplete="off" />
+      </label>
+      <!-- Env-info toggle (cycle 008a): default ON (absent -> ON, A2 rule).
+           Since #116 the facts are written as testrun meta, not into the comment,
+           and on every status rather than only on a failure. -->
+      <label class="choice checkbox-row">
+        <input id="set-env-info" class="checkbox" type="checkbox" />
+        Record environment info (browser, OS, viewport, URL)
+      </label>
+      <!-- Full-URL opt-in (#177): default OFF. The recorded URL is trimmed to
+           origin + path, because a query string routinely carries reset tokens,
+           signed links and session ids that everyone with project access reads. -->
+      <label class="choice checkbox-row">
+        <input id="set-env-full-url" class="checkbox" type="checkbox" />
+        Include the query string in the recorded URL
+      </label>
+
+      <!-- Step recorder (#176): default OFF (absent -> OFF). OFF still
+           masks what the recorder recognizes as sensitive; ON drops every entered
+           value, so no heuristic has to be right. A password field keeps its noun
+           under ON — a certainty, not a heuristic, and no value is written either
+           way (owner's call), which is what the help text's last clause says. -->
+      <h3 class="settings-section-title">Step recorder</h3>
+      <label class="choice checkbox-row">
+        <input id="set-rec-never-values" class="checkbox" type="checkbox" />
+        Never record entered values
+      </label>
+      <p class="settings-help">Entered values are saved into the test steps. Passwords, card
+        numbers, CVV and one-time codes are replaced with a placeholder, but detection is
+        best-effort — turn this on if the site under test handles sensitive data. Every entry
+        then reads <em>Type text into the … field</em>; only a password field still says so.</p>
+
+      <!-- Appearance: the panel's colour scheme. One question with three answers
+           and one of them always true, which is the segmented control exactly —
+           not three buttons and not a dropdown for three short words.
+
+           It commits on the CLICK, not on Save & validate, and it is deliberately
+           not part of the settings object: `settings` is per-instance (a map per
+           host) and this belongs to the browser. You also pick a theme by looking
+           at it, so a preference that needed a second press to take effect would
+           be the wrong shape. See shared/theme.js.
+
+           Last of the functional groups, right above the self-hosted fold: every
+           section over it is about the PROJECT or the page under test, and this
+           one is about the browser you are reading them in. -->
+      <h3 class="settings-section-title">Appearance</h3>
+      <div id="theme-switch" class="segmented block" role="group" aria-label="Colour scheme">
+        <!-- Icon + word, the shared segment's leading-mark shape: three answers
+             that differ by ONE word each read faster with a picture in front,
+             and these three are as picturable as an option gets. Material
+             Symbols, from the one set (shared/icons.js) like every other mark
+             here — a monitor for "whatever this machine says", then the sun and
+             the moon. No `data-icon-size`: `.segment .md-icon` sizes its own
+             mark off `--control-icon`, and a control that sizes what is inside
+             it is the point of the library holding the control. -->
+        <button class="segment" type="button" data-theme-mode="system" aria-pressed="true">
+          <span class="md-icon" data-icon="computer"></span>System</button>
+        <button class="segment" type="button" data-theme-mode="light" aria-pressed="false">
+          <span class="md-icon" data-icon="light_mode"></span>Light</button>
+        <button class="segment" type="button" data-theme-mode="dark" aria-pressed="false">
+          <span class="md-icon" data-icon="dark_mode"></span>Dark</button>
+      </div>
+      <p class="hint settings-hint theme-hint">System follows your operating system as it changes.</p>
+
+      <!-- Advanced (#83): the instance URL is noise for app.testomat.io users but
+           load-bearing for self-hosted — dialled down, at the bottom, unchanged.
+           #146: the heading is a toggle now (same aria contract as the Run info
+           disclosure) and the section is collapsed unless the saved instance is a
+           self-hosted one, or a Save just failed on the Instance field. The caret
+           is drawn in CSS on purpose — the heading's TEXT stays exactly
+           "Advanced", which the settings-structure e2e reads. -->
+      <h3 class="settings-section-title settings-section-advanced">
+        <button id="settings-advanced-head" type="button" class="disclosure-head settings-section-toggle"
+                aria-expanded="false" aria-controls="settings-advanced-body"><span
+                class="md-icon" data-icon="chevron_right" data-icon-size="16"></span>Advanced</button>
+      </h3>
+      <div id="settings-advanced-body" hidden>
+        <p class="hint settings-hint">For a self-hosted Testomat — leave as is for app.testomat.io.</p>
+        <label>Instance
+          <!-- Host history (permission rework): instances used before, for quick
+               switching. Hidden until at least two hosts exist; picking one restores
+               that host's token/project/prefs into the fields above. Free-form entry
+               stays the source of truth — internal hosts are typed, never listed here. -->
+          <select id="set-host-history" class="select" hidden></select>
+          <input id="set-baseurl" class="input" type="url" placeholder="https://app.testomat.io" autocomplete="off" />
+        </label>
+        <!-- Forget acts on the instance THIS form points at, so it lives with the
+             field that points it — the way out for an instance you are not on
+             (the one you are on is the card's Disconnect, up top). -->
+        <button id="btn-forget-instance" type="button" class="btn danger size-sm">Forget this instance</button>
+        <p id="settings-forget-status" class="status-line" role="status"></p>
+      </div>
+
+      <!-- Save & validate + its status line stay OUTSIDE the collapse (#146):
+           they commit the WHOLE form (token, checkboxes, instance). -->
+      <button id="btn-save-settings" class="btn primary">Save &amp; validate</button>
+      <p id="settings-status" class="status-line" role="status"></p>
+
+      <!-- Stored credentials (#177): until now nothing removed a saved
+           token — uninstalling was the only way to get one off the machine. Last
+           on purpose: destructive controls do not belong next to the token field.
+           ONE button since Connection grew a Disconnect: that card takes back the
+           instance you are on, this takes back everything, on every instance. -->
+      <h3 class="settings-section-title">Stored credentials</h3>
+      <p class="hint settings-hint">Sign out erases every token, instance and queued
+        result from this browser — for a shared machine.</p>
+      <div class="settings-danger-row">
+        <button id="btn-sign-out" type="button" class="btn danger size-sm">Sign out</button>
+      </div>
+      <p id="signout-status" class="status-line" role="status"></p>
+    </section>
+
+    <section id="view-runs" hidden>
+      <!-- Search FIRST, the status filters under it: the list is narrowed by
+           typing far more often than by status, so the row that is reached for
+           most sits closest to the tabs. One row, three parts: the search takes
+           whatever width is left, the two actions pin right.
+           One input for both jobs (#106): live title search over runs + group
+           contents (mirrors #run-search), and run/rungroup URL paste — a pasted
+           URL opens its target instead of filtering. -->
+      <div class="toolbar runs-bar">
+        <div class="field">
+          <!-- Material Symbols search --><span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+          <input id="runs-search" class="input size-sm" type="text" placeholder="Search or paste run URL…"
+                 aria-label="Search runs or paste a run URL" autocomplete="off" />
+          <button id="runs-search-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+            <!-- Material Symbols close --><span class="md-icon" data-icon="close" data-icon-size="18"></span>
+          </button>
+        </div>
+        <!-- Refresh used to sit here; it is the project strip's now (top-right of
+             the panel), because it re-pulls every tab, not just this list. -->
+        <!-- #118: run creation stays in the web app — a plain new-tab link to
+             <active host>/projects/<slug>/runs/new, href built from the ACTIVE
+             settings by renderNewRunLink(). Hidden until both halves are known. -->
+        <a id="btn-new-run" class="btn primary size-sm new-run-link fit-label" data-label="New run"
+           target="_blank" rel="noopener noreferrer"
+           data-tip="Create a run in the Testomat web app" hidden><span class="md-icon" data-icon="add" data-icon-size="16"></span><span class="label-long">New run</span><span class="label-short">Run</span></a>
+      </div>
+      <div id="runs-filter" class="filters" role="group" aria-label="Filter runs by status"></div>
+      <ul id="runs-list" class="list"></ul>
+      <p id="runs-status" class="status-line" role="status"></p>
+    </section>
+
+    <section id="view-tcstudio" hidden>
+      <!-- One line, the runs/TC-list toolbar's shape: the search takes the width
+           that is left, the three creates pin right. Only the test create keeps
+           a word — it is the errand this screen exists for; the two structural
+           creates (folder, suite) are glyphs, because three labelled buttons and
+           a field do not fit a 380px panel on one line, and the field is reached
+           for far more often than either of them. It opens the suite picker,
+           then the editor; the other two open an inline title row at the tree top.
+           Its plus is the `add` GLYPH, not a typed "+ ": the panel draws every
+           create control's plus from the icon set, so the one labelled button
+           here carries the same mark "New run" and "New test" do — and the two
+           glyph-only creates beside it (create_new_folder, note_add) are the
+           set's own plussed shapes rather than a second plus of their own.
+           The word it keeps is "New test", the same one the suite's own list and
+           the Runs tab say; this is the tightest of the three rows, so it is the
+           one that drops back to "Test" first — measured against the width left
+           for the search, never written short (`.fit-label`, fitActionLabels). -->
+      <div id="tc-tree-bar" class="toolbar tc-tree-bar">
+        <div class="field">
+          <!-- Material Symbols search --><span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+          <input id="tc-tree-search" class="input size-sm" type="text" placeholder="Search suites…"
+                 aria-label="Search suites and folders" autocomplete="off" />
+          <button id="tc-tree-search-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+            <!-- Material Symbols close --><span class="md-icon" data-icon="close" data-icon-size="18"></span>
+          </button>
+        </div>
+        <button id="tc-add-folder-root" class="icon-btn tc-add" data-tip="New folder at root" aria-label="New folder at root">
+          <!-- Material Symbols create_new_folder --><span class="md-icon" data-icon="create_new_folder" data-icon-size="18"></span>
+        </button>
+        <button id="tc-add-suite-root" class="icon-btn tc-add" data-tip="New test suite at root" aria-label="New test suite at root">
+          <!-- Material Symbols note_add --><span class="md-icon" data-icon="note_add" data-icon-size="18"></span>
+        </button>
+        <button id="tc-add-test-root" class="btn primary size-sm tc-add fit-label" data-label="New test"
+                data-tip="New test (pick a suite)"><span class="md-icon" data-icon="add" data-icon-size="16"></span><span class="label-long">New test</span><span class="label-short">Test</span></button>
+      </div>
+      <ul id="tc-tree" class="list tc-tree"></ul>
+      <p id="tcstudio-status" class="status-line" role="status"></p>
+    </section>
+
+    <section id="view-tclist" hidden>
+      <!-- One line, same shape as the runs toolbar: the search takes the width
+           that is left, "New test" keeps its own. Two stacked rows spent a
+           whole band of a 380px panel on a single right-aligned button. -->
+      <div class="toolbar tc-list-bar">
+        <div class="field">
+          <!-- Material Symbols search --><span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+          <input id="tc-search" class="input size-sm" type="text" placeholder="Search tests…" autocomplete="off" />
+          <button id="tc-search-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+            <!-- Material Symbols close --><span class="md-icon" data-icon="close" data-icon-size="18"></span>
+          </button>
+        </div>
+        <button id="tc-list-new" class="btn primary size-sm fit-label" data-label="New test"><span class="md-icon" data-icon="add" data-icon-size="16"></span><span class="label-long">New test</span><span class="label-short">Test</span></button>
+      </div>
+      <!-- What the rows under it ARE, and how many of them the search left: the
+           context row above names the SUITE, and the field names nothing. The
+           count is painted by renderTcList() and hidden until the fetch lands —
+           a caption must not guess (the tab chips make the same deal). -->
+      <div class="list-caption">
+        <h2>Tests</h2>
+        <span id="tc-list-count" class="counter size-sm" hidden></span>
+      </div>
+      <ul id="tc-list" class="list"></ul>
+      <p id="tclist-status" class="status-line" role="status"></p>
+    </section>
+
+    <!-- Suite picker for the tree bar's "Test": pick a file suite, land in the editor bound to
+         it. Reuses the TC-tree in pick mode (the former promote picker). -->
+    <section id="view-promote" hidden>
+      <p id="promote-hint" class="hint promote-hint"></p>
+      <ul id="promote-tree" class="list tc-tree"></ul>
+      <p id="promote-status" class="status-line" role="status"></p>
+    </section>
+
+    <section id="view-run" hidden>
+      <!-- Run summary card: ONE card for everything the panel knows about the open
+           run — what it is and how it went (the state row), how far it got (the
+           progress band), whether it can still be written (the lock note) and the
+           field table folded under it. They are one subject; stacked loose they
+           read as four unrelated notes under the panel header. -->
+      <div id="run-header" class="card run-summary">
+        <!-- Independent run-open fetches (Block 4): when only the run-meta fetch
+             fails, the checklist still renders and this card degrades to the
+             progress band with this note on top of it — it is the card's own
+             fields that are missing, so the note belongs inside the card. -->
+        <p id="run-meta-note" class="hint" hidden>Couldn't load run details — showing the checklist only.</p>
+        <div class="run-state-row">
+          <!-- Run kind (#111): manual | automated | mixed, filled from the run
+               detail as the type-of-test mark in its LABEL form (`.type-mark` +
+               `.type-label`, the same square the rows below wear); [hidden] when
+               the meta read failed or the kind is unknown. -->
+          <span id="run-kind" hidden></span>
+          <!-- The run's OWN status (#112), promoted out of the folded field table:
+               how the run went is the first thing the header is asked. Its
+               sibling in shape as well as in place — the status mark's label form
+               (`.status-label`), so the two chips are one family. -->
+          <span id="run-state" hidden></span>
+          <button id="btn-finish-run" class="btn primary size-sm" hidden>Finish run</button>
+        </div>
+        <div id="run-progress"></div>
+        <!-- #152/#154: a finished run — or an automated one — is fully read-only.
+             One note for the whole view, so it appears only when the reason holds
+             for EVERY row (a mixed run explains itself on its automated rows'
+             tooltips instead); three copies per row would be noise.
+             Filled/hidden by applyRunLock(). -->
+        <p id="run-lock-note" class="lock-note run-lock-note" hidden></p>
+        <!-- Run info (#112): the web run sidebar's fields (Status, Duration, Tests,
+             Executed, Build URL, Created, Description) folded into the foot of the
+             card. OPEN by default — the fields are what a reader opens a run for —
+             and the open/closed state is remembered for the user across panel
+             sessions. Hidden entirely when the run detail yielded no field. -->
+        <div id="run-info" class="disclosure card-foot run-info" hidden>
+          <button id="run-info-head" type="button" class="disclosure-head"
+                  aria-expanded="true" aria-controls="run-info-body">
+            <span class="md-icon disc-caret" data-icon="chevron_right"></span> Run info
+          </button>
+          <!-- `.kv.rows`: the fields read as a LIST, one hairline between them
+               (the web run page's own details table) — long enough that a reader
+               scans down it for one field. No hover: nothing in it is a target. -->
+          <dl id="run-info-body" class="disclosure-body kv rows run-info-body"></dl>
+        </div>
+      </div>
+      <!-- Same order as the runs list above: search first, status filters under
+           it, so moving between the two screens never moves the controls. -->
+      <div id="run-controls">
+        <div class="field">
+          <!-- Material Symbols search --><span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+          <input id="run-search" class="input size-sm" type="text" placeholder="Search tests…" autocomplete="off" />
+          <button id="run-search-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+            <!-- Material Symbols close --><span class="md-icon" data-icon="close" data-icon-size="18"></span>
+          </button>
+        </div>
+        <div id="run-filter" class="filters" role="group" aria-label="Filter tests by status"></div>
+      </div>
+      <ul id="run-tests" class="list"></ul>
+      <p id="run-status" class="status-line" role="status"></p>
+    </section>
+
+    <section id="view-test" hidden>
+      <!-- Test summary card: the run view's summary card, one screen down, and
+           deliberately the same one — marks row, progress band, foot band, in
+           that order, so a tester moving between the two screens finds the
+           furniture where they left it. `.run-summary` carries the shape (see
+           style.css): unfilled, so the filled chips inside it are what the eye
+           lands on rather than the plate they sit on. -->
+      <div id="test-header" class="card run-summary">
+        <!-- Marks about the test itself — how it went, how much it matters, the
+             custom status refining the verdict. The title moved to the panel's
+             own header (the breadcrumb row), so this row carries marks only, and
+             it disappears whole when the test carries none. -->
+        <div id="test-state-row" class="run-state-row">
+          <!-- The test's OWN reported result, promoted out of the Summary tab to
+               sit up here — the run view's own status chip (run-header
+               run-state-row) is the same move: how it went is the first thing
+               the screen answers, not something a tab away. Hidden entirely for
+               an unreported (pending) test. -->
+          <div id="test-result-row" class="summary-line" hidden>
+            <span id="summary-status"></span>
+            <span id="summary-duration" class="summary-duration"></span>
+          </div>
+          <!-- (Priority is a mark at the head of the test's NAME — it is drawn
+               in the header row, left of the type mark, where a list row also
+               puts it. See contextTitleMarks in core/views.js.) -->
+          <!-- The custom status refining the verdict (#109), when the project
+               defines one and this test was given it. Read-only here — it is
+               WRITTEN by the select in the Test result tab; this is the mark
+               that says the write landed, and the run rows wear the same pill. -->
+          <span id="test-substatus-mark" class="badge custom-status" hidden></span>
+          <!-- Offline queue: this test's status is saved locally and awaiting sync. -->
+          <span id="test-queued" class="badge outline queued-mark" hidden
+                data-tip="Saved offline — will sync when the connection returns">queued</span>
+          <!-- Hidden: the name is the last crumb of the header path now. The h2
+               stays because it is still the one element the title is written
+               into — and `hidden` rather than dropped so the row above can see
+               there is nothing in it. -->
+          <h2 id="test-title" hidden></h2>
+        </div>
+        <div id="test-progress"></div>
+        <!-- The card's foot, where the run card keeps Run info: the two moves at
+             the right, the key legend's "?" at the far left. Moving on is
+             explicit since #108 (no status auto-advances), so this is ALWAYS
+             available — not a post-marking affordance. Its hotkeys are N and the
+             arrows (see initHotkeyHints). -->
+        <div id="test-next-row" class="card-foot next-row">
+          <!-- Hotkey discoverability: "?" toggles a compact legend of every
+               shortcut. It belongs beside the controls those keys stand for. -->
+          <button id="hotkey-help" class="icon-btn hotkey-help" type="button"
+                  aria-expanded="false" aria-controls="hotkey-legend" aria-label="Keyboard shortcuts"
+                  data-tip="Keyboard shortcuts"><span class="md-icon" data-icon="help" data-icon-size="18"></span></button>
+          <!-- Where you are in the run, as a PAGER — `‹ 3 of 11 ›`. The two
+               arrows are the ← / → keys' own move: ±1 through the visible list,
+               no wrap, each dead at its end, which is the only reading that
+               matches a position. (The status-aware jump — next UNTESTED, over
+               the rows already graded — is the N key, and the legend says so.)
+               The back arrow is `chevron_right` turned half a turn: a chevron
+               rotated IS its mirror, so both ends come off one vetted path. -->
+          <nav id="test-pager" class="pager" aria-label="Tests in this run">
+            <button id="btn-prev-test" class="icon-btn" type="button" aria-label="Previous test">
+              <span class="md-icon" data-icon="chevron_right" data-icon-rotate="180" data-icon-size="18"></span>
+            </button>
+            <span id="test-position" class="pager-pos" role="status"></span>
+            <button id="btn-next-test" class="icon-btn" type="button" aria-label="Next test">
+              <span class="md-icon" data-icon="chevron_right" data-icon-size="18"></span>
+            </button>
+          </nav>
+        </div>
+      </div>
+      <div id="hotkey-legend" class="card hotkey-legend" hidden></div>
+      <!-- One inline hint row: the degraded "Basic mode" pill and the missing-example
+           pill sit side by side instead of stacking as two mismatched lines. -->
+      <div id="test-hints" class="test-hints">
+        <span id="jwt-hint" class="badge outline jwt-hint" hidden
+              data-tip="Advanced run features need an authenticated session — running in basic mode">Basic mode</span>
+        <span id="example-badge" class="badge skipped badge-hint" hidden
+              data-tip="This test is parametrized but its example data couldn't be loaded — placeholders are shown raw. The test is still fully executable.">example row missing</span>
+      </div>
+      <!-- Primary control of the screen — and the one thing that is NOT inside a
+           section: whichever section is open, marking the result stays one click
+           away, at the top. Mirrors the product's results panel. -->
+      <div id="test-status-buttons" class="row st-row">
+        <button id="btn-passed" class="btn st passed outline"><span class="md-icon" data-icon="status_passed" data-icon-size="18"></span><span>Passed</span></button>
+        <button id="btn-failed" class="btn st failed outline"><span class="md-icon" data-icon="status_failed" data-icon-size="18"></span><span>Failed</span></button>
+        <button id="btn-skipped" class="btn st skipped outline"><span class="md-icon" data-icon="status_record" data-icon-size="18"></span><span>Skipped</span></button>
+      </div>
+      <!-- #152/#154: why the three buttons above (and their hotkeys) are dead —
+           a finished run, or an automated result. One note for the group: they
+           are one control in three parts. -->
+      <p id="status-lock-reason" class="lock-note status-lock-reason" hidden></p>
+      <!-- The write's own line — Saving…, queued offline, or the error. It says
+           nothing when a write LANDS: the header card's chip, the solid button
+           and the Summary dot each already state the verdict. (`data-write` on
+           this element carries that state for whoever has to read it back.)
+           It sits under the buttons that started it and OUTSIDE the sections
+           below, so a message can never land in a section the tester is not
+           looking at. -->
+      <p id="test-status" class="status-line" role="status"></p>
+
+      <!-- The rest of the screen is three sections, because it answers three
+           different questions: DESCRIPTION is what to do (the steps), STATUS is
+           the tester's own workflow on the result (assignee, comment, custom
+           status, attachments) and SUMMARY is what the run ALREADY reported
+           (failure, environment meta, per-step outcome) — facts, not controls.
+           A 380px panel cannot stack all three without burying the last two, and
+           marking a status lands the tester in Status, which is exactly where the
+           controls that follow a result live.
+           `.tabs.fill`: the three share the row rather than sizing to their own
+           words, each carrying an icon so the row reads at a glance. The bottom
+           rule stops 16px short of both edges (`.test-sections` below) instead of
+           running full-bleed — it belongs to the tab row, not to the panel's
+           whole width. -->
+      <div id="test-sections" class="tabs fill test-sections" role="tablist" aria-label="Test sections">
+        <button id="tab-test-desc" class="tab" type="button" role="tab"
+                aria-selected="true" aria-controls="pane-test-desc">
+          <span class="md-icon" data-icon="description"></span><span class="tab-label">Description</span>
+        </button>
+        <button id="tab-test-status" class="tab" type="button" role="tab"
+                aria-selected="false" aria-controls="pane-test-status">
+          <span class="md-icon" data-icon="check_circle"></span><span class="tab-label">Test result</span>
+        </button>
+        <button id="tab-test-summary" class="tab" type="button" role="tab"
+                aria-selected="false" aria-controls="pane-test-summary">
+          <span class="md-icon" data-icon="checklist"></span><span class="tab-label">Summary</span>
+        </button>
+      </div>
+      <div id="pane-test-desc" class="test-pane" role="tabpanel" aria-labelledby="tab-test-desc">
+        <!-- `.sections`: a test body's headings are its sections, set as muted
+             labels rather than as an article's chapters (shared/components.css). -->
+        <div id="test-steps" class="markdown sections"></div>
+      </div>
+      <div id="pane-test-status" class="test-pane" role="tabpanel" aria-labelledby="tab-test-status" hidden>
+        <div id="test-actions">
+          <!-- Assignee dropdown (M4): project people + Unassigned. JWT-only, hidden
+               in basic mode like priority; per-control busy + saved flash. Run-view
+               row chips stay read-only and update via polling.
+               A CUSTOM dropdown, not a <select> (same reason as #126's project
+               switcher): a native popup can only print plain option text, and this
+               field needs a monogram per row plus a type-to-filter box once a
+               project has more than a couple of members — neither fits inside an
+               OS-drawn menu. `assignee-trigger` carries `dataset.userId` the same
+               way the project trigger carries `dataset.projectId`, for the same
+               reason: a script reading the current value has no select.value to
+               ask, so the dataset is the machine-readable one. -->
+          <div id="test-assignee" class="assignee-control" hidden>
+            <span id="assignee-label" class="assignee-label">Assignee</span>
+            <div id="assignee-dd" class="assignee-dd">
+              <button id="assignee-trigger" type="button" class="btn secondary size-sm assignee-trigger"
+                      aria-haspopup="listbox" aria-expanded="false" aria-controls="assignee-list"
+                      aria-labelledby="assignee-label assignee-value">
+                <span id="assignee-value" class="assignee-value"></span>
+                <span class="md-icon assignee-caret" data-icon="keyboard_arrow_down"></span>
+              </button>
+              <div id="assignee-menu" class="menu assignee-menu" hidden>
+                <input id="assignee-filter" class="input size-sm assignee-filter" type="text" autocomplete="off"
+                       spellcheck="false" placeholder="Search people…" aria-label="Search people"
+                       aria-controls="assignee-list" />
+                <ul id="assignee-list" class="menu-list assignee-list" role="listbox" aria-label="Assignee"></ul>
+                <div id="assignee-empty" class="empty compact" hidden>
+                  <span class="empty-mark"><span class="md-icon" data-icon="search_off"></span></span>
+                  <div class="empty-body"><p class="empty-text">No match</p></div>
+                </div>
+              </div>
+            </div>
+            <!-- #153: why the trigger above is dead — a row that already carries a
+                 result can no longer be re-assigned (web parity). Filled/hidden by
+                 applyAssigneeGate(). -->
+            <p id="assignee-reason" class="hint inline-reason" hidden></p>
+          </div>
+          <div id="test-substatus" class="substatus" hidden>
+            <label for="substatus-select">Custom status
+              <select id="substatus-select" class="select"></select>
+            </label>
+          </div>
+          <textarea id="test-comment" class="textarea" rows="2" placeholder="Comment (optional)"></textarea>
+          <!-- Control-tower diet: the capture/evidence controls fold into one
+               collapsible disclosure (collapsed by default; expanded state is
+               remembered for the session) so the hot path stays the status buttons
+               plus the comment. -->
+          <div id="attachments-disclosure" class="disclosure accordion-item">
+            <button id="attachments-head" type="button" class="disclosure-head"
+                    aria-expanded="false" aria-controls="attachments-body">
+              <span class="md-icon disc-caret" data-icon="chevron_right"></span> Attachments &amp; log
+            </button>
+            <div id="attachments-body" class="disclosure-body" hidden>
+              <!-- Recording pre-arm cue (Block 5): shown while NOT recording so the
+                   tester arms the recorder BEFORE reproducing (it keeps the last N s). -->
+              <p id="prearm-hint" class="hint inline-reason prearm-hint" hidden></p>
+              <!-- Full-page capture (M2 PR-3): opt-in persisted in settings;
+                   affects every capture path below. A SWITCH, not a checkbox: it
+                   writes itself on change and the next shot is already different,
+                   so there is no Save for it to belong to (see the CHOICE section
+                   of shared/components.css). -->
+              <label class="choice fullpage-row">
+                <input id="fullpage-test" class="switch" type="checkbox" role="switch" /> Full page
+              </label>
+              <!-- Evidence section (M2 PR-1): errors-only list for the current window.
+                   Hidden unless a recording session is active; collapsible + polled. -->
+              <div id="evidence-section" class="evidence-section accordion-item nested" hidden>
+                <button id="evidence-head" type="button" class="disclosure-head evidence-head" aria-expanded="false">
+                  <span class="md-icon ev-caret" data-icon="chevron_right"></span> Console &amp; network log <span id="evidence-count" class="counter"></span>
+                </button>
+                <ul id="evidence-list" class="list framed evidence-list" hidden></ul>
+              </div>
+              <!-- Single screenshot flow (secondary control): capture -> annotator tab ->
+                   Apply uploads the merged JPEG (even with zero annotations); Cancel
+                   uploads nothing. -->
+              <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
+              <!-- Gate reason shown inline (a hover-only tooltip is invisible on touch). -->
+              <p id="screenshot-reason" class="hint inline-reason" hidden></p>
+              <!-- #192: an annotation the upload re-check refuses is KEPT, not lost —
+                   this saves it to disk. Never gated by the run lock: it writes nowhere
+                   but the tester's own machine. `data-tip`, not `title` — the panel
+                   draws its own tooltips now (shared/tooltip.js). -->
+              <button id="btn-save-annotation" class="btn size-sm" hidden
+                      data-tip="The upload was refused, but your annotated screenshot is still here — save it to your computer"><span
+                      class="md-icon" data-icon="upload_file"></span><span>Save the annotated screenshot</span></button>
+              <!-- Local files (#107): the native picker, multi-select, uploaded through
+                   the SAME JWT attachment path the screenshot above uses. The input is
+                   hidden — the button clicks it, so the panel keeps one button style. -->
+              <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
+              <input id="attach-file-input" type="file" multiple hidden />
+              <p id="attach-file-reason" class="hint inline-reason" hidden></p>
+              <!-- Everything uploaded onto THIS result — screenshots, the log, picked
+                   files. Server truth on open + whatever this session just uploaded. -->
+              <ul id="attachment-list" class="attachment-list" hidden></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pane-test-summary" class="test-pane" role="tabpanel" aria-labelledby="tab-test-summary" hidden>
+        <!-- Result summary (#117): what the run ALREADY reported for this test —
+             the web's Summary panel (report/test-results-display), minus the
+             Stacktrace section which the panel deliberately never shows. The
+             verdict itself (status + duration) sits up top with the rest of the
+             header now (`#test-result-row`); this tab is the facts BEHIND it —
+             Failure is expanded, Meta and Steps collapsed (per-session memory).
+             Hidden entirely for an unreported test, same as the row above. -->
+        <!-- Nothing to show — no result yet, or a result with none of the three
+             folds behind it: the shared EmptyState (shared/empty-state.js)
+             rather than a blank tab, built by paintSummaryEmpty(). -->
+        <div id="test-summary-empty"></div>
+        <div id="test-summary" class="summary" hidden>
+          <!-- Each fold its own block (ACCORDION, shared/components.css): Log/Failure,
+               Meta and Steps read as three separate facts rather than one long list. -->
+          <div class="accordion">
+            <div id="summary-failure" class="disclosure accordion-item" hidden>
+              <button id="summary-failure-head" type="button" class="disclosure-head"
+                      aria-expanded="true" aria-controls="summary-failure-body">
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span>
+                <span id="summary-failure-title">Failure</span>
+              </button>
+              <div id="summary-failure-body" class="disclosure-body">
+                <div id="summary-message" class="summary-message"></div>
+              </div>
+            </div>
+            <div id="summary-meta" class="disclosure accordion-item" hidden>
+              <button id="summary-meta-head" type="button" class="disclosure-head"
+                      aria-expanded="false" aria-controls="summary-meta-body">
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span> Meta
+                <span id="summary-meta-count" class="counter"></span>
+              </button>
+              <dl id="summary-meta-body" class="disclosure-body kv rows mono summary-meta" hidden></dl>
+            </div>
+            <div id="summary-steps" class="disclosure accordion-item" hidden>
+              <button id="summary-steps-head" type="button" class="disclosure-head"
+                      aria-expanded="false" aria-controls="summary-steps-body">
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span> Steps
+                <span id="summary-steps-count" class="counter"></span>
+              </button>
+              <div id="summary-steps-body" class="disclosure-body" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Live region: polite by default; toast() flips it to role="alert" for an
+       error so a screen reader interrupts instead of queueing it. -->
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="confirm-dialog" class="dialog">
+    <p id="confirm-message"></p>
+    <div class="dialog-actions">
+      <button id="confirm-cancel" class="btn">Cancel</button>
+      <button id="confirm-ok" class="btn primary">Finish run</button>
+    </div>
+  </dialog>
+
+  <!-- Per-step screenshot lightbox (#202): a reported step's image attachment at
+       full size over the panel (owner decision — a modal, not a new tab). The
+       image is a blob URL the step row already fetched; Esc (native <dialog>
+       cancel), the backdrop and ✕ all close it. Wired lazily by test-view.js. -->
+  <dialog id="shot-modal" class="dialog lightbox">
+    <button id="shot-modal-close" type="button" class="btn icon size-xs shot-close" aria-label="Close">
+      <span class="md-icon" data-icon="close"></span>
+    </button>
+    <img id="shot-modal-img" alt="" />
+    <p id="shot-modal-name" class="muted"></p>
+  </dialog>
+
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../api.js"></script>
+  <script src="../params.js"></script>
+  <script src="../shared/html-sanitize.js"></script>
+  <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
+  <script src="../shared/icons.js"></script>
+  <!-- The image swap the CSP forces on every rendered description, step
+       screenshot and attached image (#205) — after api.js, whose fetchAsset it
+       goes through, and after icons.js, whose ↗ its fallback link wears. -->
+  <script src="../shared/img-hydrate.js"></script>
+  <script src="../shared/priority-icons.js"></script>
+  <!-- …and its neighbour on a test row: the type-of-test square, off the same
+       icon set. Panel-only — the editor writes one test, it lists none. -->
+  <script src="../shared/test-type.js"></script>
+  <!-- Whoever a field names: the monogram + name cell (Run info's Executed by /
+       Created by). Tooltip.set is optional at call time, so order is free. -->
+  <script src="../shared/user-cell.js"></script>
+  <!-- The empty-state builder — after icons.js, which draws its mark. -->
+  <script src="../shared/empty-state.js"></script>
+  <!-- …and its twin: the grey bars, shared with the editor page. Before
+       core/skeleton.js, which composes the panel's placeholders out of them. -->
+  <script src="../shared/skeleton.js"></script>
+  <!-- The tooltip engine: it only listens, so it can load before the screens
+       that hand out `data-tip`. -->
+  <script src="../shared/tooltip.js"></script>
+  <!-- Which surface this document is in, and which one the icon opens next time
+       (#208). Before site-tab.js, which asks it whether the window it is looking
+       at is the panel's own. -->
+  <script src="../shared/view-mode.js"></script>
+  <script src="../shared/site-tab.js"></script>
+  <script src="../shared/site-access.js"></script>
+  <script src="../shared/capture-annotate.js"></script>
+  <script src="core/state.js"></script>
+  <!-- Before every screen: they raise their loading placeholder on entry. -->
+  <script src="core/skeleton.js"></script>
+  <script src="core/env-info.js"></script>
+  <script src="core/storage.js"></script>
+  <script src="core/views.js"></script>
+  <script src="core/project-switcher.js"></script>
+  <!-- The header's surface switch — after core/views.js, whose `toast` it uses. -->
+  <script src="core/view-switch.js"></script>
+  <script src="screens/onboarding.js"></script>
+  <script src="screens/settings.js"></script>
+  <script src="screens/runs-list.js"></script>
+  <script src="screens/run-view.js"></script>
+  <script src="screens/test-view.js"></script>
+  <script src="screens/livesync.js"></script>
+  <script src="screens/offline-queue.js"></script>
+  <script src="screens/evidence.js"></script>
+  <script src="screens/attachments.js"></script>
+  <script src="screens/hotkeys.js"></script>
+  <script src="screens/tc-studio.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1451 @@
+/* Side-panel stylesheet. Every colour, space, size, radius, shadow, depth and
+   duration comes from ../shared/tokens.css, and every button / input / select
+   from ../shared/components.css — both linked BEFORE this file in index.html.
+   What is left here is the PANEL: its layout, and the components that exist on
+   no other page (tabs, run rows, status circles, the project strip).
+
+   Two rules for anything added below:
+     1. reach for a token first; if none fits, tokens.css is where it goes;
+     2. if the thing is a button, an input or a select, it wears `.btn` /
+        `.input` / `.select` and a `.size-*` — this file only adds the layout
+        around it (flex, margins), never a second skin. */
+* { box-sizing: border-box; }
+/* ([hidden] must always win over a component's own `display` — the rule lives in
+   shared/components.css, which every page loads.) */
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header row 2 (#127): the tab bar plus the Rec slot, pinned to the top. It is
+   the ONLY sticky header row — the project strip ABOVE it must stay unpositioned
+   so its dropdown keeps competing in the root stacking context (the #35 rake).
+   That the strip scrolls away while the tabs pin is the point: the tabs are the
+   navigation, the project is stated once. */
+/* `.bar.stretch` drops the bar's padding on BOTH axes so the tab buttons can set
+   the row's height themselves — but the sides are not the row's to give away:
+   this strip has to start where the project row above it and the content below
+   it start, or the whole header is inset except its middle line. So the vertical
+   zero stays and the gutter comes back on the sides only. */
+/* The ONE header row that keeps a rule under it. The shared bar draws none any
+   more (components.css, BAR) — a hairline under the project strip AND the tab row
+   AND the context row stacked up as three lines of chrome down the top of a 400px
+   panel — but this row is where the header ends, and the tabs need a line for
+   their accent to sit IN: without one the active underline floats under a word
+   instead of marking one section of a bar.
+
+   Inset, not edge to edge: the row reads as a block among blocks, so its line has
+   to stop where the tabs and the content below them stop. It rides on a
+   pseudo-element pinned inside the gutter. (No `position: relative` needed — the
+   row is already positioned by `.bar.sticky`.) */
+.bar.stretch.header-top {
+  z-index: var(--z-sticky);
+  padding-inline: var(--gutter);
+}
+.bar.stretch.header-top::after {
+  content: "";
+  position: absolute;
+  right: var(--gutter);
+  bottom: 0;
+  left: var(--gutter);
+  border-bottom: 1px solid var(--border);
+}
+/* Rec chip slot: one container so the chip can be relocated as a unit. Hidden
+   with the toggle, so the tabs get the whole row back when it is away. */
+/* No right padding of its own — the row's gutter above is now that edge. */
+.rec-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  padding-left: var(--space-2);
+}
+
+/* Header row 3 (#127): Back + where you are + what is open. */
+/* It keeps the shared bar's padding — 8 top and bottom, the gutter on the sides,
+   the same box as the project strip above it and the banners below. The only
+   thing left here is the gap: this row is an icon button pressed against its
+   title, not a row of separate controls.
+
+   …and the one thing a THREE-line title changes about the row: the controls
+   flanking it stop centring on it. Back is the way out of the view, the way out
+   of the panel is at the other end, and a title that runs three lines pushed
+   both of them into the middle of a block of text — an arrow floating beside a
+   sentence's second line, where nothing points at it. They stay at the HEAD of
+   the row instead, in the band the row had when the title was one line: the
+   trail's line plus the title's first, centred. That is the position they hold
+   at every length — one line, two or three — so a longer title moves the text
+   under them and never the controls themselves. */
+.context-bar { align-items: flex-start; gap: var(--space-1); }
+/* The band, from the two lines that make it: the trail (`--fs-sm`) over the
+   title's first line (`--fs-title`), both at the row's leading. Written as the
+   arithmetic rather than as the 4px it currently comes to, so a change to either
+   type size carries the controls with it instead of leaving them four pixels off
+   a header nobody thought to re-measure.
+   Only when there IS a trail: a contextual view without one prints its title
+   straight into the row, and there the head of the row already is the band. */
+.context-bar:has(> .context-main > .crumbs:not([hidden])) > :not(.context-main) {
+  margin-top: calc(((var(--fs-sm) + var(--fs-title)) * var(--leading-snug) - var(--ctl-h, var(--control-h-sm))) / 2);
+}
+/* The Rec chip rides in that band too while the row is its home: it is a smaller
+   control (an xs pill) in a slot that takes its height, so it is given the band's
+   own height to centre in — otherwise the one thing in the row that is not an
+   icon button sits two pixels high of the two that are. */
+.context-bar > .rec-slot { min-height: var(--control-h-sm); }
+/* Trail over title, in one column beside the arrow. Several lines instead of one
+   is what the panel buys back several times over by folding the project strip
+   and the tab row away below. */
+.context-main { flex: 1; min-width: 0; }
+/* (The trail itself — `.crumbs` / `.crumb` — is the shared breadcrumb component,
+   see shared/components.css: the test page's title bar wears the same one.) */
+/* The open thing's own name — the shared `.context-title` (see
+   shared/components.css: the test page's title bar wears the same one, at the
+   same size). THREE lines, not one, is what is LOCAL: a test title is a whole
+   sentence — "Jira plugin is set to read only mode so user is logged out and
+   can't login to Testomat.io from the panel" — and this row is now the only
+   place it is printed, so a title that two lines cut mid-word left the reader
+   hovering to find out what they had opened. Three is where it stops: the row
+   is the panel's whole chrome while immersed, and a fourth line starts eating
+   the screen the drill-down was folded away to buy. Past three it is cut, and
+   the rest comes back on hover (views.js measures the cut). */
+#context-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+/* (.icon-btn — the Back/Refresh/Clear/Dismiss square — is a shared component,
+   see shared/components.css.) */
+
+/* ---------- immersive drill-down ------------------------------------
+   Falling through to a run, a test or a suite hands the panel over to that
+   screen: the project strip and the tab row fold away and the contextual row is
+   the whole chrome, so the checklist starts two rows higher — the same deal the
+   test editor makes in its own tab. In a side panel the vertical is the scarce
+   axis, and neither of those rows is being used while a test is being executed:
+   the project is fixed for the whole drill-down and the tabs are unreachable
+   until the tester comes back up anyway.
+
+   Nothing is lost with them, because the trail replaces what they said: the
+   crumb names the section, and it is a way back into it. Body-level flag, set by
+   setImmersive() in core/views.js, so the header state is one attribute rather
+   than a class on three elements. */
+body[data-immersive="true"] #project-bar,
+body[data-immersive="true"] #header-top { display: none; }
+/* With the tab row away this is the row that pins — and it has to CLOSE the
+   header, which under the tabs it deliberately does not: that row's own line is
+   where the header ends, and two lines four pixels apart box in a row that is
+   not a box. Here there is no row above and nothing else marking the edge — the
+   bar's fill alone leaves the trail and the first item of the checklist sitting
+   in one field. Edge to edge, unlike the tab row's inset rule: this line is the
+   bottom of the panel's whole chrome, not the underside of one block. */
+body[data-immersive="true"] .context-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  border-bottom: 1px solid var(--border);
+}
+
+/* The tab bar is the shared `.tabs.fill` (accent underline on the active one, the
+   tabs sharing the row out between them — `.fill` grows each BUTTON, so the whole
+   width of the tab is its target and its accent, not just the width of the word).
+   The library's `1 1 auto` is what shares it: a flat third each would clip
+   "Settings" while "Runs 3" sat on slack it cannot use, so the three grow from
+   their content and land on thirds when they hold the same amount.
+
+   What is the PANEL's is the gap — none. Tabs that fill a row are contiguous
+   segments of one bar, and the accent under the open one has to run to the edges
+   of its own segment; 20px of air between them would leave three floating
+   underlines instead. The library's own padding comes back with it: with the
+   buttons spread, the labels centre in their share and no longer need the gutter
+   to start on. */
+/* The one type step up from the panel's body text (13 → 14, the heading size):
+   these three ARE the panel's navigation, and navigation set in body copy reads
+   as another line of content. The count beside it goes the other way — the small
+   counter — so the number stays a footnote to the word instead of competing with
+   it, which at the same 20px chip it had started to do. */
+/* `position/z-index`: both lines land on the SAME pixel row — the tabs set the
+   row's height, so the active tab's 2px accent ends exactly where the row's
+   hairline is drawn — and the pseudo-element above paints AFTER the buttons
+   (tree order), which left the grey covering the top of the accent and the
+   accent reading as a 1px line. The tab is lifted a layer so the accent wins its
+   own segment; the hairline still runs the full inset width, under the other two
+   tabs and between them. */
+#tabbar { gap: 0; }
+#tabbar .tab {
+  position: relative;
+  z-index: 1;
+  font-size: var(--fs-title);
+}
+
+/* One gutter all round. The header's hairline is a line, not air: a 12px top
+   left the first control of a screen — always a search field — reading as part
+   of the tab row rather than as the start of the content under it, and every
+   screen shares that first row, so the inset it starts on is the panel's, not
+   the screen's. */
+main { padding: var(--gutter); }
+
+/* ---------- boot placeholder ---------------------------------------
+   While `data-booting` is on the body, the panel is the placeholder's to draw:
+   the real tab row is empty (its tabs are disabled until a token resolves) and
+   would sit above the skeleton's own header as a second, hollow copy of it, so
+   it stands down for the duration. Everything else is already hidden — the
+   project strip waits for a project, every view waits for a view — so there is
+   nothing else to take out.
+
+   The flag covers the whole boot, including the first quarter second in which
+   the placeholder is only armed and the panel is blank (see DELAY_MS in
+   core/skeleton.js). That is the point: a boot that finishes inside it opens on
+   the real header, having shown neither a skeleton nor a hollow tab row.
+
+   Keyed on the body attribute rather than on the container's presence, and
+   written in the markup rather than set from a script, so it holds from the very
+   first paint. core/skeleton.js clears it and removes the container together.
+
+   The block below is the shape of a screen, not a screen: three of the strips
+   the header draws, then the content inset — which is `main`'s padding, the same
+   value, because the bars have to start on the vertical the rows they stand in
+   for start on. */
+body[data-booting="true"] #header-top { display: none; }
+.sk-main { padding: var(--gutter); }
+/* The tab bar's layout is set on `#tabbar` — an id, so a second tab row cannot
+   inherit it. This is the one line of it that is geometry: the placeholder's tabs
+   are contiguous segments too (`.tabs.fill` is on both navs), which is what makes
+   the placeholder's header land on the same pixels the real one does. */
+.sk-tabs { gap: 0; }
+section h2 { margin: var(--space-1) 0 var(--space-3); font-size: var(--fs-title); font-weight: var(--weight-semibold); }
+
+/* Headings/titles adopt the product's Fira Sans (local-only, see --font-heading). */
+/* (#context-title takes it from the shared `.context-title` component.) */
+h2, .list .title, .tc-row .title { font-family: var(--font-heading); }
+
+/* Form rows. The FIELD itself (border, height, focus ring) is the shared
+   component — this is only the label above it and the air between the two. */
+label { display: block; margin-bottom: var(--space-2); color: var(--muted); font-size: var(--fs-base); }
+label > input, label > select, label > textarea { margin-top: var(--space-1); }
+
+/* ---------- Icons (shared/icons.js — Material Symbols Rounded, wght 400) -----
+   One set for the whole panel. Every icon is an <svg class="md-icon"> painted in
+   currentColor, so it inherits the colour of whatever it sits in — there is no
+   per-icon colour anywhere. Two rules cover the set: it never shrinks in a flex
+   row, and it centres on the text beside it rather than the alphabetic baseline.
+   A control that pairs an icon with a word becomes a flex row so the two centre
+   on each other; the gap is the ONE place that spacing is decided. The two
+   disclosure heads are already such rows and keep their own rules. */
+.md-icon { flex: none; vertical-align: middle; }
+/* (.btn and .icon-btn are flex rows already — this list is the things that pair
+   an icon with text WITHOUT being one of the shared controls.) */
+.run-info-link, .ev-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+/* Settings sections (Block 6): Connection / Allowed websites / Failure log
+   grouped under uppercase headers with a top divider. */
+.settings-section-title {
+  margin: var(--space-4) 0 var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--muted);
+}
+.settings-section-title:first-of-type { margin-top: var(--space-1); padding-top: 0; border-top: none; }
+.settings-help { margin: -4px 0 var(--space-3); }
+.settings-help a { color: var(--accent); }
+/* Advanced (#83): the same header, dialled down — self-hosted-only settings. */
+.settings-section-title.settings-section-advanced { font-weight: var(--weight-medium); opacity: var(--opacity-muted); }
+/* …and a collapse toggle since #146: the heading itself is the button — the
+   shared `.disclosure-head`, wearing the heading's own type instead of the
+   disclosure's (font/case/tracking are inherited explicitly, since form controls
+   do not inherit them by default). The header's text content stays the plain
+   section name, which the settings-structure e2e reads. */
+.settings-section-toggle {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.settings-hint { margin: -4px 0 var(--space-2); }
+/* The hint under the theme switch follows a CONTROL, not a heading, so it drops
+   the pull-up every other settings hint wears to tuck under one. */
+.theme-hint { margin-top: var(--space-2); }
+/* A field whose value is a handful of characters is sized by the value, not by
+   the column it happens to sit in (the log window's seconds). */
+.settings-field-sm > .input { max-width: 96px; }
+/* Save stands off whatever it follows: with Advanced folded, the section heading
+   and the button that commits the whole form would otherwise touch. (Not on the
+   connect screen — the rule below gives that one its own spacing.) */
+#view-settings:not([data-mode="connect"]) > #btn-save-settings { margin-top: var(--space-3); }
+
+/* ---------- Connection card ----------
+   The connected instance, as a `.card`: an icon, two lines, one action. It stands
+   where the token box used to — a saved token is not information, and a row of
+   dots is a password field pretending to be one. The token field is display:none
+   here and re-shown by the connect screen, or by an Instance the panel holds no
+   token for ([data-token="on"], syncTokenField()). */
+#view-settings > :is(#token-field, #token-help) { display: none; }
+#view-settings[data-token="on"] > :is(#token-field, #token-help) { display: block; }
+.connection-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.connection-icon { color: var(--passed); }
+.connection-host {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--weight-medium);
+}
+#connection-status:empty { display: none; }
+
+/* ---------- First-run connect screen (screens/settings.js applyConnectMode) ----
+   Nothing saved yet: the Settings view is one welcome card — hero, the General
+   token, Connect — and the tab bar goes with it (its other two tabs are disabled
+   until a token lands, so it is three dead controls above an empty form).
+
+   The rule is a WHITELIST: hide every direct child of the section, then re-show
+   the handful that belong and give them an explicit order. A settings row added
+   later therefore stays OUT of the first run unless someone puts it there —
+   the safe default for a screen whose whole job is one field. Order is set here
+   rather than in the markup because the full form's order is its own (Save at
+   the bottom, under everything it commits). */
+body[data-connect="true"] .header-top { display: none; }
+#view-settings[data-mode="connect"] {
+  display: flex;
+  flex-direction: column;
+  /* Off the top edge rather than dead-centred: centring a growing column (a
+     status line, an unfolded Advanced) can push its own head off screen.
+     TOP ONLY: the gutter is `main`'s, and this section sits inside it — adding
+     its own sides would inset the screen twice, a box drawn inside a box. */
+  padding: 6vh 0 0;
+}
+#view-settings[data-mode="connect"] > * { display: none; }
+#view-settings[data-mode="connect"] > #connect-hero { display: block; order: 0; }
+/* No "Connection" group header here: the screen has ONE group, the hero already
+   names the job, and the field is labelled. It stays in the full form, where it
+   separates Connection from the sections around it. */
+#view-settings[data-mode="connect"] > #token-field { display: block; order: 2; }
+#view-settings[data-mode="connect"] > #token-help { display: block; order: 3; margin-bottom: var(--space-3); }
+#view-settings[data-mode="connect"] > #btn-save-settings {
+  display: flex;
+  order: 4;
+  width: 100%;
+}
+/* The status line reserves a row in the full form (messages land there while the
+   page stays still); on the connect screen it is between the button and the hint,
+   where an empty reserved row reads as a hole. It takes its space when it speaks. */
+#view-settings[data-mode="connect"] > #settings-status { display: block; order: 5; margin: var(--space-3) 0 0; }
+#view-settings[data-mode="connect"] > #settings-status:empty { display: none; }
+/* The "switch projects from the Project row" hint is not on this screen either:
+   it describes what happens AFTER connecting, to a row the tester cannot see yet.
+   It belongs to the full form, under the same field. */
+/* The self-hosted fold stays reachable: an internal instance cannot connect
+   without it. No divider above it though — the rule that separates sections in
+   the full form has nothing to separate on a screen with one group, and drawing
+   it under the primary button reads as the end of the screen. */
+#view-settings[data-mode="connect"] > .settings-section-advanced {
+  display: block;
+  order: 7;
+  /* Pushed well clear of the primary button: with no divider left, distance is
+     the only thing saying "this is the exception, not the next step". */
+  margin-top: var(--space-8);
+  padding-top: 0;
+  border-top: none;
+}
+#view-settings[data-mode="connect"] > #settings-advanced-body { display: block; order: 8; }
+/* …minus its erase control: there is nothing saved yet to forget, and a red
+   button is not what a first run opens Advanced for. */
+#view-settings[data-mode="connect"] #btn-forget-instance,
+#view-settings[data-mode="connect"] #settings-forget-status { display: none; }
+/* The welcome checklist is NOT on this screen: its first step is the field the
+   tester is already looking at, and its other two are about a panel that has not
+   connected yet. It keeps its own state untouched (screens/onboarding.js decides
+   `hidden`) and shows in the full form, where step 1 is already ticked and
+   "Open your first run" is the one still pending. */
+
+/* Spacing here is the 4px grid, like the tokens at the top of this file:
+   20 = step 5, 16 = 4, 12 = 3, 8 = 2. */
+.connect-hero { text-align: center; margin: 0 0 var(--space-5); }
+.connect-art { display: block; margin: 0 auto var(--space-4); }
+/* Drawn in the panel's own surface tokens, so the illustration re-themes with
+   everything else instead of carrying its own palette. */
+.art-card { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }
+.art-rule { stroke: var(--border); stroke-width: 1.5; }
+.art-dot { fill: var(--border-control); }
+.art-line { stroke: var(--border-control); stroke-width: 3; stroke-linecap: round; }
+.art-badge-ring { fill: var(--bg); }
+.art-badge { fill: var(--accent); }
+.art-key { fill: var(--on-accent); }
+/* Bigger than the h2 it replaces — it is the only heading on the screen.
+   18px = tailwind text-lg. */
+.connect-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
+.connect-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
+
+/* Onboarding welcome checklist (M4): a first-run card at the top of Settings.
+   Accent-tinted like the pending strip; hidden by [hidden] once done/dismissed. */
+/* The welcome checklist is a `.card.accent`; the extra right padding is for the
+   dismiss button that sits over it. */
+.onboarding-card {
+  position: relative;
+  margin: var(--space-1) 0 var(--space-4);
+  padding: var(--space-3) var(--space-7) var(--space-3) var(--space-3);
+}
+.onboarding-title { margin: 0 0 var(--space-2); font-size: var(--fs-title); font-weight: var(--weight-semibold); }
+.onboarding-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.onboarding-step { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-base); }
+.onboarding-step-text, .onboarding-step a { color: var(--fg); }
+.onboarding-step a { color: var(--accent); }
+/* Empty circle → filled accent check once the step completes. */
+.onboarding-check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-2xs);
+  line-height: var(--leading-none);
+  color: transparent;
+}
+.onboarding-step.done .onboarding-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.onboarding-step.done .onboarding-check::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  mask: var(--icon-check) center / contain no-repeat;
+}
+.onboarding-step.done .onboarding-step-text,
+.onboarding-step.done a { color: var(--muted); }
+.onboarding-dismiss { position: absolute; top: var(--space-2); right: var(--space-2); }
+
+/* Project switcher (#103): a slim strip ABOVE the tab bar (#127) carrying the
+   active project on every tab. The trigger is borderless at rest so it reads as
+   part of the header rather than a form field; the label keeps it nameable.
+   NOTE (#126): the bar must NOT carry a z-index — nor a position. The popup has
+   to compete in the ROOT stacking context (the #35 rake: a positioned ancestor
+   with a z-index traps the menu under the sticky bars it must clear), and since
+   the strip now sits above the sticky tab row, the menu opens straight across it
+   — the one thing that z-index 30 buys. Making this strip sticky would cost
+   exactly that. */
+/* (The shared bar's padding, and — like every other header row — no rule under
+   it; see components.css, BAR.) */
+.project-bar-label {
+  flex: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+/* Custom dropdown (#126) replacing the native select: one relative container
+   (no z-index) anchoring the popup under the strip. */
+.project-dd {
+  position: relative;
+  flex: 1;
+  min-width: 0;      /* a long project title must ellipsize, not widen the panel */
+}
+/* The trigger reads as a heading rather than a form field: semibold, and only
+   as WIDE AS ITS NAME — the caret sits right after the last letter instead of
+   floating at the far end of an empty box. It still can't outgrow the panel:
+   `max-width: 100%` (the container is the full strip, which is what keeps the
+   popup full width) stops it at the gutter and the name ellipsizes there. */
+.project-trigger {
+  display: inline-flex;
+  justify-content: flex-start;
+  width: auto;
+  max-width: 100%;
+  padding: 0 var(--space-3);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+  text-align: left;
+}
+/* Shrink-only: the name never STRETCHES to push the caret away, it only gives
+   way (…) when the project is longer than the panel is wide. */
+.project-current {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.project-caret { flex: none; display: block; color: var(--muted); }
+
+/* The strip's right end: Refresh, then the way out to the web app. Neither needs
+   a margin to get there — the dropdown container beside them already takes the
+   leftover width (flex: 1), so the pair is pushed to the gutter and stays there
+   whatever the project is called. They only ever shrink the NAME, never
+   themselves. Order is deliberate: the control that acts on THIS panel first,
+   the one that leaves it last, so the outward door sits at the very corner. */
+#btn-refresh,
+#project-open,
+#view-switch { flex: none; }
+#btn-refresh.spinning .md-icon { animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { #btn-refresh.spinning .md-icon { animation: none; } }
+
+/* The popup is the shared `.menu`, stretched to the strip's full width (a
+   project title is long) and anchored under the trigger — above the sticky tabs
+   row and the toast, which is what the .project-bar note above is protecting. */
+.project-menu { left: 0; right: 0; }
+.project-filter { margin: 0; }
+/* A project row is title + slug on one baseline, not icon + label. */
+.project-option { align-items: baseline; }
+.project-option-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The slug earns its own muted column — two teams name projects alike, and the
+   slug is what every API path and pasted URL carries. */
+.project-option-slug {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-normal);
+}
+
+#set-host-history { margin: 0 0 var(--space-2); }
+
+/* Settings: the two erase controls (#177) — `.btn.danger` (red text, not a red
+   fill: both are confirmed, and a filled button that far down the form reads as
+   the primary action of the screen). */
+.settings-danger-row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+/* The Advanced one stands off the Instance field it acts on. */
+#btn-forget-instance { margin-top: var(--space-2); }
+
+/* Settings: the form's checkbox rows. The ROW is `.choice` (shared) — this only
+   stacks them, which is the one thing a screen owns about a shared control. */
+.checkbox-row { margin-bottom: var(--space-3); }
+
+.row { display: flex; gap: var(--space-2); margin-bottom: var(--space-2); }
+.row input { flex: 1; }
+
+/* The row — the frame, the bottom rule, the hover/selected wash — is the shared
+   `.list` component (shared/components.css). What is left here is only what a
+   PANEL row puts inside one: a run's title line, its meta line, the folder head,
+   the indentation a nested row carries. */
+/* (A row's two lines — `.list .title` and `.list .meta`, both standing at the
+   mark's 20px box — are the LIST component's own now, see shared/components.css:
+   they are what makes a row 36 or 56 and nothing about that is one screen's.) */
+
+/* Runs-list rows: status icon + title on one line (US2/FR-004). The row shape
+   itself — flex, gap, the 32px floor — is `.list-head` (shared/components.css);
+   nothing about it is this screen's own any more. */
+
+/* Status icons are the library's now (shared/components.css → MARKS), together
+   with the dot and the priority mark they belong beside. A running run turns
+   slowly on top of that (`.spin.slow`, shared/components.css). */
+
+/* The runs toolbar (#106/#118/US4): search — refresh — New run, one line that
+   never wraps. The search takes the leftover width; the two actions keep theirs.
+   The gap is a step wider than a toolbar's own, so the field reads as the whole
+   left half of the row rather than as the first of three controls. */
+.runs-bar { flex-wrap: nowrap; gap: var(--space-3); }
+.runs-bar .field { flex: 1; min-width: 0; }
+/* The status filter row is the library's (`.filters` + `.filter-chip`,
+   shared/components.css): a full-width row of equal stat chips, each a count
+   over its word, collapsing to a glyph when the word no longer fits. Nothing
+   about the component belongs here — not even where it sits any more: the air
+   above and below the chips is the component's own, so this screen and the run
+   view cannot drift apart on it. */
+
+/* Rungroup folder rows (US1/FR-001/002): a clickable head + inline children. */
+/* The head is the click target and the thing that lights up, so the row around
+   it hands its padding, its hover and its height over (`min-height: 0` — the
+   shared row floor belongs to `.group-head`, a `.list-head`, not to a wrapper
+   that may hold a whole open subtree).
+
+   Depth costs nothing to compute here any more. A subgroup's <li> is appended
+   INTO its parent's `.group-children`, so the containers nest structurally and
+   the shared 28px `--tree-indent` compounds by itself — the per-row `--depth`
+   custom property and the `* 16px` arithmetic hanging off it were a second way
+   of saying the same thing, and the two drifted the moment the step changed. */
+/* The <li> is the shared `.tree-node` wrapper — it owns nothing a row owns. */
+/* Like every other head that opens something: the TC-studio tree, the run's
+   suite sections and this one all stand at the list's own 32, and a rungroup
+   that took a padding of its own made this the one folder in the panel that was
+   taller than the folders on the next screen. Both the vertical step and the
+   horizontal inset are the shared row's (`--row-py` / `--row-px`) — this rule
+   states NEITHER. It used to state both as one
+   `4px 12px`, and the 12 is what pulled the chevron 4px right of the guide its
+   open children drop, because that guide is placed from `--row-px`, which stayed
+   8. A head that hardcodes its padding cannot stay on the tree's column; one
+   that inherits it cannot leave it. */
+.group-head { cursor: pointer; }
+.group-head:hover { background: var(--row-hover); }
+.group-head .title { flex: 1; }
+.group .chevron { transition: transform var(--dur) var(--ease); }
+/* Own head only — a descendant selector would rotate collapsed subgroups' chevrons. */
+.group.expanded > .group-head .chevron { transform: rotate(90deg); }
+.group:not(.expanded) .group-children { display: none; }
+/* The children ride inside the folder row, so the head draws its OWN rule under
+   it (it is a `.list-row.tree-row.has-chevron` — see the shared component); the
+   <li>'s rule belongs to the whole folder. The indent and the open guide are
+   both `.tree-children`'s (shared). */
+.group-children { list-style: none; margin: 0; }
+
+/* Group-URL paste target (FR-003): a brief accent ring that fades out. */
+@keyframes group-flash {
+  0%, 35% { box-shadow: 0 0 0 3px var(--accent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.list li.group.group-highlight { animation: group-flash 2.4s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .list li.group.group-highlight { animation: none; }
+}
+
+/* Child run rows and an open folder holding nothing: the container's own indent
+   already put both past the guide, so neither adds one of its own. */
+
+/* "Load more" tail (#110): the last row of an incomplete list — a full-width
+   button plus, under an active filter, a muted "M of T loaded" note. Inside a
+   folder it inherits the child-row indentation; at the top level it is a plain
+   borderless row of the runs list. */
+.list li.load-more {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  cursor: default;
+}
+.list li.load-more:hover { background: none; }
+.load-more-btn:disabled { cursor: default; color: var(--muted); opacity: 1; }
+
+.load-more-spinner { flex: none; }
+
+/* The pill itself is shared (`.badge` + its four meanings, shared/components.css)
+   and so is the env line under a run's title (`.env-tags`, same file — it is a
+   shape the styleguide draws, not a thing this screen invented). What is left
+   here is the PANEL's own: a status pill is Capitalized in CSS only — textContent
+   stays lowercase, which the e2e string asserts read. (A count is not a badge —
+   it is `.counter`, and it comes with `flex: none` of its own.) */
+.badge.passed, .badge.failed, .badge.skipped, .badge.untested { text-transform: capitalize; }
+.badge.untested { background: var(--neutral-bg); color: var(--neutral-fg); box-shadow: inset 0 0 0 1px var(--neutral-ring); }
+
+/* Custom-status (substatus) pill on a run row (#109): the product's
+   `.badge.custom-status.{status}` family (badge.scss:68-86) — the colour comes from
+   the ROW's status, not from the value. Deviation from the product with a reason:
+   the panel row already carries a FILLED status pill (the product row shows an icon
+   instead), so two filled pills of the same tint would read as one smear — this one
+   keeps the status-tinted ring and drops the fill, so it reads as secondary metadata.
+   Arbitrary project text, hence no capitalization and an ellipsis on a long value. */
+.badge.custom-status {
+  background: transparent;
+  text-transform: none;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge.custom-status.passed { color: var(--passed-fg); box-shadow: inset 0 0 0 1px var(--passed-ring); }
+.badge.custom-status.failed { color: var(--failed-fg); box-shadow: inset 0 0 0 1px var(--failed-ring); }
+.badge.custom-status.skipped { color: var(--skipped-fg); box-shadow: inset 0 0 0 1px var(--skipped-ring); }
+.badge.custom-status.untested { color: var(--neutral-fg); box-shadow: inset 0 0 0 1px var(--neutral-ring); }
+
+/* Run summary card: the state row, the progress band, the read-only note and the
+   folded field table, stacked in ONE card. Every child is optional — a [hidden]
+   one is display:none, so the column `gap` never leaves a phantom band behind it.
+   The card's own vertical padding is the top and bottom of the stack.
+   The TEST view's header card is this same card (#test-header): same state row,
+   same progress band, same foot — a tester moving between the two screens finds
+   the furniture where they left it.
+   `background: none`: the chips inside are filled, and a filled chip on a filled
+   plate reads as a chip on a button. The border alone says "one block".
+   `--card-pad-b` tells `.card-foot` how far it has to bleed to reach the floor
+   (the library's card pays 8 there; this one pays 12). */
+.run-summary {
+  --card-pad-b: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  background: none;
+}
+/* Kind + status chips on the left, Finish run pinned right. `margin-left: auto`
+   on the button rather than a spacer element: with both chips hidden (a failed
+   meta read) the button still lands right instead of jumping left.
+   Both chips are library marks in their label form — `.type-mark` with a
+   `.type-label`, and `.status-label` — so this row sets no colour, no corner and
+   no height of its own; it only places them. */
+.run-state-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.run-state-row:not(:has(> :not([hidden]))) { display: none; }
+#run-kind, #run-state { flex: none; display: inline-flex; }
+#btn-finish-run { flex: none; margin-left: auto; }
+/* The test card's own marks row is the same row with the same rules: how it went
+   (the status chip) and the custom status refining that verdict — both library
+   marks, so nothing here sets a colour or a height. (Priority is not in this
+   row: it belongs to the test's NAME and is drawn beside it in the header.)
+   `#test-result-row` is the status chip plus its duration, which is why it is a
+   box in the row rather than a chip itself. */
+#test-substatus-mark, #test-result-row { flex: none; }
+/* The counts line under the state row: the fraction carries the weight (it is the
+   answer), the tallies take the tint of the bar segment each one explains. */
+.counts-done { color: var(--fg); font-weight: var(--weight-semibold); }
+.counts-part.passed { color: var(--passed-fg); }
+.counts-part.failed { color: var(--failed-fg); }
+.counts-part.skipped { color: var(--skipped-fg); }
+/* Inside the test card now, where the card's column gap does the spacing — the
+   bar's own top margin is the only air it needs. */
+#test-progress > .counts { margin-top: 0; }
+.counts { margin-top: var(--space-1); }
+/* Per-run custom-status counters (#109): a muted continuation of the counts line in
+   the run header, wrapping with it rather than claiming a line of its own. */
+.substatus-counts .substatus-count { white-space: nowrap; }
+
+/* Run info (#112): the web run sidebar's fields in the FOOT of the summary card,
+   folded into a .disclosure (see the family below) so the card stays slim. The
+   body is the same key/value grid as the summary's Meta list — labels muted,
+   values wrapping inside their own column.
+   It reaches the card's own edges and rules a hairline across them: the fold is
+   the card's floor, and a rule that stopped short of the border would read as an
+   underline on the word "Run info" instead.
+   Which is also why it swallows the card's bottom padding and lays its own 4
+   back down: the head's hover block is then the same 4 from the card on all
+   four sides, instead of sitting 4 from the sides and 12 off the floor.
+   (The band itself is the library's `.card-foot` — the bleed and the hairline
+   are the same in the test card's foot; only this padding is Run info's own,
+   because the head below draws its own.) */
+.run-info { padding: 0 var(--space-3) var(--space-1); }
+/* The head bleeds 8 into each side so its hover block sits a step wider than the
+   text — and the width has to be told about both, because a <button> sizes to
+   `width` alone: the library's 100% is the container's CONTENT box, which the
+   left margin then shifts left, leaving the right end 16 short of matching. */
+.run-info .disclosure-head {
+  width: calc(100% + 2 * var(--space-2));
+  margin: var(--space-1) calc(-1 * var(--space-2)) 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.run-info .disclosure-head:hover:not(:disabled) {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 999px var(--hover-overlay);
+}
+
+/* Status is the library's TEXT form of a run status (`.status-text`, shared/
+   components.css) — glyph, word, and the status' own colour. Nothing here.
+   The rows themselves are the library's `.kv.rows`: a hairline between fields
+   and no hover, because a fact is read, not pressed. */
+/* Description keeps the author's line breaks; the CI build link reads as a link.
+   It is also the one value that is a BLOCK: every other row is a single line the
+   list centres (`.kv.rows`), this one is a paragraph with its expander under it,
+   and both have to stack from the top of the cell. */
+.run-info-desc { display: block; white-space: pre-wrap; }
+/* …and is clamped to its first lines (#159) so a session report cannot bury the
+   rest of the section — the expander below it appears only when text is hidden. */
+.run-info-desc-text.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.run-info-desc-more { font-size: var(--fs-sm); padding: var(--space-1) 0 0; white-space: nowrap; }
+.run-info-link { color: var(--accent); }
+
+/* Run-view controls (004): search then the status filter, the runs list's order.
+   Nothing to set: the field is one row, and the chips under it carry their own
+   air (`.filters`, shared/components.css) — which is what makes this stack the
+   same stack the runs list has, where the field sits in a `.toolbar` beside a
+   create instead of alone. */
+
+/* "+ New run" (#118): an <a class="btn primary"> next to the runs search — a
+   link, not a button, because the panel never creates a run itself, but the
+   PRIMARY of its row all the same: it is the one thing that makes something on
+   this screen, exactly as "New test" is on the two Tests screens, and a create
+   that reads as chrome on one tab and as the answer on the next is two panels.
+   Where the word goes when the row runs out of width is the shared `.fit-label`
+   deal (shared/components.css). The skin is the library's; nothing here. */
+
+/* Suite sections (004): lighter than folder rows — a section header over its
+   test rows, collapsible (chevron), with a per-suite done/total fraction. Same
+   32px row floor as every other tree head (`.list-head`) even though its type
+   and colour stay a step down — height is the panel's own rule; weight is the
+   section's. */
+/* The <li> is the shared `.tree-node` wrapper — it owns nothing a row owns. */
+/* The shared row's own step, vertical and horizontal alike (`--row-py` /
+   `--row-px`): a suite header caps rows that stand at 32 and stands at 32 with
+   them — see `.group-head` above for why a head states neither itself. */
+.suite-head { cursor: pointer; }
+.suite-head:hover { background: var(--row-hover); }
+/* The name is a NAME, not a micro-label: it reads as written (a suite title can
+   be a sentence, and shouting six of them down the list buries the tests they
+   cap). The folder glyph beside it is what marks it as a section now, so the
+   case and the wide tracking that used to do that job are gone — and so is the
+   grey. A suite is a heading over its tests, not an aside beside them: greyed,
+   it read as the least important line in a screen where it names everything
+   under it. It takes the row's own text colour, the same one the test titles
+   below it take, and stays a heading by WEIGHT alone — which is the one
+   difference that survives both colour schemes. */
+.suite-head .title {
+  flex: 1;
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+}
+.suite-section .chevron { transition: transform var(--dur) var(--ease); }
+.suite-section:not(.collapsed) > .suite-head .chevron { transform: rotate(90deg); }
+/* The done/total is the shared `.row-count` (ROW TAIL, shared/components.css) —
+   the trailing figure every list in the panel now ends a row with, and the one
+   this section was already drawing before the library had a name for it. */
+.suite-section.collapsed .suite-rows { display: none; }
+/* The indent is `.tree-children`'s (shared) and it is what makes the guide
+   legible here: the rows are the section's contents, so they start one 28px
+   step in and the open line runs down the empty column their chevron left. The
+   rule under the head is the head's own, like every other tree row's. */
+.suite-rows { list-style: none; margin: 0; }
+
+/* Checklist row (US6): ONE line — the marks, then the title, then the fixed
+   ✓/✗/– cell. Reading order is the panel's own everywhere a test is listed
+   (◇ Tests → tests-item): how it went, how much it matters, what it is, what it
+   is called. The three marks are the shared 20px squares (`.status-icon` /
+   `.spinner`, `.prio`, `.type-mark`), so they need nothing here — only the
+   title has to be told to take the leftover width and truncate inside it, which
+   is what keeps the buttons in a constant column however long a title runs. */
+.test-row { display: flex; align-items: center; gap: var(--space-2); }
+/* (Wrapping to a second line, the clamp and the break are the shared `.list
+   .title` — see LIST in shared/components.css. All this row adds is which
+   column the title takes.) */
+.test-row .title { flex: 1 1 auto; min-width: 0; }
+/* The trailing cell itself is the library's (`.row-actions`, ROW TAIL in
+   shared/components.css) — this row only fills it. */
+/* ✓/✗/– : the shared xs icon button (24, the row's own line), muted. It only
+   has to read as interactive — card fill + accent hover — next to the passive
+   status badge, and it keeps the CORNER every other control in the panel wears:
+   round was the one shape nothing else in the extension used, so three circles
+   at the end of a row read as a widget of their own rather than as the row's
+   buttons, and they were the only controls that could not sit in a column with
+   the square marks on the other side of the title. */
+.row-st { color: var(--muted); }
+/* The icon inherits currentColor (so .busy's transparent trick still hides it). */
+.row-st .md-icon { display: block; fill: currentColor; }
+.row-st:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--bg); }
+.row-st:disabled { opacity: 0.5; cursor: default; }
+.row-st.active[data-status="passed"] { background: var(--passed); border-color: var(--passed); color: var(--on-status); }
+.row-st.active[data-status="failed"] { background: var(--failed); border-color: var(--failed); color: var(--on-status); }
+.row-st.active[data-status="skipped"] { background: var(--skipped); border-color: var(--skipped); color: var(--on-status); }
+
+/* Per-row write feedback: the pressed button spins while its write is in flight
+   (full opacity, unlike the dimmed disabled siblings — clearer than opacity
+   alone); on success the badge briefly flashes a green ring. */
+.row-st.busy { position: relative; color: transparent; border-color: var(--accent); }
+.row-st.busy:disabled { opacity: 1; }
+.row-st.busy::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--space-3);
+  height: var(--space-3);
+  /* Half its own size back, so it centres on the button. Derived from the size
+     above, not a number: `transform` is off limits here — the spin keyframe owns
+     it. */
+  margin: calc(var(--space-3) / -2) 0 0 calc(var(--space-3) / -2);
+  border: var(--border-w-thick) solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes badge-saved {
+  0% { box-shadow: 0 0 0 3px var(--passed); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.badge.saved-flash { animation: badge-saved 0.9s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .row-st.busy::after { animation: none; }
+  .badge.saved-flash { animation: none; }
+}
+
+/* Assignee chip on a test row (004/US4): person icon + resolved name, small +
+   muted; the full email rides on the tooltip (`data-tip`). */
+/* An assignee chip is a `.badge` that carries an icon, so it becomes a flex row
+   and gives the mark a little room on the left. */
+.assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+  box-shadow: none;
+  max-width: 50%;
+}
+.assignee .assignee-icon { flex: none; color: var(--muted); }
+.assignee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Rendered markdown is the shared `.markdown`, and the test body wears its
+   `.sections` modifier (set on #test-steps in index.html): a test case is a list
+   of steps, not an article, so its headings are muted section labels. That policy
+   was this file's own until the test page turned out to need the same one — it
+   lives in shared/components.css now, and the panel only says WHERE it applies.
+   What is still the panel's: a list of step rows drops its bullets, because each
+   row draws its own rule (the same flat-list language as `.list li` in
+   shared/components.css — a rule between rows, no box, no card). */
+.markdown { margin-bottom: var(--space-3); }
+.markdown ul:has(> .step-row), .markdown ol:has(> .step-row) {
+  margin: 0;
+  padding-left: var(--space-2);
+  list-style: none;
+}
+/* A step is TWO cells: the control, and a body column holding the step's text
+   with its expected result under it. The body is a real box (see parseSteps) so
+   it can own `min-width: 0` — that is what keeps a long title wrapping across
+   the full row instead of splitting it with the expected block.
+   The row itself carries no box of its own — the list's own `padding-left`
+   above insets the whole group by one step, and each row stays flush inside
+   it — only `--row-py` and the bottom-rule pseudo below match `.list li`'s
+   vertical rhythm. */
+.step-row {
+  position: relative;
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--row-py, var(--space-1)) 0;
+}
+.step-row::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--row-border);
+  pointer-events: none;
+}
+.step-row:last-child::after { content: none; }
+.step-main { flex: 1 1 auto; min-width: 0; }
+.step-title { overflow-wrap: anywhere; }
+/* A step's text is a LINE beside a control, not a paragraph in an article. What
+   arrives in it depends on the author's markdown: a LOOSE list item comes back
+   from marked wrapped in a <p>, and `.markdown p`'s 0.5em top margin then drops
+   that first line half a line below the box beside it — so the same run reads
+   aligned on one step and sagging on the next, purely by how its author spaced
+   the source. The block margins go at both ends of the body column; the air
+   between a step and its expected result is the column's own (.step-expected). */
+.step-title > :first-child { margin-top: 0; }
+.step-title > :last-child { margin-bottom: 0; }
+/* The tick rides the FIRST line of a step that wraps, so it is nudged to that
+   line's optical centre — 2px, a hairline, the same job `.step-state` does with
+   its 1px (a 20px control against this 16px box). Not a spacing step: nothing is
+   being spaced, a box is being lined up with a letter. */
+.step-row input[type="checkbox"] { margin-top: 2px; }
+.step-row.done { opacity: 0.55; text-decoration: line-through; }
+
+/* The tri-state control is a CHECKBOX, square-cornered like the real one the
+   degraded mode uses: a circle in a checklist reads as a radio — one of these,
+   pick one — and these are N independent ticks. It cycles instead of toggling,
+   which the glyph inside says (✓ / ✗ / –), not the shape. */
+/* `.btn.step-state`, not bare `.step-state`: the control also wears `.btn.icon`
+   (shared/components.css) for its base skin, and that rule's two classes tie
+   this one's specificity unless this selector matches two classes too — the
+   20px box would otherwise lose to `.btn.icon`'s own `width: var(--ctl-h)`. */
+.btn.step-state {
+  width: var(--space-5);
+  height: var(--space-5);
+  margin-top: 1px;
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--fs-base);
+}
+.step-state[data-state="passed"] { background: var(--passed); border-color: var(--passed); color: var(--on-status); }
+.step-state[data-state="failed"] { background: var(--failed); border-color: var(--failed); color: var(--on-status); }
+.step-state[data-state="skipped"] { background: var(--skipped); border-color: var(--skipped); color: var(--on-status); }
+/* The expected result: a quoted block under the step it belongs to, inside the
+   body column — so it starts where the step's own text starts and runs the same
+   width, instead of being pushed off the right edge of a narrow panel. */
+.step-expected {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  white-space: pre-line;
+}
+
+/* Status action buttons (#test-status-buttons): the single primary control of the
+   test view, sitting ABOVE the steps. The outline/solid split is the shared status
+   intent (`.btn.passed|.failed|.skipped.outline` at rest, `.solid` on whichever one
+   matches the record's current status — paintStatusButtons in test-view.js); what
+   belongs to this screen is that the three share the row equally and carry more
+   weight than a plain button. */
+/* 8, not 12: the write's own line sits under this row and reserves 16px of its
+   own whether or not it has anything to say, so the band between the buttons and
+   the tab row is 8 + 4 + 16 — and it was reading as one big empty gap when the
+   row paid a 12 on top of the paragraph's off-grid browser margins. */
+.st-row { margin-bottom: var(--space-2); }
+.st-row .st { flex: 1; font-weight: var(--weight-semibold); }
+/* Moving on (#108) — the FOOT of the test card, which is where the run card
+   keeps Run info: the same band under the same hairline, so the two headers end
+   the same way. What it holds is the library's `.pager` — where you are in the
+   run and the step either way — pinned right, with the key legend's "?" at the
+   far left, so the keys and the controls they stand for are on one line.
+   It sets NO margin — not even 0: `.card-foot` bleeds through the card's padding
+   with negative ones, and this file loads after the library, so a `margin: 0`
+   here would quietly cancel the bleed and leave the hairline floating 12px shy
+   of both edges. */
+.next-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+#test-actions textarea { margin: var(--space-2) 0; }
+/* The capture controls are plain `.btn.size-sm` — the three status buttons above
+   are the single primary of this screen, so nothing here may out-shout them. */
+#btn-attach-file { margin-top: var(--space-2); }
+/* Gate reason for a disabled control, shown inline (touch has no hover). */
+.inline-reason { margin: var(--space-1) 0 0; }
+/* #152: the finished-run lock notes — the shared `.lock-note` well. They explain
+   a whole VIEW rather than one button, so each sits directly under the controls
+   it kills: inside the run summary card (where the card's own column gap spaces
+   it) and under the three status buttons of the test view. */
+.status-lock-reason { margin: 0 0 var(--space-3); }
+/* Locked write controls: readable, obviously inert. The step circles and the
+   comment box have no disabled style of their own (buttons inherit one). */
+.step-state:disabled { opacity: 0.5; cursor: default; }
+#test-actions textarea:disabled { opacity: 0.6; cursor: default; }
+/* #107: everything uploaded onto the open result — one link per row, name
+   ellipsised (an S3 filename is long and the panel is narrow). */
+.attachment-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.attachment-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; min-width: 0; }
+.attachment-row::before {
+  content: '';
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: var(--icon-attach-file) center / contain no-repeat;
+  color: var(--muted);
+}
+.attachment-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+a.attachment-link { color: var(--accent); }
+a.attachment-link:hover { text-decoration: underline; }
+/* #205: an image on the list is SHOWN. The thumbnail is the row's mark, so the
+   paperclip steps aside — two marks for one file is one too many — and the cap
+   keeps the row a row (the list sits under the capture controls, not on a page
+   of its own). A fetch that fails drops `is-image` and the paperclip is back. */
+.attachment-row.is-image::before { display: none; }
+.attachment-row.is-image .attachment-thumb img { max-width: 72px; max-height: 40px; }
+/* Recording pre-arm cue (Block 5): first line of the disclosure while not recording. */
+.prearm-hint { margin: 0 0 var(--space-2); line-height: var(--leading-snug); }
+/* Full-page capture (M2 PR-3): a `.choice` row next to the shot buttons, in the
+   meta type the rest of that block is set in. */
+.fullpage-row { margin: var(--space-1) 0; font-size: var(--fs-sm); color: var(--muted); }
+
+/* The test view's three sections (Description / Status / Summary) and the
+   switcher over them. `.tabs.fill` (shared/components.css) shares the row
+   between the three rather than sizing each to its own word, with an icon on
+   every one so the row reads at a glance even collapsed. The rule under it is
+   a plain `border-bottom` — NOT the header tab bar's inset pseudo-element
+   trick (style.css `.bar.stretch.header-top::after`), because that bar is
+   full-bleed and has to claw its inset back, while this row already lives
+   inside `main`'s own gutter padding: an ordinary border already starts and
+   ends 16px shy of the panel's edges for free. The pane under it draws no
+   box: the sections keep three screens from being stacked, they are not a
+   container. */
+.test-sections { margin: 0 0 var(--space-3); border-bottom: 1px solid var(--border); }
+.test-pane > :first-child { margin-top: 0; }
+
+/* Test-view hotkey "?" affordance + the compact shortcut legend it toggles. It
+   sits at the LEFT end of the "Next test" row (`margin-right: auto`), which is
+   the row it shares with the other keyboard-reachable move. */
+.hotkey-help { margin-right: auto; align-self: center; font-weight: var(--weight-bold); }
+.hotkey-legend { margin: 0 0 var(--space-3); font-size: var(--fs-sm); }
+.hk-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-1) 0; }
+.hk-name { color: var(--muted); }
+
+/* (Every fold on this screen — Attachments & log, Run info, Failure, Meta,
+   Steps, the console log — is the shared `.disclosure`.) */
+
+/* Result summary (#117), now split across the screen: the status/duration line
+   sits up top (`#test-result-row`, in the header card's marks row, the same move
+   as the run view's own status chip), and the ACCORDION of Failure / Meta /
+   Steps blocks it used to sit over lives in the Summary tab instead — each fold
+   draws its own border now, so no outer card is needed to say these three belong
+   together. */
+.summary { margin: 0 0 var(--space-3); }
+/* Status + duration: `Failed · 18.4s` in the header card. The status itself is
+   the library's `.status-label` chip now — the glyph with its word, the exact
+   chip the run header wears one screen up; it used to be a coloured word behind
+   a dot, which was a fourth spelling of a status this panel already had three
+   of. Nothing here styles it: this row only places the chip and the duration
+   that trails it. */
+.summary-line { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); margin: 0; }
+.summary-duration { color: var(--muted); }
+/* Failure / Log panel — the product's tinted result box (test-results-display:
+   red-50/red-700 on a failure, emerald-50/emerald-700 otherwise). */
+.summary-message {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  overflow-x: auto;
+}
+.summary-message.is-failed { background: var(--failed-bg); color: var(--failed-fg); }
+.summary-message.is-ok { background: var(--passed-bg); color: var(--passed-fg); }
+/* A reporter (automated) message is printed verbatim — its newlines and
+   indentation are the information, so it also wears `.code`; a manual one renders
+   as markdown instead. The status tint has to win over the code well's grey. */
+.summary-message.is-raw { background: none; }
+.summary-message.markdown { margin-bottom: 0; }
+.summary-message.markdown > :first-child { margin-top: 0; }
+.summary-message.markdown > :last-child { margin-bottom: 0; }
+/* Meta (web `metafields`): the library's `.kv.rows` — the same one hairline-per-
+   row Run info's own fields use, keys muted, values monospace (#summary-meta-body
+   in index.html carries `kv rows mono`; nothing screen-specific to add here). */
+
+/* Reported steps: read-only rows, sub-steps indented one level per nesting. A
+   hairline runs between TOP-LEVEL steps only — `--row-border`, the same subtle
+   rule `.kv.rows` uses — so the list reads the same way Meta's fields and Run
+   info's fields do; a nested sub-step is part of its parent's own row, not a
+   sibling of it, so it stays rule-free.
+
+   #202 brings the block to web-report parity (front nested-steps.hbs): monospace
+   titles, a coloured status word, the step log, image attachments, and the
+   children behind a chevron. The nesting indent moved onto `.summary-step-kids`
+   — the container the toggle hides — so one nesting level still costs exactly
+   one `--space-3`, rather than the collapsible wrapper adding a second. */
+.summary-step-kids { padding-left: var(--space-3); }
+#summary-steps-body > .summary-step-group { padding: var(--space-1) 0; }
+#summary-steps-body > .summary-step-group + .summary-step-group { border-top: 1px solid var(--row-border); }
+.summary-step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 1px 0;
+  font-size: var(--fs-sm);
+}
+/* The step's own chevron: the disclosure caret's behaviour one level down — muted,
+   and rotated 90° once its children are showing. */
+.summary-step-toggle { flex: none; color: var(--muted); }
+.summary-step-toggle > .md-icon, .summary-step-toggle > svg {
+  transition: transform var(--dur-fast) var(--ease);
+}
+.summary-step-toggle[aria-expanded="true"] > .md-icon,
+.summary-step-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
+.summary-step-dot { flex: none; color: var(--muted); }
+.summary-step-dot[data-status="passed"] { color: var(--passed); }
+.summary-step-dot[data-status="failed"] { color: var(--failed); }
+.summary-step-dot[data-status="skipped"] { color: var(--skipped); }
+/* Monospace like the error line below it and the raw reporter message above:
+   these are the reporter's own words, not the panel's prose (web `.step` is
+   `font-mono` for the same reason). */
+.summary-step-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.summary-step-marker { vertical-align: -2px; color: var(--muted); }
+/* The web's status chip after the title (report `badge custom-status`). */
+.summary-step-status { flex: none; color: var(--muted); font-size: var(--fs-2xs); }
+.summary-step-status[data-status="passed"] { color: var(--passed); }
+.summary-step-status[data-status="failed"] { color: var(--failed); }
+.summary-step-status[data-status="skipped"] { color: var(--skipped); }
+.summary-step-duration { flex: none; color: var(--muted); font-size: var(--fs-2xs); }
+.summary-step-error {
+  padding: 0 0 var(--space-1) var(--space-5);
+  color: var(--failed);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  overflow-wrap: anywhere;
+}
+/* Step log and the attachments group both hang off their step on the same left
+   rule, so the two read as one indented block under it — the web rules them the
+   same way, red when the step failed. */
+.summary-step-log,
+.summary-step-atts {
+  margin: var(--space-1) 0 var(--space-2) var(--space-4);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border);
+}
+/* The log is the code well the raw reporter message already uses (`.code`), just
+   quieter and without its own background — the rule carries the indent. */
+.summary-step-log {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.summary-step-log.is-failed { border-left-color: var(--failed); }
+.summary-step-log a { overflow-wrap: anywhere; }
+.summary-step-atts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* One thumbnail, two homes (#205): a reported step's screenshot and a file on
+   the result's attachment list. The frame is the same; only the cap differs,
+   because one sits in a step block and the other in a one-line row. */
+.attachment-thumb {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  line-height: 0;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+.attachment-thumb img { display: block; max-width: 120px; max-height: 80px; }
+.summary-step-att-link { font-size: var(--fs-2xs); overflow-wrap: anywhere; }
+/* Expand all / Collapse all — the web puts them on the steps box; here they ride
+   the section head, which the disclosure's own full-width click target sits
+   under. */
+#summary-steps { position: relative; }
+.summary-steps-tools { position: absolute; top: 0; right: 0; display: flex; gap: var(--space-1); }
+
+/* Screenshot lightbox (#202): the reported step's image over the whole panel.
+   `.dialog` carries the frame, the scrim and the shadow; this only lifts its
+   320px cap, which is a form's width and not an image's. */
+#shot-modal.lightbox {
+  max-width: 96vw;
+  max-height: 92vh;
+  padding: var(--space-2);
+}
+#shot-modal img { display: block; max-width: 100%; max-height: 80vh; margin: 0 auto; }
+#shot-modal-name {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-2xs);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.shot-close { float: right; margin: 0 0 var(--space-1) var(--space-1); }
+
+/* (The test's marks — priority, the queued mark, the custom status — used to sit
+   in a `.test-head` row of their own under the progress bar. They are the marks
+   ABOUT this test, which is what a header card's state row is for, so they moved
+   into it (`#test-state-row`, the `.run-state-row` above) and the row went. The
+   test's name is printed in the panel header (the last crumb of the path); the
+   hidden h2 rides along in the state row because it is still the one element the
+   title is written into.)
+   The priority mark (FR-014) is the library's `.prio` — it appears on the Tests
+   list, in the editor and, for an open test, in the HEADER row at the head of
+   its name (contextTitleMarks, core/views.js), so it lives in
+   shared/components.css → MARKS and nothing about it is set here. */
+
+/* Substatus dropdown (US4/FR-009): appears under the status buttons. */
+.substatus { margin: var(--space-2) 0 0; }
+.substatus label { margin: 0; }
+
+/* Assignee dropdown (M4): a custom listbox in a row of its own — the project
+   switcher's pattern (#126), not a `.select`, so a row can carry the person's
+   monogram and the popup can carry a type-to-filter box. The saved-flash ring
+   confirms a landed write on the TRIGGER, matching the run-row badge flash. */
+.assignee-control { margin: var(--space-2) 0 0; }
+.assignee-label {
+  display: block;
+  margin: 0 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+/* One relative anchor for the popup, same shape as `.project-dd`. */
+.assignee-dd { position: relative; display: inline-block; max-width: 100%; }
+.assignee-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+/* The trigger's label IS a `.user-cell` (monogram + name, built by
+   shared/user-cell.js) — this just keeps it from stretching the button past
+   the panel and lets the name (not the monogram) be what ellipsizes. */
+.assignee-value { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.assignee-value .user-cell { max-width: 100%; }
+.assignee-value .user-name { max-width: 10em; }
+.assignee-caret { flex: none; display: block; color: var(--muted); }
+.assignee-trigger.saved-flash { animation: badge-saved 0.9s ease-out 1; }
+@media (prefers-reduced-motion: reduce) {
+  .assignee-trigger.saved-flash { animation: none; }
+}
+/* The popup: the shared `.menu`, left-anchored under the trigger (a project
+   title is full-width; a person's name is short, so this one does not stretch). */
+.assignee-menu { left: 0; min-width: 14em; max-width: min(100%, 20em); }
+.assignee-filter { margin: 0 0 var(--space-1); }
+/* A row is monogram + name — `.user-cell` already draws both — plus a trailing
+   checkmark on whichever one is selected, printed rather than left to a native
+   popup's own tick (#126 reasoning applies here too). */
+.assignee-option { justify-content: space-between; }
+.assignee-option .user-cell { min-width: 0; }
+.assignee-option-check { flex: none; visibility: hidden; color: var(--accent); }
+.assignee-option[aria-selected="true"] .assignee-option-check { visibility: visible; }
+
+/* In-panel confirm dialog (US3 finish-run guard) — the shared `.dialog` box; a
+   380px panel wants it a touch narrower than the default. */
+#confirm-dialog { max-width: 280px; }
+
+/* One inline hint row: both pills sit on a single line; the row only claims its
+   bottom margin when at least one pill is visible (`:has` — Chrome-only ext). */
+.test-hints { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; }
+.test-hints:has(> :not([hidden])) { margin: 0 0 var(--space-2); }
+
+/* Degraded-session hint (US6/FR-012): muted, unobtrusive pill. */
+.jwt-hint { margin: 0; color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); cursor: help; }
+
+/* "No example data" pill (US2/FR-007): soft amber warning tint. */
+/* An authored sentence, not a status: it keeps the case it was written in. */
+.badge-hint { margin: 0; text-transform: none; cursor: help; }
+
+/* ---- TC Studio (M3): suite tree + TC list ---- */
+/* The tree is the shared list: a suite/folder ROW is a `.list-row` (dense) that
+   is also a `.list-head` (shared/components.css — the flex row, the 32px
+   floor), and the <li> around it is only a container for that row plus its
+   children, so it hands its own padding, hover and height over and stays
+   invisible (`min-height: 0` — the shared 32px floor belongs to the row inside
+   it, not to a wrapper that may hold a whole open subtree). Nesting is drawn by
+   indenting the child list, never by a second box; both the indent (28px, one
+   20px slot plus the row's 8px gap) and the open guide down its left edge are
+   `.tree-children`'s own — a TC row's chevron sits at the shared row inset plus
+   half a mark, wherever that inset lands (8 at the top level, 12 indented), so
+   this screen needs no `--tree-guide` of its own. */
+.tc-tree .tc-children { list-style: none; margin: 0; }
+/* The <li> is the shared `.tree-node` wrapper — it owns nothing a row owns. */
+.tc-row .title { flex: 1; font-weight: var(--weight-medium); }
+.tc-row .chevron { transition: transform var(--dur) var(--ease); }
+.tc-row.expanded .chevron { transform: rotate(90deg); }
+/* In-tree create pills read as BUTTONS (rounded-rect + border + raised shadow),
+   deliberately distinct from the read-only rounded-full .badge pills. */
+/* An in-tree create pill is a `.btn.size-xs` that only appears on hover — a file
+   row's "New test", a folder row's "Suite"/"Folder" pair (cycle 011). The
+   reveal is not this screen's any more: the buttons ride in the shared
+   `.row-actions.on-hover` cell, which fades them in over the row's trailing
+   edge and takes the row's count out from under them (ROW TAIL,
+   shared/components.css). All that is left here is what they are made of. */
+.tc-new { color: var(--muted); }
+.tc-new:hover { color: var(--accent); border-color: var(--accent); }
+/* Root create toolbar: the primary controls of the Tests screen — shared
+   `.btn.size-sm`, each led by the `add` glyph ("Test" carries the accent),
+   always visible. Only the row they
+   sit in belongs to this file; the empty tree's copy of the pair is the shared
+   empty state's `.empty-actions`. */
+
+/* The inline row for a new suite/folder is the shared name-the-node row
+   (`.tree-input-row`, shared/components.css) — a tree row wearing the glyphs of
+   the node it will become, with a field where its title will go. This screen
+   adds nothing to it: it is the same `.tc-row` as the rows around it, so it
+   lands on their column and their height on its own. */
+
+/* Search — "New test", one line that never wraps, the runs toolbar's shape
+   (see .runs-bar): the field takes the leftover width, the action keeps its own. */
+.tc-list-bar { flex-wrap: nowrap; gap: var(--space-3); }
+.tc-list-bar .field { flex: 1; min-width: 0; }
+
+/* The Tests screen's own toolbar, the same shape one level up: search left,
+   creates right, one line that never wraps. The three creates are a GROUP — the
+   row's gap is 4, so the two glyphs and the button read as one block of actions
+   rather than three separate controls — and the field adds 8 of its own after
+   it, making the 12 that separates that block from the search, exactly the gap
+   .runs-bar and .tc-list-bar put there. The field is the only thing that
+   shrinks: the three actions are fixed-width and the panel is 380px wide. */
+.tc-tree-bar { flex-wrap: nowrap; gap: var(--space-1); }
+.tc-tree-bar .field { flex: 1; min-width: 0; margin-right: var(--space-2); }
+
+/* "New test" suite picker: reuses the TC-tree; the hint labels the target. */
+.promote-hint { margin: var(--space-1) 0 var(--space-3); }
+.tc-row.tc-pick { cursor: pointer; }
+
+/* (The toast — strip, error tint, inline action, dismiss — is the shared
+   `.toast` component; the panel adds nothing to it.) */
+
+/* Degraded/login-blocked banner (Block 4) and the offline-queue strip (M4 cycle
+   2) are both the shared `.banner` — amber for "something is off", accent for a
+   queued write. Nothing about either is the panel's own any more. */
+
+/* Read-only lockout (#155): the shared `.notice.warning` — not a strip but a full
+   panel, because it REPLACES the tab content for a project the tester has
+   read-only access to. It owns the space the view would have used and states the
+   reason once, calmly. */
+
+/* The small «queued» marker on a run row's meta line + in the test head. */
+.queued-mark { flex: none; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-border); white-space: nowrap; }
+
+/* ---- Evidence recorder (M2 PR-1) ---------------------------------------- */
+/* Run-header Record toggle: a small pill; the dot pulses red while recording. */
+/* The Rec pill is a `.btn.pill.size-xs`; recording is the only state it adds. */
+.evidence-toggle { color: var(--muted); font-size: var(--fs-sm); }
+.evidence-toggle.recording { border-color: var(--failed); color: var(--failed); }
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+.evidence-toggle.recording .rec-dot { background: var(--failed); animation: rec-pulse 1.4s ease-in-out infinite; }
+@keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.evidence-tab {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+
+/* Test-view collapsible Evidence section (errors-only list) — the same head as
+   every other disclosure on the screen, so it wears `.disclosure-head` and only
+   names its own caret. */
+.evidence-section { margin: var(--space-2) 0 var(--space-1); }
+
+.evidence-list { margin: var(--space-1) 0 0; max-height: 190px; }
+/* A log entry is a row of the shared list; its head is the click target that
+   folds the details out. */
+.evidence-row { padding: 0; }
+.evidence-row:hover { background: none; }
+.ev-row-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+.ev-row-head:hover,
+.evidence-row.expanded .ev-row-head { background: var(--row-hover); }
+.ev-details {
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-7);
+  font-size: var(--fs-sm);
+  border-top: 1px dashed var(--border);
+}
+.ev-fields { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-2); }
+.ev-fields dt { color: var(--muted); }
+.ev-fields dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+.ev-body { margin: var(--space-2) 0 0; max-height: 160px; }
+/* #95: the "(body capture disabled)" stand-in — muted so it never reads as a body. */
+.ev-body-note { color: var(--muted); font-style: italic; }
+/* The row marker carried its colour in the emoji before #180; now it is a
+   monochrome icon, so [data-kind] paints it — otherwise a failed request and a
+   warning read identically at a glance. */
+.ev-icon { flex: none; font-size: var(--fs-sm); color: var(--muted); }
+.ev-icon[data-kind="error"] { color: var(--failed); }
+.ev-icon[data-kind="warning"] { color: var(--skipped); }
+.ev-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ev-attach { font-size: var(--fs-sm); background: none; box-shadow: none; }

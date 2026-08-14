@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test case</title>
+    <!-- Tokens (values) → components (the controls shared with the side panel) →
+         this page's own chrome. Later file wins, so editor.css can adjust a
+         control for this page's layout but never re-draws one. -->
+    <link rel="stylesheet" href="../shared/tokens.css" />
+    <link rel="stylesheet" href="../shared/components.css" />
+    <link rel="stylesheet" href="./editor.css" />
+    <!-- Same head script as the panel: the saved colour scheme is pinned before
+         the first paint. It also subscribes to storage, so switching the theme
+         in the panel repaints this tab while it is open. -->
+    <script src="../shared/theme.js"></script>
+  </head>
+  <body>
+    <!-- Vanilla test page (Amendment A1): the read-only view of an existing TC
+         (?test=) or the markdown editor for a new one (?suite=, #115). The shell
+         is built by editor.js so panel-only chrome (Back) can be omitted
+         entirely in ctx=tab. No inline scripts (MV3 extension-page CSP): plain
+         script tags, extension files only — zero third-party egress
+         (Constitution IV). -->
+    <div id="root"></div>
+    <script src="../api.js"></script>
+    <script src="../vendor/marked.min.js"></script>
+    <script src="../vendor/overtype.min.js"></script>
+    <script src="../shared/html-sanitize.js"></script>
+    <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
+    <script src="../shared/icons.js"></script>
+    <!-- The image swap the CSP forces on every rendered description (#205) —
+         after api.js, whose fetchAsset it goes through, and after icons.js,
+         whose ↗ its fallback link wears. -->
+    <script src="../shared/img-hydrate.js"></script>
+    <script src="../shared/priority-icons.js"></script>
+    <!-- …and the type-of-test mark, which this page's header wears beside the
+         name of the test it is showing. Same deal: after icons.js. -->
+    <script src="../shared/test-type.js"></script>
+    <!-- The empty-state builder — after icons.js, which draws its mark. -->
+    <script src="../shared/empty-state.js"></script>
+    <!-- …and its twin: the grey bars this page waits behind. -->
+    <script src="../shared/skeleton.js"></script>
+    <!-- The tooltip engine: it only listens, so it can load before the page
+         that hands out `data-tip`. -->
+    <script src="../shared/tooltip.js"></script>
+    <script src="../shared/annotate-core.js"></script>
+    <script src="../shared/site-tab.js"></script>
+    <script src="../shared/site-access.js"></script>
+    <script src="../shared/capture-annotate.js"></script>
+    <script src="./annotate.js"></script>
+    <script src="./editor.js"></script>
+  </body>
+</html>
