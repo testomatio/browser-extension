@@ -29,7 +29,7 @@ as an unpacked extension.
 1. Clone the repo:
 
    ```
-   git clone https://github.com/testomatio/testomat-run-panel.git
+   git clone https://github.com/testomatio/browser-extension.git
    ```
 
 2. Open `chrome://extensions` in Chrome.
@@ -810,7 +810,7 @@ One page answers them all: [`PRIVACY.md`](../PRIVACY.md).
 ## 6. Where to report a problem
 
 Issues go to the repo:
-**https://github.com/testomatio/testomat-run-panel/issues**
+**https://github.com/testomatio/browser-extension/issues**
 
 There are no issue templates yet, so please include:
 

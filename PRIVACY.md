@@ -175,4 +175,4 @@ makes it true, and the date at the top is updated.
 Questions, corrections, or a claim in this document that does not match the
 code: open an issue at
 
-**https://github.com/testomatio/testomat-run-panel/issues**
+**https://github.com/testomatio/browser-extension/issues**
