@@ -44,7 +44,7 @@ There is no packaged build and no auto-update.
 1. Clone this repository:
 
    ```
-   git clone https://github.com/testomatio/testomat-run-panel.git
+   git clone https://github.com/testomatio/browser-extension.git
    ```
 
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
@@ -94,19 +94,17 @@ Full detail — what is stored, what is transmitted, and every off switch — is
 
 ## How this repository is maintained
 
-Day-to-day development happens in a **private working repository** — that is
-where the issue history, the pull requests and the end-to-end test suite live.
-**This repository is the public release mirror**: each release arrives as a
-single snapshot commit of the tree at that version. There is therefore no
-fine-grained commit history here, and pull requests are reviewed by maintainers
-by hand, since the automated suite is not part of this tree. That suite also
-drives a few test seams in the shipped code (a couple of `chrome.storage.session`
-keys, one message with no production sender) which look unused from inside this
-tree — they are documented in [`docs/architecture.md`](docs/architecture.md)
-§5.3; please leave them alone.
+The end-to-end suite is not part of this tree: it drives a live Testomat.io
+account with fixtures that only exist there, so it is unrunnable from a clone and
+is maintained separately. Two consequences. Pull requests are verified by
+maintainers by hand, so expect review to take longer than the diff suggests. And
+that suite drives a few test seams in the shipped code (a couple of
+`chrome.storage.session` keys, one message with no production sender) which look
+unused from inside this tree — they are documented in
+[`docs/architecture.md`](docs/architecture.md) §5.3; please leave them alone.
 
 Bugs and feature requests belong **here**, in this repository's
-[Issues](https://github.com/testomatio/testomat-run-panel/issues). A useful
+[Issues](https://github.com/testomatio/browser-extension/issues). A useful
 report says what you clicked, what happened (with the exact wording of any
 message), your Chrome version, and whether the *Basic mode* pill was showing.
 Please do not paste API tokens or run URLs you would rather keep private.
