@@ -292,8 +292,15 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
 /* Save stands clear of the last fold: it commits the WHOLE form, so it must not
    read as the button of whatever section happens to sit above it — which is
    exactly what it did tucked under a collapsed Advanced. (Not on the connect
-   screen — the rules below give that one its own spacing.) */
-#view-settings:not([data-mode="connect"]) > #btn-save-settings { margin-top: var(--space-4); }
+   screen — the rules below give that one its own spacing.)
+   Full width, like the folds it closes: the form is one column of full-width
+   rows, and the button that commits all of them is the widest thing on it —
+   a content-width button down there reads as one more section's action. */
+#view-settings:not([data-mode="connect"]) > #btn-save-settings {
+  display: flex;
+  width: 100%;
+  margin-top: var(--space-4);
+}
 
 /* ---------- Connection card ----------
    The connected instance, as a `.card`: an icon, two lines, one action. It stands
