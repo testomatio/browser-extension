@@ -175,6 +175,15 @@ function renderContextCrumbs(view) {
 //   suite  /projects/<slug>/suite/<uid>          — the Ember suite route, singular
 // and every id the panel holds IS the public uid v2 serializes, so there is
 // nothing to translate on the way into one.
+//
+// The open row goes to its RUN, not to the test case behind it: what the panel
+// is showing there is a RESULT, and the result lives in the run report — the
+// test page has no trace of this attempt at all. (The `/test/<uid>` route is
+// still the Tests tab's way out; it is the test view of a RUN that changed.)
+// Built from `state.runId` alone, which is why it is now there for EVERY kind of
+// row — automated as much as manual, a row whose detail has not landed yet, and
+// the ones carrying no `test_id` at all, which is what used to hide it.
+
 const CONTEXT_WEB_TARGET = {
   run: () => (state.runId ? ['run', `runs/${encodeURIComponent(state.runId)}`] : null),
   test: () => {

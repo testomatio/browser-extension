@@ -9,7 +9,7 @@
 // Per-host model is untouched: the list belongs to the ACTIVE instance's token, so
 // an instance switch re-resolves it (screens/settings.js `saveSettings`).
 
-/* global TestomatAPI, $, state, hasChrome, hostOf, show, toast, Onboarding,
+/* global TestomatAPI, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
    prefetchTabCounts, Tooltip */
 
@@ -281,7 +281,6 @@ async function switchProject(projectId) {
   resetProjectScopedState();
   await persistActiveSettings(settings);
   renderProjectBar();
-  if (typeof Onboarding !== 'undefined') Onboarding.markProject();
   // Stay on the tab the tester is on, but at its root: the open run/test is gone.
   if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
   else if (state.activeTab === 'tests') await openTcStudioView();

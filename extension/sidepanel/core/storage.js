@@ -4,7 +4,7 @@
 
 async function loadStored() {
   if (!hasChrome) return {};
-  return chrome.storage.local.get(['settings', 'session', 'hostSettings', 'hostHistory', 'onboarding']);
+  return chrome.storage.local.get(['settings', 'session', 'hostSettings', 'hostHistory']);
 }
 
 // One-time migration (permission rework): the pre-rework single `settings` object
@@ -33,6 +33,13 @@ async function migrateHostSettings(stored) {
 async function dropAiApiKey() {
   if (!hasChrome) return;
   try { await chrome.storage.local.remove('aiApiKey'); } catch { /* best effort */ }
+}
+
+// Same deal for the welcome checklist: the card is gone, so its progress slice is
+// a key nobody reads. Dropped at every boot — no-op once, then forever after.
+async function dropOnboardingState() {
+  if (!hasChrome) return;
+  try { await chrome.storage.local.remove('onboarding'); } catch { /* best effort */ }
 }
 
 function persistSession() {

@@ -1,7 +1,7 @@
 // Test view: render steps (tri-state or local checkboxes), example substitution,
 // status writes, the priority icon, and the substatus dropdown.
 
-/* global TestomatAPI, TestomatParams, marked, PriorityIcons, sanitizeHtml,
+/* global TestomatAPI, TestomatParams, Md, PriorityIcons,
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
    ImgHydrate */
 
@@ -127,19 +127,13 @@ function showTestSection(name) {
 // Top-level list items under a "Steps"-like heading are the steps; nested
 // sub-bullets are NOT steps (their `Expected:` text folds into the parent —
 // see parseSteps). Everything else stays plain markdown.
+// WHICH lists those are is the renderer's answer (shared/markdown.js
+// `stepLists`), not a second copy of the heading walk here: the stylesheet
+// numbers the very same lists off the class that walk stamps, and a body where
+// the two disagreed would print coins on rows that never became steps.
 function stepListItems(container) {
-  const headings = [...container.querySelectorAll('h1,h2,h3,h4')];
-  const stepsHeading = headings.find((h) => /step|крок/i.test(h.textContent));
-  if (!stepsHeading) return [];
-  const items = [];
-  let node = stepsHeading.nextElementSibling;
-  while (node && !/^H[1-4]$/.test(node.tagName)) {
-    if (node.tagName === 'UL' || node.tagName === 'OL') {
-      items.push(...node.querySelectorAll(':scope > li')); // top-level only
-    }
-    node = node.nextElementSibling;
-  }
-  return items;
+  return Md.stepLists(container)
+    .flatMap((list) => [...list.querySelectorAll(':scope > li')]); // top-level only
 }
 
 // `Expected:` is how the fixture writes it, `Expected Result:` is how a human
@@ -147,6 +141,19 @@ function stepListItems(container) {
 // sub-bullet in the row as a second flex item beside the step's own text (that
 // is the two-column squeeze the steps list showed). Both, singular or plural.
 const EXPECTED_LABEL = /^\s*expected(\s+results?)?\s*:/i;
+
+// Every read of RENDERED text goes through here rather than `textContent`.
+// shared/markdown.js renders a soft line break as <br> — an element that
+// carries no text of its own — so a plain textContent read glues the two halves
+// of a wrapped line together ("open the page" + "and wait" -> "open the pageand
+// wait"), and that string is what a step is titled with on the server. Put the
+// space back, and fold the surrounding whitespace with it: a step title and an
+// expected block are each one line.
+function textIn(node) {
+  const clone = node.cloneNode(true);
+  clone.querySelectorAll('br').forEach((br) => br.replaceWith(' '));
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+}
 
 // Pull nested `Expected:` sub-bullets out of a step <li> and return their text
 // (FR-003). The sub-bullets are removed from the DOM so they never render as
@@ -156,7 +163,7 @@ function extractExpected(li) {
   const expected = [];
   li.querySelectorAll(':scope > ul > li, :scope > ol > li').forEach((sub) => {
     if (EXPECTED_LABEL.test(sub.textContent)) {
-      expected.push(sub.textContent.trim());
+      expected.push(textIn(sub));
       const list = sub.parentElement;
       sub.remove();
       if (list && !list.querySelector(':scope > li')) list.remove();
@@ -177,10 +184,11 @@ function extractInlineExpected(li) {
     n.nodeType === 1 && /^(strong|b)$/i.test(n.tagName) && INLINE_EXPECTED_LABEL.test(n.textContent.trim())
   ));
   if (idx < 0) return '';
-  const tail = nodes.slice(idx);
-  const text = tail.map((n) => n.textContent).join('').trim();
-  tail.forEach((n) => n.remove());
-  return text;
+  // Moving the tail into a detached holder both lifts it out of the <li> and
+  // gives textIn() one node to read it from.
+  const holder = document.createElement('div');
+  holder.append(...nodes.slice(idx));
+  return textIn(holder);
 }
 
 // A step's title = its own inline text, excluding any nested lists (which hold
@@ -188,7 +196,7 @@ function extractInlineExpected(li) {
 function stepTitle(li) {
   const clone = li.cloneNode(true);
   clone.querySelectorAll('ul, ol').forEach((n) => n.remove());
-  return clone.textContent.trim();
+  return textIn(clone);
 }
 
 // Parse the rendered markdown into the step model (T012). `pos` MUST match the
@@ -274,9 +282,7 @@ function renderSteps(markdownText, record) {
     });
     return;
   }
-  const tmp = document.createElement('div');
-  tmp.innerHTML = marked.parse(markdownText, { async: false });
-  sanitizeHtml(tmp); // shared/html-sanitize.js — the XSS boundary, one copy
+  const tmp = Md.render(markdownText); // shared/markdown.js — parse + sanitize, one copy
   // …then the images, BEFORE the body reaches the document: the CSP allows no
   // remote <img> and a root-relative one would resolve against the extension
   // (#205). Detached, so nothing is ever requested with the raw src.
@@ -628,9 +634,7 @@ function renderSummaryFailure(attrs) {
     out.classList.add('code', 'is-raw');
     out.textContent = message; // pre-wrap; reporter output is not markdown
   } else {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = marked.parse(message, { async: false });
-    sanitizeHtml(tmp); // shared/html-sanitize.js — the one XSS boundary
+    const tmp = Md.render(message); // shared/markdown.js — parse + sanitize
     // `.sections`, like the steps body above it: a message rendered inside the
     // panel's own chrome is a blob in a screen, not an article, so a heading in it
     // is a muted label and the screen's headings stay the screen's
@@ -1037,27 +1041,37 @@ function closeShotModal() {
 // Substatus dropdown (US4/FR-009). Shown only under JWT once the row has a real
 // status AND the project defines replies for that status; otherwise absent. The
 // current value is reflected from the v2 record's `substatus` (echoed read-only).
+// The empty row: a custom status is optional, so the list has to offer taking
+// it off as well as putting one on.
+const SUBSTATUS_NONE = '— none —';
+
+// Wire it once, from app init — the mount is static markup, the control is not
+// (mirrors initAssigneeDropdown() below).
+function initSubstatusDropdown() {
+  const mount = $('substatus-mount');
+  if (!mount || Dropdown.of('substatus-select')) return;
+  mount.append(Dropdown.create({
+    id: 'substatus-select',
+    className: 'substatus-dd',
+    labelledBy: 'substatus-label',
+    label: 'Custom status',
+    placeholder: SUBSTATUS_NONE,
+    onChange: onSubstatusChange,
+  }).el);
+}
+
 function renderSubstatus(record) {
   const wrap = $('test-substatus');
-  const sel = $('substatus-select');
-  if (!wrap || !sel) return;
+  const dd = Dropdown.of('substatus-select');
+  if (!wrap || !dd) return;
   const status = record?.status;
   const group = runRepliesFor(status);
   const show = capabilities.jwt && !!record?.id && !!status && status !== 'pending' && group.length > 0;
   wrap.hidden = !show;
-  if (!show) { sel.replaceChildren(); return; }
-  sel.replaceChildren();
-  const none = document.createElement('option');
-  none.value = '';
-  none.textContent = '— none —';
-  sel.append(none);
-  for (const r of group) {
-    const o = document.createElement('option');
-    o.value = r;
-    o.textContent = r;
-    sel.append(o);
-  }
-  sel.value = group.includes(record.substatus) ? record.substatus : '';
+  if (!show) { dd.setOptions([]); return; }
+  dd.setOptions(
+    [{ value: '', label: SUBSTATUS_NONE }, ...group.map((r) => ({ value: r, label: r }))],
+    { value: group.includes(record.substatus) ? record.substatus : '' });
 }
 
 // Assignee dropdown (M4 → custom listbox). JWT-only — hidden in basic mode
@@ -1359,21 +1373,25 @@ async function onAssigneeChange(value) {
   }
 }
 
-// Optimistic substatus write with rollback + toast. Empty option clears via
+// Optimistic substatus write with rollback + toast. The empty option clears via
 // DELETE. The server's auto `change` audit extra is expected, never an error.
 // Concurrent changes are serialized (Block 4): a change while a write is in flight
-// is ignored and the select is re-synced to the record's state; an expired session
+// is ignored and the control is re-synced to the record's state; an expired session
 // shows the inline "Session expired" line instead of teleporting to Settings.
+//
+// The value arrives as an argument (`Dropdown`'s onChange), and the control has
+// already moved its closed face to it — so every path that refuses the change
+// has to put the face back, exactly as it did when a <select> kept the new value
+// on its own.
 let substatusWriting = false;
-async function onSubstatusChange() {
-  const sel = $('substatus-select');
+async function onSubstatusChange(value) {
+  const dd = Dropdown.of('substatus-select');
   const record = recordFor(state.currentRecordId);
   if (!record?.id) return;
-  if (substatusWriting) { sel.value = record.substatus || ''; return; }    // ignore + re-sync
-  if (recordWriteLock(record)) { sel.value = record.substatus || ''; return; } // #152/#154 — locked, re-sync
-  const value = sel.value;
+  const resync = () => dd.setValue(record.substatus || '');
+  if (substatusWriting) { resync(); return; }                    // ignore + re-sync
+  if (recordWriteLock(record)) { resync(); return; }             // #152/#154 — locked, re-sync
   const prev = record.substatus || '';
-  if (value === prev) return;
   substatusWriting = true;
   syncBeginWrite();
   record.substatus = value; // optimistic
@@ -1383,7 +1401,7 @@ async function onSubstatusChange() {
     else await TestomatAPI.clearSubstatus(record.id);
   } catch (e) {
     record.substatus = prev;
-    sel.value = prev;
+    dd.setValue(prev);
     renderSubstatusMark(record);
     if (isAuthError(e)) setAuthExpiredLine('test-status');
     else toast(`Custom status not saved: ${e.message}`, { error: true });
@@ -1467,11 +1485,11 @@ function updateTestActionsState() {
     b.disabled = !!lock;
     Tooltip.set(b, lock);
   });
-  // Substatus is a testrun_extras write; the select stays visible (the value is
+  // Substatus is a testrun_extras write; the control stays visible (the value is
   // worth reading) and simply refuses to change. Assignee is deliberately NOT
   // gated here — it is workflow metadata, tracked separately (#153).
-  const substatus = $('substatus-select');
-  if (substatus) { substatus.disabled = !!lock; Tooltip.set(substatus, lock); }
+  const substatus = Dropdown.of('substatus-select');
+  if (substatus) { substatus.disabled = !!lock; Tooltip.set(substatus.trigger, lock); }
   // Both attach buttons share one gate: a missing result record id (evidence
   // attaches to a SAVED testrun result), NOT the status — a row can already carry
   // an id while still pending.
@@ -1511,12 +1529,19 @@ function toggleAttachmentsDisclosure() {
   applyAttachmentsDisclosure();
 }
 
-// A FAILED status keeps the tester on the test precisely to attach evidence, so
-// open the disclosure for them — through the same toggle a click uses, so
-// aria-expanded and the session memory stay coherent. One-way: an already-open
-// (or deliberately re-collapsed) section is never fought.
-function expandAttachmentsForFailure() {
+// Open it, through the same toggle a click uses, so aria-expanded and the session
+// memory stay coherent. One-way: an already-open (or deliberately re-collapsed)
+// section is never fought, and calling it twice is a no-op.
+function openAttachmentsDisclosure() {
   if (!attachmentsOpen) toggleAttachmentsDisclosure();
+}
+
+// A FAILED status keeps the tester on the test precisely to attach evidence, so
+// open the disclosure for them. (The Rec chip's hover card asks for the same
+// thing when its "Open in Attachments & log" link is taken — see
+// revealEvidenceSection in screens/evidence.js.)
+function expandAttachmentsForFailure() {
+  openAttachmentsDisclosure();
 }
 
 // Env facts + the evidence log link as testrun META keys (#116). They used to be

@@ -32,12 +32,20 @@
 //                   `title` carries an `aria-label` now instead — a tip that is
 //                   also the name is a control that goes silent on touch.
 //
-// Not loaded into the page overlay (overlay/annotate-overlay.js): that toolbar
-// lives in a shadow root in somebody else's document, where this stylesheet
-// cannot reach, so it keeps the native `title` — see the note in
-// shared/annotate-core.js.
+//   SCOPED          `mount(root)` moves the whole thing INTO a shadow root: the
+//                   annotator overlay draws its toolbar in one, inside somebody
+//                   else's document, and there `document.elementFromPoint`
+//                   answers with the shadow HOST — every tip in that toolbar was
+//                   invisible to the hit test, which is why it used to fall back
+//                   to the browser's `title`. A shadow root hit-tests through
+//                   itself, and the layer has to live in the same tree as the
+//                   trigger anyway or `aria-describedby` cannot reach it.
+//
+// `window.Tooltip`, not a top-level `const`: the overlay is injected into a page
+// that may already have annotated once, and a second injection of a file that
+// declares a global `const` throws before it runs.
 
-const Tooltip = (() => {
+window.Tooltip = window.Tooltip || (() => {
   // shadcn's own `TooltipProvider` defaults: `delayDuration` 700ms before the
   // first one opens, `skipDelayDuration` 300ms in which the NEXT one opens at
   // once. 700 is a web page's pace; in a side panel where a whole row of icon
@@ -50,6 +58,7 @@ const Tooltip = (() => {
   const ARROW = 8;        // .tooltip-arrow is a square of --space-2
   const ARROW_INSET = 8;  // …and stays this far from the box's own corners
 
+  let scope = null;       // a ShadowRoot the tips live in, when the UI does
   let layer = null;       // the one node, built on first use
   let arrow = null;
   let trigger = null;     // what is described right now
@@ -73,7 +82,7 @@ const Tooltip = (() => {
     layer.hidden = true;
     arrow = document.createElement('span');
     arrow.className = 'tooltip-arrow';
-    document.body.append(layer);
+    (scope || document.body).append(layer);
     return layer;
   };
 
@@ -218,8 +227,9 @@ const Tooltip = (() => {
     layer.replaceChildren(document.createTextNode(text), arrow);
     // A tip on a control inside an open modal <dialog> has to be in the dialog:
     // the top layer paints over everything the rest of the document can reach,
-    // z-index included.
-    const host = el.closest('dialog[open]') || document.body;
+    // z-index included. Scoped to a shadow root, the root is home — outside it
+    // neither this stylesheet nor `aria-describedby` reaches the label.
+    const host = el.closest('dialog[open]') || scope || document.body;
     if (layer.parentNode !== host) host.append(layer);
     // Rendered but still transparent — measured, placed, and only then opened,
     // so the zoom runs from where the box actually is.
@@ -254,7 +264,9 @@ const Tooltip = (() => {
   // event's own target: a disabled control is invisible to event dispatch but
   // not to hit-testing, and its tip is the one that matters most.
   const hitTest = () => {
-    const under = document.elementFromPoint(px, py);
+    // A shadow root hit-tests THROUGH itself; the document would answer with
+    // the shadow host and never see the button the pointer is actually on.
+    const under = (scope || document).elementFromPoint(px, py);
     const found = under && under.closest ? under.closest('[data-tip]') : null;
     const el = found && tipOf(found) ? found : null;
     if (suppressed && el !== suppressed) suppressed = null;
@@ -353,6 +365,24 @@ const Tooltip = (() => {
     },
     /** What this element would show. */
     get(el) { return tipOf(el); },
+
+    /** Draw tips inside `root` (a ShadowRoot) instead of in the document: the
+     *  annotator overlay's toolbar lives in one, and from the document neither
+     *  the hit test nor `aria-describedby` can reach into it. `unmount()` hands
+     *  the whole thing back — the injected world outlives the overlay, and a
+     *  hit test into a detached root on every pointer move is pure waste. */
+    mount(root) {
+      if (!root || typeof root.elementFromPoint !== 'function') return;
+      hide();
+      scope = root;
+      if (layer) { layer.remove(); layer = null; arrow = null; }   // rebuilt in the new tree
+    },
+    unmount() {
+      if (!scope) return;
+      hide();
+      if (layer) { layer.remove(); layer = null; arrow = null; }
+      scope = null;
+    },
 
     /** Take over the `title`s inside a subtree that this repo does not write —
      *  the vendored markdown toolbar is the only one. Moving the attribute is

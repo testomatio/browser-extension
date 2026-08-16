@@ -41,19 +41,53 @@ const CaptureAnnotate = (() => {
   // — and the colour scheme rides along with it, RESOLVED to light or dark here:
   // the overlay runs in the site's document, where the Appearance setting cannot
   // be read, so a page that resolved it itself would ignore a pinned theme.
+  // The overlay's toolbar is drawn with the LIBRARY's own stylesheet — the same
+  // shared/tokens.css + shared/components.css the panel and the editor page load
+  // — handed over as TEXT, because a shadow root in somebody else's document
+  // cannot <link> an extension file, and making those files web-accessible would
+  // let every page the overlay ever touches fingerprint this extension by
+  // fetching them. Read here, in the extension's own context, where they are
+  // just local resources (no network, Constitution IV).
+  //
+  // Two edits on the way in, both forced by the move:
+  //   :root → :host   the token block has to land on the shadow HOST; `:root` in
+  //                   there is the SITE's <html> and matches nothing.
+  //   @font-face out  its `url()`s are relative, so inside the site's document
+  //                   they would be fetched FROM THE SITE — a request to a
+  //                   stranger's server for a font we ship. The stacks fall back
+  //                   to the system faces, which is what the overlay always did.
+  let libCss = null;
+  async function libraryCss() {
+    if (libCss != null) return libCss;
+    const files = ['shared/tokens.css', 'shared/components.css'];
+    const parts = await Promise.all(files.map((f) => fetch(chrome.runtime.getURL(f)).then((r) => r.text())));
+    libCss = parts.join('\n')
+      .replace(/@font-face\s*\{[^}]*\}/g, '')
+      .replace(/:root\b/g, ':host');
+    return libCss;
+  }
+
   async function tryInjectOverlay(targetTabId, key) {
     if (targetTabId == null || !chrome.scripting?.executeScript) return false;
     const scheme = typeof Theme !== 'undefined' ? Theme.resolved() : null;
     try {
+      const css = await libraryCss();
       await chrome.scripting.executeScript({
         target: { tabId: targetTabId },
-        func: (k, s) => { window.__testomatAnnotateKey = k; window.__testomatAnnotateScheme = s; },
-        args: [key, scheme],
+        func: (k, s, c) => {
+          window.__testomatAnnotateKey = k;
+          window.__testomatAnnotateScheme = s;
+          window.__testomatAnnotateCss = c;
+        },
+        args: [key, scheme, css],
       });
       await chrome.scripting.executeScript({
         target: { tabId: targetTabId },
-        // icons.js first — annotate-core.js draws its toolbar from that set.
-        files: ['shared/icons.js', 'shared/annotate-core.js', 'overlay/annotate-overlay.js'],
+        // icons.js first — annotate-core.js draws its toolbar from that set — and
+        // tooltip.js with them, so the toolbar's labels are the product's own
+        // tooltip rather than the browser's `title` (it is mounted INTO the
+        // shadow root by the overlay).
+        files: ['shared/icons.js', 'shared/tooltip.js', 'shared/annotate-core.js', 'overlay/annotate-overlay.js'],
       });
       return true;
     } catch { /* restricted page → fallback */ return false; }

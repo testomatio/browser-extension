@@ -433,6 +433,48 @@ a.icon-btn { text-decoration: none; }
 .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 
 /* ====================================================================
+   SWATCH — a control whose LABEL is a colour
+   ====================================================================
+   The annotator's ink picker, and anything else that asks "which colour" where
+   the answer cannot be written down: the swatch IS the value. That is why the
+   colour arrives as an inline `--swatch` and not as a token — it is data the
+   caller owns (an ink that will end up inside an exported picture), not a
+   theme decision this file gets to make.
+
+   Not `.btn`: a button carries a label and a surface that means something in
+   the theme, and both would fight the one thing this control has to show. It
+   keeps the button's square, corner, focus ring and 4px grid, and drops the
+   rest. The accessible name lives in `aria-label` — a swatch has no text. */
+.swatch-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.swatch {
+  flex: none;
+  width: var(--space-6);
+  height: var(--space-6);
+  padding: 0;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  background: var(--swatch, var(--muted));
+  cursor: pointer;
+}
+/* The same inset wash every control in this file hovers with — it works on a
+   swatch precisely because it does not need to know the colour underneath. */
+.swatch:hover:not(:disabled) { box-shadow: inset 0 0 0 999px var(--hover-overlay); }
+.swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.swatch:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+/* Chosen — an ink ring around a page-coloured gap, drawn INSIDE the same 24px
+   box so picking one cannot nudge the row. A wash or a tint would be invisible
+   against half the palette; a hole is legible against all of it. */
+.swatch.active,
+.swatch[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+
+/* ====================================================================
    SEGMENTED — one control, N answers, exactly one of them chosen
    ====================================================================
    A filter that is always on (All / Manual / Automated), a view switch, a scope
@@ -1289,6 +1331,14 @@ a.icon-btn { text-decoration: none; }
 .disclosure-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .disclosure-head > .md-icon:first-child { color: var(--muted); transition: transform var(--dur-fast) var(--ease); }
 .disclosure-head[aria-expanded="true"] > .md-icon:first-child { transform: rotate(90deg); }
+/* The head's SUBJECT mark, between the caret and the label — what the fold is
+   about, where the caret is only whether it is open. It takes NO colour of its
+   own, so it rides the head's `currentColor` with the label (and turns with it
+   on hover): it is part of the title, not chrome around it, and a muted one
+   next to the muted caret reads as two carets. Optional — a fold of a FACT
+   (Meta, Steps) has nothing to picture; a fold that is a SECTION of a screen
+   (every Settings block) does. */
+.disclosure-head > .head-icon { flex: none; }
 .disclosure-body { padding: var(--space-1) 0 0; }
 
 /* ====================================================================
@@ -1318,6 +1368,14 @@ a.icon-btn { text-decoration: none; }
    single item wears `.accordion-item` on its own, with no `.accordion`
    parent, and keeps `.disclosure`'s own margin.
 
+   The head may also sit inside a HEADING (`<h3><button class="disclosure-head">`)
+   when the items are the sections of a page rather than facts inside one — the
+   Settings screen is a group of seven, and a screen whose whole structure is
+   folds still owes the document an outline. The wrapper is transparent to this
+   component: every head rule below matches it one level down, and the heading
+   itself is flattened where it is used (see `.settings-section-title` in the
+   panel's stylesheet).
+
    A list inside one (Meta) is the same `.kv.rows` Run info's own fields use —
    one hairline PER ROW instead of the head/body rule the box gave up, which
    is the actual answer to "where did the divider go": it moved from framing
@@ -1329,17 +1387,21 @@ a.icon-btn { text-decoration: none; }
   border-radius: var(--radius);
   overflow: hidden;
 }
-.accordion-item > .disclosure-head { padding: var(--space-2) var(--space-3); transition: background var(--dur-fast) var(--ease); }
+.accordion-item > .disclosure-head,
+.accordion-item > :is(h2, h3, h4) > .disclosure-head { padding: var(--space-2) var(--space-3); transition: background var(--dur-fast) var(--ease); }
 /* The block's hover is the row lifting toward the surface it will open onto —
    DISCLOSURE's plain-row hover turns the label accent instead, which reads as
    a link and not as a trigger with room around it. */
-.accordion-item > .disclosure-head:hover:not(:disabled) { background: var(--hover-overlay); color: var(--fg); }
+.accordion-item > .disclosure-head:hover:not(:disabled),
+.accordion-item > :is(h2, h3, h4) > .disclosure-head:hover:not(:disabled) { background: var(--hover-overlay); color: var(--fg); }
 /* `overflow: hidden` above clips a 2px OUTSET ring at the item's own corners —
    the same fix `.tab` needed for the same reason (components.css TABS). */
-.accordion-item > .disclosure-head:focus-visible { outline-offset: -2px; }
+.accordion-item > .disclosure-head:focus-visible,
+.accordion-item > :is(h2, h3, h4) > .disclosure-head:focus-visible { outline-offset: -2px; }
 /* A trailing count (Meta 3, Steps 2) reads as the item's own badge when it is
    pinned to the block's far edge, not floating a word after the label. */
-.accordion-item > .disclosure-head .counter { margin-left: auto; }
+.accordion-item > .disclosure-head .counter,
+.accordion-item > :is(h2, h3, h4) > .disclosure-head .counter { margin-left: auto; }
 .accordion-item > .disclosure-body { padding: var(--space-2) var(--space-3); }
 
 /* A block nested one level inside another (Attachments & log's own Console &
@@ -1472,6 +1534,137 @@ a.icon-btn { text-decoration: none; }
 }
 
 /* ====================================================================
+   HOVERCARD — the label that is a LIST
+   ====================================================================
+   shadcn/ui `hover-card`, drawn in this system's tokens: the popup's surface,
+   border, corner and shadow — the same box the `.menu` is, because both are "a
+   panel a control opened" — with the tooltip's fade + `zoom-in-95` and its
+   `data-side` growth, because it is the POINTER that opened it.
+
+   It exists for the one thing a tooltip structurally cannot do. A `.tooltip` is
+   one string and `pointer-events: none` by design; the moment the answer is a
+   list of rows with a count and a way INTO the section holding the full set —
+   the Rec chip's caught errors — the label has to become a small panel that can
+   be entered and clicked. That is this, and nothing else: a card is a SUMMARY of
+   something already on the screen, never the only home of a fact or a control.
+
+   The engine (shared/hovercard.js) owns `left`/`top` and the side; the parts
+   below are the vocabulary its content is built from — a head that names what
+   the card is about, a muted meta line under it, and a foot holding the way on. */
+.hovercard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-popup);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Wide enough for a truncated URL and a timestamp on one line, and no wider
+     than the panel it opens in — a card that overhangs a 380px side panel is
+     clipped by the window, not by the viewport test that placed it. */
+  width: max-content;
+  min-width: 200px;
+  max-width: 320px;
+  padding: var(--space-3);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  line-height: var(--leading-snug);
+  text-align: left;
+  box-shadow: var(--shadow-popup);
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.hovercard[data-side="top"] { transform-origin: bottom center; }
+.hovercard[data-side="bottom"] { transform-origin: top center; }
+.hovercard[data-side="left"] { transform-origin: right center; }
+.hovercard[data-side="right"] { transform-origin: left center; }
+.hovercard[data-open="true"] { opacity: 1; transform: scale(1); }
+
+/* What the card is about: a title that gives way to whatever rides beside it (a
+   mark, a count), on the heading face the panel's section titles wear. */
+.hovercard-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.hovercard-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The line of facts under it — what window, how many, how old. `margin: 0`
+   because it is usually a `<p>` and the card sets its own rhythm with `gap`: a
+   paragraph's own 1em would open a hole between the head and the summary. */
+.hovercard-meta { margin: 0; color: var(--muted); }
+
+/* The summary itself: a few rows, each a mark and its line. `.hovercard-text`
+   stops at TWO lines — a card that grew with the length of what it quotes would
+   stop being a glance — and the row's mark is left to the caller, because what
+   marks a row is the caller's vocabulary (the Rec card lends the log's own
+   `.ev-icon`), not the card's. */
+.hovercard-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hovercard-row { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+/* The row's TAIL — when it happened, what it cost — pulled out of the quoted text
+   into a column of its own, the same move `.row-count` makes on a list row: a
+   timestamp buried at the end of every line is read as part of the message, and
+   six of them down a card never line up. Tabular figures, because they must. */
+.hovercard-row-meta {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hovercard-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  /* A row in a card quotes machine text — a URL, a stack frame — so it breaks a
+     word only when the word alone is wider than the box, like the tooltip does. */
+  overflow-wrap: anywhere;
+}
+/* «+4 more» — the count of what the card stopped listing, and the honest half of
+   a summary. Muted like the meta line, and never a control: the way to those four
+   is the link in the foot below, and two ways into one section is one too many. */
+.hovercard-more { margin: 0; color: var(--muted); }
+
+/* …and the way on, cut off from the summary by the hairline every fold in this
+   system uses. A card's foot is one link or one hint, never a row of buttons:
+   the pointer got here by resting somewhere, and a choice belongs on the screen. */
+.hovercard-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+/* Motion is the flourish, not the message — the same rule as the tooltip's. */
+@media (prefers-reduced-motion: reduce) {
+  .hovercard { transition: none; transform: none; }
+  .hovercard[data-open="true"] { transform: none; }
+}
+
+/* ====================================================================
    PROGRESS — the stacked status bar
    ====================================================================
    Segments in DOM order fill the track; each carries a status class, so the bar
@@ -1537,6 +1730,63 @@ a.icon-btn { text-decoration: none; }
 .kv.rows dd { padding-left: var(--space-3); }
 /* The last pair closes the list — the surface below it draws its own floor. */
 .kv.rows > :nth-last-child(-n + 2) { border-bottom: 0; }
+
+/* ====================================================================
+   THUMB — a picture that is still take-back-able
+   ====================================================================
+   A row of small pictures a person has staged and can still drop before they
+   are committed: the screenshots the test editor holds until Save. It is a
+   LIST, so it grows — one picture is the same component as five.
+
+     <ul class="thumb-row" aria-label="Screenshots to attach on Save">
+       <li class="thumb">
+         <img src="…" alt="Screenshot 1">
+         <button class="icon-btn size-xs thumb-remove" aria-label="Remove screenshot 1">
+           <svg class="md-icon">…</svg>            (Icons.markup('close', 16))
+         </button>
+       </li>
+     </ul>
+
+   The remove control is a badge ON the picture, not a word beside it: at this
+   size there is no room for a word, and a row of pictures each trailed by
+   "Remove" reads as a form rather than as the pictures it is. It is drawn at
+   all times, never on hover alone — a control that only exists under a pointer
+   does not exist on a touch screen, and it is the only way back out of a
+   mis-click. It stands on a filled, bordered chip because it lands on a
+   PICTURE, whose colours this file cannot know. */
+.thumb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.thumb { position: relative; flex: none; }
+.thumb > img {
+  display: block;
+  height: 64px;
+  width: auto;
+  max-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.thumb-remove {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  color: var(--fg);
+  background: var(--bg);
+  border-color: var(--border-control);
+}
+/* Removing is destructive, so the hover says so — the library's failed colour,
+   the same one the editor's old "Remove" word wore. */
+.thumb-remove:hover:not(:disabled) { color: var(--failed); background: var(--bg); border-color: var(--failed); }
+/* The ring loses its offset: 2px outside a control sitting 4px inside the
+   picture's edge would draw across the picture instead of around the button. */
+.thumb-remove:focus-visible { outline-offset: 0; }
 
 /* ====================================================================
    USER CELL — who did it
@@ -1736,14 +1986,8 @@ a.icon-btn { text-decoration: none; }
    the edge is CLOSED by it instead of crossing it, and it takes no pointer
    events, so nothing under those 1px is any harder to click.
 
-   The corners are ROUNDED, and by the biggest radius in the system: the window
-   this is drawn inside has rounded corners of its own (Chrome's side panel), and
-   a square frame runs its four corners straight into that curve, where they are
-   clipped — the line looks snipped off at each end. A radius at least as round as
-   the window's pulls the arc inside the clip, so the frame closes on itself. It
-   is --radius-lg rather than the --radius every card wears for the same reason:
-   erring rounder is what keeps the corner whole, and this is the one box in the
-   extension that is bigger than a card.
+   The corners are SQUARE: the frame traces the window's own edge, and the window
+   already clips whatever curve it has around it.
 
    Dark draws no frame — --app-frame is transparent there — because an 850 page
    against any site is already its own shape. The pseudo-element still exists in
@@ -1755,7 +1999,6 @@ body::after {
   inset: 0;
   z-index: var(--z-frame);
   border: 1px solid var(--app-frame);
-  border-radius: var(--radius-lg);
   pointer-events: none;
 }
 
@@ -2101,38 +2344,168 @@ body::after {
                 create editor's Preview tab, where the structure is the point.
      `.sections` a blob embedded in a screen's own chrome: `### Steps`,
                 `### Expected` are the sections of a checklist, not chapters of an
-                article, so they are set as muted LABELS one step under the body
-                text — and the only heading on the screen stays the one the screen
-                printed itself, its title. Both hosts read a test this way (the
+                article, so they are set as small LABELS in the body face, one
+                step under the body text — and the only heading on the screen
+                stays the one the screen printed itself, its title. Both hosts read a test this way (the
                 panel's #test-steps, the test page's read-only view); without it a
                 test's `### Steps` came out bigger and heavier than the title of
-                the test it belongs to. */
+                the test it belongs to.
+
+   The block sets its own leading (1.625): this is the only place in the product
+   where text is READ rather than scanned — a step is a sentence a tester follows
+   with their finger while looking at another window — and the chrome's 1.5 packed
+   those sentences tight enough that a wrapped step ran into the next one. */
+.markdown {
+  line-height: var(--leading-relaxed);
+  /* The step ladder (see STEPS below): the numbered coin's box, and the air
+     between it and the words it numbers. A host with more room than the panel
+     may step them up; nothing else in the block is allowed to. */
+  --md-step-size: var(--space-5);
+  --md-step-gap: var(--space-2);
+}
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
 .markdown h1, .markdown h2, .markdown h3, .markdown h4 {
   font-family: var(--font-heading);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-  margin: 0.6em 0 0.3em;
+  /* On the grid, not on the em: a heading's air is spacing like any other, and
+     0.6em/0.3em of a 13px body is 7.8/3.9 — two values that exist on no scale
+     and that changed under every host that set a different font-size. */
+  margin: var(--space-4) 0 var(--space-2);
 }
 .markdown h1 { font-size: var(--prose-h1); }
 .markdown h2 { font-size: var(--prose-h2); }
 .markdown h3, .markdown h4 { font-size: var(--prose-h3); }
+/* A SECTION label. It is subordinate to the screen's own title by size, weight
+   face and letterspacing — not by being dimmed: this label is the only word
+   telling a tester which part of the test they are looking at, and it used to be
+   printed in --muted, i.e. the colour this product uses for text that may be
+   skipped. Nothing here may be skipped. (Same rule the editor's syntax markers
+   answer to — text in this product is never faded to say it is secondary.) */
 .markdown.sections h1,
 .markdown.sections h2,
 .markdown.sections h3,
 .markdown.sections h4 {
   font-family: var(--font-sans);
   font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
   line-height: var(--leading-snug);
   letter-spacing: var(--tracking-wide);
-  color: var(--muted);
+  color: var(--fg);
   margin: var(--space-4) 0 var(--space-2);
 }
-.markdown p { margin: 0.5em 0; }
-.markdown ul, .markdown ol { margin: 0.4em 0; padding-left: 1.4em; }
-.markdown li { margin: 0.15em 0; }
-.markdown a { color: var(--accent); }
+.markdown p { margin: var(--space-2) 0; }
+.markdown ul, .markdown ol { margin: var(--space-2) 0; padding-left: var(--space-5); }
+/* A nested list belongs to the line above it — it opens no new block. */
+.markdown li > ul, .markdown li > ol { margin: var(--space-1) 0; }
+.markdown li { margin: var(--space-1) 0; }
+/* A link in a test body is usually the URL the run STARTS at, so it is marked
+   twice — accent AND underline. Colour alone is not a link. */
+.markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- STEPS — the numbered list under a `### Steps` heading ----------------
+   The steps of a test are not "an ordered list", and the app prints them the way
+   this does: each one numbered in its own coin, with a rail running from one coin
+   to the next so the steps read as a single thread down the page rather than as N
+   loose paragraphs that happen to carry digits. The browser's own markers cannot
+   do it — a marker sits outside the box, so it can be neither drawn nor
+   connected — hence the counter.
+
+   `.md-steps`, and ONLY `.md-steps`: every OTHER numbered list in a body — a list
+   of accounts, of URLs, of anything — stays a plain `1. 2. 3.`, because that is
+   what the author wrote and coins on it would promise a checklist that isn't one.
+   The class is stamped by the renderer (shared/markdown.js `stepLists`) on the
+   lists under a "Steps"-like heading, since the fact that decides it is the TEXT
+   of a heading two elements back — which no selector can reach.
+
+   `:not(:has(> .step-row))` keeps this off the panel's INTERACTIVE steps: once
+   test-view.js has parsed the same list into tickable rows, the row's control is
+   its mark and the ordinal is already spent — two marks per step is one too many
+   (sidepanel/style.css owns that list). */
+.markdown ol.md-steps:not(:has(> .step-row)) {
+  counter-reset: md-step;
+  list-style: none;
+  padding-left: 0;
+}
+.markdown ol.md-steps:not(:has(> .step-row)) > li {
+  position: relative;
+  counter-increment: md-step;
+  margin: 0;
+  padding: 0 0 var(--space-3) calc(var(--md-step-size) + var(--md-step-gap));
+}
+.markdown ol.md-steps:not(:has(> .step-row)) > li:last-child { padding-bottom: 0; }
+/* The coin, centred on the step's FIRST line (`1lh`, whatever the host's size and
+   leading) rather than on the top of its box — a step that wraps to three lines
+   otherwise floats its number half a step above the sentence it numbers. */
+.markdown ol.md-steps:not(:has(> .step-row)) > li::before {
+  content: counter(md-step);
+  position: absolute;
+  left: 0;
+  top: max(0px, (1lh - var(--md-step-size)) / 2);
+  display: grid;
+  place-items: center;
+  width: var(--md-step-size);
+  height: var(--md-step-size);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-none);
+  letter-spacing: 0;
+}
+/* …and the thread between the coins: from just under this one to the top of the
+   next, so it is continuous down a list of any length and stops at the last. */
+.markdown ol.md-steps:not(:has(> .step-row)) > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--md-step-size) / 2);
+  top: calc(max(0px, (1lh - var(--md-step-size)) / 2) + var(--md-step-size) + var(--space-1));
+  /* To the BOTTOM of the item, which is the top of the next coin — a rail that
+     stopped short left a 4px stub under a one-line step, reading as a rendering
+     fault rather than as a thread. The only break in it is the one under each
+     coin, where it is a gap on purpose. */
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--border);
+}
+/* A step's own sub-list — `- Expected: the Tests page opens`, the fact the step
+   is checked against. It hangs off the step's text column with a hollow ring for
+   a marker (the browser's second-level `circle`, drawn rather than typeset so it
+   lines up with the first line of a wrapped one). Its words carry the same ink as
+   the step: an expected result is the half of a step that decides pass or fail. */
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ul,
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ol {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  /* No indent of its own: the marker column below IS the indent. A panel is
+     380px wide and this line is already three levels in — the app can afford to
+     hang its expected results far to the right, this column cannot. */
+  padding-left: 0;
+}
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ul > li,
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ol > li {
+  position: relative;
+  padding-left: var(--space-4);
+}
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ul > li::before,
+.markdown ol.md-steps:not(:has(> .step-row)) > li > ol > li::before {
+  content: "";
+  position: absolute;
+  left: var(--space-1);
+  /* 6px is a MARK, not a step of spacing: the ring has to read as a bullet
+     beside 13px text, and the 4px grid's neighbours are a dot (4) and a button's
+     dot (8). Centred on the first line, like the coin above. */
+  top: calc((1lh - 6px) / 2);
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+}
 .markdown img { max-width: 100%; }
 /* A content image is FETCHED, not linked — the CSP allows no remote <img>
    (#205, shared/img-hydrate.js) — so between the render and the bytes it has no
@@ -2167,7 +2540,7 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--prose-code);
 }
 .markdown pre {
-  margin: 0.5em 0;
+  margin: var(--space-2) 0;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -2176,13 +2549,15 @@ span.img-fallback { color: var(--muted); }
 }
 /* A fenced block already IS the well — its code must not draw a second one. */
 .markdown pre code { padding: 0; background: none; font-size: inherit; }
-.markdown table { border-collapse: collapse; margin: 0.5em 0; }
+.markdown table { border-collapse: collapse; margin: var(--space-2) 0; }
 .markdown th, .markdown td { padding: var(--space-1) var(--space-3); border: 1px solid var(--border-control); }
+/* A quote is marked by its RULE and its inset, never by dimming the words —
+   the 0.9 opacity this used to carry took every glyph in the block a tenth of
+   the way to the background, including any code or link inside it. */
 .markdown blockquote {
-  margin: 0.5em 0;
-  padding: 0.2em 0.9em;
+  margin: var(--space-2) 0;
+  padding: var(--space-1) var(--space-3);
   border-left: var(--border-w-accent) solid var(--border-control);
-  opacity: 0.9;
 }
 
 /* ====================================================================
@@ -3040,7 +3415,7 @@ span.img-fallback { color: var(--muted); }
    Checkboxes, radios, files and ranges are excluded: they are not text fields
    and the height/padding here would deform them. */
 /* md is the default size here too. */
-:where(.input, .select, .textarea, input, select, textarea) {
+:where(.input, .select, .textarea, .dropdown-trigger, input, select, textarea) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
   --ctl-fs: var(--control-fs-md);
@@ -3049,6 +3424,7 @@ span.img-fallback { color: var(--muted); }
 .input,
 .select,
 .textarea,
+.dropdown-trigger,
 :where(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="button"], [type="reset"])),
 :where(select),
 :where(textarea) {
@@ -3063,13 +3439,17 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--ctl-fs);
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-/* A select keeps its native POPUP (Chrome renders it at OS level, which is the
-   only thing that behaves in a 380px side panel) — but the closed face's own
-   caret is drawn, not the UA's: the native glyph sits at a fixed inset the
-   engine controls, not this file, so it never actually moved off the edge no
-   matter how much room `padding-right` bought it. `currentColor` is what keeps
-   it on the field's own text colour through both themes without a second
-   asset. */
+/* `.select` is now a FALLBACK, not a component this product builds with: every
+   picker in the extension is `.dropdown` (below), because Chrome draws a native
+   select's popup at OS level and in a 380px side panel that lands as a huge menu
+   beside the panel, in the OS's font and colours, printing nothing but plain
+   text. What is left here is the closed FACE, so a stray `<select>` — one this
+   repo did not write, or one an author reaches for out of habit — still looks
+   like the rest of the form instead of like the browser's default.
+   The caret is drawn rather than the UA's: the native glyph sits at a fixed
+   inset the engine controls, not this file, so it never actually moved off the
+   edge no matter how much room `padding-right` bought it. `currentColor` keeps
+   it on the field's own text colour through both themes without a second asset. */
 .select,
 :where(select) {
   appearance: none;
@@ -3117,6 +3497,7 @@ span.img-fallback { color: var(--muted); }
 .input:hover:not(:focus),
 .select:hover:not(:focus),
 .textarea:hover:not(:focus),
+.dropdown-trigger:hover:not(:focus):not(:disabled),
 :where(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"])):hover:not(:focus),
 :where(select):hover:not(:focus),
 /* `background-color`, not the shorthand: a select carries its caret as a
@@ -3127,6 +3508,8 @@ span.img-fallback { color: var(--muted); }
 .input:focus,
 .select:focus,
 .textarea:focus,
+.dropdown-trigger:focus,
+.dropdown-trigger[aria-expanded="true"],
 :where(input):focus,
 :where(select):focus,
 :where(textarea):focus {
@@ -3140,6 +3523,7 @@ span.img-fallback { color: var(--muted); }
 .input[aria-invalid="true"], .input[aria-invalid="true"]:focus,
 .select[aria-invalid="true"], .select[aria-invalid="true"]:focus,
 .textarea[aria-invalid="true"], .textarea[aria-invalid="true"]:focus,
+.dropdown-trigger[aria-invalid="true"], .dropdown-trigger[aria-invalid="true"]:focus,
 :where(input, select, textarea)[aria-invalid="true"],
 :where(input, select, textarea)[aria-invalid="true"]:focus {
   border-color: var(--failed);
@@ -3149,6 +3533,7 @@ span.img-fallback { color: var(--muted); }
 .input:disabled,
 .select:disabled,
 .textarea:disabled,
+.dropdown-trigger:disabled,
 :where(input):disabled,
 :where(select):disabled,
 :where(textarea):disabled { opacity: 0.6; cursor: default; }
@@ -3181,11 +3566,11 @@ span.img-fallback { color: var(--muted); }
    square (the height less its two 4px insets — 24 at md, 20 at sm) plus room to
    breathe. `.field` is for the sm/md rungs; xs has no space for an ornament.
 
-   A `.select` takes the same wrapper: a dropdown whose closed state has to say
-   what KIND of thing it is choosing (the editor's template picker) carries the
-   mark inside its own border for exactly the reason the search box does — beside
-   it, the icon reads as one more control in the row. Its right side is the OS
-   caret's, so only the leading inset is ever asked for. */
+   `.field-icon` is reused by `.dropdown` (below) for the same reason: a picker
+   whose closed state has to say what KIND of thing it is choosing (the editor's
+   template picker) carries the mark inside its own border, because beside it the
+   icon reads as one more control in the row. Only the leading inset is ever asked
+   for there — a dropdown's right side belongs to its caret. */
 .field { position: relative; display: block; }
 .field > :where(.input, input, .select, select) { width: 100%; }
 /* 12 (the icon's own inset) + 16 (its width) + 4 of air to the text — a step
@@ -3220,6 +3605,104 @@ span.img-fallback { color: var(--muted); }
   aspect-ratio: 1;
 }
 .field-clear:focus-visible { outline-offset: 0; }
+
+/* ====================================================================
+   DROPDOWN — the select this product actually ships
+   ====================================================================
+   A field face that opens the shared `.menu` under itself instead of the OS's
+   menu somewhere near it. Built by shared/dropdown.js — the markup below is
+   what it produces, and nothing hand-writes it:
+
+     <div class="dropdown">
+       <span class="md-icon field-icon" data-icon="description"></span>   (optional)
+       <button class="dropdown-trigger size-sm" id="tc-template"
+               aria-haspopup="listbox" aria-expanded="false" data-value="12">
+         <span class="dropdown-value">Test Template (default)</span>
+         <span class="md-icon dropdown-caret" data-icon="keyboard_arrow_down"></span>
+       </button>
+       <div class="menu dropdown-menu" hidden>
+         <input class="input size-sm dropdown-filter">                    (optional)
+         <ul class="menu-list dropdown-list" role="listbox">
+           <li class="menu-option dropdown-option" role="option" aria-selected="true">
+             <span class="dropdown-option-label">Test Template (default)</span>
+             <svg class="dropdown-option-check">…</svg>
+           </li>
+         </ul>
+         <div class="empty compact dropdown-empty" hidden>…</div>
+       </div>
+     </div>
+
+   The trigger takes the FIELDS face wholesale — it is in the same selector
+   lists as `.input` and `.select` above, so the border, the height ladder, the
+   hover, the focus ring, `aria-invalid` and the disabled wash are all one
+   definition and cannot drift. Only what a button does not already do is here.
+   The popup is the shared `.menu` (MENU, above), which means the page holding
+   one must not trap it in a stacking context of its own. */
+.dropdown { position: relative; display: block; }
+/* `display` here outranks the UA's `[hidden]` rule, so hiding one has to be
+   said in the component or `dd.hidden = true` leaves it on the screen. */
+.dropdown[hidden] { display: none; }
+/* The closed face is a row, not a line of text: the value takes the width and
+   the caret keeps its square at the end. `--space-2` on the right, not the
+   field's own `--ctl-px`: the caret is a real child with its own optical inset
+   inside a 16px box, where the native one was a background image with none. */
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+}
+.dropdown-trigger[hidden] { display: none; }
+/* The face takes the field's width so the caret stays pinned to the far end.
+   It is a ROW, not a line of text: a custom row (an icon and a word, a monogram
+   and a name) is drawn in the closed face as well as in the list. */
+.dropdown-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* Shrink-only, and the only thing that gives way: a long value ellipsizes rather
+   than pushing the caret out of the field — the same deal `.project-current`
+   makes in the panel header. */
+.dropdown-value-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Nothing chosen yet reads as a hint, not as an answer. */
+.dropdown-value.placeholder { color: var(--muted); }
+.dropdown-caret { flex: none; display: block; color: var(--muted); }
+.dropdown:has(> .field-icon) > .dropdown-trigger { padding-left: var(--space-8); }
+
+/* The popup starts at the trigger's own width and grows past it for a long
+   option — anchored to whichever edge the control sits against, so one at the
+   end of a toolbar opens leftwards instead of off the panel. */
+.dropdown-menu {
+  left: 0;
+  right: auto;
+  min-width: 100%;
+  max-width: min(320px, calc(100vw - var(--space-8)));
+}
+.dropdown-menu.align-end { left: auto; right: 0; }
+.dropdown-filter { margin: 0; }
+.dropdown-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The tick the OS menu drew for the chosen row, kept — the wash alone is easy
+   to read as hover. It holds its column in EVERY row (hidden, not absent), so
+   nothing shifts sideways as the choice moves down the list. */
+.dropdown-option-check { flex: none; visibility: hidden; }
+.dropdown-option[aria-selected="true"] .dropdown-option-check { visibility: visible; }
 
 /* ====================================================================
    CHOICE — checkbox, radio, switch
@@ -3451,6 +3934,46 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
   color: var(--muted);
 }
+/* `.choice-text` is the words as ONE flex item. A bare text node beside the
+   control is an anonymous item too, so the row looks the same without it — until
+   something has to sit AFTER the words and wrap with them rather than being
+   pushed to the end of the row, which is exactly what `.info-tip` below does. */
+.choice-text { min-width: 0; }
+
+/* ---------- .info-tip — the explanation mark ----------
+   A label says what a control IS; this says what it does, what its default is,
+   and what turning it off actually keeps. The settings form is where that split
+   came from: every row carried its own reasoning inline ("Attach console &
+   network log to failed tests") or in a paragraph under it, and eight settings
+   read as eight paragraphs — in a 380px panel each label wrapped to two or three
+   lines, so the form could not be scanned at all. Three or four words on the
+   line, the sentence one hover away.
+
+   A real <button>, not a <span>: interactive content inside a <label> does not
+   forward its click to the control, so pressing the mark asks the question
+   instead of silently answering the setting — and it is a tab stop, which is the
+   only way a keyboard user reaches a tooltip (shared/tooltip.js opens one on
+   :focus-visible). Give it the same text as `aria-label` so a screen reader is
+   told the explanation outright instead of being handed a mark named "info".
+
+   `--muted` is a COLOUR, not a fade: the mark is a glyph in the hint hue, drawn
+   at the same full opacity as every other glyph in the system. */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--muted);
+  /* Sits with the text it follows, not on its cap line: the mark is 14px in a
+     16px line box, so it drops by the half of the difference the baseline owes. */
+  vertical-align: -3px;
+  cursor: help;
+}
+.info-tip:hover, .info-tip:focus-visible { color: var(--accent); }
+.info-tip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Reduced motion drops the travel and the tick's grow — the STATE is a colour
    and a position, both of which are still there without an animation to carry

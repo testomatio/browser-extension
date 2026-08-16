@@ -140,7 +140,6 @@ async function openRunView(runId, title) {
   if ($('run-search')) $('run-search').value = '';
   show('run');
   const sk = Skeleton.show('run'); // the checklist's shape while both legs below are in flight
-  if (typeof Onboarding !== 'undefined') Onboarding.markRun(); // onboarding step 3: first run opened
   setStatusLine('run-status', 'Loading tests…');
   if ($('run-meta-note')) $('run-meta-note').hidden = true;
   $('run-tests').replaceChildren();

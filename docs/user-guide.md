@@ -375,18 +375,59 @@ tests you have already graded.
 #### The annotator
 
 After a capture, the screenshot opens as an overlay **on the page you captured**
-(if the page can't host it, it opens in a tab instead and says so). Tools:
-**↗ Arrow**, **▭ Box**, **▦ Pixelate** (hide sensitive data), **T Text** (click,
-type, Enter), **⬚ Select**, **⟲ Undo**. Then:
+(if the page can't host it, it opens in a tab instead and says so).
 
-With **⬚ Select**, click an annotation to pick it, drag it to move it, and press
-Delete (or Backspace) to remove it — Esc drops the selection. **⟲ Undo** steps
-back through everything, moves and deletes included.
+The toolbar reads left to right: the tools, the ink they draw with, the history,
+then what to do with the picture. Every button carries its shortcut in the
+tooltip, and **?** opens the whole keyboard map over the image.
 
-- **Apply** — upload the flattened, annotated image.
-- **Keep original** — upload the raw screenshot (also what Esc and closing the
-  tab do).
+**Tools** (the letter picks it):
+
+| | Tool | | Tool |
+|---|---|---|---|
+| **V** | Select | **H** | Highlight — translucent marker |
+| **P** | Pen — freehand | **B** | Blur — softens, and destroys what was under it |
+| **A** | Arrow | **T** | Text — click, type, Enter |
+| **L** | Line | **N** | Number — drops 1, 2, 3… as you click |
+| **R** | Box | **C** | Crop — drag the part worth keeping |
+| **O** | Ellipse | | |
+
+**Ink** — the colour swatch on the bar *is* the colour you are drawing with;
+click it for the other seven (or press **1**–**8**, which never opens anything).
+Three stroke weights sit beside it (**[** and **]**). Pick either one with an
+annotation selected and it restyles *that* annotation instead of the next one.
+The weight is also the size control for what has no stroke: a text label and a
+numbered badge come out small, medium or large with it.
+
+While you draw freehand, the pointer becomes the tool — a pen or a marker, in
+the ink it is about to lay down. The shape tools keep the crosshair, because a
+glyph would cover the corner the drag has to start on.
+
+**History** — **Undo** (⌘/Ctrl Z) and **Redo** (⇧⌘/Ctrl Z) step through
+everything: draws, moves, deletes, restyles and crops alike.
+
+With **Select**, click an annotation to pick it, drag it to move it, and press
+Delete (or Backspace) to remove it — Esc drops the selection.
+
+A picked shape shows its **grips**: a box, an ellipse and a blur take their four
+corners (drag one, the opposite corner stays), a line takes its two ends, and an
+arrow takes its two ends *plus a round grip in the middle* — drag that and the
+arrow **bends**, which is how you reach around a dialog without drawing three
+arrows. Every drag is one step of Undo. **Double-click a
+text label** to retype it: it reopens as the input that wrote it, in its own
+place, with the words selected so typing replaces them. Enter commits, Esc puts
+the old wording back, and emptying it removes the label. Either way it is one
+step of Undo.
+
+Then:
+
+- **Apply** (⌘/Ctrl ⏎) — upload the flattened, annotated image.
+- **Keep original** — upload the raw screenshot, annotations and crop dropped
+  (also what Esc and closing the tab do).
 - **Discard** — upload nothing.
+- **Copy** / **Download** — take the picture without attaching it. Both are
+  local; nothing is uploaded. A page that won't let the extension reach the
+  clipboard says so on the toolbar — use Download there.
 
 ### Tests tab
 
@@ -449,8 +490,12 @@ Two evidence tools share that row, next to the template dropdown (all three
 belong to **Edit** — **Preview** just shows the result):
 
 - **● Record steps** — see below.
-- **📸** (the camera button) — **Attach screenshot**: capture and annotate; the
-  shot is held as a preview (with **Remove**) and uploaded when you **Save**.
+- **📸** (the camera button) — **Attach screenshot**: capture and annotate. The
+  shot is held as a thumbnail under the row and uploaded when you **Save**.
+  Click the camera again for another one — a test can hold up to **10**, and
+  they upload in the order you took them. Each thumbnail carries a **✕** in its
+  corner to drop that one; the rest stay. Held shots are unsaved work, so
+  leaving the editor asks before it throws them away.
 
 #### Step recorder
 

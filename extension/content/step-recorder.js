@@ -542,7 +542,8 @@
   if (host) host.remove();
   host = document.createElement('div');
   host.id = HOST_ID;
-  host.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;';
+  const HOST_BASE = 'position:fixed;z-index:2147483647;';
+  host.style.cssText = `${HOST_BASE}right:16px;bottom:16px;`;
   const shadow = host.attachShadow({ mode: 'open' });
   const CSS_TEXT = `
     :host { all: initial; }
@@ -552,7 +553,11 @@
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 13px; color: #fff; background: #0a0a0a;
       box-shadow: 0 6px 20px rgba(0,0,0,0.4); user-select: none;
+      /* The pill is a handle: grab it anywhere that is not a control, and let a
+         touch drag it rather than scrolling the page under it. */
+      cursor: grab; touch-action: none;
     }
+    .box.dragging { cursor: grabbing; }
     .box.paused { background: #7c2d12; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; flex: none; animation: pulse 1.2s infinite; }
     .box.paused .dot { animation: none; background: #f59e0b; }
@@ -572,7 +577,7 @@
     button:has(svg) { display: inline-flex; align-items: center; gap: 6px; }
     button svg { display: block; flex: none; width: 14px; height: 14px; }
     .exp-input {
-      flex: none; width: 220px; max-width: 60vw; font: inherit; color: #fff;
+      flex: none; width: 220px; max-width: 60vw; font: inherit; color: #fff; cursor: text;
       padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(187,247,208,0.6);
       background: rgba(255,255,255,0.12); outline: none;
     }
@@ -606,6 +611,123 @@
   const txt = document.createElement('span');
   txt.className = 'txt';
 
+  // ---- moving the pill -------------------------------------------------------
+  // The bottom-right corner is where a page puts its own cookie banner, chat
+  // bubble and toast stack — exactly the controls a tester has to reach WHILE
+  // recording. So the pill is draggable: grab it anywhere but a button or the
+  // input and drop it wherever it is out of the way.
+  //
+  // Dropped position lives in storage.local (its own top-level key, never
+  // `settings` — same rule as NEVER_KEY above), so it survives the re-injection
+  // every navigation performs and the pill does not jump back to the corner
+  // mid-recording. It holds nothing but two numbers.
+  const POS_KEY = 'stepRecIndicatorPos';
+  const EDGE = 8;          // never flush against the viewport edge
+  const DRAG_SLOP = 4;     // below this a press is a press, not a drag
+  let pos = null;          // {left, top} viewport px; null = the default corner
+
+  // A viewport is not the one the position was saved from — a narrower window, a
+  // second monitor, or just a pill that grew (the + Expected input is 220px wider
+  // than the label it replaces). Clamping on every apply is what keeps a dropped
+  // pill on screen instead of half past its edge.
+  function clamp(p) {
+    const w = box.offsetWidth || 0;
+    const h = box.offsetHeight || 0;
+    const maxL = Math.max(EDGE, window.innerWidth - w - EDGE);
+    const maxT = Math.max(EDGE, window.innerHeight - h - EDGE);
+    return { left: Math.min(Math.max(EDGE, p.left), maxL), top: Math.min(Math.max(EDGE, p.top), maxT) };
+  }
+
+  function applyPos() {
+    if (!pos) { host.style.cssText = `${HOST_BASE}right:16px;bottom:16px;`; return; }
+    pos = clamp(pos);
+    host.style.cssText = `${HOST_BASE}left:${pos.left}px;top:${pos.top}px;`;
+  }
+
+  let drag = null;  // {dx, dy, id, moved}
+  let dropAt = 0;   // when the last drag ended — see the click listener below
+
+  (chrome.storage && chrome.storage.local ? chrome.storage.local.get(POS_KEY) : Promise.reject())
+    .then((r) => {
+      const p = r[POS_KEY];
+      if (!p || typeof p.left !== 'number' || typeof p.top !== 'number') return;
+      if (drag || pos) return; // the tester got there first — their hand outranks the read
+      pos = p;
+      applyPos();
+    })
+    .catch(() => { /* no stored position — the default corner stands */ });
+
+  function onPointerDown(e) {
+    // Left button / touch / pen only, and never a press that is aimed at a
+    // control: Stop must stay one click, not a click that might have moved.
+    if (e.button !== 0 || drag) return;
+    dropAt = 0; // a new press: whatever the last drop left is spent
+    if (e.target.closest && e.target.closest('button, input')) return;
+    const r = box.getBoundingClientRect();
+    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, id: e.pointerId, moved: false };
+    try { box.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
+    e.preventDefault(); // no text selection, no page drag-and-drop
+  }
+
+  function onPointerMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const next = { left: e.clientX - drag.dx, top: e.clientY - drag.dy };
+    if (!drag.moved) {
+      const r = box.getBoundingClientRect();
+      if (Math.abs(next.left - r.left) + Math.abs(next.top - r.top) < DRAG_SLOP) return;
+      drag.moved = true;
+      box.classList.add('dragging');
+    }
+    pos = next;
+    applyPos();
+  }
+
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { moved } = drag;
+    drag = null;
+    dropAt = moved ? performance.now() : 0;
+    box.classList.remove('dragging');
+    try { box.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (moved && pos && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ [POS_KEY]: pos }).catch(() => {});
+    }
+  }
+
+  // The move/up pair listens on the WINDOW, in the capture phase: pointer capture
+  // is best-effort (a synthetic pointer has none to take), and a hand that outruns
+  // the pill must not strand a half-finished drag. Capture, because the pill stops
+  // these events from bubbling out of itself — see below.
+  const winOpts = { capture: true };
+  box.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove, winOpts);
+  window.addEventListener('pointerup', endDrag, winOpts);
+  window.addEventListener('pointercancel', endDrag, winOpts);
+  // The click a drop produces (grabbed the pill, released over Stop) must not press
+  // the button under it — caught on the way DOWN, before the button's own handler.
+  // A browser fires that click in the same breath as the pointerup, so the window
+  // is short on purpose: a drag that never produced one must not leave something
+  // behind that eats the tester's next real click on Pause.
+  const DROP_CLICK_MS = 100;
+  box.addEventListener('click', (e) => {
+    if (!dropAt || performance.now() - dropAt > DROP_CLICK_MS) return;
+    dropAt = 0;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  // A page listener has no business seeing any of this, same rule as the keystrokes.
+  ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].forEach((t) => box.addEventListener(t, (e) => e.stopPropagation()));
+
+  const onResize = () => { if (pos) applyPos(); };
+  window.addEventListener('resize', onResize);
+
+  function dragTeardown() {
+    window.removeEventListener('pointermove', onPointerMove, winOpts);
+    window.removeEventListener('pointerup', endDrag, winOpts);
+    window.removeEventListener('pointercancel', endDrag, winOpts);
+    window.removeEventListener('resize', onResize);
+  }
+
   // ---- + Expected (#78) ------------------------------------------------------
   // The one thing a recorder cannot observe: an expectation is what the tester
   // LOOKED at, not a DOM event. So it is typed — inside the shadow root, where no
@@ -623,6 +745,7 @@
     expInput.placeholder = 'Expected result — Enter to add, Esc to cancel';
     expInput.setAttribute('aria-label', 'Expected result');
     box.replaceChildren(dot, expInput, pillButton('Stop', 'stop', requestStop));
+    if (pos) applyPos(); // the input widens the pill — keep it inside the viewport
     expInput.focus();
   }
 
@@ -679,6 +802,10 @@
       box.append(pillButton('Expected', 'exp', openExpected, 'add'),
         pillButton('Pause', '', () => setManualPause(true)), stop);
     }
+    // The pill just changed width (Pause drops two buttons, + Expected adds a
+    // 220px input). Anchored by its left edge, that is what can push it off
+    // screen — so re-clamp where it stands.
+    if (pos) applyPos();
   }
 
   function setManualPause(on) {
@@ -715,6 +842,7 @@
     document.removeEventListener('blur', onBlur, opts);
     document.removeEventListener('keydown', onKeydown, opts);
     if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.removeListener(onFlagChanged);
+    dragTeardown();
     host.remove();
     window.__testomatStepRecInited = false;
   }

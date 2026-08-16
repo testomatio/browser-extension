@@ -24,8 +24,6 @@ function tokenHelpBase() {
 function updateTokenHelpLink() {
   const a = $('token-help-link');
   if (a) a.href = `${tokenHelpBase()}/account/access_tokens`;
-  // Keep the onboarding card's token link tracking the field too.
-  if (typeof Onboarding !== 'undefined') Onboarding.updateTokenLink();
 }
 
 // Write a settings object into the form fields (shared by first fill + instance
@@ -59,23 +57,32 @@ function stepRecNeverValuesEnabled(settings) {
   return !!(settings && settings.stepRecNeverValues === true);
 }
 
+// Wire it once, from app init — the mount is static markup, the control is not.
+function initHostHistoryDropdown() {
+  const mount = $('set-host-history-mount');
+  if (!mount || Dropdown.of('set-host-history')) return;
+  const dd = Dropdown.create({
+    id: 'set-host-history',
+    className: 'host-history-dd',
+    label: 'Instance history',
+    icon: 'language',
+    placeholder: 'Pick a saved instance',
+    onChange: onInstanceHostPicked,
+  });
+  dd.hidden = true; // until there are two hosts to choose between
+  mount.append(dd.el);
+}
+
 // Instance history dropdown: offered only when at least two hosts exist (a real
 // choice — a lone default host shows nothing). The active host is preselected.
 function populateHostHistory() {
-  const sel = $('set-host-history');
-  if (!sel) return;
+  const dd = Dropdown.of('set-host-history');
+  if (!dd) return;
   const hosts = state.hostHistory || [];
-  sel.innerHTML = '';
-  if (hosts.length < 2) { sel.hidden = true; return; }
+  if (hosts.length < 2) { dd.setOptions([]); dd.hidden = true; return; }
   const active = hostOf($('set-baseurl').value) || (state.settings && hostOf(state.settings.baseUrl));
-  for (const h of hosts) {
-    const opt = document.createElement('option');
-    opt.value = h;
-    opt.textContent = h;
-    if (h === active) opt.selected = true;
-    sel.appendChild(opt);
-  }
-  sel.hidden = false;
+  dd.setOptions(hosts.map((h) => ({ value: h, label: h })), { value: active });
+  dd.hidden = false;
 }
 
 // ---------- appearance ----------
@@ -104,6 +111,32 @@ function initThemeSwitch() {
   });
   Theme.onChange(paintThemeSwitch);
   paintThemeSwitch();
+}
+
+// ---------- section folds ----------
+// Every settings section is an accordion item, and all of them fold the same
+// way: the head carries `aria-expanded` + `aria-controls`, the body carries
+// `hidden`, and one delegated click keeps the two in step. Which sections start
+// open is decided in the markup (Connection and Failure log do) — the state is
+// then the tester's for as long as the panel lives, and is deliberately not
+// persisted, exactly like Advanced's.
+//
+// Advanced is the ONE exception and keeps its own handler below: its state is
+// computed from the saved instance every time Settings is entered, so a click
+// here has to write that variable rather than the DOM, or the next entry would
+// disagree with the caret.
+function initSettingsSections() {
+  const group = $('settings-sections');
+  if (!group) return;
+  group.addEventListener('click', (e) => {
+    const head = e.target.closest('.settings-section-title > .disclosure-head');
+    if (!head || head.id === 'settings-advanced-head') return; // Advanced: see below
+    const body = document.getElementById(head.getAttribute('aria-controls'));
+    if (!body) return;
+    const open = head.getAttribute('aria-expanded') !== 'true';
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    body.hidden = !open;
+  });
 }
 
 // ---------- Advanced collapse (#146) ----------
@@ -376,8 +409,6 @@ async function saveSettings() {
     });
   }
   renderProjectBar(); // the header switcher now carries this host's project list
-  // Onboarding: a saved+validated config completes steps 1 (token) and 2 (project).
-  if (typeof Onboarding !== 'undefined') { Onboarding.markToken(); Onboarding.markProject(); }
   setStatusLine('settings-status', 'Connected ✓', 'ok');
   openRunsView(); // a first save lands on a fresh runs view (and enables the tabs)
 }
@@ -542,7 +573,7 @@ async function wipeEvidenceRecording() {
 async function signOut() {
   const ok = await confirmDialog(
     'Sign out? Every saved token, instance, history entry, queued result, session, unsaved '
-    + 'test draft, recorded step, captured log and the onboarding state is deleted from this '
+    + 'test draft, recorded step and captured log is deleted from this '
     + 'browser. A running recording is stopped for you. Allowed websites are kept — remove '
     + 'them under Allowed websites.', 'Sign out');
   if (!ok) return;

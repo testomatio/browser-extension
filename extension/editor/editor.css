@@ -28,6 +28,29 @@
   --z-stage: 5;      /* the annotator stage above the page chrome */
   --z-stage-tool: 10;
   --z-stage-top: 20; /* label editor / guard, above every tool */
+
+  /* The markdown editor's own type. LOCAL, like the ladder above it: this is the
+     one surface in the extension that is a code editor rather than a piece of
+     chrome, and its metrics answer to the caret, not to the design ladder — a
+     transparent textarea sits exactly on top of a rendered overlay, and the two
+     agree line for line only while family, size and leading are one value each.
+     They are declared here rather than as a string inside editor.js so the page's
+     type decisions stay where every other value on it lives; editor.js hands
+     these three to OverType, which writes them into `--instance-*` on the wrapper
+     (the only place that reaches BOTH layers — see the `fontFamily` note there).
+     This stack deliberately does NOT lead with the shared `--font-mono`, whose
+     first name is JetBrains Mono: the writing pane is set in Fira Mono, and that
+     face is now SHIPPED for it (@font-face, shared/tokens.css) rather than only
+     named. It had been named-but-absent, which is a silent failure — the pane
+     drew in Menlo on every machine without Fira Mono installed, and looked
+     deliberate. The chain behind it is kept as the fallback for a browser that
+     refuses the woff2. */
+  --font-md-editor: "Fira Mono", Menlo, Monaco, "Courier New", monospace;
+  /* Leading in PIXELS, off the unitless ladder on purpose: 13px × the ladder's
+     1.5 is 19.5, and half a pixel per line is exactly the drift that walks the
+     caret out of its own text a screen down a long test. An integer line is what
+     a code surface needs; the ladder is for prose. */
+  --leading-md-editor: 20px;
 }
 
 * { box-sizing: border-box; }
@@ -128,16 +151,28 @@ code, pre { font-family: var(--font-mono); }
   flex-direction: column;
   min-width: 0;
 }
-/* The title is the shared `.textarea.autogrow` at the small rung, and nothing
-   else: it wears the control's own type, its own height and its own fill, so
-   what the tester types looks like what every other field in this extension
-   holds. It used to be set in the HEADING's face, size and weight over a
-   transparent fill — a title bar pretending to be a heading you could type in,
-   which read as a heading right up to the moment the caret had to be found in
-   it. The heading type still belongs to the read-only view below, where the
-   title IS printed rather than edited. (The invalid state comes with the
-   component: aria-invalid.) */
-.tc-title-input { min-width: 0; }
+/* The title is the shared `.textarea.autogrow`, and nothing else: it wears the
+   control's own face, its own weight, its own height and its own fill, so what
+   the tester types looks like what every other field in this extension holds. It
+   used to be set in the HEADING's face, size and weight over a transparent fill
+   — a title bar pretending to be a heading you could type in, which read as a
+   heading right up to the moment the caret had to be found in it. The heading
+   type still belongs to the read-only view below, where the title IS printed
+   rather than edited. (The invalid state comes with the component: aria-invalid.)
+
+   ONE thing is local: the SIZE of the type. At the control ladder's own step the
+   field held this test's name 2px smaller than the very same words are printed
+   one screen away, on the view this editor saves into — the title is the biggest
+   thing either screen says, and it was the smallest type on this one. So it
+   takes `--fs-prose`, the size of text a tester WRITES rather than reads. Face,
+   weight and fill stay the control's; only the size follows the words. (The
+   markdown body below it is a code surface and sizes itself — `--font-md-editor`
+   at the top of this file.)
+   The rung moved with it (`.size-md` in editor.js, not `.size-sm`): the autogrow
+   floor is the rung's own height, and a 14px line in the 28px box would have
+   pushed the field to 31 — off the ladder in both directions. At 32 it lands on
+   a rung exactly, which is the whole point of the ladder. */
+.tc-title-input { min-width: 0; font-size: var(--fs-prose); }
 .tc-title-error {
   margin-top: var(--space-1);
   font-size: var(--fs-2xs);
@@ -197,12 +232,13 @@ code, pre { font-family: var(--font-mono); }
 .tc-priority-menu li[data-priority="important"],
 .tc-priority-menu li[data-priority="critical"] { color: var(--priority-high); }
 
-/* Read-only test view (#115): the same page chrome without a single editing
-   affordance — a static title, a static priority chip, rendered markdown.
-   The type is the shared `.context-title` — this page's title bar and the
-   panel's contextual row print the same step of the same path, so they print it
-   at one size. Only the width is local: here the title shares its row with the
-   priority chip and the way out, so it takes what they leave. */
+/* Read-only test view (#115): the same page chrome with nothing on it to type
+   into — the test's marks and name, then rendered markdown. The type is the
+   shared `.context-title` — this page's title bar and the panel's contextual row
+   print the same step of the same path, so they print it at one size, marks
+   included (components.css draws the `.prio` and the `.type-mark` in front of
+   the name). Only the width is local: here the title shares its row with Edit
+   and the way out, so it takes what they leave. */
 .tc-view-title { flex: 1; }
 /* …and the three lines the panel's row gives a title, for the same reason (a
    test title is a sentence): past three it is cut with an ellipsis rather than
@@ -215,42 +251,31 @@ code, pre { font-family: var(--font-mono); }
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
-/* The title, still on the wire. The bar stands as tall as the heading's whole
-   LINE BOX, not just its type size — the heading is 14px of type in a 19px line,
-   and a 14px bar would let the header settle by those five pixels the moment the
-   real title landed. Nothing else about the heading changes: the bar is its
-   content. */
-.tc-view-title .skeleton { --sk-h: calc(var(--fs-title) * var(--leading-snug)); }
-/* `min-height` is what keeps it in the band the row's controls hold: it is the
-   one thing in that header that is not a control — a word with an arrow, no box
-   — and left at its own 16.5px line it would sit high of the two arrows it is
-   between the moment the row stopped centring on the title. */
-.tc-view-priority {
-  flex: none;
-  display: inline-flex;
+/* The title, still on the wire: the mark and the name it stands in for, on ONE
+   line — the shape the panel's own placeholders read in (a checklist row is a
+   disc and a bar for the title beside it, sidepanel/core/skeleton.js testRow).
+   The row exists because a `.skeleton` is a block: appended straight into the
+   heading, the bar fell under the priority box and the header opened two grey
+   lines tall.
+
+   The ROW carries the heading's whole LINE BOX — the heading is 14px of type in
+   a 19px line — so the bar inside it is the size of the type it replaces, the
+   way every other line bar in this extension is, and the header still does not
+   settle by those five pixels the moment the real title lands. */
+.tc-view-title-sk {
+  display: flex;
   align-items: center;
-  min-height: var(--control-h-sm);
-  gap: var(--space-1);
-  font-size: var(--fs-sm);
-  text-transform: capitalize;
-  color: var(--priority-normal);
+  gap: var(--space-1); /* the `.context-title` mark gap, which the wrapper takes over */
+  height: calc(var(--fs-title) * var(--leading-snug));
 }
-.tc-view-priority svg { flex: none; }
-.tc-view-priority[data-priority="low"] { color: var(--priority-low); }
-.tc-view-priority[data-priority="high"],
-.tc-view-priority[data-priority="important"],
-.tc-view-priority[data-priority="critical"] { color: var(--priority-high); }
-/* "Open in Testomat ↗" (#113): an anchor wearing the shared icon-button skin,
-   last in the bar (the title's `flex: 1` pushes it to the end). The skin itself
-   drops the underline for anchors now (a.icon-btn, shared/components.css), so
-   there is nothing left for this page to say about it. */
-.tc-view-hint {
-  flex: none;
-  margin: 0;
-  padding: var(--space-2) var(--gutter);
-  font-size: var(--fs-2xs);
-  border-top: 1px solid var(--border);
-}
+.tc-view-title-sk .skeleton.line { --sk-h: var(--fs-title); }
+/* (The priority's placeholder needs nothing here: it is a `.skeleton.circle`,
+   sized by `--sk-size`, which `.prio` already cuts to 12px in components.css.) */
+/* Edit + "Open in Testomat ↗" (#113): a button and an anchor wearing the shared
+   icon-button skin, last in the bar (the title's `flex: 1` pushes them to the
+   end). The skin itself drops the underline for anchors now (a.icon-btn,
+   shared/components.css), so there is nothing left for this page to say about
+   either of them. */
 
 /* Edit / Preview are the shared `.tabs.fill` — the PANEL's tab bar, the same
    switcher the tester left one document ago, sharing the row out between the two
@@ -277,39 +302,31 @@ code, pre { font-family: var(--font-mono); }
 /* Evidence-capture tools (step recorder + Attach screenshot): the shared
    `.toolbar.divided` above the steps/markdown area. The record button turns
    red-ish while active; the held-screenshot preview wraps below it. */
-/* Template picker (#104): the shared `.field` — a native select with the mark
+/* Template picker (#104): the shared `.dropdown` — a field face with the mark
    that says what it picks inside its own border, since the word "Template" beside
    it was costing this three-control row a control's worth of width. */
 /* Last in the row and pushed to its END: Record and Attach are the two controls
    this row exists for, so they lead from the gutter; the template is chosen once
-   at the start and then left alone, and it keeps out of their way. */
-.tc-template-field { flex: none; margin-inline-start: auto; }
-.tc-template-field[hidden] { display: none; }
-/* The select keeps its own width off the row's flexible width, so a long
-   template title cannot push Record and Attach off the row — and the cap is what
-   holds the three of them on ONE row in a 380px panel. The right side is the
-   shared `.select`'s own drawn caret, whose reserved space already clears a
-   truncated title — nothing left for this rule to say about it. */
-/* `background-COLOR`, not the shorthand: the caret on the right of a closed
-   select is a `background-image` (components.css), and `background: <colour>`
-   would reset it away — the control would sit there looking like a plain,
-   unopenable box. */
-.tc-template-select {
-  width: auto;
-  max-width: 170px;
-  background-color: var(--card);
-}
+   at the start and then left alone, and it keeps out of their way.
+   The CAP is what holds the three of them on ONE row in a 380px panel: it keeps
+   the control's own width off the row's flexible width, so a long template title
+   ellipsizes instead of pushing Record and Attach off the row. It sits on the
+   WRAPPER, not the face — the popup that opens under it reads the wrapper's width
+   as its floor and is free to grow past it (`.dropdown-menu`), which is what lets
+   a truncated title still be read in full in the list. */
+.tc-template-field { flex: none; margin-inline-start: auto; max-width: 170px; }
+/* The toolbar this row sits in is card-coloured, and the picker matched it as a
+   native select — it keeps that fill rather than the form-field one, so the
+   control reads as part of the strip until it is hovered. */
+.tc-template-trigger { background-color: var(--card); }
 .tc-tool.recording { color: var(--on-status); background: var(--annot-tool); border-color: var(--annot-tool-strong); }
 .tc-tool.recording:hover:not(:disabled) { background: var(--annot-tool-strong); }
-.tc-shot-preview { display: flex; align-items: center; gap: var(--space-2); flex: 1 1 100%; }
+/* The staged screenshots are the library's `.thumb-row` (components.css); what
+   is the EDITOR's is where it sits — a full-width line of its own under the
+   three tool buttons, because the row grows as more are taken and must never
+   push the camera off the strip. */
+.tc-shot-preview { flex: 1 1 100%; }
 .tc-shot-preview[hidden] { display: none; }
-.tc-shot-img {
-  max-height: 80px;
-  max-width: 60%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.tc-shot-remove { color: var(--failed); }
 
 /* body: OverType host + preview pane share the remaining height */
 /* `isolation` is what keeps the vendored editor's depth INSIDE the vendored
@@ -337,14 +354,64 @@ code, pre { font-family: var(--font-mono); }
    two rows' controls line up on one edge instead of the toolbar's own sitting
    8px short of it. */
 .tc-edit-pane .overtype-toolbar { padding: var(--space-2) var(--gutter) !important; }
+/* …and the buttons IN that row, sized off the shared ladder instead of the
+   vendored stylesheet's own 32px — 28 is `.size-sm`, which is what every other
+   icon button in this product measures (`.icon-btn`, shared/components.css), so
+   the markdown toolbar sits at the same size as the Back arrow above it and the
+   camera beside it rather than at a third one.
+   The height override has to be unconditional: the vendored file GROWS these to
+   36px under `@media (max-width: 640px)`, and a side panel is always under 640
+   — that rule is what had them reading as the biggest controls on the page. Same
+   specificity trick as the rules above (the pane class), no `!important` needed:
+   the vendored declarations do not carry one. The radius comes along for the
+   ride, because 6px is not a step on our scale. */
+.tc-edit-pane .overtype-toolbar-button {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  border-radius: var(--control-radius-sm);
+}
+/* The rest of the editing surface's type — the part OverType takes no option
+   for, so it is the one place a rule has to reach past the vendored stylesheet
+   (which sets these with `!important`; the pane class outranks it).
+   Every layer that draws the same characters is listed, and that is the point:
+   the textarea, the rendered overlay ON it and the placeholder BEHIND it have to
+   agree glyph for glyph, or the caret stands beside its own letter.
+     font-weight        already `normal` in the vendored file — spelled here so a
+                        future OverType cannot quietly bold the source;
+     font-variation-settings  likewise the initial value, pinned so a variable
+                        face cannot pick up an axis from anywhere;
+     font-feature-settings    the one genuinely new rule: the vendored file kills
+                        ligatures with `font-variant-ligatures: none`, which does
+                        NOT cover contextual alternates (`calt`) — and `calt` is
+                        what re-shapes `->` or `!=` in a mono face mid-typing,
+                        moving the text under a caret that did not move. */
+.tc-edit-pane .overtype-input,
+.tc-edit-pane .overtype-wrapper .overtype-preview,
+.tc-edit-pane .overtype-wrapper .overtype-placeholder {
+  font-weight: var(--weight-normal) !important;
+  font-feature-settings: "liga" 0, "calt" 0 !important;
+  font-variation-settings: normal !important;
+}
 /* …and its own forced `font-weight: bold` on the live `### heading` text
-   (`.overtype-preview h1/h2/h3`) — the same weight this file already dials
-   back to semibold on the rendered Preview tab (`.markdown`, shared/
-   components.css), so raw and rendered read as one document rather than the
-   source looking heavier than the article it becomes. */
+   (`.overtype-preview h1/h2/h3`), dialled all the way back to the body's own
+   weight — which is what the Testomat app's markdown editor does, and the
+   reference this pane is matched to. A heading here is already carrying the
+   accent colour and a `###` in front of it; a third signal made it the heaviest
+   ink on a screen whose whole job is the sentence underneath. Colour alone
+   marks it, and the source stays one even texture.
+   (Safe on the overlay: this is a monospace face, where every weight is the same
+   advance, so the invisible textarea underneath still lines up character for
+   character.) */
 .tc-edit-pane .overtype-wrapper .overtype-preview h1,
 .tc-edit-pane .overtype-wrapper .overtype-preview h2,
-.tc-edit-pane .overtype-wrapper .overtype-preview h3 { font-weight: var(--weight-semibold) !important; }
+.tc-edit-pane .overtype-wrapper .overtype-preview h3 { font-weight: var(--weight-normal) !important; }
+/* The markdown MARKS — `###`, `*`, `**` — at full strength. The vendored file
+   fades them twice over: a washed-out default colour AND a flat
+   `opacity: 0.7 !important` on `.syntax-marker`. The colour is ours to set
+   (EDITOR_COLORS.syntaxMarker, now the accent itself); the opacity is not, so it
+   is turned off here. Text in this product is never dimmed to say it is
+   secondary — a mark that is half there reads as a mark that failed to load. */
+.tc-edit-pane .overtype-wrapper .overtype-preview .syntax-marker { opacity: 1 !important; }
 
 /* Rendered markdown is the shared `.markdown`, headings and all — the article
    scale it draws by default is what the create editor's Preview tab wants (a body
@@ -372,22 +439,48 @@ code, pre { font-family: var(--font-mono); }
 .tc-guard[hidden] { display: none; }
 .tc-guard-msg { margin: 0 0 var(--space-4); font-size: var(--fs-base); }
 
-/* Screenshot annotator (M2 PR-2): a toolbar over a viewport-fitted canvas. The
-   canvas itself is at natural resolution (pointer coords mapped back); CSS only
-   scales it down to fit the stage. Fixed stroke (#dc2626, 3px) is drawn in JS,
-   and the tool-active + danger accents keep that fixed red. */
+/* Screenshot annotator (M2 PR-2, Jam-parity toolset #188): a toolbar over a
+   viewport-fitted canvas. The canvas itself is at natural resolution (pointer
+   coords mapped back); CSS only scales it down to fit the stage. The ink —
+   eight palette colours × three weights — is drawn in JS from literal hexes,
+   because an exported picture cannot follow a theme. */
 .annot { display: flex; flex-direction: column; height: 100%; min-height: 100vh; }
-/* The shared `.bar.sticky`, at the annotator's own depth — above its stage. */
-.annot-bar { z-index: var(--z-stage-tool); }
+/* The shared `.bar.sticky`, at the annotator's own depth — above its stage.
+   Eleven tools, eight swatches and three weights do not fit every window, so
+   this row is the one bar in the product allowed to wrap; the row gap keeps the
+   second line on the same 4px rhythm as the first. */
+.annot-bar {
+  z-index: var(--z-stage-tool);
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
 .annot-spacer { flex: 1 1 auto; }
-/* Annotator toolbar buttons are shared `.btn`s (annotate-core.js writes both
-   classes); what is the ANNOTATOR's is the fixed red — a picked tool and the
-   discard action carry the same #dc2626 the exported image carries, which is why
-   they override the accent/danger colours of the component. */
-.annot-btn.active { background: var(--annot-tool); border-color: var(--annot-tool-strong); color: var(--on-status); }
-.annot-btn.danger { color: var(--annot-tool); border-color: var(--annot-tool-ring); }
-.annot-btn.danger:hover:not(:disabled) { background: var(--annot-tool-wash); }
+/* Controls that answer the same question stand together, at the tighter of the
+   two control gaps; the rule between two groups is the shared border. */
+.annot-group { display: inline-flex; align-items: center; gap: var(--space-1); }
+.annot-sep {
+  flex: none;
+  width: 1px;
+  height: var(--space-5);
+  background: var(--border);
+}
+/* What Copy and Download report back. A status line, so it is text at full
+   strength that simply is not there when there is nothing to say. */
+.annot-flash { font-size: var(--fs-sm); color: var(--muted); }
+/* Annotator toolbar buttons are the library's, with nothing added: a picked TOOL
+   is `.btn.selected` (the chosen-control wash every filter and view switch in
+   this product wears) and Discard is `.btn.danger`. The annotator's own fixed red
+   is the INK now — one of eight the tool can draw with — so it can no longer
+   stand for "this tool is on", and there is nothing left here to override.
+   The ink picker is one swatch that opens the eight over it. */
+.annot-ink { position: relative; display: inline-flex; }
+/* The popover IS the shared `.menu`; what this page adds is where it hangs and
+   that a row of swatches needs no minimum width. The bar it opens from already
+   sits above the stage (--z-stage-tool). */
+.annot-ink-menu { left: 0; min-width: 0; }
+.annot-ink-menu[hidden] { display: none; }
 .annot-stage {
+  position: relative;   /* the shortcut card is pinned to the stage, not the page */
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -407,7 +500,51 @@ code, pre { font-family: var(--font-mono); }
 /* Select tool (#68): pointing, not drawing — and 'move' while over a hit op. */
 .annot-canvas.pick { cursor: default; }
 .annot-canvas.pick.over { cursor: move; }
+/* Crop: `cell` rather than the drawing crosshair — the drag is choosing a
+   region of the picture, not laying ink on it. */
+.annot-canvas.crop { cursor: cell; }
 .annot-msg { padding: var(--space-4); font-size: var(--fs-base); }
+
+/* The keyboard map (?): a card over the stage rather than a dialog, because it
+   is a reference to read WHILE drawing — nothing under it is disabled and the
+   canvas keeps the keyboard. Built from the same tool table the rail is, so the
+   two cannot disagree. */
+.annot-help {
+  position: absolute;
+  z-index: var(--z-stage-top);
+  top: var(--space-4);
+  right: var(--space-4);
+  width: 280px;
+  max-height: calc(100% - var(--space-8));
+  padding: var(--space-4);
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-bar);
+}
+.annot-help h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Key on the left, what it does on the right — a two-column grid, so the keys
+   line up as a column the eye can scan without reading any of them. */
+.annot-help dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.annot-help dt {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+.annot-help dd { margin: 0; color: var(--muted); }
 
 /* Text tool (M2 PR-3): a positioned inline input over the click point. Fixed
    position (viewport coords from the pointer event) survives the scrolling
@@ -430,12 +567,12 @@ code, pre { font-family: var(--font-mono); }
 
 /* Header decongestion at 400px (Block 6): the priority control collapses to
    icon-only (the menu keeps every label), which is what keeps the trail beside
-   it readable in a side panel. The read-only view's priority chip does the same.
-   Wide viewports (tab ctx) show the label.
+   it readable in a side panel. Wide viewports (tab ctx) show the label. (The
+   read-only view has no priority control to collapse — its priority is a bare
+   mark in the title now, and a mark is icon-only at every width.)
    The create editor's title no longer competes for this row — it has a row of
    its own — and Save left it for the footer, so there is nothing here to reflow
    any more. */
 @media (max-width: 440px) {
-  .tc-priority .tc-priority-label,
-  .tc-view-priority .tc-priority-label { display: none; }
+  .tc-priority .tc-priority-label { display: none; }
 }

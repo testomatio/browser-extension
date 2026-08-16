@@ -293,13 +293,19 @@ Three things in it are load-bearing:
   open (and only when the trigger has none of its own), so anything that used to
   be *named* by its `title` carries an `aria-label` instead.
 
-One `title` survives on purpose, because no DOM of ours can follow it: the
-annotator toolbar when it is injected **into the page**, where it lives in a
-shadow root the hit-test cannot see through (`shared/annotate-core.js` chooses
-per realm: `Tooltip` present → `data-tip`, absent → `title`). The assignee
+No `title` survives anywhere in the product. The annotator toolbar injected
+**into the page** was the last one — it lives in a shadow root, and from the
+document `elementFromPoint` answers with the shadow HOST, so the hit test could
+never see the button under the pointer. `Tooltip.mount(root)` moves the layer and
+the hit test INTO that root (and `unmount()` hands them back on teardown, because
+the injected world outlives the overlay); `tooltip.js` is injected with the core,
+and `aria-describedby` works because the label now lives in the same tree as its
+trigger. `shared/annotate-core.js` still chooses per realm — `Tooltip` present →
+`data-tip`, absent → `title` — but the absent branch is a last resort for an
+injection that lost a file, not a surface we ship. The assignee
 dropdown used to be the other one — an `<option>` inside a native select popup
 — until it became a custom listbox (`test-view.js`, same reasoning as the
-project switcher) so a row could carry a monogram and the popup a
+project switcher's #126) so a row could carry a monogram and the popup a
 type-to-filter box; its tips now go through `Tooltip` like everything else. The
 vendored markdown toolbar writes `title` too; the editor moves those over with
 `Tooltip.adopt()` right after the mount rather than patching vendored code.
@@ -635,12 +641,13 @@ decisions are worth naming, because each one moved something out of the header:
   the **Edit tab alone**; Preview renders what they produced and has nothing for
   them to do. All three fit one row in a 380px panel, which is what the template
   picker's dropped label (the mark is inside the field now, shared `.field`) and
-  Attach's icon-only form pay for.
-- Save and Cancel live in a `.bar.footer`, actions leading, where the writing
-  ends. Cancel is `requestBack()` — the same guarded leave as ◀ — which is also
-  why the unsaved-changes dialog is now built in **both** contexts: it is the
-  only way out a `ctx=tab` editor has, and `beforeunload` does not fire for the
-  `window.close()` it performs.
+  Attach's icon-only form pay for. What Attach produces sits UNDER them: the
+  staged screenshots are the library's `.thumb-row` (`components.css`) on a line
+  of its own (`flex: 1 1 100%`), because the camera appends — a test may hold up
+  to `MAX_SHOTS` (10) pictures, uploaded in order on Save — and a growing row
+  must never push the camera off the strip. Each picture carries its own remove
+  as a badge on it (`.thumb-remove`), and the ones that fail to upload stay
+  staged so a second Save retries exactly them.
 
 This page also sets the panel's **body type** (13px in a 1.5 line): it had
 never set one, so it ran on the browser's 16px and every relative value in the
@@ -715,15 +722,29 @@ in on demand through `chrome.scripting.executeScript`:
   `runAt: 'document_start'`, so a reload is instrumented before the page's own
   scripts run. One hook per document (`window.__testomatEvHooked`). See §3.4.
 - `overlay/annotate-overlay.js` + `shared/annotate-core.js` + `shared/icons.js`
-  (first — the toolbar draws its marks from it) — injected by
-  `CaptureAnnotate.tryInjectOverlay()` (`shared/capture-annotate.js:43-58`)
+  (first — the toolbar draws its marks from it) + `shared/tooltip.js` — injected
+  by `CaptureAnnotate.tryInjectOverlay()` (`shared/capture-annotate.js`)
   into the tab the screenshot came from. A preceding `executeScript({func})`
-  stashes the handoff key on `window.__testomatAnnotateKey` in the same
-  isolated world — together with `window.__testomatAnnotateScheme`, the
-  Appearance setting **already resolved** to `light`/`dark` by the panel. The
-  overlay lives in the site's document, where neither store `shared/theme.js`
-  keeps is readable, so an overlay left to answer `prefers-color-scheme` itself
-  would come up dark under a panel pinned to Light.
+  stashes three things on the window in the same isolated world:
+  - `__testomatAnnotateKey` — the handoff key;
+  - `__testomatAnnotateScheme` — the Appearance setting **already resolved** to
+    `light`/`dark` by the panel. The overlay lives in the site's document, where
+    neither store `shared/theme.js` keeps is readable, so an overlay left to
+    answer `prefers-color-scheme` itself would come up dark under a panel pinned
+    to Light;
+  - `__testomatAnnotateCss` — **the library itself**: `shared/tokens.css` +
+    `shared/components.css`, read as text in the extension's own context and
+    made the first stylesheet in the shadow root. A shadow root cannot `<link>`
+    an extension file, and making those files web-accessible would let any page
+    the overlay touches fingerprint the extension by fetching them. Two edits on
+    the way in: `:root` → `:host` (a shadow root has no `:root` — the tokens must
+    land on the host) and every `@font-face` stripped (its `url()`s are relative,
+    so inside the site's document they would be fetched **from the site**). This
+    is what retired ~120 lines of hand-copied button skin in the overlay: the
+    toolbar is now made of real `.btn`/`.swatch`/`.segmented`/`.menu` controls,
+    and a change to a button in the panel is that change in this toolbar. If the
+    read fails there is no overlay — the caller falls back to the editor tab
+    rather than drawing an unstyled one.
 
 ---
 

@@ -56,6 +56,69 @@
   font-display: swap;
 }
 
+/* Fira Mono — SHIPPED for the same reason, and for exactly one surface: the
+   markdown editor's writing pane (`--font-md-editor`, editor/editor.css). It
+   was NAMED there long before it was bundled, which meant every machine without
+   it installed quietly drew that pane in Menlo — a system face, on the one
+   screen of this product that is nothing but text.
+   Split by SUBSET, unlike JetBrains above, because that is how the face is
+   published and each slice is a tenth the size: the browser downloads only the
+   ranges the text actually uses, so an English test costs 10KB and a Cyrillic
+   one costs 16KB — against 92KB for a single combined file. `unicode-range` is
+   what makes that a decision the browser takes, not one we take for it.
+   Regular + Bold, no in-between weights: `**bold**` in the editor renders a real
+   <strong>, and with no bold FACE the browser synthesises one — which in a
+   monospace overlay changes advance widths and walks the caret off its glyphs.
+   Fira Mono is SIL OFL 1.1 (see fonts/OFL-FiraMono.txt). */
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Regular-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Regular-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Regular-cyrillic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Bold-latin.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Bold-latin-ext.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Fira Mono";
+  src: url("fonts/FiraMono-Bold-cyrillic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+
 :root {
   /* Both schemes are supported, so light-dark() below resolves against whichever
      one is in use — the OS preference by default, or whatever a page pins by
@@ -267,6 +330,14 @@
   --fs-3xs: var(--text-3xs);   /* the floor: a figure that must not rival the label beside it */
   --fs-title: var(--text-sm);  /* section heading (h2) */
   --fs-title-lg: var(--text-lg); /* screen title — the connect hero */
+  /* The text a user WRITES, as opposed to the chrome they write it in: the test
+     editor's title field. One step above --fs-base, because on that screen the
+     words are the screen — held at the chrome's own size the title read as one
+     more row of a dense form rather than as the name of the thing being
+     authored. (The markdown body under it is NOT this: it is a code surface,
+     with its own family and an integer line height to keep a caret glued to its
+     glyphs — see `--font-md-editor` in editor/editor.css.) */
+  --fs-prose: var(--text-sm);
 
   /* Weight — tailwind's four named steps. The panel uses medium for controls,
      semibold for headings and anything that has to win a row. */

@@ -3,7 +3,7 @@
 // chrome.webRequest since #123; it holds NO debugger session, so every
 // chrome.debugger call left in the extension is a screenshot's).
 
-/* global resolveSiteTab, ViewMode */
+/* global resolveSiteTab, ViewMode, SiteTab */
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js');
 
@@ -38,9 +38,58 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // The panel, in the window the icon was clicked in. Synchronous on purpose.
+// Only where there is NONE: this click is most often the fix the panel itself
+// asked for, so the panel is already open and mid-flow — re-opening it risks
+// re-navigating the document to the manifest's default_path, which would drop the
+// page the tester is on (a half-written test in the editor being the one that
+// hurts). The registry below is read synchronously on purpose: the gesture is gone
+// at the first await.
 function openSidePanelFor(tab) {
   if (!tab || tab.windowId == null) return;
+  if (panelOpenIn(tab.windowId)) return;
   try { chrome.sidePanel.open({ windowId: tab.windowId })?.catch(() => {}); } catch { /* older Chrome */ }
+}
+
+// ---- open panels, per window ----------------------------------------------
+// Which windows currently hold an open panel document. A LIVE port registry rather
+// than a stored flag for two reasons: the click below has to read it before its
+// first await (see there), and a port dies with the document it belongs to, so a
+// closed panel needs no bookkeeping. Only real side panels connect — the editor in
+// a tab does not (shared/panel-link.js).
+const panelPorts = new Map(); // port -> windowId (null until PANEL_HELLO lands)
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || port.name !== 'panel') return;
+  // Panel-vs-tab is decided on the CONNECTING side (shared/site-tab.js's neighbour
+  // panel-link.js, via chrome.tabs.getCurrent) rather than here off `sender.tab`:
+  // that field's value for a side panel is not something this repo has measured, and
+  // a guard built on a guess would silently refuse every real panel — leaving the
+  // click re-opening the panel exactly as before, with nothing to show for it.
+  panelPorts.set(port, null);
+  port.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'PANEL_HELLO') panelPorts.set(port, msg.windowId != null ? msg.windowId : null);
+  });
+  port.onDisconnect.addListener(() => { void chrome.runtime.lastError; panelPorts.delete(port); });
+});
+
+const panelOpenIn = (windowId) => {
+  if (windowId == null) return false;
+  for (const id of panelPorts.values()) if (id === windowId) return true;
+  return false;
+};
+
+// The bound target only ever names a tab that exists: the one way it stops existing
+// is this event. (A target that merely lost its grant is KEPT — one toolbar click on
+// it and the panel picks up where it was.)
+chrome.tabs.onRemoved.addListener((tabId) => {
+  SiteTab.forgetTab(tabId).catch(() => { /* best effort — a stale binding self-heals */ });
+});
+
+// A permanent origin grant ("Always allow") is the other way access arrives; it
+// names an origin, not a tab, so just retry the blind recording's inject — it
+// stays blind if the grant doesn't cover its tab.
+if (chrome.permissions && chrome.permissions.onAdded) {
+  try { chrome.permissions.onAdded.addListener(() => { srRecover(null).catch(() => {}); }); } catch { /* older Chrome */ }
 }
 
 // The panel's own window: ONE of it. A second click focuses the open one rather
@@ -74,6 +123,13 @@ async function openPreferredSurface(tab) {
 }
 
 chrome.action.onClicked.addListener((tab) => {
+  // The click IS the tester pointing at the page they are testing, so bind it as
+  // the target: from here a detour onto a page we may not touch — a chrome:// page,
+  // a new tab — no longer loses the site under test (shared/site-tab.js).
+  if (tab) SiteTab.rememberTab(tab).catch(() => { /* a storage hiccup must not break the click */ });
+  // A step recording blinded by a cross-origin navigation lives in THIS worker, not
+  // in the panel, so it cannot hear a broadcast — retry its inject here.
+  srRecover(tab && tab.id).catch(() => { /* same */ });
   // A warm worker knows the answer already and keeps the gesture; a worker woken
   // BY this click does not, and takes the awaited path — where side-panel mode is
   // Chrome's own business anyway (see the note above).
@@ -128,7 +184,16 @@ try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTE
 // access instead. Since #123 this hits the screenshot ALONE — the recorder no
 // longer attaches, which is the whole point of that issue.
 const DBG_FOREIGN_FRAME = 'Another extension has a frame on this page, so Chrome blocks the debugger this needs — turn that extension off for this page (or use a clean profile) and try again.';
+// …and the SAME refusal when the rescue below is one permission away from working.
+// captureVisibleTab is allowed under `activeTab` (what a toolbar click leaves) or
+// <all_urls>, never under a per-origin grant — so a tester who allowed this site
+// permanently and has not clicked the icon on this tab is told the thing that
+// actually works, instead of being sent off to disable someone else's extension.
+const DBG_FOREIGN_FRAME_CLICK = 'Another extension has a frame on this page, so Chrome blocks the debugger a full screenshot needs — click the Testomat icon in the toolbar and try again, and the panel will shoot the visible page instead.';
 const dbgIsForeignFrame = (msg) => /chrome-extension:\/\/ URL of different extension/.test(String(msg || ''));
+// Chrome's own wording for "captureVisibleTab needs activeTab or <all_urls>" —
+// the ONE rescue failure a toolbar click fixes, told apart from a real one.
+const capNeedsGrant = (msg) => /all_urls|activeTab/.test(String(msg || ''));
 
 // The one place a chrome.debugger failure becomes an Error: the raw refusal is
 // rewritten, and `foreignFrame` lets the capture path try its viewport rescue.
@@ -168,13 +233,20 @@ function dbgDetach(tabId) {
 // rare but real: an inactive tab, and the per-second capture quota.
 function captureVisible(tab) {
   return new Promise((resolve) => {
-    if (!tab || !tab.active || tab.windowId == null || !chrome.tabs.captureVisibleTab) { resolve(null); return; }
+    if (!chrome.tabs.captureVisibleTab) { resolve({ error: 'captureVisibleTab unavailable' }); return; }
+    if (!tab || !tab.active || tab.windowId == null) { resolve({ error: 'the tab is not the visible one' }); return; }
     try {
       chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 }, (dataUrl) => {
-        void chrome.runtime.lastError;
-        resolve(dataUrl || null);
+        const msg = chrome.runtime.lastError && chrome.runtime.lastError.message;
+        if (dataUrl) { resolve({ dataUrl }); return; }
+        resolve({ error: msg || 'no image', needsGrant: capNeedsGrant(msg) });
       });
-    } catch { resolve(null); }
+    } catch (e) {
+      // Some builds throw the permission refusal instead of reporting it — same
+      // verdict either way.
+      const msg = String((e && e.message) || e);
+      resolve({ error: msg, needsGrant: capNeedsGrant(msg) });
+    }
   });
 }
 
@@ -248,37 +320,118 @@ async function trimToDocument(dataUrl, clip) {
   }
 }
 
+// One attach → shoot → detach. Extracted because the foreign-frame path below runs
+// it TWICE: once as it stands, and once with the offending frames out of the page.
+async function shootViaDebugger(tabId, beyondViewport) {
+  let clip = null;
+  let res;
+  await dbgAttach(tabId);
+  try {
+    if (beyondViewport) clip = await fullPageClip(tabId);
+    const shotParams = { format: 'jpeg', quality: 80, captureBeyondViewport: !!beyondViewport };
+    if (clip) shotParams.clip = clip;
+    res = await dbgSendCmd(tabId, 'Page.captureScreenshot', shotParams);
+  } finally { await dbgDetach(tabId); }
+  return { res, clip };
+}
+
+// ---- #101, cleared on the fly ---------------------------------------------
+// Chrome refuses the debugger over a COMMITTED chrome-extension:// document in the
+// tab — and #101 measured the other half of that sentence too: "it works again once
+// the frame is gone". We hold host access to this page (resolveSiteTab said `ok`),
+// which is the whole opportunity: the foreign <iframe>s can be taken out of the DOM
+// for the length of one shot and put back exactly where they were, so the tester is
+// asked for nothing at all.
+//
+// DETACHED, not hidden: `display:none` leaves the document committed and Chrome
+// keeps refusing. The cost is honest and bounded — re-inserting an iframe reloads
+// it, so the other extension's panel comes back fresh. That happens only on a page
+// that would otherwise have produced no screenshot whatsoever.
+//
+// The nodes are parked on the isolated world's `window`, per frame, so the restore
+// runs in the same world that removed them. `allFrames` reaches every same-origin
+// frame we can script; one we cannot reach keeps its frame and the capture falls
+// through to the paths below, exactly as before.
+const FOREIGN_PARK = '__testomatFramesOut';
+
+async function foreignFramesOut(tabId) {
+  try {
+    const out = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      args: [chrome.runtime.getURL(''), FOREIGN_PARK],
+      func: (mine, park) => {
+        const foreign = [...document.querySelectorAll('iframe')]
+          .filter((f) => {
+            const src = f.src || '';
+            return src.startsWith('chrome-extension://') && !src.startsWith(mine);
+          });
+        // Position, not just the node: an iframe put back at the end of <body> is
+        // not where its owner left it.
+        window[park] = foreign.map((el) => ({ el, parent: el.parentNode, next: el.nextSibling }));
+        for (const f of foreign) f.remove();
+        return foreign.length;
+      },
+    });
+    return (out || []).reduce((n, r) => n + (r && r.result ? r.result : 0), 0);
+  } catch { return 0; }
+}
+
+async function foreignFramesBack(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      args: [FOREIGN_PARK],
+      func: (park) => {
+        for (const { el, parent, next } of window[park] || []) {
+          try { if (parent && parent.isConnected) parent.insertBefore(el, next); } catch { /* the page moved on */ }
+        }
+        window[park] = null;
+      },
+    });
+  } catch { /* the page navigated or closed — nothing left to put back */ }
+}
+
+// The shot itself. Two paths since #198: a VIEWPORT capture is
+// chrome.tabs.captureVisibleTab (no debugger, no banner), and only "Full page"
+// attaches the debugger. `activate` first — when the answer is the BOUND target
+// rather than the tab in front of the tester, a shot of a background tab is a
+// shot of a page nobody is rendering, and the viewport rescue needs it active.
 async function captureShot({ beyondViewport = false } = {}) {
   // The resolver still gates: a restricted page can be captured by neither path.
-  const site = await resolveSiteTab({ verb: 'captured' });
+  const site = await resolveSiteTab({ verb: 'captured', activate: true });
   if (site.state !== 'ok') throw new Error(site.error);
   const tabId = site.tab.id;
-  // Viewport: no debugger, no banner. A refusal (inactive tab, capture quota)
-  // falls through to the debugger rather than losing the shot.
+  // A refusal here (an inactive tab, the capture quota) falls through to the
+  // debugger rather than losing the shot.
   if (!beyondViewport) {
     const dataUrl = await captureVisible(site.tab);
     if (dataUrl) return { dataUrl, tabId };
   }
-  let res;
-  let clip = null;
+  let shot = null;
+  let framesMoved = 0;
   try {
-    await dbgAttach(tabId);
-    try {
-      if (beyondViewport) clip = await fullPageClip(tabId);
-      const shotParams = { format: 'jpeg', quality: 80, captureBeyondViewport: !!beyondViewport };
-      if (clip) shotParams.clip = clip;
-      res = await dbgSendCmd(tabId, 'Page.captureScreenshot', shotParams);
-    } finally { await dbgDetach(tabId); }
+    shot = await shootViaDebugger(tabId, beyondViewport);
   } catch (e) {
-    // Only the foreign-frame refusal downgrades: it can never succeed, while any
-    // other debugger failure still rejects rather than silently losing full page.
+    // Only the foreign-frame refusal downgrades: it can never succeed as it stands,
+    // while any other debugger failure still rejects rather than silently losing
+    // full page.
     if (!e || !e.foreignFrame) throw e;
-    const dataUrl = await captureVisible(site.tab);
-    if (!dataUrl) throw e;
-    return { dataUrl, tabId, viewportOnly: true };
+    framesMoved = await foreignFramesOut(tabId);
+    if (framesMoved > 0) {
+      try { shot = await shootViaDebugger(tabId, beyondViewport); }
+      catch { shot = null; /* re-added by its owner, or something else refuses */ }
+      finally { await foreignFramesBack(tabId); }
+    }
+    if (!shot) {
+      // Everything below is the pre-existing ladder, now the LAST resort rather
+      // than the first answer: the viewport rescue, then the sentence for it.
+      const dataUrl = await captureVisible(site.tab);
+      if (!dataUrl) throw e;
+      return { dataUrl, tabId, viewportOnly: true };
+    }
   }
-  const shot = await trimToDocument(`data:image/jpeg;base64,${res.data}`, clip);
-  return { dataUrl: shot.dataUrl, tabId, trimmed: shot.trimmed };
+  const out = await trimToDocument(`data:image/jpeg;base64,${shot.res.data}`, shot.clip);
+  return { dataUrl: out.dataUrl, tabId, trimmed: out.trimmed, framesMoved };
 }
 
 // ============================ Step recorder ================================
@@ -422,7 +575,10 @@ function srPushNav(st, text, cap) {
 }
 
 async function srStart() {
-  const site = await resolveSiteTab({ verb: 'recorded' });
+  // `activate`: a recording follows ONE tab, so if the answer is the bound target
+  // rather than the tab in front of the tester, put that tab in front of them —
+  // recording a page they cannot see is worse than not recording at all.
+  const site = await resolveSiteTab({ verb: 'recorded', activate: true });
   if (site.state !== 'ok') return { ok: false, reason: site.error };
   const tab = site.tab;
   // The `Open <url>` step is DEFERRED until the first real action/navigation, so a
@@ -704,10 +860,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     // `viewportOnly`. `trimmed` reports the #158 guard having cut a doubled shot
     // back to one page (diagnostics — the image is already correct).
     captureShot({ beyondViewport: !!msg.fullPage })
+      // `framesMoved` = how many foreign frames had to be lifted out of the page to
+      // get this shot (#101). Diagnostics: the image is a normal full-quality one.
       .then((r) => sendResponse({
         ok: true, dataUrl: r.dataUrl, tabId: r.tabId, viewportOnly: !!r.viewportOnly, trimmed: !!r.trimmed,
+        framesMoved: r.framesMoved || 0,
       }))
-      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      // `needsGrant`: the failure a toolbar click fixes (#101 rescue, above) — the
+      // panel pends the retry on it instead of leaving the tester at a dead end.
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e), needsGrant: !!e?.needsGrant }));
     return true; // async response
   }
 });

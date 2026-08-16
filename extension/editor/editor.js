@@ -3,9 +3,10 @@
 // A standalone extension page serving both contexts by URL:
 //   ?ctx=panel|tab   panel = side-panel document (Back shown);
 //                    tab   = full browser tab (panel-only chrome omitted)
-//   ?test=<uid>      READ-ONLY view of an existing TC (#115 — tests are edited
-//                    in the web app; the panel runs and creates them)
-//   ?suite=<uid>     create a new TC bound to that suite (the full editor)
+//   ?test=<uid>      read-only VIEW of an existing TC (#115) — nothing on the
+//                    page to type into, Edit in its header to change that
+//   ?test=<uid>&edit the same TC in the editor (title, body, priority → PATCH)
+//   ?suite=<uid>     create a new TC bound to that suite (the same editor)
 //   ?demo=1          local round-trip proof for the e2e harness (no API)
 //
 // The authoring engine is vendored OverType (raw-textarea markdown, its own
@@ -15,10 +16,10 @@
 // same ApiError kinds.
 //
 // State handoff is by id only (never serialized content); a Save failure keeps
-// the full editor state intact (spec FR-008). A successful create hands over to
-// the read-only view of the new test — there is no update path (#115).
+// the full editor state intact (spec FR-008). A successful Save — create or
+// update — hands the page over to the read-only view of the test it wrote.
 
-/* global TestomatAPI, OverType, marked, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, sanitizeHtml, Tooltip, EmptyState, Sk, ImgHydrate */
+/* global TestomatAPI, OverType, Md, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
 (() => {
   'use strict';
 
@@ -36,9 +37,16 @@
   const ICON_ERROR = 'error';            // error toast (#82)
   const ICON_OPEN_IN_NEW = 'open_in_new'; // "Open in Testomat" (#113)
   const ICON_CAMERA = 'photo_camera';    // Attach screenshot
+  const ICON_CLOSE = 'close';            // drop a staged screenshot, on the picture
   const ICON_RECORD = 'fiber_manual_record'; // Record steps
   const ICON_STOP = 'stop';                  // Stop recording
-  const ICON_EDIT = 'edit';              // the Edit tab
+  const ICON_EDIT = 'edit';              // "Edit test case", in the view's header
+  // The writing tab names the LANGUAGE it writes, the way the app's own editor
+  // does — so it takes the markdown mark rather than the pencil. A pencil said
+  // "editable", which the tab bar of an editor did not need saying, and it is
+  // the same glyph as the Edit button one screen up, where it means something
+  // else entirely.
+  const ICON_MARKDOWN = 'markdown';      // the Markdown tab
   const ICON_PREVIEW = 'visibility';     // the Preview tab
   const ICON_TEMPLATE = 'description';   // the template picker's own mark
   const icon = (name, size = 20) => Icons.markup(name, size);
@@ -49,17 +57,25 @@
   // REPLACED by name below and nothing about the vendored file is touched
   // (Constitution II). A name missing here leaves that button's own glyph in
   // place, so a future OverType button is never drawn blank.
+  // The `md_*` names are the APP's own toolbar glyphs (shared/icons.js), so this
+  // row reads like the one the same tester uses in the web app.
+  // THE HEADINGS ARE THE EXCEPTION, and stay Material as a set of three. Only an
+  // H2 was ever supplied from the app's set, and one app glyph between two
+  // Material ones is the worst of both: the three sat at visibly different sizes
+  // in a row whose whole job is to look like one control repeated. Three of one
+  // set beats two of one and one of the other — so the trio moves together or
+  // not at all, and today it does not move.
   const TOOLBAR_ICONS = {
-    bold: 'format_bold',
-    italic: 'format_italic',
-    code: 'code',
-    link: 'link',
-    h1: 'format_h1',
-    h2: 'format_h2',
-    h3: 'format_h3',
-    bulletList: 'format_list_bulleted',
-    orderedList: 'format_list_numbered',
-    quote: 'format_quote',
+    bold: 'md_bold',
+    italic: 'md_italic',
+    code: 'md_code',
+    link: 'link',              // Material — no app glyph supplied
+    h1: 'format_h1',           // Material — the trio stays one set (above)
+    h2: 'format_h2',           // Material — ditto (an app H2 exists, unused)
+    h3: 'format_h3',           // Material — ditto
+    bulletList: 'md_list_bulleted',
+    orderedList: 'md_list_numbered',
+    quote: 'format_quote',     // Material — no app glyph supplied
   };
 
   // Priority (v2 enum, verified live). Order, icons and canon
@@ -73,6 +89,11 @@
       ctx: p.get('ctx') === 'tab' ? 'tab' : 'panel',
       test: p.get('test'),
       suite: p.get('suite'),
+      // `?test=<uid>&edit` — the SAME test, opened for writing instead of
+      // reading. One flag rather than a second document: the two screens share
+      // this page's chrome, its markdown pipeline and its guards, and the view's
+      // Edit button is the only thing that sets it.
+      edit: p.get('edit') != null,
       demo: p.get('demo') != null,
     };
   }
@@ -117,8 +138,16 @@
     codeBg: 'var(--surface-2)',
     blockquote: 'var(--muted)',
     hr: 'var(--border)',
-    // `###`, `**`, `-` — the marks, not the words.
-    syntaxMarker: 'color-mix(in srgb, var(--accent) 55%, var(--bg))',
+    // `###`, `**`, `*` — the marks in front of the words, and the SAME indigo as
+    // the words they mark. They used to be a step lighter (the accent mixed
+    // toward the background), on the theory that a mark is quieter than what it
+    // marks. It is not how this product prints them — the app's own markdown
+    // editor sets mark and heading in one colour — and a diluted glyph does not
+    // read as "secondary", it reads as one that failed to load. Nothing in this
+    // extension dims TEXT to rank it. (The vendored `opacity: 0.7` on
+    // `.syntax-marker` is turned off in editor.css for the same reason: half of
+    // that fade was not even ours to see.)
+    syntaxMarker: 'var(--accent)',
     syntax: 'var(--muted)',
     cursor: 'var(--accent)',
     // The live preview's text sits ABOVE the (invisible) textarea whose native
@@ -147,6 +176,32 @@
   function applyTheme() { try { OverType.setTheme(themeName(), EDITOR_COLORS); } catch { /* pre-init */ } }
   mql.addEventListener('change', applyTheme);
 
+  // The order the buttons stand in, read off the Testomat app's own markdown
+  // toolbar: headings first (they open the sections of a test), then the two
+  // character styles, then link, then the lists, then code — and quote last,
+  // which is ours alone. The vendored file's order leads with bold and buries
+  // the headings in the middle; the app's leads with the thing a test case is
+  // actually built out of.
+  // Only the buttons WE HAVE are placed here. The app's toolbar also carries a
+  // table, H4, two insert-list controls and an overflow `⋯` — those are missing
+  // BUTTONS, not missing icons: OverType has no such actions, so each would have
+  // to be authored (a command + a markdown transform), which is a different job
+  // from ordering and re-skinning the ones that exist.
+  // A name not listed sorts to the end rather than vanishing, so a button added
+  // by a future OverType still appears — visibly last, which is the point.
+  const TOOLBAR_ORDER = [
+    'h1', 'h2', 'h3',
+    'bold', 'italic',
+    'link',
+    'orderedList', 'bulletList',
+    'code',
+    'quote',
+  ];
+  const orderOf = (name) => {
+    const i = TOOLBAR_ORDER.indexOf(name);
+    return i === -1 ? TOOLBAR_ORDER.length : i;
+  };
+
   // ---- toolbar: default button set minus the dropped ones --------------------
   // Dropped: viewMode (our Preview tab is the single preview, rendered through
   // `marked`) and taskList (`- [ ]` renders as a dead checkbox outside Steps in
@@ -162,6 +217,11 @@
     if (!all) return null; // fall back to OverType's default set
     return all
       .filter((b) => b && b.name !== 'viewMode' && b.name !== 'taskList')
+      // …in the ORDER the Testomat app's own markdown toolbar puts them
+      // (TOOLBAR_ORDER), not the vendored file's. A tester moves between the two
+      // editors all day, and reaching for bold in a different place each time is
+      // the whole cost of a toolbar that is merely similar.
+      .sort((a, b) => orderOf(a.name) - orderOf(b.name))
       // …and re-iconed from the shared set. A COPY per button (the array is the
       // vendored module's own, and mutating it would re-skin every OverType on
       // the page, demo included); `name` is untouched, since it is what the
@@ -172,11 +232,11 @@
       });
   }
 
-  // ---- markdown preview: mirror the panel renderer (marked.parse + sanitize) -
+  // ---- markdown preview: the panel's renderer, not a second one (shared/markdown.js)
   function renderPreviewInto(box, md) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = marked.parse(md || '', { async: false });
-    sanitizeHtml(tmp); // shared/html-sanitize.js — same XSS boundary as the panel
+    // ONE renderer for the whole extension (shared/markdown.js): marked + the
+    // sanitize pass live in there, so the Preview tab and the panel cannot drift.
+    const tmp = Md.render(md);
     // …and the same image swap (#205): the CSP allows no remote <img>, so the
     // bytes are fetched and handed over as a blob: URL. Released FIRST — this
     // runs on every keystroke while the Preview tab is up, and the body about to
@@ -328,13 +388,17 @@
   // our OWN document, though: closing it tears the page down WITHOUT a native
   // unload prompt (beforeunload can't show a dialog in a side panel and does not
   // fire reliably on panel close), so a `beforeunload` guard would silently drop
-  // the edit. We therefore persist the dirty draft (title + content + priority,
-  // keyed by suite) to chrome.storage.session on input (throttled) and
-  // restore it when the editor reopens for that suite — mirroring the
-  // session-image handoff the capture flow uses (shared/capture-annotate.js).
-  // Creation-only since #115: an existing test is never dirty, so the old
-  // `editorDraft:test:<uid>` key has no writer and no reader left.
-  const editorDraftKey = (suite) => `editorDraft:suite:${suite}`;
+  // the edit. We therefore persist the dirty draft (title + content + priority)
+  // to chrome.storage.session on input (throttled) and restore it when the
+  // editor reopens on the same thing — mirroring the session-image handoff the
+  // capture flow uses (shared/capture-annotate.js).
+  // One draft per THING being written: a new test belongs to the suite it will
+  // land in, an edit to the test it is changing. Keyed apart so an unsaved edit
+  // of an existing case can never be restored into the new-test editor of its
+  // suite (same screen, entirely different text).
+  const editorDraftKey = ({ suite, test }) => (test
+    ? `editorDraft:test:${test}`
+    : `editorDraft:suite:${suite}`);
   function hasSession() {
     return typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session;
   }
@@ -361,6 +425,9 @@
   // page cannot recover — it has to be opened again — so it says so.
   let activeSettings = null;
   const NEED_SETUP = 'Not configured — open the panel settings first.';
+  // How many screenshots one unsaved test may hold. Each is a full JPEG living in
+  // this page's memory until Save, and the row they sit in is 380px wide.
+  const MAX_SHOTS = 10;
   const RELOADED = 'This page lost its link to the extension (it was reloaded or updated). Close it and open the test again.';
   function hasLocal() {
     return typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local;
@@ -644,10 +711,11 @@
   }
 
   // ---- the read-only view of an existing TC (#115) -------------------------
-  // Tests are edited in the web app; the panel shows them. Rendered markdown
-  // through the SAME marked+sanitize path as the editor's Preview tab — no
-  // OverType, no Save, no priority dropdown, no recorder/screenshot tools.
-  // Also the landing surface after a create (there is no update path).
+  // What a test SAYS, with nothing to fill in: rendered markdown through the
+  // SAME marked+sanitize path as the editor's Preview tab — no OverType, no
+  // Save, no priority dropdown, no recorder/screenshot tools. Writing is one
+  // button away (Edit, in the header) rather than absent; this stays the screen
+  // a test is read on, and the one a create and an update both land back on.
   //
   // `loading` draws this same screen with the two things that are still on the
   // wire — the title and the body — replaced by grey bars, and that is the whole
@@ -690,17 +758,43 @@
     h.id = 'tc-view-title';
     // The shared headline (size/face/weight) + what this bar adds to it.
     h.className = 'context-title tc-view-title';
+    // The test's own MARKS before its name, in the order every row naming a test
+    // opens with (core/views.js contextTitleMarks): how much it MATTERS, then
+    // what it IS. Priority used to be a labelled chip at the far end of this row
+    // — a second place to look for one of the two facts the title already
+    // carries — and the type mark stood alone in front of the name; they are one
+    // pair, so they are drawn as one.
     if (loading) {
       // The bars are silent to a screen reader (they say nothing a reader can
       // use), so the heading keeps the sentence the notice box used to carry.
       h.setAttribute('aria-label', 'Loading test case…');
-      h.append(skBar('line', '58%'));
+      // …and the priority keeps its BOX while the read is out (the panel's own
+      // trick, testPriorityMark): a mark that appeared afterwards would step the
+      // whole title 24px sideways the moment the test landed.
+      //
+      // The two stand in ONE ROW, the way every placeholder in the panel's lists
+      // does — a disc, then the bar for the name beside it. A row is what it
+      // takes: `.skeleton` is a block (it has to be, it is a shape and not a
+      // word), so a bar appended straight after the mark box dropped onto a line
+      // of its own and the header opened as two grey lines stacked where the
+      // title goes.
+      const row = document.createElement('span');
+      row.className = 'tc-view-title-sk';
+      const slot = document.createElement('span');
+      slot.className = 'prio';
+      slot.append(skBar('circle'));
+      row.append(slot, skBar('line', '58%'));
+      h.append(row);
     } else {
-      // The test's own MARK before its name — its custom emoji if the project
-      // gave it one, else the type-of-test square the panel's lists open a test
-      // row with. The header of a drill-down says what it is looking at with the
-      // same symbol the row it was opened from used (shared/components.css:
-      // `.context-title > .type-mark`). Absent record → just the name.
+      // An absent or unknown priority IS `normal` — the builder's own fallback,
+      // and the priority the test actually runs at (shared/priority-icons.js).
+      const prioMark = PriorityIcons.mark(priority);
+      if (prioMark) { prioMark.id = 'tc-view-priority'; h.append(prioMark); }
+      // Its custom emoji if the project gave it one, else the type-of-test
+      // square the panel's lists open a test row with. The header of a
+      // drill-down says what it is looking at with the same symbol the row it
+      // was opened from used (shared/components.css: `.context-title >
+      // .type-mark`). Absent record → just the name.
       const mark = test && typeof TestType !== 'undefined'
         ? (Icons.emoji(test.emoji, 'type-mark') || TestType.forRecord(test))
         : null;
@@ -714,28 +808,33 @@
       ? barMain(buildCrumbs({ onRoot: toTestsRoot, onSuite: leave }), h)
       : h);
 
-    // Icon + label, read-only. Validated against the enum before it reaches
-    // innerHTML (the icon markup is ours, the value comes from the API).
-    // A loading test always lands with one (boot falls back to `normal`), so the
-    // chip's place is held rather than left to appear and shove the row.
-    const p = PriorityIcons.ORDER.includes(priority) ? priority : null;
-    if (loading) {
-      bar.append(skBar('chip', '58px'));
-    } else if (p) {
-      const chip = document.createElement('span');
-      chip.id = 'tc-view-priority';
-      chip.className = 'tc-view-priority';
-      chip.dataset.priority = p;
-      Tooltip.set(chip, `Priority: ${p}`);
-      chip.innerHTML = `${PriorityIcons.svg(p, 16)}<span class="tc-priority-label">${p}</span>`;
-      bar.append(chip);
-    }
+    // Edit — the one thing this screen is missing, and the reason the row still
+    // has an end to hang a control on now the priority moved into the title.
+    // It re-opens THIS page with `&edit`, so the editor keeps the uid, the trail
+    // and the tab it was opened in; Back out of it lands here again.
+    // Drawn while `loading` too: it is a link to a page whose address is already
+    // known from the uid in the URL, exactly like "Open in Testomat" beside it.
+    const editBtn = document.createElement('button');
+    editBtn.id = 'tc-edit';
+    editBtn.type = 'button';
+    editBtn.className = 'icon-btn';
+    Tooltip.set(editBtn, 'Edit test case');
+    editBtn.setAttribute('aria-label', 'Edit test case');
+    editBtn.innerHTML = icon(ICON_EDIT);
+    editBtn.addEventListener('click', () => {
+      const q = new URLSearchParams(location.search);
+      q.set('test', uid);
+      q.delete('suite');
+      q.set('edit', '1');
+      location.href = `?${q.toString()}`;
+    });
+    bar.append(editBtn);
 
-    // "Open in Testomat ↗" (#113): editing lives in the web app, so the header of
-    // the read-only view carries the way there — an ANCHOR wearing the icon-button
-    // skin (the #118 "New run ↗" precedent), opening a new tab. The href is
-    // rebuilt from the active settings, and with nothing to link to it hides
-    // rather than point at a 404.
+    // "Open in Testomat ↗" (#113): the same test on its own page in the web app,
+    // where everything this editor does not do lives — an ANCHOR wearing the
+    // icon-button skin (the #118 "New run ↗" precedent), opening a new tab. The
+    // href is rebuilt from the active settings, and with nothing to link to it
+    // hides rather than point at a 404.
     const openLink = document.createElement('a');
     openLink.id = 'tc-open-web';
     openLink.className = 'icon-btn tc-open-web';
@@ -778,10 +877,10 @@
       pane.append(Sk.lines(), Sk.lines(['92%', '76%', '84%']), Sk.lines(['88%', '94%', '58%']));
     } else {
       renderPreviewInto(pane, markdown);
-      // A read-only test with no body is a whole page of nothing, so it gets the
-      // block empty state rather than the muted line it used to. The way out is
-      // the header's own "Open in Testomat ↗" — editing lives there (#113) —
-      // which the sentence points at instead of drawing a second link to it.
+      // A test with no body is a whole page of nothing, so it gets the block
+      // empty state rather than the muted line it used to. The way out is the
+      // header's own Edit button, which the sentence points at instead of
+      // drawing a second control for it.
       // Asked of the rendered pane rather than of the markdown: a body that
       // renders away to nothing leaves the same empty page as no body at all.
       if (!paneHasContent(pane)) {
@@ -789,19 +888,16 @@
           className: 'tc-view-empty',
           icon: 'description',
           title: 'No description yet',
-          text: 'This test case has no steps or description written for it. Open it in Testomat to add one.',
+          text: 'This test case has no steps or description written for it. Edit it to write one.',
         }));
       }
     }
     body.append(pane);
     wrap.append(body);
 
-    // Says where editing lives now; the header link above is the way there (#113).
-    const hint = document.createElement('p');
-    hint.id = 'tc-view-hint';
-    hint.className = 'hint tc-view-hint';
-    hint.textContent = 'Read-only — edit this test in Testomat.';
-    wrap.append(hint);
+    // (No "Read-only — edit this test in Testomat" strip any more: it was a line
+    // of chrome across the foot of every test saying what the Edit button in the
+    // header now DOES, and it stopped being true the moment that button shipped.)
 
     const toast = document.createElement('div');
     toast.id = 'tc-toast';
@@ -834,16 +930,41 @@
     };
   }
 
-  // ---- the authoring surface (create only) --------------------------------
+  // ---- the authoring surface (create AND edit) ----------------------------
+  // ONE screen, two jobs, told apart by `mode`:
+  //   create — bound to a `suite`, POSTs a new test into it, seeds its body from
+  //            the project's template, and has no uid until it saves;
+  //   edit   — bound to an existing `uid`, PATCHes the three fields it owns
+  //            (title, description, priority) and leaves the suite alone.
+  // Everything between those two ends is the same object — the same title field,
+  // the same OverType, the same recorder, the same unsaved-changes guard — so the
+  // difference is carried in four places (the draft key, the save call, where a
+  // bare leave lands, and the template picker being create-only) rather than in a
+  // second copy of an 800-line screen.
   function renderEditor({
-    ctx, suite, title, markdown, priority, dirty: initialDirty = false,
+    ctx, mode = 'create', uid = null, test = null,
+    suite, title, markdown, priority, dirty: initialDirty = false,
     templates = [], templateId: initialTemplateId = null,
   }) {
+    const editing = mode === 'edit';
+    // The page this screen was entered from and returns to: the test's own
+    // read-only view, same uid, same ctx, minus the flag that opened the editor.
+    const viewHref = () => {
+      const q = new URLSearchParams(location.search);
+      q.delete('edit');
+      q.delete('suite');
+      q.set('test', uid);
+      return `?${q.toString()}`;
+    };
+    const draftKey = editorDraftKey(editing ? { test: uid } : { suite });
     let saving = false;
-    let done = false;        // created → the read-only view took over this page
+    let done = false;        // saved → the read-only view took over this page
     let dirty = false;
     let previewing = false;
-    let pendingShot = null;  // annotated screenshot held until Save (then uploaded)
+    // Annotated screenshots held until Save, then uploaded in the order they
+    // were taken. A test case is a sequence of steps, and a bug is rarely one
+    // picture — the camera appends, it does not replace what is already there.
+    const pendingShots = [];
     let recording = false;   // step recorder active for this editor
     let recPollTimer = null;
     let recEnding = false;   // guards the drain against a poll/stop race
@@ -871,7 +992,7 @@
       // re-creates the draft milliseconds after this removed it.
       clearTimeout(persistTimer);
       if (ctx === 'tab') window.removeEventListener('beforeunload', beforeUnloadHandler);
-      if (ctx === 'panel') removeEditorDraft(editorDraftKey(suite));
+      if (ctx === 'panel') removeEditorDraft(draftKey);
     }
 
     // Panel-ctx only: throttled persist of the live draft to storage.session so
@@ -883,9 +1004,9 @@
         title: titleInput.value,
         markdown: editor.getValue(),
         priority: priorityCtrl.getPriority(),
-        suite: suite || null, ts: Date.now(),
+        suite: suite || null, test: uid || null, ts: Date.now(),
       };
-      try { chrome.storage.session.set({ [editorDraftKey(suite)]: draft }); } catch { /* best effort */ }
+      try { chrome.storage.session.set({ [draftKey]: draft }); } catch { /* best effort */ }
     }
     function schedulePersist() {
       if (ctx !== 'panel') return;
@@ -907,11 +1028,15 @@
     bar.dataset.tipSide = 'bottom'; // …the same, one row down the ladder
 
     if (ctx === 'panel') {
+      // The arrow names what is BEHIND this screen, and that differs by mode: a
+      // new test is being written into a suite, an edit was opened from the test
+      // it is changing.
+      const backLabel = editing ? 'Back to test' : 'Back to suite';
       const backBtn = document.createElement('button');
       backBtn.id = 'tc-back';
       backBtn.className = 'icon-btn';
-      Tooltip.set(backBtn, 'Back to suite');
-      backBtn.setAttribute('aria-label', 'Back to suite');
+      Tooltip.set(backBtn, backLabel);
+      backBtn.setAttribute('aria-label', backLabel);
       backBtn.innerHTML = icon(ICON_BACK);
       backBtn.addEventListener('click', () => { requestBack(); });
       bar.append(backBtn);
@@ -938,7 +1063,7 @@
     // body, the way Tab would out of a form field.
     const titleInput = document.createElement('textarea');
     titleInput.id = 'tc-title';
-    titleInput.className = 'textarea autogrow size-sm tc-title-input';
+    titleInput.className = 'textarea autogrow size-md tc-title-input';
     titleInput.rows = 1;
     titleInput.placeholder = 'Test case title';
     titleInput.value = title || '';
@@ -969,7 +1094,10 @@
     bar.append(ctx === 'panel'
       ? barMain(buildCrumbs({
         onRoot: () => requestBack(toTestsRoot),
-        onSuite: () => requestBack(),
+        // The suite crumb goes to the SUITE, in every mode — unlike the arrow
+        // beside it, which walks back one step (out of an edit, that is the
+        // test's own view, which is not what this word says).
+        onSuite: () => requestBack(toPanelHome),
       }))
       : Object.assign(document.createElement('span'), { className: 'bar-spacer' }));
 
@@ -1000,6 +1128,28 @@
     // where the writing ends, not back up at the top of it.
     const priorityCtrl = buildPriorityControl(priority, onEdited);
     bar.append(priorityCtrl.wrap);
+
+    // "Open in Testomat ↗" — the same anchor the read-only view ends its header
+    // with (#113), on the same test, so walking into the editor does not lose
+    // the way out to the web app. EDIT MODE ONLY: a create has no test to open
+    // until it saves, and a link to a page that does not exist yet is worse than
+    // no link (which is why `tc-open-web` is absent, not hidden, while creating).
+    // It opens a new tab, so it takes an unsaved edit nowhere — no guard.
+    if (editing) {
+      const openLink = document.createElement('a');
+      openLink.id = 'tc-open-web';
+      openLink.className = 'icon-btn tc-open-web';
+      openLink.target = '_blank';
+      openLink.rel = 'noopener noreferrer';
+      Tooltip.set(openLink, 'Open in Testomat');
+      openLink.setAttribute('aria-label', 'Open in Testomat');
+      openLink.innerHTML = icon(ICON_OPEN_IN_NEW);
+      const url = testWebUrl(uid);
+      // Built from the active settings, and with nothing to link to it hides
+      // rather than point at a 404 — the view's own rule.
+      if (url) openLink.href = url; else openLink.hidden = true;
+      bar.append(openLink);
+    }
     wrap.append(bar);
 
     // The title's own row, full width, directly under the bar.
@@ -1027,7 +1177,13 @@
       b.innerHTML = `${icon(name, 16)}<span class="tab-label">${label}</span>`;
       return b;
     };
-    const editTab = buildTab('tc-tab-edit', 'Edit', ICON_EDIT, true);
+    // "Markdown", not "Edit": the pair names what each half SHOWS you — the
+    // source, or the rendered article — which is the same pair, in the same
+    // words, the app's own test editor puts at the top of this screen. "Edit"
+    // named the mode instead, and sat opposite a tab that named a view.
+    // (The id stays `tc-tab-edit`: it is what the e2e and the hotkeys address,
+    // and this is a relabelling, not a new tab.)
+    const editTab = buildTab('tc-tab-edit', 'Markdown', ICON_MARKDOWN, true);
     const previewTab = buildTab('tc-tab-preview', 'Preview', ICON_PREVIEW, false);
     tabs.append(editTab, previewTab);
     wrap.append(tabs);
@@ -1042,8 +1198,10 @@
     tools.className = 'toolbar divided tc-tools';
 
     // Template picker (#104) — the project's own "New Test" templates, leading the
-    // row. A native <select>: the options are plain titles (unlike the priority
-    // listbox, no icons), so the OS control is the accessible choice.
+    // row. The shared `Dropdown` (shared/dropdown.js), like every other picker in
+    // the extension: this used to be a native <select>, and its OS-drawn popup
+    // opened as a full-width slab of system chrome beside the 380px panel rather
+    // than under the 170px control it belongs to.
     // Hidden outright when the project has no test template (or the fetch failed):
     // an empty dropdown is worse than none, and the body simply starts empty.
     //
@@ -1051,29 +1209,48 @@
     // worth of width to repeat what the control's own first option already says
     // ("Test Template (default)"), and this row has three controls to fit in a
     // 380px panel. What it said is now carried where a label belongs on a control
-    // that is already self-evident: the mark INSIDE the field (the shared
-    // `.field` wrapper), the tooltip, and the aria-label a reader gets.
+    // that is already self-evident: the mark INSIDE the field (`.field-icon`, which
+    // `Dropdown` places for us), the tooltip, and the aria-label a reader gets.
+    //
+    // `align: 'end'` because it sits at the END of the toolbar: the popup grows
+    // leftwards off the trigger's right edge, where anchoring it left would send a
+    // long template title straight off the panel.
     let templateId = initialTemplateId;
-    const tmplField = document.createElement('div');
-    tmplField.className = 'field tc-template-field';
-    tmplField.hidden = templates.length === 0;
-    const tmplIcon = Icons.el(ICON_TEMPLATE, 16, 'field-icon');
-    const tmplSelect = document.createElement('select');
-    tmplSelect.id = 'tc-template';
-    tmplSelect.className = 'select size-sm tc-template-select';
-    tmplSelect.setAttribute('aria-label', 'Test template');
-    Tooltip.set(tmplSelect, 'Start the description from a project template');
-    for (const t of templates) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
+    const tmplDD = Dropdown.create({
+      id: 'tc-template',
+      className: 'tc-template-field',
+      triggerClass: 'size-sm tc-template-trigger',
+      label: 'Test template',
+      icon: ICON_TEMPLATE,
+      align: 'end',
       // Name the project's default in the option itself — the closed control
       // otherwise gives no hint that this is the project-wide starting point.
-      opt.textContent = (t.title || `Template ${t.id}`) + (t.isDefault ? ' (default)' : '');
-      tmplSelect.append(opt);
-    }
-    if (templateId) tmplSelect.value = templateId;
-    if (tmplIcon) tmplField.append(tmplIcon);
-    tmplField.append(tmplSelect);
+      options: templates.map((t) => ({
+        value: t.id,
+        label: (t.title || `Template ${t.id}`) + (t.isDefault ? ' (default)' : ''),
+      })),
+      value: templateId,
+      // …and with no seed, the first template is what is shown — a select has no
+      // empty state, and this control had none either.
+      fallbackFirst: true,
+      // Picking REPLACES the body: free while nothing has been authored, and a
+      // question first once it has. (The helpers this leans on are declared below,
+      // with the editor they read — none of them runs before a click.)
+      onChange: (id) => {
+        const next = templateById(id);
+        if (!next) return;
+        // Already exactly that template — nothing to do (and nothing to mark
+        // dirty). It is NOT enough to compare ids: a restored draft leaves the
+        // pick on the default while the body is the tester's own, and re-picking
+        // it must still bring the template back.
+        if (editor.getValue() === next.body) { templateId = next.id; return; }
+        if (bodyIsUnauthored()) applyTemplate(next.id);
+        else openTemplateGuard(next.id);
+      },
+    });
+    const tmplField = tmplDD.el;
+    tmplDD.hidden = templates.length === 0;
+    Tooltip.set(tmplDD.trigger, 'Start the description from a project template');
     const recBtn = document.createElement('button');
     recBtn.id = 'tc-rec';
     recBtn.type = 'button';
@@ -1099,9 +1276,12 @@
     attachBtn.innerHTML = icon(ICON_CAMERA, 16);
     attachBtn.setAttribute('aria-label', 'Attach screenshot');
     Tooltip.set(attachBtn, 'Attach screenshot — capture the active tab, mark it up, and attach it on Save');
-    const shotPreview = document.createElement('div');
+    // The staged screenshots. A list, because there can be several — the camera
+    // appends — and a list is what a screen reader should hear them as.
+    const shotPreview = document.createElement('ul');
     shotPreview.id = 'tc-shot-preview';
-    shotPreview.className = 'tc-shot-preview';
+    shotPreview.className = 'thumb-row tc-shot-preview';
+    shotPreview.setAttribute('aria-label', 'Screenshots to attach on Save');
     shotPreview.hidden = true;
     // The row reads left to right as what the tester DOES: record the steps,
     // attach the screenshot. The template is not one of those — it is picked once,
@@ -1174,7 +1354,17 @@
       // product's own mono face instead (--instance-font-family, set by
       // OverType from this option, reaches both the textarea and its own
       // live overlay — never the rendered Preview tab, which stays --font-sans).
-      fontFamily: 'var(--font-mono)',
+      // The three metrics of the editing surface, all declared in editor.css
+      // (`:root`) with the rest of the page's values — see the note there.
+      // They MUST go through these options and not a stylesheet rule: OverType
+      // lays a transparent textarea over a rendered overlay, and the two are
+      // pinned to one `--instance-font-family` / `--instance-font-size` /
+      // `--instance-line-height` (`.overtype-input, .overtype-preview`, a single
+      // `!important` block in the vendored file). Sizing either layer on its own
+      // would slide the caret off the glyphs it is standing in.
+      fontFamily: 'var(--font-md-editor)',
+      fontSize: 'var(--fs-base)',
+      lineHeight: 'var(--leading-md-editor)',
       value: markdown || '',
       placeholder: 'Write the test case in Markdown…',
       onChange: () => { if (mounted) onEdited(); },
@@ -1236,14 +1426,15 @@
       const t = templateById(id);
       if (!t) return;
       templateId = id;
-      tmplSelect.value = id;
+      tmplDD.setValue(id);
       editor.setValue(t.body);
       if (previewing) renderPreviewInto(previewPane, editor.getValue());
       onEdited(); // a swapped body is an unsaved change like any other
     }
-    // Cancel must put the control back on what the body actually holds — a
-    // <select> keeps the new value on its own.
-    function revertTemplateSelect() { if (templateId) tmplSelect.value = templateId; }
+    // Cancel must put the control back on what the body actually holds — the
+    // pick already moved the closed face, and nothing else is going to move it
+    // back. (`setValue` is the silent path, so this cannot re-enter onChange.)
+    function revertTemplateSelect() { if (templateId) tmplDD.setValue(templateId); }
 
     let tmplGuard = null;
     let tmplPending = null; // id awaiting the Replace confirmation
@@ -1293,18 +1484,6 @@
       const b = $('tc-template-replace');
       if (b) b.focus();
     }
-
-    tmplSelect.addEventListener('change', () => {
-      const next = templateById(tmplSelect.value);
-      if (!next) return;
-      // Already exactly that template — nothing to do (and nothing to mark dirty).
-      // Note it is NOT enough to compare ids: a restored draft leaves the pick on
-      // the default while the body is the tester's own, and re-picking it must
-      // still bring the template back.
-      if (editor.getValue() === next.body) { templateId = next.id; return; }
-      if (bodyIsUnauthored()) applyTemplate(next.id);
-      else openTemplateGuard(next.id);
-    });
 
     // ---- step recorder (message-driven; background owns the canonical state) --
     const canRecord = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage;
@@ -1453,25 +1632,54 @@
       updateRecUi(0, false, recBlind, recManualPause);
     });
 
-    // ---- Attach screenshot (preview held until Save) -------------------------
+    // ---- Attach screenshots (previews held until Save) -----------------------
+    // The library's `.thumb-row` (components.css): the pictures themselves, each
+    // carrying the one action a staged picture has. Rebuilt whole on every
+    // change — the list is at most MAX_SHOTS long, and a diff would only be a
+    // second place for its order to be wrong.
     function renderShotPreview() {
       shotPreview.replaceChildren();
-      if (!pendingShot) { shotPreview.hidden = true; return; }
-      shotPreview.hidden = false;
-      const img = document.createElement('img');
-      img.className = 'tc-shot-img';
-      img.src = pendingShot;
-      img.alt = 'Screenshot to attach on Save';
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'btn size-sm tc-shot-remove';
-      remove.textContent = 'Remove';
-      remove.addEventListener('click', () => { pendingShot = null; renderShotPreview(); });
-      shotPreview.append(img, remove);
+      shotPreview.hidden = pendingShots.length === 0;
+      if (!pendingShots.length) return;
+      pendingShots.forEach((dataUrl, i) => {
+        const cell = document.createElement('li');
+        cell.className = 'thumb';
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        // The number is the picture's place in the row, which is the order they
+        // will be attached in — the only thing a reader can check it against.
+        img.alt = `Screenshot ${i + 1} of ${pendingShots.length}, attached on Save`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'icon-btn size-xs thumb-remove';
+        remove.dataset.shot = String(i);
+        remove.innerHTML = icon(ICON_CLOSE, 16);
+        remove.setAttribute('aria-label', `Remove screenshot ${i + 1}`);
+        Tooltip.set(remove, 'Remove this screenshot');
+        remove.addEventListener('click', () => dropShot(i));
+        cell.append(img, remove);
+        shotPreview.append(cell);
+      });
+    }
+    // Focus cannot stay on a button that is gone: it lands on the next picture's
+    // remove, or on the camera that made them when the last one goes.
+    function dropShot(i) {
+      if (i < 0 || i >= pendingShots.length) return;
+      pendingShots.splice(i, 1);
+      renderShotPreview();
+      markDirty();
+      const next = shotPreview.querySelector(`.thumb-remove[data-shot="${Math.min(i, pendingShots.length - 1)}"]`);
+      (next || attachBtn).focus();
     }
 
     async function attachScreenshot() {
       if (attachBtn.disabled) return;
+      // A held shot is a whole JPEG in this page's memory, so the row has a
+      // ceiling; it is high enough that no real test case reaches it by accident.
+      if (pendingShots.length >= MAX_SHOTS) {
+        showToast(`${MAX_SHOTS} screenshots is the most one test can hold — save, or remove one first`, { error: true });
+        return;
+      }
       attachBtn.disabled = true;
       try {
         // Site access first (capture + overlay inject need it); never a prompt.
@@ -1480,10 +1688,17 @@
         const perm = await CaptureAnnotate.ensureCapturePermission();
         if (!perm.ok) { showToast(perm.error, { error: true }); return; }
         const resp = await CaptureAnnotate.captureTab({ fullPage: false });
-        if (!resp.ok) { showToast(`Capture failed: ${resp.error || 'unknown'}`, { error: true }); return; }
+        // `needsGrant` (#101): the worker's sentence already names the fix — a
+        // toolbar click — so it is shown as it stands rather than prefixed with a
+        // diagnostic. This page holds no SiteResume, so the retry is the tester's
+        // second click on the camera, which is what that sentence asks for.
+        if (!resp.ok) {
+          showToast(resp.needsGrant ? resp.error : `Capture failed: ${resp.error || 'unknown'}`, { error: true });
+          return;
+        }
         const staged = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast: showToast });
         if (!staged) return; // Discard — nothing staged
-        pendingShot = staged;
+        pendingShots.push(staged);
         renderShotPreview();
         markDirty(); // a pending shot is unsaved work → Save uploads it, guard protects it
       } finally {
@@ -1493,21 +1708,23 @@
     attachBtn.addEventListener('click', attachScreenshot);
     updateRecUi(0, false, false, false);
 
-    // Hand the page over to the read-only view of the test that was just
-    // created. There is no update path (#115), so this is also the guard that
-    // makes a second Save (button or Cmd+S) impossible — no duplicate TCs.
+    // Hand the page over to the read-only view of the test just written — the
+    // screen a saved test belongs on, whether this Save created it or changed
+    // it. It also latches `done`, which is what makes a second Save (button or
+    // Cmd+S) impossible: creating, that would be a duplicate TC.
     function handOverToView(id, saved) {
       done = true;
       clearInterval(recPollTimer);
       document.removeEventListener('keydown', onEditorKey);
       const p = new URLSearchParams(location.search);
       p.delete('suite');
+      p.delete('edit');
       p.set('test', id);
       history.replaceState(null, '', `?${p.toString()}`); // a reload lands on the view
       renderView({ ctx, uid: id, ...saved });
     }
 
-    // ---- save: creates the TC; returns its uid, or null on failure (FR-008) --
+    // ---- save: writes the TC; returns its uid, or null on failure (FR-008) ---
     async function save() {
       if (saving || done) return null;
       // Claim the flag before the first await — the recorder drain below is one,
@@ -1516,8 +1733,8 @@
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {
-        // A running recorder is drained FIRST: with no update path, steps
-        // recorded into a saved test could never reach it.
+        // A running recorder is drained FIRST — its tail is not in the body yet,
+        // and what is not in the body is not in the payload.
         if (recording) await finishRecording();
         const description = editor.getValue();
         // The title field wraps, and a paste can bring real newlines with it —
@@ -1528,31 +1745,58 @@
         // the page and the toast at the very bottom, so the old toast was easy
         // to miss.
         if (!t) { showTitleError('Title is required'); return null; }
-        const created = await TestomatAPI.createTest({
-          title: t, suite_id: suite, description, priority,
-        });
-        const id = created && created.id;
-        // Upload the held screenshot to the (now-existing) test — best-effort, the
-        // same JWT multipart route as Block 5. A failure toasts but never fails Save.
+        // The one line where the two modes part: a POST into the suite, or a
+        // PATCH of the three fields this screen owns. The update deliberately
+        // omits `suite_id` — sending it would MOVE the test (contract m3), and
+        // this editor was opened to change its text, not where it lives.
+        const written = editing
+          ? await TestomatAPI.updateTest(uid, { title: t, description, priority })
+          : await TestomatAPI.createTest({ title: t, suite_id: suite, description, priority });
+        // Editing, the uid is known before the request and stays the uid whatever
+        // the response echoes back.
+        const id = (written && written.id) || (editing ? uid : null);
+        // Upload the held screenshots to the (now-existing) test — best-effort,
+        // the same JWT multipart route as Block 5, in the order they were taken.
+        // A failure toasts but never fails Save, and the ones that did NOT land
+        // stay staged: they are still unsaved work, and a second Save retries
+        // exactly them.
         let shotError = null;
-        if (pendingShot && id) {
-          try {
-            const blob = await (await fetch(pendingShot)).blob();
-            await TestomatAPI.uploadTestAttachment(id, blob, `editor-shot-${id}-${Date.now()}.jpg`);
-            pendingShot = null;
-          } catch (e) { shotError = (e && e.message) || e; }
+        let shotFailed = 0;
+        if (pendingShots.length && id) {
+          const stamp = Date.now();
+          const kept = [];
+          for (let i = 0; i < pendingShots.length; i++) {
+            try {
+              const blob = await (await fetch(pendingShots[i])).blob();
+              await TestomatAPI.uploadTestAttachment(id, blob, `editor-shot-${id}-${stamp}-${i + 1}.jpg`);
+            } catch (e) {
+              kept.push(pendingShots[i]);
+              shotError = (e && e.message) || e;   // the last word on why, for the toast
+            }
+          }
+          shotFailed = kept.length;
+          pendingShots.splice(0, pendingShots.length, ...kept);
+          renderShotPreview();
         }
         clearDirty();
-        if (ctx === 'panel') removeEditorDraft(editorDraftKey(suite));
+        if (ctx === 'panel') removeEditorDraft(draftKey);
         // View first, then the toast — showToast targets the view's own element.
         // No id back (never seen on v2, but the TC exists): stay put and just
         // latch `done`, so a retry can never create a second copy.
-        // `test: {}` is not a missing record — it is what the panel just wrote:
-        // a case typed by hand, with no code behind it, which is exactly the
-        // `manual` kind TestType reads out of a record carrying no state flags.
-        if (id) handOverToView(id, { title: t, markdown: description, priority, test: {} });
+        // The record handed on is the one this page already had (an edit knows
+        // what it opened, and the mark in the header is drawn off it). For a
+        // create there is none, and `test: {}` is not a missing record — it is
+        // what the panel just wrote: a case typed by hand, with no code behind
+        // it, which is exactly the `manual` kind TestType reads out of a record
+        // carrying no state flags.
+        const rec = (editing && test) ? { ...test, title: t, priority } : {};
+        if (id) handOverToView(id, { title: t, markdown: description, priority, test: rec });
         else done = true;
-        if (shotError) showToast(`Saved — the screenshot couldn't attach (${shotError})`, { error: true });
+        if (shotError) {
+          showToast(shotFailed > 1
+            ? `Saved — ${shotFailed} screenshots couldn't attach (${shotError})`
+            : `Saved — the screenshot couldn't attach (${shotError})`, { error: true });
+        }
         else showToast('Saved ✓');
         return id;
       } catch (e) {
@@ -1575,10 +1819,15 @@
     // entry point sets it again before anything reads it.
     // In ctx=tab there is no panel to return to: this document IS the window the
     // editor was opened in, so leaving closes it.
-    const toPanel = ctx === 'panel'
+    const toPanelHome = ctx === 'panel'
       ? () => { location.href = '../sidepanel/index.html'; }
       : () => { window.close(); };
-    let leaveTo = toPanel;
+    // …but an EDIT was not opened from the panel — it was opened from the test's
+    // own read-only view, one flag ago in this same document, and that is the
+    // page behind it in both contexts. (Closing the tab there would throw away
+    // the test the tester came to read.)
+    const goHome = editing ? () => { location.href = viewHref(); } : toPanelHome;
+    let leaveTo = goHome;
     function navigateBack() { leaveTo(); }
     function closeGuard() { if (guard) guard.hidden = true; }
     function openGuard() {
@@ -1590,7 +1839,7 @@
     // ◀ while recording is intercepted ONCE: stop + insert (work is never silently
     // lost), stay in the editor. A later ◀ leaves normally (unsaved-changes dialog).
     // Otherwise unsaved changes open the three-outcome dialog; clean → leave now.
-    function requestBack(to = toPanel) {
+    function requestBack(to = goHome) {
       leaveTo = to;
       if (recording) { finishRecording('Recording stopped'); return; }
       if (dirty) openGuard(); else navigateBack();
@@ -1657,8 +1906,11 @@
     window.__tc = {
       ready: true,
       ctx,
-      mode: () => 'create',
-      uid: () => null, // no uid until Save — which hands over to the view
+      mode: () => (editing ? 'edit' : 'create'),
+      // Creating, there is no uid until Save — which hands over to the view.
+      uid: () => uid,
+      // …and so no web url either: the hook exists only where the link does.
+      ...(editing ? { webUrl: () => testWebUrl(uid) } : {}),
       getMarkdown: () => editor.getValue(),
       setMarkdown: (md) => {
         editor.setValue(md);
@@ -1673,17 +1925,23 @@
       // user-equivalent pick (it goes through the same confirm path).
       templates: () => templates.map((t) => ({ id: t.id, title: t.title, isDefault: t.isDefault })),
       templateId: () => templateId,
-      pickTemplate: (id) => {
-        tmplSelect.value = String(id);
-        tmplSelect.dispatchEvent(new Event('change'));
-      },
+      pickTemplate: (id) => tmplDD.pick(String(id)),
       recording: () => recording,
       // The Stop button flips `recording` at once but its tail insert is a round
       // trip away — a reader of the body has to wait for this to clear as well.
       recStopping: () => recStopping,
       recBlind: () => recBlind,
-      pendingShot: () => pendingShot,
-      stageShot: (dataUrl) => { pendingShot = dataUrl || null; renderShotPreview(); markDirty(); },
+      // The whole staged row, and — for the readers that predate it — the newest
+      // picture in it, which is the one an Apply just put there.
+      pendingShots: () => pendingShots.slice(),
+      pendingShot: () => (pendingShots.length ? pendingShots[pendingShots.length - 1] : null),
+      // Append one, or clear the row with a falsy argument.
+      stageShot: (dataUrl) => {
+        if (dataUrl) pendingShots.push(dataUrl); else pendingShots.length = 0;
+        renderShotPreview();
+        markDirty();
+      },
+      dropShot: (i) => { dropShot(i); return pendingShots.length; },
     };
 
     // Restored a persisted panel-ctx draft: the content is already unsaved, so
@@ -1714,7 +1972,14 @@
     applyTheme();
     // No corpus on the page anymore — the e2e harness supplies samples to
     // __roundtrip; with none set the pane just shows this placeholder.
-    const demoOpts = { toolbar: true, fontFamily: 'var(--font-mono)', value: 'Test editor — demo (local, no API). The e2e harness supplies round-trip samples.' };
+    // Same typography as the real editor (it is the same editor, proving itself).
+    const demoOpts = {
+      toolbar: true,
+      fontFamily: 'var(--font-md-editor)',
+      fontSize: 'var(--fs-base)',
+      lineHeight: 'var(--leading-md-editor)',
+      value: 'Test editor — demo (local, no API). The e2e harness supplies round-trip samples.',
+    };
     const demoButtons = filteredToolbarButtons();
     if (demoButtons) demoOpts.toolbarButtons = demoButtons;
     const [editor] = new OverType('#editor', demoOpts);
@@ -1730,6 +1995,11 @@
 
   // ---- boot ---------------------------------------------------------------
   async function boot() {
+    // This page is served BOTH in the side panel and in a tab, and PanelLink sorts
+    // that out itself (a tab never registers). It runs before every early return
+    // below: a toolbar click while this page shows a message, the annotator or a
+    // half-written test must not re-open the panel out from under it.
+    if (typeof PanelLink !== 'undefined') PanelLink.init();
     // Annotator mode (M2 PR-2): editor.html?annotate=<key> hands the whole page
     // over to the annotator before any editor rendering (no OverType, no API).
     const annotateKey = new URLSearchParams(location.search).get('annotate');
@@ -1763,10 +2033,36 @@
     // #187 — a direct load (restored tab, bookmark) never passed the Tests tab's own gate.
     if (await readonlyGate()) { renderMessage(READONLY_BLOCK, { back: panelCtx }); return; }
 
-    // An existing test is read-only (#115) — no draft to restore, nothing to save.
+    // An existing test: one read, then either the screen that shows it or the
+    // one that writes it (`&edit`). Same fetch either way — the editor opens on
+    // the test's CURRENT text, which is the same text the view would render.
     if (cx.test) {
       try {
         const tc = await TestomatAPI.getTest(cx.test);
+        if (cx.edit) {
+          let title = (tc && tc.title) || '';
+          let markdown = (tc && tc.description) || '';
+          let priority = (tc && tc.priority) || 'normal';
+          let restoredDirty = false;
+          // Panel ctx: an unsaved edit of THIS test outranks what the server
+          // still holds — closing the side panel mid-sentence is not a discard.
+          if (panelCtx) {
+            const draft = await readEditorDraft(editorDraftKey({ test: cx.test }));
+            if (draft) {
+              title = draft.title || '';
+              if (draft.markdown != null) markdown = draft.markdown;
+              priority = draft.priority || priority;
+              restoredDirty = true;
+            }
+          }
+          // No `templates`: a template SEEDS a body that has not been written
+          // yet, and this one has — the picker would offer to replace the test.
+          renderEditor({
+            ctx: cx.ctx, mode: 'edit', uid: cx.test, test: tc || null,
+            title, markdown, priority, dirty: restoredDirty,
+          });
+          return;
+        }
         renderView({
           ctx: cx.ctx,
           uid: cx.test,
@@ -1798,7 +2094,7 @@
     // Panel ctx: restore an unsaved new-test draft for this suite. The draft is
     // the tester's own text — it outranks the template seed.
     if (panelCtx) {
-      const draft = await readEditorDraft(editorDraftKey(cx.suite));
+      const draft = await readEditorDraft(editorDraftKey({ suite: cx.suite }));
       if (draft) {
         title = draft.title || '';
         if (draft.markdown != null) markdown = draft.markdown;

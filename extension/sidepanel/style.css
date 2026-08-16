@@ -20,6 +20,10 @@ body {
   font-size: var(--fs-base);
   line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
+  /* The panel's own outer corner — one step tighter than the block radius, and
+     the ONE radius that belongs to the panel as a whole: `--radius` stays where
+     it is, so no card, button or input moves with it. */
+  border-radius: var(--radius-sm);
 }
 
 /* Header row 2 (#127): the tab bar plus the Rec slot, pinned to the top. It is
@@ -247,46 +251,49 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
   gap: var(--space-2);
 }
 
-/* Settings sections (Block 6): Connection / Allowed websites / Failure log
-   grouped under uppercase headers with a top divider. */
-.settings-section-title {
-  margin: var(--space-4) 0 var(--space-2);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-  font-size: var(--fs-sm);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  color: var(--muted);
-}
-.settings-section-title:first-of-type { margin-top: var(--space-1); padding-top: 0; border-top: none; }
+/* ---------- Settings sections ----------
+   Every section is an ACCORDION item (shared/components.css) — the same box the
+   test view's Attachments & log wears, so a fold looks the same wherever the
+   panel draws one. What stood here before was seven uppercase headers each with
+   a hairline over it: a divider says "a new group starts", which is true, but it
+   cannot say "and it is closed", which after the tidy-up is what the screen is
+   actually made of. The box can say both.
+
+   Advanced's own header used to be dialled down with `opacity` — no more: faded
+   text is not a rank, it is the same text harder to read. It is last in the list
+   and folded, which is the whole of what "advanced" has to mean here.
+
+   The `<h3>` is structure only (the heads are `.disclosure-head`s inside it), so
+   it is flattened to nothing — the button carries the type, the padding and the
+   hover, exactly like an unwrapped one. */
+.settings-accordion { margin: var(--space-1) 0 0; }
+.settings-section-title { margin: 0; font: inherit; color: inherit; }
+/* The box already owns the air under its last row — a label's own bottom margin
+   on top of it is the same gap paid for twice, and it is the one place the folds
+   would stop looking like each other (a section ending in a hint sits lower than
+   one ending in a checkbox). */
+.settings-accordion .disclosure-body > :last-child { margin-bottom: 0; }
 .settings-help { margin: -4px 0 var(--space-3); }
 .settings-help a { color: var(--accent); }
-/* Advanced (#83): the same header, dialled down — self-hosted-only settings. */
-.settings-section-title.settings-section-advanced { font-weight: var(--weight-medium); opacity: var(--opacity-muted); }
-/* …and a collapse toggle since #146: the heading itself is the button — the
-   shared `.disclosure-head`, wearing the heading's own type instead of the
-   disclosure's (font/case/tracking are inherited explicitly, since form controls
-   do not inherit them by default). The header's text content stays the plain
-   section name, which the settings-structure e2e reads. */
-.settings-section-toggle {
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  text-transform: inherit;
-  letter-spacing: inherit;
-}
 .settings-hint { margin: -4px 0 var(--space-2); }
 /* The hint under the theme switch follows a CONTROL, not a heading, so it drops
    the pull-up every other settings hint wears to tuck under one. */
 .theme-hint { margin-top: var(--space-2); }
 /* A field whose value is a handful of characters is sized by the value, not by
    the column it happens to sit in (the log window's seconds). */
-.settings-field-sm > .input { max-width: 96px; }
-/* Save stands off whatever it follows: with Advanced folded, the section heading
-   and the button that commits the whole form would otherwise touch. (Not on the
-   connect screen — the rule below gives that one its own spacing.) */
-#view-settings:not([data-mode="connect"]) > #btn-save-settings { margin-top: var(--space-3); }
+.settings-field-sm .input { max-width: 96px; }
+/* …and the unit rides beside it rather than inside the label: "seconds" is what
+   the number MEANS, so it stays on screen where the number is typed, while the
+   range and the default go in the `.info-tip` with every other explanation. */
+.settings-field-row { display: flex; align-items: center; gap: var(--space-2); }
+.settings-field-unit { flex: none; }
+/* The settings rows say what a setting IS in three or four words and hang the
+   rest off `.info-tip` (shared/components.css) — see the note there. */
+/* Save stands clear of the last fold: it commits the WHOLE form, so it must not
+   read as the button of whatever section happens to sit above it — which is
+   exactly what it did tucked under a collapsed Advanced. (Not on the connect
+   screen — the rules below give that one its own spacing.) */
+#view-settings:not([data-mode="connect"]) > #btn-save-settings { margin-top: var(--space-4); }
 
 /* ---------- Connection card ----------
    The connected instance, as a `.card`: an icon, two lines, one action. It stands
@@ -294,8 +301,8 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
    dots is a password field pretending to be one. The token field is display:none
    here and re-shown by the connect screen, or by an Instance the panel holds no
    token for ([data-token="on"], syncTokenField()). */
-#view-settings > :is(#token-field, #token-help) { display: none; }
-#view-settings[data-token="on"] > :is(#token-field, #token-help) { display: block; }
+#view-settings :is(#token-field, #token-help) { display: none; }
+#view-settings[data-token="on"] :is(#token-field, #token-help) { display: block; }
 .connection-card {
   display: flex;
   align-items: center;
@@ -323,7 +330,15 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
    later therefore stays OUT of the first run unless someone puts it there —
    the safe default for a screen whose whole job is one field. Order is set here
    rather than in the markup because the full form's order is its own (Save at
-   the bottom, under everything it commits). */
+   the bottom, under everything it commits).
+
+   The full form's sections are an ACCORDION, and this screen is not: it is one
+   field and one button, and folds around them would be chrome over nothing. So
+   the three wrappers between the section and its rows — the accordion, the two
+   items the first run needs, the bodies inside them — are FLATTENED with
+   `display: contents`, and the whitelist reads their contents as if the markup
+   were still flat. `[hidden]` stays stronger than any of it (the !important in
+   shared/components.css), so the Advanced fold still opens and closes here. */
 body[data-connect="true"] .header-top { display: none; }
 #view-settings[data-mode="connect"] {
   display: flex;
@@ -334,13 +349,21 @@ body[data-connect="true"] .header-top { display: none; }
      its own sides would inset the screen twice, a box drawn inside a box. */
   padding: 6vh 0 0;
 }
-#view-settings[data-mode="connect"] > * { display: none; }
+#view-settings[data-mode="connect"] > *,
+#view-settings[data-mode="connect"] .settings-accordion > *,
+#view-settings[data-mode="connect"] #settings-connection-body > * { display: none; }
+/* The three wrappers the first run sees through. */
+#view-settings[data-mode="connect"] > .settings-accordion,
+#view-settings[data-mode="connect"] #settings-connection-item,
+#view-settings[data-mode="connect"] #settings-connection-body,
+#view-settings[data-mode="connect"] #settings-advanced-item { display: contents; }
 #view-settings[data-mode="connect"] > #connect-hero { display: block; order: 0; }
-/* No "Connection" group header here: the screen has ONE group, the hero already
-   names the job, and the field is labelled. It stays in the full form, where it
-   separates Connection from the sections around it. */
-#view-settings[data-mode="connect"] > #token-field { display: block; order: 2; }
-#view-settings[data-mode="connect"] > #token-help { display: block; order: 3; margin-bottom: var(--space-3); }
+/* No "Connection" fold here: the screen has ONE group, the hero already names
+   the job, and the field is labelled. It stays in the full form, where it holds
+   the card and separates Connection from the sections around it. */
+#view-settings[data-mode="connect"] #settings-connection-item > .settings-section-title { display: none; }
+#view-settings[data-mode="connect"] #token-field { display: block; order: 2; }
+#view-settings[data-mode="connect"] #token-help { display: block; order: 3; margin-bottom: var(--space-3); }
 #view-settings[data-mode="connect"] > #btn-save-settings {
   display: flex;
   order: 4;
@@ -355,28 +378,25 @@ body[data-connect="true"] .header-top { display: none; }
    it describes what happens AFTER connecting, to a row the tester cannot see yet.
    It belongs to the full form, under the same field. */
 /* The self-hosted fold stays reachable: an internal instance cannot connect
-   without it. No divider above it though — the rule that separates sections in
-   the full form has nothing to separate on a screen with one group, and drawing
-   it under the primary button reads as the end of the screen. */
-#view-settings[data-mode="connect"] > .settings-section-advanced {
+   without it. It keeps its head here (it is the one thing on this screen that
+   opens), but not its box — a lone bordered block under the primary button
+   reads as the end of the screen rather than as an exception to it. */
+#view-settings[data-mode="connect"] #settings-advanced-item > .settings-section-title {
   display: block;
   order: 7;
-  /* Pushed well clear of the primary button: with no divider left, distance is
-     the only thing saying "this is the exception, not the next step". */
+  /* Pushed well clear of the primary button: with no box left, distance is the
+     only thing saying "this is the exception, not the next step". */
   margin-top: var(--space-8);
-  padding-top: 0;
-  border-top: none;
 }
-#view-settings[data-mode="connect"] > #settings-advanced-body { display: block; order: 8; }
+#view-settings[data-mode="connect"] #settings-advanced-body { display: block; order: 8; padding: var(--space-1) 0 0; }
+/* Flush with the field above it, like every other row on this screen — the
+   inset belongs to the box, and the box is gone here. */
+#view-settings[data-mode="connect"] .settings-section-title > .disclosure-head { padding-left: 0; padding-right: 0; }
+#view-settings[data-mode="connect"] .settings-section-title > .disclosure-head:hover:not(:disabled) { background: none; color: var(--accent); }
 /* …minus its erase control: there is nothing saved yet to forget, and a red
    button is not what a first run opens Advanced for. */
 #view-settings[data-mode="connect"] #btn-forget-instance,
 #view-settings[data-mode="connect"] #settings-forget-status { display: none; }
-/* The welcome checklist is NOT on this screen: its first step is the field the
-   tester is already looking at, and its other two are about a panel that has not
-   connected yet. It keeps its own state untouched (screens/onboarding.js decides
-   `hidden`) and shows in the full form, where step 1 is already ticked and
-   "Open your first run" is the one still pending. */
 
 /* Spacing here is the 4px grid, like the tokens at the top of this file:
    20 = step 5, 16 = 4, 12 = 3, 8 = 2. */
@@ -395,50 +415,6 @@ body[data-connect="true"] .header-top { display: none; }
    18px = tailwind text-lg. */
 .connect-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
 .connect-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
-
-/* Onboarding welcome checklist (M4): a first-run card at the top of Settings.
-   Accent-tinted like the pending strip; hidden by [hidden] once done/dismissed. */
-/* The welcome checklist is a `.card.accent`; the extra right padding is for the
-   dismiss button that sits over it. */
-.onboarding-card {
-  position: relative;
-  margin: var(--space-1) 0 var(--space-4);
-  padding: var(--space-3) var(--space-7) var(--space-3) var(--space-3);
-}
-.onboarding-title { margin: 0 0 var(--space-2); font-size: var(--fs-title); font-weight: var(--weight-semibold); }
-.onboarding-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-.onboarding-step { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-base); }
-.onboarding-step-text, .onboarding-step a { color: var(--fg); }
-.onboarding-step a { color: var(--accent); }
-/* Empty circle → filled accent check once the step completes. */
-.onboarding-check {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-control);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-2xs);
-  line-height: var(--leading-none);
-  color: transparent;
-}
-.onboarding-step.done .onboarding-check {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-.onboarding-step.done .onboarding-check::before {
-  content: "";
-  width: 11px;
-  height: 11px;
-  background: currentColor;
-  mask: var(--icon-check) center / contain no-repeat;
-}
-.onboarding-step.done .onboarding-step-text,
-.onboarding-step.done a { color: var(--muted); }
-.onboarding-dismiss { position: absolute; top: var(--space-2); right: var(--space-2); }
 
 /* Project switcher (#103): a slim strip ABOVE the tab bar (#127) carrying the
    active project on every tab. The trigger is borderless at rest so it reads as
@@ -530,7 +506,10 @@ body[data-connect="true"] .header-top { display: none; }
   font-weight: var(--weight-normal);
 }
 
-#set-host-history { margin: 0 0 var(--space-2); }
+/* The instance history picker stands above the Instance field it fills in — the
+   gap is on the WRAPPER, since that is the box in the flow (the trigger inside
+   it is what carries the `set-host-history` id). */
+.host-history-dd { margin: 0 0 var(--space-2); }
 
 /* Settings: the two erase controls (#177) — `.btn.danger` (red text, not a red
    fill: both are confirmed, and a filled button that far down the form reads as
@@ -1244,9 +1223,17 @@ a.attachment-link:hover { text-decoration: underline; }
    its name (contextTitleMarks, core/views.js), so it lives in
    shared/components.css → MARKS and nothing about it is set here. */
 
-/* Substatus dropdown (US4/FR-009): appears under the status buttons. */
+/* Substatus dropdown (US4/FR-009): appears under the status buttons. A custom
+   listbox now, like every other picker here — so the word above it is a `<span>`
+   the trigger names itself by (`aria-labelledby`), not a `<label for>`, which
+   cannot point at a button. It is set exactly as the assignee's label beside it. */
 .substatus { margin: var(--space-2) 0 0; }
-.substatus label { margin: 0; }
+.substatus-label {
+  display: block;
+  margin: 0 0 var(--space-1);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
 
 /* Assignee dropdown (M4): a custom listbox in a row of its own — the project
    switcher's pattern (#126), not a `.select`, so a row can carry the person's
@@ -1393,14 +1380,41 @@ a.attachment-link:hover { text-decoration: underline; }
 }
 .evidence-toggle.recording .rec-dot { background: var(--failed); animation: rec-pulse 1.4s ease-in-out infinite; }
 @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-.evidence-tab {
-  color: var(--muted);
-  font-size: var(--fs-sm);
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: none;
+
+/* The chip's hover card: what is being recorded, and the errors caught so far.
+   It replaces the tab title that used to be printed BESIDE the chip — a whole
+   page name pressed against the tab bar, stating something that does not change
+   for the length of a recording — and it is where the count on the chip is
+   itemised. Box, head, meta, rows and foot are all the shared `.hovercard`
+   (shared/components.css → HOVERCARD); three things about THIS card are local. */
+/* Pinned width, not fitted to its content: the card is repainted every 2 s with a
+   different longest row in it, and a box that re-measured itself around each one
+   would resize under the pointer that is resting in it.
+   Wider than the library's own ceiling, deliberately — this card quotes mono log
+   lines, and every 40px it gives up is another row that wraps to two. It takes
+   almost the whole panel, and follows it down when the tester drags the panel
+   narrower (`100vw` is the panel here). */
+.rec-card {
+  width: min(336px, calc(100vw - var(--space-4)));
+  max-width: none;
+}
+/* The row quotes the log, so it wears the log's face — the same mono the section's
+   own rows are printed in, two lines of it (the shared clamp), and the clock in the
+   column beside it with them: a row of this card IS a log line. */
+.rec-card .hovercard-text,
+.rec-card .hovercard-row-meta { font-family: var(--font-mono); }
+/* «Click to stop» — the affordance the chip's tooltip used to carry, now that it
+   has none: it sits at the far end of the foot, opposite the way on, so the line
+   reads as "here is where these live · here is how to end this" rather than as
+   two links. */
+.rec-card-stop { margin-left: auto; }
+/* …and the mark centres on the row's FIRST line rather than on the block: a
+   two-line error would otherwise pull it half a line down, out of the column the
+   rows above it make. */
+.rec-card .ev-icon {
+  display: flex;
+  align-items: center;
+  height: calc(var(--fs-sm) * var(--leading-snug));
 }
 
 /* Test-view collapsible Evidence section (errors-only list) — the same head as

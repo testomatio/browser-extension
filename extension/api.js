@@ -185,8 +185,15 @@ const TestomatAPI = (() => {
   // "Suite is required"). attrs: {title, suite_id, description, priority}.
   const createTest = (attrs) =>
     request('/tests', { method: 'POST', body: attrs }).then((r) => r?.data);
-  // No updateTest: the panel creates and reads test cases, it never edits them
-  // (#115 — editing lives in the web app).
+  // Update a TC — the same flat payload as the create, PATCHed, and any SUBSET
+  // of it: the editor sends the three fields it owns (title, description,
+  // priority) and never the `suite_id` that would move the test. 200 {data:
+  // Test}; 404 for an unknown/deleted uid. The panel edits its own test cases
+  // now (the read-only view's Edit button), so the create is no longer the only
+  // way text gets written from here.
+  const updateTest = (id, attrs) =>
+    request(`/tests/${encodeURIComponent(id)}`, { method: 'PATCH', body: attrs })
+      .then((r) => r?.data);
 
   // POST-create on first result, PUT afterwards (confirmed in T004 smoke).
   function setStatus({ testrunId, runId, testId, status, message }) {
@@ -791,7 +798,7 @@ const TestomatAPI = (() => {
 
   return {
     configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
-    getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest,
+    getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest, updateTest,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,
     assetUrl, fetchAsset,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,

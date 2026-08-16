@@ -143,14 +143,29 @@
         <span class="tab-label">Settings</span>
       </button>
     </nav>
-    <!-- Evidence recorder (M2 PR-1): Record toggle + attached-tab label. Shown on
-         the run + test views; the red dot pulses while a debugger session records.
-         The slot itself is hidden with the toggle so it costs the tabs no width. -->
+    <!-- Evidence recorder (M2 PR-1): the Record toggle. Shown on the run + test
+         views; the red dot pulses while a session records.
+         The slot itself is hidden with the toggle so it costs the tabs no width.
+
+         The chip is the dot, the word and the COUNT of errors caught so far —
+         and nothing else. The recorded tab's name used to be printed beside it
+         and is not any more: it is a whole title ("Tests - Testomat.io") pressed
+         against the tab bar in a 380px panel, saying something that does not
+         change for the length of a recording, next to the one number that does.
+         The name is on the hover card the chip opens instead (screens/evidence.js),
+         with the errors themselves under it. -->
     <div id="rec-slot" class="rec-slot" hidden>
-      <span id="evidence-tab" class="evidence-tab" hidden></span>
-      <button id="evidence-toggle" class="btn pill size-xs evidence-toggle" hidden aria-pressed="false"
-              data-tip="Record the console & network log from the active tab">
+      <!-- No `data-tip`: this is the one control in the panel whose label is a
+           HOVER CARD instead (screens/evidence.js). A tip as well would open a
+           black box over the card that answers the same question better — what is
+           being recorded, what has been caught, and the way into it. The card
+           speaks in both states; `aria-label` carries the same for a reader. -->
+      <button id="evidence-toggle" class="btn pill size-xs evidence-toggle" hidden aria-pressed="false">
         <span class="rec-dot" aria-hidden="true"></span><span class="rec-text">Rec</span>
+        <!-- Errors caught in the recorder's window. Hidden at zero — a chip
+             reading 0 is a gap with a number in it — and `aria-hidden`, because
+             the button's own accessible name carries the figure as a word. -->
+        <span id="evidence-errors" class="counter size-sm failed" aria-hidden="true" hidden></span>
       </button>
     </div>
   </div>
@@ -181,12 +196,13 @@
       <nav id="context-crumbs" class="crumbs" aria-label="Breadcrumb" hidden></nav>
       <div id="context-title" class="context-title"></div>
     </div>
-    <!-- The way out of the panel for whatever this row NAMES: the open suite, run
-         or test on its own page in the web app. The project strip carries the same
-         control for the project (#project-open) and the test page for a test case
-         (#113) — this is that one control for every contextual view, which is why
-         it lives in the row that says which one is open rather than three times
-         over inside the views.
+    <!-- The way out of the panel for whatever this row NAMES: the open suite, or
+         the open run — which is also where a row inside it goes, since the panel
+         shows that row's RESULT and the result lives in the run report. The
+         project strip carries the same control for the project (#project-open)
+         and the test page for a test case (#113) — this is that one control for
+         every contextual view, which is why it lives in the row that says which
+         one is open rather than three times over inside the views.
          An ANCHOR wearing the icon-button skin, like both of those: a way out has
          to be middle-clickable and copyable. href + label are rebuilt per view by
          renderContextOpenLink() (core/views.js); with nothing to link to it hides
@@ -263,30 +279,6 @@
           manual tests next to the site you are testing.</p>
       </div>
 
-      <!-- Onboarding welcome checklist (M4): a first-run card guiding token →
-           project → first run. Auto-checks each step; hidden once all three are
-           done or dismissed (both states persist). See screens/onboarding.js. -->
-      <div id="onboarding-card" class="card accent onboarding-card" hidden>
-        <button id="onboarding-dismiss" class="icon-btn size-xs onboarding-dismiss" type="button"
-                data-tip="Dismiss" aria-label="Dismiss"><span class="md-icon" data-icon="close"></span></button>
-        <h3 class="onboarding-title">Welcome — 3 steps to your first run</h3>
-        <ol class="onboarding-steps">
-          <li id="onboarding-step-token" class="onboarding-step">
-            <span class="onboarding-check" aria-hidden="true"></span>
-            <a id="onboarding-token-link" href="https://app.testomat.io/account/access_tokens"
-               target="_blank" rel="noopener noreferrer">Get a General token</a>
-          </li>
-          <li id="onboarding-step-project" class="onboarding-step">
-            <span class="onboarding-check" aria-hidden="true"></span>
-            <span class="onboarding-step-text">Pick a project in the header</span>
-          </li>
-          <li id="onboarding-step-run" class="onboarding-step">
-            <span class="onboarding-check" aria-hidden="true"></span>
-            <span class="onboarding-step-text">Open your first run</span>
-          </li>
-        </ol>
-      </div>
-
       <!-- Connection (#103): ONE credential — the account General token. The
            panel resolves the projects it reaches itself, and the active one is
            picked in the header switcher, not here. (#83 moved the instance URL
@@ -299,83 +291,162 @@
            The token FIELD below belongs to the first-run screen; the full form
            only brings it back for an instance it holds no token for
            (syncTokenField() in screens/settings.js). -->
-      <h3 id="connection-title" class="settings-section-title">Connection</h3>
-      <div id="connection-card" class="card connection-card" hidden>
-        <!-- One line: the tick says connected, the host says to what, the button
-             is the way out. Where the token is kept is the Stored credentials
-             section's line to say, and it says it once. -->
-        <!-- Material Symbols check_circle --><span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
-        <p id="connection-host" class="connection-host"></p>
-        <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
+      <!-- Every section below is one ACCORDION item — the same box the test
+           view's Attachments & log wears (shared/components.css ACCORDION), so
+           a fold reads the same wherever the panel draws one. Settings used to
+           be a single scroll of eight uppercase rules; folded, the screen is a
+           list of seven rows you open one at a time.
+
+           What opens by default is what a tester arrives for: CONNECTION (what
+           am I connected to) and FAILURE LOG (what gets attached when I mark a
+           FAIL). Everything else is set once and left alone, and ADVANCED keeps
+           its own rule — it opens for a self-hosted instance (#146,
+           syncSettingsAdvanced()). The heads are real <h3>s wrapping the shared
+           `.disclosure-head`, so the document still has its outline and the
+           header TEXT stays the plain section name, which the e2e reads.
+
+           Each head carries its SUBJECT mark between the caret and the label
+           (`.head-icon`, shared/components.css DISCLOSURE) — seven closed rows
+           of same-weight text are told apart by their first word alone, and a
+           picture in front is what makes them scannable. One Material Symbol
+           each, from the one set: the link is what the panel is connected to,
+           the globe what it is allowed to touch, the page what a FAIL sends,
+           the dot what recording is, the palette the theme, the sliders the
+           self-hosted field, the key the token on this machine. -->
+      <div id="settings-sections" class="accordion settings-accordion">
+
+      <div id="settings-connection-item" class="disclosure accordion-item">
+        <h3 id="connection-title" class="settings-section-title">
+          <button id="settings-connection-head" type="button" class="disclosure-head"
+                  aria-expanded="true" aria-controls="settings-connection-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="link" data-icon-size="16"></span>Connection</button>
+        </h3>
+        <div id="settings-connection-body" class="disclosure-body">
+          <div id="connection-card" class="card connection-card" hidden>
+            <!-- One line: the tick says connected, the host says to what, the button
+                 is the way out. Where the token is kept is the Stored credentials
+                 section's line to say, and it says it once. -->
+            <!-- Material Symbols check_circle --><span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
+            <p id="connection-host" class="connection-host"></p>
+            <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
+          </div>
+          <!-- Disconnect erases the active instance and reloads into the connect
+               screen, so this line only ever speaks for a failure. -->
+          <p id="connection-status" class="status-line" role="status"></p>
+          <label id="token-field">General token
+            <input id="set-token" class="input" type="password" placeholder="testomat_..." autocomplete="off" />
+          </label>
+          <!-- Token help: deep-links to the access-tokens page of the configured host
+               (derived from the Instance field down in Advanced; defaults to app.). -->
+          <p id="token-help" class="hint settings-help">
+            <a id="token-help-link" href="https://app.testomat.io/account/access_tokens"
+               target="_blank" rel="noopener noreferrer">Find it in Account → Access Tokens</a>
+          </p>
+        </div>
       </div>
-      <!-- Disconnect erases the active instance and reloads into the connect
-           screen, so this line only ever speaks for a failure. -->
-      <p id="connection-status" class="status-line" role="status"></p>
-      <label id="token-field">General token
-        <input id="set-token" class="input" type="password" placeholder="testomat_..." autocomplete="off" />
-      </label>
-      <!-- Token help: deep-links to the access-tokens page of the configured host
-           (derived from the Instance field down in Advanced; defaults to app.). -->
-      <p id="token-help" class="hint settings-help">
-        <a id="token-help-link" href="https://app.testomat.io/account/access_tokens"
-           target="_blank" rel="noopener noreferrer">Find it in Account → Access Tokens</a>
-      </p>
 
       <!-- #104: the local "New test template" lived here. New tests are now
            seeded from the PROJECT's own templates, picked in the editor. -->
 
       <!-- Failure log: everything that governs what gets attached on a FAIL.
            Ordered by what it acts on — the log first (its two toggles, then the
-           window they share), the recorded environment after. -->
-      <h3 class="settings-section-title">Failure log</h3>
-      <!-- Evidence auto-attach toggle: default ON (absent -> ON). OFF skips only
-           the FAIL log upload/link; the manual per-entry Attach still works. -->
-      <label class="choice checkbox-row">
-        <input id="set-evidence-autoattach" class="checkbox" type="checkbox" />
-        Attach console &amp; network log to failed tests
-      </label>
-      <!-- Response-body capture (#95): default ON (absent -> ON). OFF keeps the
-           request metadata and notes "(body capture disabled)" where a snippet
-           would be — the privacy valve for bodies leaving the browser. -->
-      <label class="choice checkbox-row">
-        <input id="set-evidence-bodies" class="checkbox" type="checkbox" />
-        Include response bodies of failed requests
-      </label>
-      <!-- Evidence recorder window (M2 PR-1): seconds of console/network history
-           attached on a failed test while recording. Absent -> 60, clamp 10-600.
-           A number field is sized by the number it takes, not by the column. -->
-      <label class="settings-field-sm">Log window (seconds)
-        <input id="set-evidence-window" class="input" type="number" min="10" max="600" step="10" placeholder="60" autocomplete="off" />
-      </label>
-      <!-- Env-info toggle (cycle 008a): default ON (absent -> ON, A2 rule).
-           Since #116 the facts are written as testrun meta, not into the comment,
-           and on every status rather than only on a failure. -->
-      <label class="choice checkbox-row">
-        <input id="set-env-info" class="checkbox" type="checkbox" />
-        Record environment info (browser, OS, viewport, URL)
-      </label>
-      <!-- Full-URL opt-in (#177): default OFF. The recorded URL is trimmed to
-           origin + path, because a query string routinely carries reset tokens,
-           signed links and session ids that everyone with project access reads. -->
-      <label class="choice checkbox-row">
-        <input id="set-env-full-url" class="checkbox" type="checkbox" />
-        Include the query string in the recorded URL
-      </label>
+           window they share), the recorded environment after.
+           OPEN by default with Connection: these five rows decide what leaves
+           the browser on a FAIL, which is what a tester opens Settings for. -->
+      <div id="settings-failure-item" class="disclosure accordion-item">
+        <h3 class="settings-section-title">
+          <button id="settings-failure-head" type="button" class="disclosure-head"
+                  aria-expanded="true" aria-controls="settings-failure-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="description" data-icon-size="16"></span>Failure log</button>
+        </h3>
+        <div id="settings-failure-body" class="disclosure-body">
+          <!-- Every row here is a SHORT label plus an `.info-tip` carrying the
+               sentence that used to be the rest of it: the defaults, what OFF
+               actually keeps, and the privacy reasoning behind the two that have
+               one. Eight settings read as eight lines instead of eight paragraphs,
+               and the explanation is still one hover (or one Tab) away. See the
+               `.info-tip` note in sidepanel/style.css. -->
+          <!-- Evidence auto-attach toggle: default ON (absent -> ON). OFF skips only
+               the FAIL log upload/link; the manual per-entry Attach still works. -->
+          <label class="choice checkbox-row">
+            <input id="set-evidence-autoattach" class="checkbox" type="checkbox" />
+            <span class="choice-text">Attach log to failures<button type="button" class="info-tip"
+              data-tip="The recorded console &amp; network log is uploaded and linked on a test you mark FAIL. On by default. Off skips only that automatic upload — the per-entry Attach still works."
+              aria-label="The recorded console and network log is uploaded and linked on a test you mark FAIL. On by default. Off skips only that automatic upload — the per-entry Attach still works."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+          </label>
+          <!-- Response-body capture (#95): default ON (absent -> ON). OFF keeps the
+               request metadata and notes "(body capture disabled)" where a snippet
+               would be — the privacy valve for bodies leaving the browser. -->
+          <label class="choice checkbox-row">
+            <input id="set-evidence-bodies" class="checkbox" type="checkbox" />
+            <span class="choice-text">Include response bodies<button type="button" class="info-tip"
+              data-tip="Failed requests carry a snippet of what came back, up to 16 KB. On by default. Off keeps the request metadata and writes “(body capture disabled)” where the snippet would be."
+              aria-label="Failed requests carry a snippet of what came back, up to 16 KB. On by default. Off keeps the request metadata and writes “(body capture disabled)” where the snippet would be."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+          </label>
+          <!-- Evidence recorder window (M2 PR-1): seconds of console/network history
+               attached on a failed test while recording. Absent -> 60, clamp 10-600.
+               A number field is sized by the number it takes, not by the column. The
+               UNIT stays on screen as a suffix rather than moving into the tip: it
+               is what the number means, not an explanation of it. -->
+          <label class="settings-field-sm">
+            <span class="choice-text">Log window<button type="button" class="info-tip"
+              data-tip="How much console &amp; network history is attached to a failed test. Between 10 and 600 seconds; leave it blank for 60."
+              aria-label="How much console and network history is attached to a failed test. Between 10 and 600 seconds; leave it blank for 60."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+            <span class="settings-field-row">
+              <input id="set-evidence-window" class="input" type="number" min="10" max="600" step="10" placeholder="60" autocomplete="off" />
+              <span class="hint settings-field-unit">seconds</span>
+            </span>
+          </label>
+          <!-- Env-info toggle (cycle 008a): default ON (absent -> ON, A2 rule).
+               Since #116 the facts are written as testrun meta, not into the comment,
+               and on every status rather than only on a failure. -->
+          <label class="choice checkbox-row">
+            <input id="set-env-info" class="checkbox" type="checkbox" />
+            <span class="choice-text">Record environment info<button type="button" class="info-tip"
+              data-tip="The browser, OS, viewport and page URL are written onto the run as meta, on every status you set — not only on a failure. On by default."
+              aria-label="The browser, OS, viewport and page URL are written onto the run as meta, on every status you set — not only on a failure. On by default."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+          </label>
+          <!-- Full-URL opt-in (#177): default OFF. The recorded URL is trimmed to
+               origin + path, because a query string routinely carries reset tokens,
+               signed links and session ids that everyone with project access reads. -->
+          <label class="choice checkbox-row">
+            <input id="set-env-full-url" class="checkbox" type="checkbox" />
+            <span class="choice-text">Include the query string<button type="button" class="info-tip"
+              data-tip="Off by default: the recorded URL is trimmed to origin + path, because a query string routinely carries reset tokens, signed links and session ids that everyone with project access can read. Turn this on to record it whole."
+              aria-label="Off by default: the recorded URL is trimmed to origin plus path, because a query string routinely carries reset tokens, signed links and session ids that everyone with project access can read. Turn this on to record it whole."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+          </label>
+        </div>
+      </div>
 
       <!-- Step recorder (#176): default OFF (absent -> OFF). OFF still
            masks what the recorder recognizes as sensitive; ON drops every entered
            value, so no heuristic has to be right. A password field keeps its noun
            under ON — a certainty, not a heuristic, and no value is written either
            way (owner's call), which is what the help text's last clause says. -->
-      <h3 class="settings-section-title">Step recorder</h3>
-      <label class="choice checkbox-row">
-        <input id="set-rec-never-values" class="checkbox" type="checkbox" />
-        Never record entered values
-      </label>
-      <p class="settings-help">Entered values are saved into the test steps. Passwords, card
-        numbers, CVV and one-time codes are replaced with a placeholder, but detection is
-        best-effort — turn this on if the site under test handles sensitive data. Every entry
-        then reads <em>Type text into the … field</em>; only a password field still says so.</p>
+      <div id="settings-recorder-item" class="disclosure accordion-item">
+        <h3 class="settings-section-title">
+          <button id="settings-recorder-head" type="button" class="disclosure-head"
+                  aria-expanded="false" aria-controls="settings-recorder-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="fiber_manual_record" data-icon-size="16"></span>Step recorder</button>
+        </h3>
+        <div id="settings-recorder-body" class="disclosure-body" hidden>
+          <label class="choice checkbox-row">
+            <input id="set-rec-never-values" class="checkbox" type="checkbox" />
+            <span class="choice-text">Never record entered values<button type="button" class="info-tip"
+              data-tip="Entered values are saved into the test steps. Passwords, card numbers, CVV and one-time codes are replaced with a placeholder, but detection is best-effort — turn this on if the site under test handles sensitive data. Every entry then reads “Type text into the … field”; only a password field still says so."
+              aria-label="Entered values are saved into the test steps. Passwords, card numbers, CVV and one-time codes are replaced with a placeholder, but detection is best-effort — turn this on if the site under test handles sensitive data. Every entry then reads “Type text into the … field”; only a password field still says so."><span
+              class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+          </label>
+        </div>
+      </div>
 
       <!-- Appearance: the panel's colour scheme. One question with three answers
            and one of them always true, which is the segmented control exactly —
@@ -390,52 +461,68 @@
            Last of the functional groups, right above the self-hosted fold: every
            section over it is about the PROJECT or the page under test, and this
            one is about the browser you are reading them in. -->
-      <h3 class="settings-section-title">Appearance</h3>
-      <div id="theme-switch" class="segmented block" role="group" aria-label="Colour scheme">
-        <!-- Icon + word, the shared segment's leading-mark shape: three answers
-             that differ by ONE word each read faster with a picture in front,
-             and these three are as picturable as an option gets. Material
-             Symbols, from the one set (shared/icons.js) like every other mark
-             here — a monitor for "whatever this machine says", then the sun and
-             the moon. No `data-icon-size`: `.segment .md-icon` sizes its own
-             mark off `--control-icon`, and a control that sizes what is inside
-             it is the point of the library holding the control. -->
-        <button class="segment" type="button" data-theme-mode="system" aria-pressed="true">
-          <span class="md-icon" data-icon="computer"></span>System</button>
-        <button class="segment" type="button" data-theme-mode="light" aria-pressed="false">
-          <span class="md-icon" data-icon="light_mode"></span>Light</button>
-        <button class="segment" type="button" data-theme-mode="dark" aria-pressed="false">
-          <span class="md-icon" data-icon="dark_mode"></span>Dark</button>
+      <div id="settings-appearance-item" class="disclosure accordion-item">
+        <h3 class="settings-section-title">
+          <button id="settings-appearance-head" type="button" class="disclosure-head"
+                  aria-expanded="false" aria-controls="settings-appearance-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="palette" data-icon-size="16"></span>Appearance</button>
+        </h3>
+        <div id="settings-appearance-body" class="disclosure-body" hidden>
+          <div id="theme-switch" class="segmented block" role="group" aria-label="Colour scheme">
+            <!-- Icon + word, the shared segment's leading-mark shape: three answers
+                 that differ by ONE word each read faster with a picture in front,
+                 and these three are as picturable as an option gets. Material
+                 Symbols, from the one set (shared/icons.js) like every other mark
+                 here — a monitor for "whatever this machine says", then the sun and
+                 the moon. No `data-icon-size`: `.segment .md-icon` sizes its own
+                 mark off `--control-icon`, and a control that sizes what is inside
+                 it is the point of the library holding the control. -->
+            <button class="segment" type="button" data-theme-mode="system" aria-pressed="true">
+              <span class="md-icon" data-icon="computer"></span>System</button>
+            <button class="segment" type="button" data-theme-mode="light" aria-pressed="false">
+              <span class="md-icon" data-icon="light_mode"></span>Light</button>
+            <button class="segment" type="button" data-theme-mode="dark" aria-pressed="false">
+              <span class="md-icon" data-icon="dark_mode"></span>Dark</button>
+          </div>
+          <p class="hint settings-hint theme-hint">System follows your operating system as it changes.</p>
+        </div>
       </div>
-      <p class="hint settings-hint theme-hint">System follows your operating system as it changes.</p>
 
       <!-- Advanced (#83): the instance URL is noise for app.testomat.io users but
            load-bearing for self-hosted — dialled down, at the bottom, unchanged.
-           #146: the heading is a toggle now (same aria contract as the Run info
+           #146: the heading is a toggle (same aria contract as the Run info
            disclosure) and the section is collapsed unless the saved instance is a
-           self-hosted one, or a Save just failed on the Instance field. The caret
-           is drawn in CSS on purpose — the heading's TEXT stays exactly
+           self-hosted one, or a Save just failed on the Instance field — the ONE
+           section whose open state is computed rather than remembered, which is
+           why it keeps its own handler. The heading's TEXT stays exactly
            "Advanced", which the settings-structure e2e reads. -->
-      <h3 class="settings-section-title settings-section-advanced">
-        <button id="settings-advanced-head" type="button" class="disclosure-head settings-section-toggle"
-                aria-expanded="false" aria-controls="settings-advanced-body"><span
-                class="md-icon" data-icon="chevron_right" data-icon-size="16"></span>Advanced</button>
-      </h3>
-      <div id="settings-advanced-body" hidden>
-        <p class="hint settings-hint">For a self-hosted Testomat — leave as is for app.testomat.io.</p>
-        <label>Instance
-          <!-- Host history (permission rework): instances used before, for quick
-               switching. Hidden until at least two hosts exist; picking one restores
-               that host's token/project/prefs into the fields above. Free-form entry
-               stays the source of truth — internal hosts are typed, never listed here. -->
-          <select id="set-host-history" class="select" hidden></select>
-          <input id="set-baseurl" class="input" type="url" placeholder="https://app.testomat.io" autocomplete="off" />
-        </label>
-        <!-- Forget acts on the instance THIS form points at, so it lives with the
-             field that points it — the way out for an instance you are not on
-             (the one you are on is the card's Disconnect, up top). -->
-        <button id="btn-forget-instance" type="button" class="btn danger size-sm">Forget this instance</button>
-        <p id="settings-forget-status" class="status-line" role="status"></p>
+      <div id="settings-advanced-item" class="disclosure accordion-item">
+        <h3 class="settings-section-title">
+          <button id="settings-advanced-head" type="button" class="disclosure-head"
+                  aria-expanded="false" aria-controls="settings-advanced-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="tune" data-icon-size="16"></span>Advanced</button>
+        </h3>
+        <div id="settings-advanced-body" class="disclosure-body" hidden>
+          <p class="hint settings-hint">For a self-hosted Testomat — leave as is for app.testomat.io.</p>
+          <label>Instance
+            <!-- Host history (permission rework): instances used before, for quick
+                 switching. Hidden until at least two hosts exist; picking one restores
+                 that host's token/project/prefs into the fields above. Free-form entry
+                 stays the source of truth — internal hosts are typed, never listed here.
+                 The control is the shared `Dropdown`, built into this mount by
+                 initHostHistoryDropdown() — it is a listbox, not a `<select>`, so it
+                 opens under the field instead of as an OS menu beside the panel. -->
+            <div id="set-host-history-mount"></div>
+            <input id="set-baseurl" class="input" type="url" placeholder="https://app.testomat.io" autocomplete="off" />
+          </label>
+          <!-- Forget acts on the instance THIS form points at, so it lives with the
+               field that points it — the way out for an instance you are not on
+               (the one you are on is the card's Disconnect, up top). -->
+          <button id="btn-forget-instance" type="button" class="btn danger size-sm">Forget this instance</button>
+          <p id="settings-forget-status" class="status-line" role="status"></p>
+        </div>
       </div>
 
       <!-- Save & validate + its status line stay OUTSIDE the collapse (#146):
@@ -445,16 +532,36 @@
 
       <!-- Stored credentials (#177): until now nothing removed a saved
            token — uninstalling was the only way to get one off the machine. Last
-           on purpose: destructive controls do not belong next to the token field.
+           on purpose: destructive controls do not belong next to the token field,
+           and folded on top of that — an erase is not something to trip over.
            ONE button since Connection grew a Disconnect: that card takes back the
            instance you are on, this takes back everything, on every instance. -->
-      <h3 class="settings-section-title">Stored credentials</h3>
-      <p class="hint settings-hint">Sign out erases every token, instance and queued
-        result from this browser — for a shared machine.</p>
-      <div class="settings-danger-row">
-        <button id="btn-sign-out" type="button" class="btn danger size-sm">Sign out</button>
+      <div id="settings-credentials-item" class="disclosure accordion-item">
+        <h3 class="settings-section-title">
+          <button id="settings-credentials-head" type="button" class="disclosure-head"
+                  aria-expanded="false" aria-controls="settings-credentials-body"><span
+                  class="md-icon" data-icon="chevron_right" data-icon-size="16"></span><span
+                  class="md-icon head-icon" data-icon="key" data-icon-size="16"></span>Stored credentials</button>
+        </h3>
+        <div id="settings-credentials-body" class="disclosure-body" hidden>
+          <p class="hint settings-hint">Sign out erases every token, instance and queued
+            result from this browser — for a shared machine.</p>
+          <div class="settings-danger-row">
+            <button id="btn-sign-out" type="button" class="btn danger size-sm">Sign out</button>
+          </div>
+          <p id="signout-status" class="status-line" role="status"></p>
+        </div>
       </div>
-      <p id="signout-status" class="status-line" role="status"></p>
+
+      </div><!-- /.settings-accordion -->
+
+      <!-- Save & validate belongs to the FORM, not to Advanced — it commits the
+           token, every checkbox and the instance in one press. Standing under the
+           last section (and outside every collapse, #146) is what says so: folded
+           right beneath the Advanced head it read as that section's button, which
+           is the one thing it is not. -->
+      <button id="btn-save-settings" class="btn primary">Save &amp; validate</button>
+      <p id="settings-status" class="status-line" role="status"></p>
     </section>
 
     <section id="view-runs" hidden>
@@ -794,10 +901,13 @@
                  applyAssigneeGate(). -->
             <p id="assignee-reason" class="hint inline-reason" hidden></p>
           </div>
+          <!-- Custom status (US4/FR-009): the shared `Dropdown`, built into the
+               mount below by initSubstatusDropdown() the way the assignee control
+               above is wired — a `<label for>` cannot name a button, so the word
+               is a `<span>` the trigger points at with `aria-labelledby`. -->
           <div id="test-substatus" class="substatus" hidden>
-            <label for="substatus-select">Custom status
-              <select id="substatus-select" class="select"></select>
-            </label>
+            <span id="substatus-label" class="substatus-label">Custom status</span>
+            <div id="substatus-mount"></div>
           </div>
           <textarea id="test-comment" class="textarea" rows="2" placeholder="Comment (optional)"></textarea>
           <!-- Control-tower diet: the capture/evidence controls fold into one
@@ -931,6 +1041,9 @@
   <script src="../api.js"></script>
   <script src="../params.js"></script>
   <script src="../shared/html-sanitize.js"></script>
+  <!-- …and the renderer that always runs it: markdown -> sanitized nodes, one
+       `marked` config shared with the editor's Preview tab. -->
+  <script src="../shared/markdown.js"></script>
   <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
   <script src="../shared/icons.js"></script>
   <!-- The image swap the CSP forces on every rendered description, step
@@ -949,6 +1062,9 @@
   <!-- …and its twin: the grey bars, shared with the editor page. Before
        core/skeleton.js, which composes the panel's placeholders out of them. -->
   <script src="../shared/skeleton.js"></script>
+  <!-- The extension's <select> — after icons.js (the caret and the tick) and
+       empty-state.js (what a filtered-down popup says). -->
+  <script src="../shared/dropdown.js"></script>
   <!-- The tooltip engine: it only listens, so it can load before the screens
        that hand out `data-tip`. -->
   <script src="../shared/tooltip.js"></script>
@@ -956,7 +1072,15 @@
        (#208). Before site-tab.js, which asks it whether the window it is looking
        at is the panel's own. -->
   <script src="../shared/view-mode.js"></script>
+
+  <!-- …and the tooltip's richer sibling, for the one label that is a LIST (the
+       Rec chip's caught errors). After tooltip.js: an open card mutes the tip on
+       its own trigger, so the engine it stands down has to be there. -->
+  <script src="../shared/hovercard.js"></script>
   <script src="../shared/site-tab.js"></script>
+  <!-- The panel's port to the worker (PanelLink.init() runs from app.js): while it
+       is up, the toolbar click grants access without re-opening this panel. -->
+  <script src="../shared/panel-link.js"></script>
   <script src="../shared/site-access.js"></script>
   <script src="../shared/capture-annotate.js"></script>
   <script src="core/state.js"></script>

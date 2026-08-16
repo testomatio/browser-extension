@@ -27,6 +27,9 @@
     <script src="../vendor/marked.min.js"></script>
     <script src="../vendor/overtype.min.js"></script>
     <script src="../shared/html-sanitize.js"></script>
+    <!-- …and the renderer that always runs it: markdown -> sanitized nodes, one
+         `marked` config shared with the panel's step body. -->
+    <script src="../shared/markdown.js"></script>
     <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
     <script src="../shared/icons.js"></script>
     <!-- The image swap the CSP forces on every rendered description (#205) —
@@ -41,11 +44,18 @@
     <script src="../shared/empty-state.js"></script>
     <!-- …and its twin: the grey bars this page waits behind. -->
     <script src="../shared/skeleton.js"></script>
+    <!-- The extension's <select> — after icons.js (the caret and the tick) and
+         empty-state.js (what a filtered-down popup says). -->
+    <script src="../shared/dropdown.js"></script>
     <!-- The tooltip engine: it only listens, so it can load before the page
          that hands out `data-tip`. -->
     <script src="../shared/tooltip.js"></script>
     <script src="../shared/annotate-core.js"></script>
     <script src="../shared/site-tab.js"></script>
+    <!-- Same port the panel keeps (PanelLink.init() runs from editor.js): this page
+         IS the panel while a test is open in it, and a toolbar click must not
+         re-open the panel on top of a half-written test. -->
+    <script src="../shared/panel-link.js"></script>
     <script src="../shared/site-access.js"></script>
     <script src="../shared/capture-annotate.js"></script>
     <script src="./annotate.js"></script>

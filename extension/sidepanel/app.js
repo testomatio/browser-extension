@@ -36,6 +36,7 @@ async function init() {
   // Enter commits from the token field: on the first-run connect screen the form
   // is that one field, and pressing Enter in it is what everyone does.
   $('set-token').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSettings(); });
+  initSettingsSections(); // the settings accordion — one delegated click for every fold
   $('settings-advanced-head').addEventListener('click', toggleSettingsAdvanced); // Advanced collapse (#146)
   // Appearance: System / Light / Dark. The theme itself was already pinned by
   // the head script before this panel drew a pixel — this only wires the switch
@@ -52,7 +53,7 @@ async function init() {
   // token field itself, which comes back for an instance we hold no token for.
   $('set-baseurl').addEventListener('input', () => { updateTokenHelpLink(); syncTokenField(); });
   // Instance history: picking a host restores its saved settings into the form.
-  $('set-host-history').addEventListener('change', onInstanceHostPicked);
+  initHostHistoryDropdown();
   // Header project switcher (#103/#126): the custom dropdown — picking a row
   // repoints the panel and resets the tabs.
   initProjectDropdown();
@@ -94,18 +95,20 @@ async function init() {
   $('fullpage-test').addEventListener('change', (e) => setFullPageCapture(e.target.checked));
   $('btn-finish-run').addEventListener('click', finishRun);
   $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
-  $('substatus-select').addEventListener('change', onSubstatusChange);
-  // Assignee (M4 → custom listbox): the search filter + open/close/keyboard
-  // wiring, same deal as initProjectDropdown() above.
+  // Custom status (US4) and Assignee (M4): both custom listboxes built into their
+  // static mounts, same deal as initProjectDropdown() above.
+  initSubstatusDropdown();
   initAssigneeDropdown();
   $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure); // control-tower diet
   // Result summary disclosures (#117): Failure / Meta / Steps.
   for (const key of ['failure', 'meta', 'steps']) {
     $(`summary-${key}-head`).addEventListener('click', () => toggleSummaryDisclosure(key));
   }
-  $('onboarding-dismiss').addEventListener('click', () => Onboarding.dismiss()); // welcome checklist ×
   initEvidence(); // evidence recorder toggle + section wiring (M2 PR-1)
   initAttachments(); // #107: the Attach file button + its hidden native picker
+  // While this panel is open the worker must not re-open it on the same toolbar
+  // click, or the tester loses the page they are on (shared/panel-link.js).
+  PanelLink.init();
   initLiveSync(); // M4 poll: visibilitychange catch-up (the timer starts on run open)
   document.addEventListener('keydown', onHotkey); // web-runner hotkeys (US5); inert outside the test view
   initHotkeyHints(); // status-button shortcut tooltips + the "?" legend
@@ -115,7 +118,7 @@ async function init() {
   state.settings = stored.settings || null;
   await migrateHostSettings(stored); // per-host map + history (seeds from `settings`)
   await dropAiApiKey(); // #105: the removed AI polish must leave no key behind
-  Onboarding.init(stored); // welcome checklist: seed from storage / existing config + session (before any render or run restore)
+  await dropOnboardingState(); // …and the removed welcome checklist no progress slice
   // Load the offline queue before any run renders so restored rows show their
   // «queued» markers immediately (survives panel restart).
   if (typeof OfflineQueue !== 'undefined') await OfflineQueue.init();

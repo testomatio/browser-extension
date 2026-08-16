@@ -2,8 +2,9 @@
 // boundary of this extension: every `marked.parse()` result is injected with
 // innerHTML, so it passes through here before it reaches a live document — the
 // panel's step renderer (sidepanel/screens/test-view.js) and the editor's
-// markdown preview (editor/editor.js). Test-case content is authored in
-// Testomat and can carry raw HTML.
+// markdown preview (editor/editor.js), both of which now render through
+// shared/markdown.js, whose `render()` is the one caller of this file.
+// Test-case content is authored in Testomat and can carry raw HTML.
 //
 // It mutates `container` in place, after the untrusted HTML is parsed into a
 // DETACHED <div> and before that div's children are moved into the document:

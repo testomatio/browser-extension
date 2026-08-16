@@ -14,7 +14,7 @@
 // Session storage is opened to content scripts by the service worker
 // (setAccessLevel TRUSTED_AND_UNTRUSTED_CONTEXTS).
 
-/* global chrome, AnnotateCore */
+/* global chrome, AnnotateCore, Tooltip */
 (() => {
   'use strict';
 
@@ -30,21 +30,33 @@
     ? window.__testomatAnnotateScheme
     : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   window.__testomatAnnotateScheme = null;
+  // The library's own stylesheet, read in the extension's context and handed
+  // over with the key (shared/capture-annotate.js). Without it this toolbar
+  // would be unstyled markup, so the injector treats a failure to read it as a
+  // failed injection and opens the editor-tab annotator instead.
+  const libCss = window.__testomatAnnotateCss || '';
+  window.__testomatAnnotateCss = null;
 
-  if (!key || !chrome?.storage?.session || typeof AnnotateCore === 'undefined') return;
+  if (!key || !libCss || !chrome?.storage?.session || typeof AnnotateCore === 'undefined') return;
 
-  // Self-contained shadow styles. One design language (Block 6): panel token
-  // VALUES are copied inline here (no imports, no fetched fonts — Single Egress;
-  // page CSS can't leak into the shadow root, ours can't leak out). Light
-  // defaults + a dark override mirror sidepanel/style.css; the annotator keeps
-  // its fixed #dc2626 tool colour and #6366f1-family accent.
+  // The overlay's LOOK is the library's, not a copy of it: shared/tokens.css and
+  // shared/components.css arrive as text on `window.__testomatAnnotateCss` (the
+  // injector reads them — see the note in shared/capture-annotate.js) and are the
+  // first stylesheet in this shadow root. Every control the toolbar builds
+  // already carries the library's own class — `.btn`, `.btn.icon`, `.swatch`,
+  // `.segmented`/`.segment`, `.menu`, `.tooltip` — so what used to be ~120 lines
+  // of hand-copied button skin down here is now just the library, and a change to
+  // a button in the panel is the same change in this toolbar.
   //
-  // The dark block is keyed on `[data-scheme="dark"]` rather than on a
-  // `prefers-color-scheme` media query: a media query cannot see the panel's
+  // What is left below is what the LIBRARY does not know about: the overlay's own
+  // layout (a bar over a stage), the canvas, the crop cursors, the shortcut card,
+  // the ink popover's position and the label typed onto the picture.
+  //
+  // The scheme is written on `.annot-root` as a concrete `color-scheme`, not left
+  // to a `prefers-color-scheme` media query: a media query cannot see the panel's
   // Appearance setting, so an overlay under one would come up dark while the
-  // panel that opened it was pinned to Light. The scheme is resolved once, above,
-  // and written onto the root — which also means `color-scheme` here is a
-  // concrete value, so the native widgets inside match too.
+  // panel that opened it was pinned to Light. Every token in tokens.css is a
+  // `light-dark()` pair resolved against exactly that.
   const OVERLAY_CSS = `
     :host { all: initial; display: block; }
     *, *::before, *::after { box-sizing: border-box; }
@@ -52,81 +64,86 @@
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
       color-scheme: light;
-      --bg: #ffffff; --fg: #262626;
-      --border: #e5e5e5; --border-control: #d4d4d4;
-      --card: #fafafa; --surface-2: #f5f5f5;
-      --hover-overlay: rgba(0, 0, 0, 0.045);
-      --accent: #6366f1; --accent-border: #4f46e5; --accent-hover: #4f46e5; --on-accent: #ffffff;
-      --radius: 8px;
       background: var(--bg); color: var(--fg);
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-      font-size: 14px;
+      font-family: var(--font-sans); font-size: var(--fs-base);
     }
-    .annot-root[data-scheme="dark"] {
-      color-scheme: dark;
-      /* Tailwind "neutral", same ramp as the panel: page on the 850 half-step,
-         card raised by a 5% white overlay (#2a2a2a), well recessed to 900. */
-      --bg: #1f1f1f; --fg: #e5e5e5;
-      --border: #404040; --border-control: #525252;
-      --card: #2a2a2a; --surface-2: #171717;
-      --hover-overlay: rgba(255, 255, 255, 0.06);
-      /* indigoDark 600 → 700 on hover → 800 as the edge: up the ramp, the
-         direction dark runs (tokens.css, the brand block). */
-      --accent: #7781e2; --accent-border: #9aa2f9; --accent-hover: #818cf8;
-    }
+    .annot-root[data-scheme="dark"] { color-scheme: dark; }
     .annot { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     .annot-bar {
       flex: none;
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 16px;
-      /* No rule under it — the shared BAR carries none (components.css), and this
-         is that same row rewritten for the overlay's own stylesheet. */
+      /* Over the stage: the stage is positioned (the shortcut card is pinned to
+         it), so without a layer of its own the bar's ink popover would open
+         BEHIND the picture. */
+      position: relative; z-index: 1;
+      /* Eleven tools, the ink, three weights and the four actions do not fit
+         every window, so this row wraps; the row gap keeps the second line on
+         the 4px grid. */
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: var(--space-2); row-gap: var(--space-2);
+      padding: var(--space-2) var(--space-4);
+      /* No rule under it — the shared BAR carries none (components.css). */
       background: var(--bg);
     }
     .annot-spacer { flex: 1 1 auto; }
-    .annot-btn {
-      flex: none;
-      /* Icon + word — the tool buttons lead with a Material Symbols mark (#180).
-         8px between the two, the shared --control-gap-md: the library holds that
-         gap at every control height, so a 32px button here matches a 32px button
-         in the panel. */
-      display: inline-flex; align-items: center; gap: 8px;
-      /* Height outright + side padding on the grid, like the shared .btn: 32 is
-         the system's ceiling, and vertical padding would only fight it. */
-      height: 32px; padding: 0 12px;
-      font: inherit; font-weight: 500; color: var(--fg);
-      border: 1px solid var(--border-control);
-      border-radius: var(--radius);
-      background: var(--card);
-      cursor: pointer;
-    }
-    .annot-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 999px var(--hover-overlay); }
-    .annot-btn.active { background: #dc2626; border-color: #b91c1c; color: #fff; }
-    .annot-btn.primary { background: var(--accent); border-color: var(--accent-border); color: var(--on-accent); }
-    .annot-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-    .annot-btn.danger { color: #dc2626; border-color: rgba(220, 38, 38, 0.5); }
-    .annot-btn.danger:hover:not(:disabled) { background: rgba(220, 38, 38, 0.12); }
+    /* Controls that answer one question stand together at the tighter gap; the
+       rule between two groups is the shared border. */
+    .annot-group { display: inline-flex; align-items: center; gap: var(--space-1); }
+    .annot-sep { flex: none; width: 1px; height: var(--space-5); background: var(--border); }
+    /* What Copy and Download report back — text at full strength that simply is
+       not there when there is nothing to say. */
+    .annot-flash { font-size: var(--fs-sm); color: var(--muted); }
+    /* The ink: one swatch that opens the eight over it. The popover IS the
+       library's `.menu` (position, depth, padding and shadow come from there);
+       what is said here is only where it hangs and that a row of swatches needs
+       no minimum width. */
+    .annot-ink { position: relative; display: inline-flex; }
+    .annot-ink-menu { left: 0; min-width: 0; }
+    .annot-ink-menu[hidden] { display: none; }
     .annot-stage {
+      position: relative;   /* the shortcut card is pinned to the stage */
       flex: 1 1 auto; min-height: 0;
       display: flex; align-items: center; justify-content: center;
-      padding: 8px; overflow: auto;
+      padding: var(--space-2); overflow: auto;
       background: var(--surface-2);
     }
+    /* The keyboard map (?): a card over the stage, not a dialog — it is read
+       WHILE drawing, and the canvas keeps the keyboard under it. */
+    .annot-help {
+      position: absolute; z-index: 10; top: var(--space-4); right: var(--space-4);
+      width: 280px; max-height: calc(100% - var(--space-8));
+      padding: var(--space-4); overflow: auto;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow-bar);
+    }
+    .annot-help[hidden] { display: none; }
+    .annot-help h2 {
+      margin: 0 0 var(--space-3); font-size: var(--fs-sm); font-weight: var(--weight-semibold);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .annot-help dl {
+      display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-3);
+      margin: 0; font-size: var(--fs-sm);
+    }
+    .annot-help dt { font-family: var(--font-mono); font-size: var(--fs-2xs); white-space: nowrap; }
+    .annot-help dd { margin: 0; color: var(--muted); }
     .annot-canvas {
       display: block; max-width: 100%;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--shadow-bar);
       cursor: crosshair; touch-action: none;
     }
-    /* Select tool (#68): pointing, not drawing — 'move' while over a hit op. */
+    /* Select tool (#68): pointing, not drawing — 'move' while over a hit op. A
+       grip and the freehand tools set their own cursor inline (annotate-core). */
     .annot-canvas.pick { cursor: default; }
     .annot-canvas.pick.over { cursor: move; }
-    .annot-msg { padding: 16px; font-size: 13px; }
+    /* Crop: choosing a region of the picture, not laying ink on it. */
+    .annot-canvas.crop { cursor: cell; }
+    .annot-msg { padding: var(--space-4); font-size: var(--fs-base); }
     .annot-text-input {
       position: fixed; z-index: 20;
-      min-width: 40px; padding: 1px 4px; margin: 0;
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px dashed #dc2626; border-radius: 3px;
+      width: auto; height: auto; min-width: 40px;
+      padding: 1px var(--space-1); margin: 0;
+      background: var(--annot-label-bg);
+      border: 1px dashed var(--annot-tool); border-radius: var(--radius-xs);
       outline: none;
     }
   `;
@@ -145,13 +162,22 @@
     // Max positive 32-bit z-index; fixed + full viewport, above all page content.
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;';
     const shadow = host.attachShadow({ mode: 'open' });
+    // The library first, this file's layout second — so an overlay rule that has
+    // to win (the canvas cursors, the label typed onto the picture) wins by
+    // order rather than by a specificity race with the design system.
+    const lib = document.createElement('style');
+    lib.textContent = libCss;
     const style = document.createElement('style');
     style.textContent = OVERLAY_CSS;
     const mount = document.createElement('div');
     mount.className = 'annot-root';
     mount.dataset.scheme = scheme; // the panel's Appearance setting, resolved
-    shadow.append(style, mount);
+    shadow.append(lib, style, mount);
     (document.body || document.documentElement).append(host);
+    // …and the product's own tooltip, drawn INSIDE this root: from the document
+    // the hit test only ever finds the shadow host, which is why this toolbar
+    // used to fall back to the browser's `title`.
+    if (typeof Tooltip !== 'undefined') Tooltip.mount(shadow);
 
     // Block page scroll behind the modal; restore exactly on teardown.
     const root = document.documentElement;
@@ -164,6 +190,7 @@
       if (torn) return;
       torn = true;
       try { handle && handle.destroy(); } catch { /* noop */ }
+      try { if (typeof Tooltip !== 'undefined') Tooltip.unmount(); } catch { /* noop */ }
       root.style.overflow = prevOverflow;
       window.removeEventListener('pagehide', onPageHide);
       host.remove();

@@ -3,7 +3,8 @@
 // on FAIL. All server-less except the .txt upload on failure. The recorder in
 // the background SW is the source of truth; this reflects its EVIDENCE_* status.
 
-/* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip, EmptyState */
+/* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
+   HoverCard, EmptyState, paintCounter, svgIcon, openAttachmentsDisclosure */
 
 // Panel-local reflection of the recorder status + section/poll state. The window
 // is NOT mirrored here — evWindowSeconds() reads it from state.settings, which is
@@ -11,7 +12,18 @@
 // `expanded` holds the keys of the rows the tester opened: the list is rebuilt
 // from scratch every 2 s poll tick, so DOM-only expansion folded back on its own
 // (#150) — the state has to outlive the repaint, like the paste flash does.
-const evUi = { recording: false, tabId: null, tabTitle: '', sectionOpen: false, pollTimer: null, expanded: new Set() };
+// `errors` is the ONE copy of the errors-only window every surface now paints
+// from — the count on the chip, the chip's hover card and the test view's list —
+// so a tick asks the recorder once and the three can never disagree.
+const evUi = {
+  recording: false, tabId: null, tabTitle: '', tabUrl: '', sectionOpen: false, pollTimer: null,
+  expanded: new Set(), errors: [], card: null,
+};
+
+// How many errors the chip's hover card lists before it stops and says how many
+// more there are. Six is what fits under the header without the card becoming
+// the screen; the rest are one click away in the section that holds them all.
+const EV_CARD_ROWS = 6;
 
 // ---- messaging -----------------------------------------------------------
 
@@ -32,8 +44,6 @@ function evOneLine(s, max = 200) {
   const one = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   return one.length > max ? `${one.slice(0, max - 1)}…` : one;
 }
-
-function evTruncate(s, n) { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; }
 
 function evNetStatus(e) { return e.errorText ? (e.status || 'ERR') : (e.status != null ? e.status : '—'); }
 
@@ -155,11 +165,19 @@ function evBuildTxt(runTitle, testTitle, entries, status) {
 // ---- status reflection ---------------------------------------------------
 
 function applyEvidenceStatus(status) {
+  const was = evUi.recording;
   evUi.recording = !!(status && status.recording);
   evUi.tabId = status && status.tabId != null ? status.tabId : null;
   evUi.tabTitle = (status && status.tabTitle) || '';
+  // The recorded tab's URL is kept for ONE job: shortening the request rows on the
+  // hover card to their path, and keeping the host on the ones that left this site.
+  evUi.tabUrl = (status && status.tabUrl) || '';
+  // A recording that ended takes its errors with it: the count on the chip is a
+  // live figure, and a stopped recorder must not leave one standing.
+  if (was && !evUi.recording) { evUi.errors = []; if (evUi.card) evUi.card.close(); }
   renderEvidenceToggle();
   updateEvidenceSection();
+  syncEvidencePolling();
 }
 
 async function refreshEvidenceStatus() {
@@ -171,24 +189,250 @@ async function refreshEvidenceStatus() {
 
 function renderEvidenceToggle() {
   const btn = $('evidence-toggle');
-  const label = $('evidence-tab');
-  if (!btn || !label) return;
+  if (!btn) return;
   const inRun = state.view === 'run' || state.view === 'test';
   // The Record toggle shows where recording can START (run/test); it ALSO stays
   // visible on EVERY view while a session is active, so the pulsing rec dot is a
   // global indicator and stop is one click away from anywhere (Block 4).
   btn.hidden = !inRun && !evUi.recording;
-  label.hidden = !evUi.recording;
   // The slot follows the toggle so an absent chip costs the tabs row no width (#127).
   const slot = $('rec-slot');
   if (slot) slot.hidden = btn.hidden;
   btn.classList.toggle('recording', evUi.recording);
   btn.setAttribute('aria-pressed', evUi.recording ? 'true' : 'false');
-  Tooltip.set(btn, evUi.recording
-    ? `Recording ${evUi.tabTitle || 'tab'} — click to stop`
-    : 'Record the console & network log from the active tab');
-  if (evUi.recording && evUi.tabTitle) { label.textContent = evTruncate(evUi.tabTitle, 22); Tooltip.set(label, evUi.tabTitle); }
-  else label.textContent = '';
+  paintEvidenceCount();
+  // No tooltip on this chip, in either state — the hover card IS its label. The
+  // two answer the same question and the card answers it better (what is being
+  // recorded, what it caught, the way into it), so a `data-tip` here would only
+  // open a black box over the card the pointer came for.
+  bindEvidenceCard(btn);
+  if (evUi.card) evUi.card.update();
+}
+
+// Errors caught in the recorder's window, on the chip itself. Hidden at zero,
+// which is also how the chip says a recording is going WELL: a number appearing
+// is the whole message, and it lands with the same fade every other count in the
+// panel does (paintCounter, core/views.js).
+//
+// The figure counts the same rows the «Console & network log» section lists — the
+// errors-only view of the trailing window — so it FALLS as old errors age out of
+// it. That is the recorder's contract, not a bug in the count: what the chip
+// offers is what a FAIL would attach right now.
+function paintEvidenceCount() {
+  const chip = $('evidence-errors');
+  const btn = $('evidence-toggle');
+  const n = evUi.recording ? evUi.errors.length : 0;
+  if (chip) {
+    chip.hidden = !n;
+    if (n) paintCounter(chip, n);
+    else chip.textContent = '';
+  }
+  // The chip has no tooltip any more (its label is the hover card, which a reader
+  // cannot hover for), so the button's own NAME carries the whole state: what it
+  // does when idle, and what it is recording — with the count in words, since the
+  // chip beside the word is `aria-hidden`.
+  if (!btn) return;
+  if (!evUi.recording) {
+    btn.setAttribute('aria-label', 'Rec — record the console & network log from the tab under test');
+    return;
+  }
+  const errors = n ? `, ${n} error${n === 1 ? '' : 's'} caught` : '';
+  btn.setAttribute('aria-label', `Rec — recording ${evUi.tabTitle || 'tab'}${errors}, click to stop`);
+}
+
+// ---- the chip's hover card (the errors, without leaving the view) ---------
+
+// Attached once, to the button that outlives every repaint (it only ever MOVES,
+// between the two header rows — see homeRecSlot in core/views.js). It is the
+// chip's ONLY label, so it answers in both states: what a recording has caught,
+// or — idle — what the button would do and why the order matters.
+function bindEvidenceCard(btn) {
+  if (evUi.card) return;
+  evUi.card = HoverCard.attach(btn, {
+    className: 'rec-card',
+    side: 'bottom', // over the view, never over the tab bar it sits in
+    render: evidenceCardContent,
+  });
+}
+
+function evidenceCardContent() {
+  return evUi.recording ? evRecordingCard() : evIdleCard();
+}
+
+// Idle: the sentence the tooltip used to carry, plus the one thing that sentence
+// never had room for — the recorder keeps a TRAILING window, so arming it after
+// the bug is arming it too late.
+function evIdleCard() {
+  const box = document.createDocumentFragment();
+  const head = document.createElement('div');
+  head.className = 'hovercard-head';
+  const title = document.createElement('span');
+  title.className = 'hovercard-title';
+  title.textContent = 'Console & network log';
+  head.append(title);
+  const meta = document.createElement('p');
+  meta.className = 'hovercard-meta';
+  meta.textContent = `Not recording · keeps the last ${evWindowSeconds()}s`;
+  const hint = document.createElement('p');
+  hint.className = 'hovercard-meta';
+  hint.textContent = 'Click Rec to capture the console and the failed requests of '
+    + 'the tab under test — before reproducing, not after.';
+  box.append(head, meta, hint);
+  return box;
+}
+
+function evRecordingCard() {
+  const box = document.createDocumentFragment();
+
+  // What is being recorded — the name the chip used to print beside itself, in
+  // the one place that has room for a whole page title.
+  const head = document.createElement('div');
+  head.className = 'hovercard-head';
+  const title = document.createElement('span');
+  title.className = 'hovercard-title';
+  title.textContent = evUi.tabTitle || 'Recording';
+  head.append(title);
+
+  // ONE short line of facts under it, and it leads with the news: how many, then
+  // over what window. Not a sentence — a card this narrow turns "Recording ·
+  // console & network errors of the last 60s" into two lines of preamble above
+  // the errors themselves, and every word of it except the two numbers is
+  // already known (the chip is pulsing, the section is named).
+  const errors = evUi.errors;
+  const n = errors.length;
+  const meta = document.createElement('p');
+  meta.className = 'hovercard-meta';
+  meta.textContent = `${n ? `${n} error${n === 1 ? '' : 's'}` : 'No errors yet'} · last ${evWindowSeconds()}s`;
+  box.append(head, meta);
+
+  // Nothing caught is the whole message when there is nothing caught: the line
+  // above already said it, so the card stops there rather than spending the
+  // section's own bordered empty state on saying it a second time.
+  if (!n) {
+    box.append(evCardFoot());
+    return box;
+  }
+
+  // NEWEST first, unlike the section's list: the card is a glance at what just
+  // happened, and the errors that just happened are the reason the pointer
+  // stopped on the chip. Six of them, then a line saying how many older ones the
+  // section still holds — the card is a summary, and a card that grew with the
+  // count would end up being the screen.
+  const list = document.createElement('ul');
+  list.className = 'hovercard-list';
+  for (const e of errors.slice(-EV_CARD_ROWS).reverse()) list.append(evCardRow(e));
+  box.append(list);
+  const more = n - EV_CARD_ROWS;
+  if (more > 0) {
+    const rest = document.createElement('p');
+    rest.className = 'hovercard-more';
+    rest.textContent = `+${more} more`;
+    box.append(rest);
+  }
+  box.append(evCardFoot());
+  return box;
+}
+
+// The way into all of them, and — since the chip carries no tooltip any more —
+// the line that says the chip is a toggle. The link is only on the test view:
+// the list lives inside that screen's «Attachments & log», and a link that cannot
+// land anywhere is worse than the sentence saying where to go.
+function evCardFoot() {
+  const foot = document.createElement('div');
+  foot.className = 'hovercard-foot';
+  if (state.view === 'test') {
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'link-btn';
+    open.textContent = 'Open in Attachments & log';
+    open.addEventListener('click', () => { revealEvidenceSection(); if (evUi.card) evUi.card.close(); });
+    const stop = document.createElement('span');
+    stop.className = 'hovercard-meta rec-card-stop';
+    stop.textContent = 'Click to stop';
+    foot.append(open, stop);
+  } else {
+    const hint = document.createElement('span');
+    hint.className = 'hovercard-meta';
+    hint.textContent = 'Open a test to attach these — click Rec to stop.';
+    foot.append(hint);
+  }
+  return foot;
+}
+
+// One error, as the card shows it: the section's own mark, the message, and the
+// time in a column of its own. The section prints all three as one line —
+// «500 GET /api/… · 14:22:06» — because its row is one line with an Attach button
+// on the end; here the message gets two lines of its own and the clock stops
+// being read as the tail of a URL.
+function evCardRow(e) {
+  const li = document.createElement('li');
+  li.className = 'hovercard-row';
+  const icon = document.createElement('span');
+  icon.className = 'ev-icon';
+  const mark = evIcon(e);
+  icon.dataset.kind = mark.kind;
+  icon.append(svgIcon(mark.name, 14));
+  const txt = document.createElement('span');
+  txt.className = 'hovercard-text';
+  txt.textContent = evCardRowText(e);
+  const at = document.createElement('span');
+  at.className = 'hovercard-row-meta';
+  at.textContent = evAge(e.ts);
+  Tooltip.set(at, evTime(e.ts));
+  li.append(icon, txt, at);
+  return li;
+}
+
+// The message, stripped of the two things the CARD does not have room to repeat.
+//
+// A request loses its origin: `https://app.testomat.io/` is 24 characters of the
+// tab named two lines above, and on a 300px card in mono it took the whole first
+// line — so every row read "500 GET https://app.testomat.io/…" and the path, the
+// half that says WHICH request failed, was the part that got cut. A request that
+// left the recorded site keeps its host, because there the host IS the news.
+//
+// A console row loses the `console.` prefix: the mark beside it already splits
+// error from warning, and the word cost the message a line. `uncaught` survives —
+// no console call made that row (#163), and nothing else on the card says so.
+function evCardRowText(e) {
+  if (e.kind === 'network') return `${evNetStatus(e)} ${e.method} ${evShortUrl(e.url)}`;
+  const kind = e.kind === 'exception' ? 'uncaught · ' : '';
+  return `${kind}${evOneLine(e.text, 200)}`;
+}
+
+// Path (with its query) for a request to the recorded site, `host/path` for one
+// that left it. Anything unparseable — a `data:` URL, a relative string from the
+// page hook — is returned as it came.
+function evShortUrl(raw) {
+  const url = String(raw || '');
+  try {
+    const u = new URL(url);
+    const here = evUi.tabUrl ? new URL(evUi.tabUrl).host : '';
+    const path = `${u.pathname}${u.search}`;
+    return evOneLine(u.host && u.host !== here ? `${u.host}${path}` : path || '/', 200);
+  } catch { return evOneLine(url, 200); }
+}
+
+// How long ago, not when: inside a trailing window the age IS the fact ("this one
+// is 3 s old, that one is about to age out"), and `17:22:07` in mono spent a third
+// of the card's width on a figure whose first four characters never change. The
+// exact clock stays one hover away, and the section prints it in full.
+function evAge(ts) {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  return m < 60 ? `${m}m` : `${Math.round(m / 60)}h`;
+}
+
+// The card's way on: open «Attachments & log», open the log inside it, and put it
+// on screen. Everything the card shows is a summary of this section — so the link
+// lands on the rows themselves, expanded, rather than on the screen holding them.
+function revealEvidenceSection() {
+  if (state.view !== 'test') return;
+  if (typeof openAttachmentsDisclosure === 'function') openAttachmentsDisclosure();
+  if (!evUi.sectionOpen) toggleEvidenceHead();
+  const sec = $('evidence-section');
+  if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 async function onEvidenceToggle() {
@@ -200,7 +444,10 @@ async function onEvidenceToggle() {
       // ONE verdict for the tab under test (no hand-rolled url regex any more):
       // anything but `ok` is a page Chrome keeps extensions off, and the toast says
       // so — there is no grant left to wait for.
-      const site = await resolveSiteTab({ verb: 'recorded' });
+      // `activate`: the recorder binds to ONE tab, so a bound target that stood in
+      // for a page we cannot touch is brought forward — the toast then names the tab
+      // the tester is actually looking at.
+      const site = await resolveSiteTab({ verb: 'recorded', activate: true });
       if (site.state !== 'ok') { toast(site.error); return; }
       tabId = site.tab.id;
       await mirrorCaptureBodiesForRelay(); // before the hook can ask (#175)
@@ -253,8 +500,8 @@ function updateEvidenceSection() {
   // Leaving the test view or the recording ending retires the whole list, so the
   // expanded-row keys retire with it — a later recording never reopens rows the
   // tester opened in a previous one (#150).
-  if (!show) { evUi.expanded.clear(); stopEvidencePolling(); return; }
-  if (evUi.sectionOpen) startEvidencePolling(); else { stopEvidencePolling(); renderEvidenceList(); }
+  if (!show) { evUi.expanded.clear(); return; }
+  renderEvidenceList();
 }
 
 function toggleEvidenceHead() {
@@ -263,29 +510,50 @@ function toggleEvidenceHead() {
   const list = $('evidence-list');
   if (head) head.setAttribute('aria-expanded', evUi.sectionOpen ? 'true' : 'false');
   if (list) list.hidden = !evUi.sectionOpen;
-  if (evUi.sectionOpen) startEvidencePolling(); else stopEvidencePolling();
+  // The poll is already running (it belongs to the RECORDING now, not to this
+  // fold) — the rows only have to be painted from what it last brought back.
+  if (evUi.sectionOpen) { renderEvidenceList(); pollEvidenceErrors(); }
 }
 
-function startEvidencePolling() {
-  renderEvidenceList();
-  if (evUi.pollTimer) return;
-  evUi.pollTimer = setInterval(renderEvidenceList, 2000); // design: poll while open + recording
+// One poll, for as long as the recording lasts — on every view, not only on the
+// test the list belongs to. It used to run while the «Console & network log» fold
+// was open, because that fold was the only thing reading it; the chip's own count
+// and its hover card are the other two now, and both are up wherever the tester
+// is. Same 2 s tick, same single EVIDENCE_LIST round trip feeding all three.
+function syncEvidencePolling() {
+  if (evUi.recording && !evUi.pollTimer) {
+    evUi.pollTimer = setInterval(pollEvidenceErrors, 2000);
+    pollEvidenceErrors(); // the count must not wait 2 s for its first figure
+  } else if (!evUi.recording) {
+    stopEvidencePolling();
+  }
 }
 
 function stopEvidencePolling() {
   if (evUi.pollTimer) { clearInterval(evUi.pollTimer); evUi.pollTimer = null; }
 }
 
-async function renderEvidenceList() {
-  if (!evUi.recording || state.view !== 'test') { stopEvidencePolling(); return; }
+async function pollEvidenceErrors() {
+  if (!evUi.recording) { stopEvidencePolling(); return; }
   const r = await evSend({ type: 'EVIDENCE_LIST', errorsOnly: true });
+  if (!r || !r.ok) return;
+  if (r.status && !r.status.recording) { applyEvidenceStatus(r.status); return; } // recorder stopped underneath us
+  evUi.errors = r.entries || [];
+  paintEvidenceCount();
+  renderEvidenceList();
+  if (evUi.card) evUi.card.update(); // a card the pointer is resting in gains the new row
+}
+
+// Paints the fold's rows from `evUi.errors` — the poll's copy, not a fetch of its
+// own: three surfaces read the same window, and two of them are outside this view.
+function renderEvidenceList() {
   const ul = $('evidence-list');
   const count = $('evidence-count');
   if (!ul) return;
-  if (!r || !r.ok) { ul.replaceChildren(); return; }
-  if (r.status && !r.status.recording) { applyEvidenceStatus(r.status); return; } // recorder stopped underneath us
-  const entries = r.entries || [];
+  if (!evUi.recording || state.view !== 'test') return;
+  const entries = evUi.errors;
   if (count) count.textContent = String(entries.length);
+  if (!evUi.sectionOpen) return; // folded away: nothing to paint until it opens
   ul.replaceChildren();
   if (!entries.length) {
     // Compact, and a TICK rather than a shrug: an errors-only log with nothing

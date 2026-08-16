@@ -194,6 +194,12 @@ async function attachScreenshotAnnotated() {
     const resp = await chrome.runtime.sendMessage({ type: 'captureTab', fullPage }).catch((e) => ({ ok: false, error: String(e) }));
     if (!resp?.ok) {
       setStatusLine('test-status', '', '');
+      // #101: the one failure a toolbar click fixes — another extension's frame
+      // blocked the debugger and the viewport rescue is short of `activeTab`. It is
+      // not a site-access verdict, but the fix and the retry are identical, so it
+      // takes the same road: the message is the worker's, unprefixed (it is a
+      // sentence, not a diagnostic), and the click that grants the tab shoots it.
+      if (resp?.needsGrant) { SiteResume.blocked('screenshot', { state: 'no-access', error: resp.error }); return; }
       // The worker's reason is already the honest one (site access was checked above).
       toast(`Capture failed: ${resp?.error || 'unknown'}`, { error: true });
       return;
