@@ -2404,7 +2404,7 @@ body::after {
    twice — accent AND underline. Colour alone is not a link. */
 .markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
-/* ---- STEPS — the numbered list under a `### Steps` heading ----------------
+/* ---- STEPS — the list under a `### Steps` heading, whatever its marker ----
    The steps of a test are not "an ordered list", and the app prints them the way
    this does: each one numbered in its own coin, with a rail running from one coin
    to the next so the steps read as a single thread down the page rather than as N
@@ -2412,33 +2412,42 @@ body::after {
    do it — a marker sits outside the box, so it can be neither drawn nor
    connected — hence the counter.
 
-   `.md-steps`, and ONLY `.md-steps`: every OTHER numbered list in a body — a list
-   of accounts, of URLs, of anything — stays a plain `1. 2. 3.`, because that is
-   what the author wrote and coins on it would promise a checklist that isn't one.
-   The class is stamped by the renderer (shared/markdown.js `stepLists`) on the
-   lists under a "Steps"-like heading, since the fact that decides it is the TEXT
-   of a heading two elements back — which no selector can reach.
+   `.md-steps`, and ONLY `.md-steps`: every OTHER list in a body — a list of
+   accounts, of URLs, of anything — keeps the marker its author typed, because
+   coins on it would promise a checklist that isn't one. The class is stamped by
+   the renderer (shared/markdown.js `stepLists`) on the lists under a
+   "Steps"-like heading, since the fact that decides it is the TEXT of a heading
+   two elements back — which no selector can reach.
+
+   `.md-steps`, not `ol.md-steps`: `stepLists` stamps BOTH markers, and the panel
+   parses both into the same tickable rows, so a body whose steps were written
+   `- like this` is the steps just as much as one written `1. like this`. Tying
+   the coins to `<ol>` alone meant the Preview tab printed those bodies as loose
+   bullets while the panel showed them as a numbered thread — the same test
+   reading as two different documents, which is the one thing this renderer
+   exists to prevent. The ordinal is the list's POSITION, which the author wrote
+   by ordering the lines; the marker they typed to carry it is not the fact.
 
    `:not(:has(> .step-row))` keeps this off the panel's INTERACTIVE steps: once
    test-view.js has parsed the same list into tickable rows, the row's control is
    its mark and the ordinal is already spent — two marks per step is one too many
    (sidepanel/style.css owns that list). */
-.markdown ol.md-steps:not(:has(> .step-row)) {
+.markdown .md-steps:not(:has(> .step-row)) {
   counter-reset: md-step;
   list-style: none;
   padding-left: 0;
 }
-.markdown ol.md-steps:not(:has(> .step-row)) > li {
+.markdown .md-steps:not(:has(> .step-row)) > li {
   position: relative;
   counter-increment: md-step;
   margin: 0;
   padding: 0 0 var(--space-3) calc(var(--md-step-size) + var(--md-step-gap));
 }
-.markdown ol.md-steps:not(:has(> .step-row)) > li:last-child { padding-bottom: 0; }
+.markdown .md-steps:not(:has(> .step-row)) > li:last-child { padding-bottom: 0; }
 /* The coin, centred on the step's FIRST line (`1lh`, whatever the host's size and
    leading) rather than on the top of its box — a step that wraps to three lines
    otherwise floats its number half a step above the sentence it numbers. */
-.markdown ol.md-steps:not(:has(> .step-row)) > li::before {
+.markdown .md-steps:not(:has(> .step-row)) > li::before {
   content: counter(md-step);
   position: absolute;
   left: 0;
@@ -2459,7 +2468,7 @@ body::after {
 }
 /* …and the thread between the coins: from just under this one to the top of the
    next, so it is continuous down a list of any length and stops at the last. */
-.markdown ol.md-steps:not(:has(> .step-row)) > li:not(:last-child)::after {
+.markdown .md-steps:not(:has(> .step-row)) > li:not(:last-child)::after {
   content: "";
   position: absolute;
   left: calc(var(--md-step-size) / 2);
@@ -2478,8 +2487,8 @@ body::after {
    a marker (the browser's second-level `circle`, drawn rather than typeset so it
    lines up with the first line of a wrapped one). Its words carry the same ink as
    the step: an expected result is the half of a step that decides pass or fail. */
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ul,
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ol {
+.markdown .md-steps:not(:has(> .step-row)) > li > ul,
+.markdown .md-steps:not(:has(> .step-row)) > li > ol {
   list-style: none;
   margin: var(--space-1) 0 0;
   /* No indent of its own: the marker column below IS the indent. A panel is
@@ -2487,13 +2496,13 @@ body::after {
      hang its expected results far to the right, this column cannot. */
   padding-left: 0;
 }
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ul > li,
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ol > li {
+.markdown .md-steps:not(:has(> .step-row)) > li > ul > li,
+.markdown .md-steps:not(:has(> .step-row)) > li > ol > li {
   position: relative;
   padding-left: var(--space-4);
 }
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ul > li::before,
-.markdown ol.md-steps:not(:has(> .step-row)) > li > ol > li::before {
+.markdown .md-steps:not(:has(> .step-row)) > li > ul > li::before,
+.markdown .md-steps:not(:has(> .step-row)) > li > ol > li::before {
   content: "";
   position: absolute;
   left: var(--space-1);
