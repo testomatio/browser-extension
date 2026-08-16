@@ -1197,9 +1197,37 @@ a.attachment-link:hover { text-decoration: underline; }
 .summary-step-att-link { font-size: var(--fs-2xs); overflow-wrap: anywhere; }
 /* Expand all / Collapse all — the web puts them on the steps box; here they ride
    the section head, which the disclosure's own full-width click target sits
-   under. */
-#summary-steps { position: relative; }
-.summary-steps-tools { position: absolute; top: 0; right: 0; display: flex; gap: var(--space-1); }
+   beside. They used to be ABSOLUTE over the head's top-right corner, which put
+   them on top of the count (`.counter` gets `margin-left: auto` in an accordion
+   head, so it is already the rightmost thing there) and outside the head's
+   padding, riding the item's border. So the item is a two-column GRID instead:
+   the head takes the free column and keeps its own click target, the tools take
+   the other, and the count parks between them. The body spans both.
+   The buttons stay OUTSIDE the head because the head is a `<button>` — nesting
+   one inside it is not markup, whatever it would look like. */
+#summary-steps {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+#summary-steps > .disclosure-body { grid-column: 1 / -1; }
+.summary-steps-tools {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: var(--space-1);
+  /* Its own right gutter, the head's padding mirrored — the head's stops where
+     the tools begin, so the pair sits off the border by the same space every
+     other row of this box does. */
+  padding-right: var(--space-3);
+  transition: background var(--dur-fast) var(--ease);
+}
+/* The head's hover tint is a background on the head, and the head no longer
+   reaches the right edge — so the strip beside it takes the same tint from the
+   same hover, or the band would stop mid-row with a border still to go. */
+#summary-steps:has(> .disclosure-head:hover:not(:disabled)) > .summary-steps-tools {
+  background: var(--hover-overlay);
+}
 
 /* Screenshot lightbox (#202): the reported step's image over the whole panel.
    `.dialog` carries the frame, the scrim and the shadow; this only lifts its
