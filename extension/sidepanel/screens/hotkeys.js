@@ -195,13 +195,11 @@ async function attachScreenshotAnnotated() {
     if (!resp?.ok) {
       setStatusLine('test-status', '', '');
       // #101: the one failure a toolbar click fixes — another extension's frame
-      // blocked the debugger and the viewport rescue is short of `activeTab`. It is
-      // not a site-access verdict, but the fix and the retry are identical, so it
-      // takes the same road: the message is the worker's, unprefixed (it is a
-      // sentence, not a diagnostic), and the click that grants the tab shoots it.
-      if (resp?.needsGrant) { SiteResume.blocked('screenshot', { state: 'no-access', error: resp.error }); return; }
-      // The worker's reason is already the honest one (site access was checked above).
-      toast(`Capture failed: ${resp?.error || 'unknown'}`, { error: true });
+      // blocked the debugger and the viewport rescue is short of `activeTab`. The
+      // worker's sentence already names the fix, so it is shown as it stands rather
+      // than prefixed with a diagnostic; this surface holds no SiteResume, so the
+      // retry is the tester's second click on the shortcut.
+      toast(resp?.needsGrant ? resp.error : `Capture failed: ${resp?.error || 'unknown'}`, { error: true });
       return;
     }
     // #101: the debugger was refused, so this is the viewport alone — never let a

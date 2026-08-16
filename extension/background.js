@@ -85,13 +85,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   SiteTab.forgetTab(tabId).catch(() => { /* best effort — a stale binding self-heals */ });
 });
 
-// A permanent origin grant ("Always allow") is the other way access arrives; it
-// names an origin, not a tab, so just retry the blind recording's inject — it
-// stays blind if the grant doesn't cover its tab.
-if (chrome.permissions && chrome.permissions.onAdded) {
-  try { chrome.permissions.onAdded.addListener(() => { srRecover(null).catch(() => {}); }); } catch { /* older Chrome */ }
-}
-
 // The panel's own window: ONE of it. A second click focuses the open one rather
 // than stacking copies of the same document.
 async function openPanelWindow() {
@@ -127,9 +120,8 @@ chrome.action.onClicked.addListener((tab) => {
   // the target: from here a detour onto a page we may not touch — a chrome:// page,
   // a new tab — no longer loses the site under test (shared/site-tab.js).
   if (tab) SiteTab.rememberTab(tab).catch(() => { /* a storage hiccup must not break the click */ });
-  // A step recording blinded by a cross-origin navigation lives in THIS worker, not
-  // in the panel, so it cannot hear a broadcast — retry its inject here.
-  srRecover(tab && tab.id).catch(() => { /* same */ });
+  // A step recording blinded by a cross-origin navigation revives on its own via
+  // tabs.onUpdated's `complete` once the tab is reachable again — no retry needed here.
   // A warm worker knows the answer already and keeps the gesture; a worker woken
   // BY this click does not, and takes the awaited path — where side-panel mode is
   // Chrome's own business anyway (see the note above).
@@ -404,8 +396,8 @@ async function captureShot({ beyondViewport = false } = {}) {
   // A refusal here (an inactive tab, the capture quota) falls through to the
   // debugger rather than losing the shot.
   if (!beyondViewport) {
-    const dataUrl = await captureVisible(site.tab);
-    if (dataUrl) return { dataUrl, tabId };
+    const cap = await captureVisible(site.tab);
+    if (cap.dataUrl) return { dataUrl: cap.dataUrl, tabId };
   }
   let shot = null;
   let framesMoved = 0;
@@ -425,9 +417,9 @@ async function captureShot({ beyondViewport = false } = {}) {
     if (!shot) {
       // Everything below is the pre-existing ladder, now the LAST resort rather
       // than the first answer: the viewport rescue, then the sentence for it.
-      const dataUrl = await captureVisible(site.tab);
-      if (!dataUrl) throw e;
-      return { dataUrl, tabId, viewportOnly: true };
+      const cap = await captureVisible(site.tab);
+      if (!cap.dataUrl) throw e;
+      return { dataUrl: cap.dataUrl, tabId, viewportOnly: true };
     }
   }
   const out = await trimToDocument(`data:image/jpeg;base64,${shot.res.data}`, shot.clip);
