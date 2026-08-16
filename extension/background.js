@@ -788,9 +788,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // microseconds apart, and this is a read-modify-write on storage.session — run
   // unserialized (as it was), the title handler reads the pre-push snapshot and
   // the refine is lost, leaving the stale title standing next to the real one.
+  // The re-inject must live INSIDE this same recording/tab check — otherwise every
+  // tab's every page load injects the indicator, which then tears itself down a
+  // poll later (no `stepRec` to reflect): a flash on every navigation, recorder or not.
+  let reinject = false;
   await srSerial(async () => {
     const st = await srGet();
     if (!st || !st.recording || st.tabId !== tabId) return;
+    reinject = changeInfo.status === 'complete';
     let changed = false;
     if (changeInfo.url && changeInfo.url !== st.lastUrl) {
       if (st.manualPause) {
@@ -809,7 +814,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.title && srRefineNav(st, changeInfo.title, st.lastUrl)) changed = true;
     if (changed) await srSet(st);
   });
-  if (changeInfo.status === 'complete') await srInjectSync(tabId);
+  if (reinject) await srInjectSync(tabId);
 });
 
 // Closing the recorded tab auto-stops (recording=false); the editor's poll drains
