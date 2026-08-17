@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version off the tag
+        id: v
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::tag '$TAG' is not a version Chrome can load (want v1.2.3 or v1.2.3-rc.1)"
+            exit 1
+          fi
+          # Chrome takes 1-4 integers in `version` and nothing else, so a
+          # pre-release suffix can only ride in `version_name`.
+          {
+            echo "tag=$TAG"
+            echo "version=${VERSION%%-*}"
+            echo "version_name=$VERSION"
+            echo "zip=testomat-run-panel-$VERSION.zip"
+            [[ "$VERSION" == *-* ]] && echo "prerelease=true" || echo "prerelease=false"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check the manifest
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+
+          root = pathlib.Path('extension')
+          try:
+              m = json.loads((root / 'manifest.json').read_text())
+          except json.JSONDecodeError as e:
+              sys.exit(f"::error::manifest.json is not valid JSON: {e}")
+
+          refs = list((m.get('icons') or {}).values())
+          refs += list(((m.get('action') or {}).get('default_icon') or {}).values())
+          for path in ((m.get('side_panel') or {}).get('default_path'),
+                       (m.get('background') or {}).get('service_worker')):
+              if path:
+                  refs.append(path)
+
+          missing = [r for r in refs if not (root / r).is_file()]
+          if missing:
+              sys.exit("::error::manifest points at files that do not exist: " + ", ".join(missing))
+          print(f"manifest parses, {len(refs)} referenced paths all present")
+          PY
+
+      - name: Stamp the version into the manifest
+        run: |
+          set -euo pipefail
+          jq --arg v '${{ steps.v.outputs.version }}' --arg vn '${{ steps.v.outputs.version_name }}' \
+            'if $v == $vn then .version = $v else .version = $v | .version_name = $vn end' \
+            extension/manifest.json > manifest.stamped
+          mv manifest.stamped extension/manifest.json
+          jq -r '"packing version \(.version)\(if .version_name then " (\(.version_name))" else "" end)"' extension/manifest.json
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          (cd extension && zip -qr "../${{ steps.v.outputs.zip }}" . -x '*.DS_Store')
+          unzip -l "${{ steps.v.outputs.zip }}" | tail -1
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.v.outputs.tag }}'
+          # Publishing from the Releases UI makes tag and release together, so the
+          # existence check can lose that race — a failed create means it appeared.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
+          elif ! gh release create "$TAG" '${{ steps.v.outputs.zip }}' \
+                 --title "$TAG" --generate-notes \
+                 ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }}; then
+            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
+          fi
