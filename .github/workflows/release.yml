@@ -1,0 +1,116 @@
+# Release: a tag is the whole instruction.
+#
+# `v0.2.0` pushed (from a terminal, or created by the Releases UI on publish) and
+# this packs `extension/` into a zip and hangs it off the GitHub Release. There is
+# no build to run — `extension/` ships exactly as it is checked in — so the job is
+# a guard, a version stamp and an archive, nothing more.
+#
+# The tag is the ONLY place a version number is written by hand. `manifest.json`
+# is stamped here, inside the runner, and never committed back: a release whose
+# zip disagrees with its tag is then not expressible.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # create the release and upload its asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `v0.2.0` → 0.2.0, `v0.2.0-rc.1` → 0.2.0 + version_name 0.2.0-rc.1.
+      # Chrome's `version` accepts 1-4 dot-separated integers and NOTHING else, so
+      # a pre-release suffix can only live in `version_name` (which is what the
+      # extensions page displays). A tag shaped like neither stops the run here,
+      # while the release is still empty, rather than shipping a zip Chrome refuses
+      # to load.
+      - name: Read the version off the tag
+        id: v
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::tag '$TAG' is not a version Chrome can load (want v1.2.3 or v1.2.3-rc.1)"
+            exit 1
+          fi
+          {
+            echo "tag=$TAG"
+            echo "version=${VERSION%%-*}"
+            echo "version_name=$VERSION"
+            echo "zip=testomat-run-panel-$VERSION.zip"
+            [[ "$VERSION" == *-* ]] && echo "prerelease=true" || echo "prerelease=false"
+          } >> "$GITHUB_OUTPUT"
+
+      # The manifest is the one file that can strand every user at once: Chrome
+      # refuses the whole extension when it does not parse, or when a path in it
+      # points at nothing. Both are checked against the tree being packed.
+      - name: Check the manifest
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+
+          root = pathlib.Path('extension')
+          try:
+              m = json.loads((root / 'manifest.json').read_text())
+          except json.JSONDecodeError as e:
+              sys.exit(f"::error::manifest.json is not valid JSON: {e}")
+
+          refs = list((m.get('icons') or {}).values())
+          refs += list(((m.get('action') or {}).get('default_icon') or {}).values())
+          for path in ((m.get('side_panel') or {}).get('default_path'),
+                       (m.get('background') or {}).get('service_worker')):
+              if path:
+                  refs.append(path)
+
+          missing = [r for r in refs if not (root / r).is_file()]
+          if missing:
+              sys.exit("::error::manifest points at files that do not exist: " + ", ".join(missing))
+          print(f"manifest parses, {len(refs)} referenced paths all present")
+          PY
+
+      - name: Stamp the version into the manifest
+        run: |
+          set -euo pipefail
+          jq --arg v '${{ steps.v.outputs.version }}' --arg vn '${{ steps.v.outputs.version_name }}' \
+            'if $v == $vn then .version = $v else .version = $v | .version_name = $vn end' \
+            extension/manifest.json > manifest.stamped
+          mv manifest.stamped extension/manifest.json
+          jq -r '"packing version \(.version)\(if .version_name then " (\(.version_name))" else "" end)"' extension/manifest.json
+
+      # Zipped from INSIDE extension/, so manifest.json sits at the archive root —
+      # unpack, point "Load unpacked" at the folder, done.
+      - name: Pack
+        run: |
+          set -euo pipefail
+          (cd extension && zip -qr "../${{ steps.v.outputs.zip }}" . -x '*.DS_Store')
+          unzip -l "${{ steps.v.outputs.zip }}" | tail -1
+
+      # Two ways in, one outcome. Publishing from the Releases UI creates the tag
+      # AND the release, so by the time this runs the release already exists and
+      # only wants its asset. A tag pushed from a terminal has no release yet, so
+      # one is created with generated notes. `--clobber` keeps a re-run from
+      # failing on an asset it uploaded itself.
+      #
+      # The UI path also creates tag and release near-simultaneously, so `view` can
+      # answer "no release" a moment before there is one: the create then loses to
+      # "already exists". Hence the fallback — whoever won, the asset still lands.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.v.outputs.tag }}'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
+          elif ! gh release create "$TAG" '${{ steps.v.outputs.zip }}' \
+                 --title "$TAG" --generate-notes \
+                 ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }}; then
+            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
+          fi

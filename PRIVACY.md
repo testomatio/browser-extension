@@ -112,7 +112,8 @@ are discarded and nothing is written to disk.
   Anthropic key in storage, the extension deletes that key the next time the
   panel opens.
 - It never updates itself silently. There is no auto-update: the extension is
-  installed unpacked from source.
+  installed unpacked, from a release zip or a clone, and a new version reaches
+  you only when you replace that folder and press reload.
 
 ## Permissions, one by one
 

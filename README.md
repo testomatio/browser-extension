@@ -7,7 +7,7 @@ evidence — a screenshot, a console and network log — without leaving the tab
 under test.
 
 It works against `app.testomat.io` and against self-hosted instances. It is not
-in the Chrome Web Store; you install it from source (see below).
+in the Chrome Web Store; you install it yourself (see below).
 
 ## What it does
 
@@ -37,28 +37,34 @@ automatically. When it cannot, it drops to *basic mode*: statuses, comments and
 the run list keep working over the public v2 API, while the session-only
 features are disabled with a stated reason rather than vanishing.
 
-## Install from source
+## Install
 
-There is no packaged build and no auto-update.
+It is not in the Chrome Web Store, so there is no auto-update either way: a new
+version is a zip you unpack, or a `git pull`, followed by the reload button.
 
-1. Clone this repository:
+Take a release if you just want to run it, and the clone if you intend to follow
+`main` or send patches.
+
+1. Either download the newest zip from
+   [Releases](https://github.com/testomatio/browser-extension/releases) and
+   unpack it, or clone the repository:
 
    ```
    git clone https://github.com/testomatio/browser-extension.git
    ```
 
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select the **`extension/`** folder inside the
-   clone — not the repository root.
+3. Click **Load unpacked** and select the folder you unpacked the zip into, or —
+   from a clone — the **`extension/`** folder inside it, not the repository root.
 4. Pin **Testomat Run Panel** from the toolbar's extensions menu.
 5. Click the toolbar icon. The panel opens on Settings; paste a **General
    token** from *Testomat.io → Account → Access Tokens* and click **Save &
    validate**. Self-hosted? Put your own `https://` URL into **Instance** under
    **Advanced** before saving.
 
-Chrome 123 or newer. To update: `git pull`, then press the reload (↻) icon on
-the extension's card in `chrome://extensions`. Your settings and the offline
-queue survive the reload.
+Chrome 123 or newer. To update: unpack a newer zip over the same folder, or
+`git pull`, then press the reload (↻) icon on the extension's card in
+`chrome://extensions`. Your settings and the offline queue survive the reload.
 
 There is no build step: `extension/` runs exactly as it is checked in. No npm
 install, no bundler, no compiler.

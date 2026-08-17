@@ -833,8 +833,8 @@ Worth knowing before you plan a session around it:
   that stays in the web app.
 - **No screen recording.** Screenshots (viewport or full page) and console/
   network logs only — no video, no GIF.
-- **Not in the Chrome Web Store.** Install from the repo; update with
-  `git pull` + reload. There is no auto-update.
+- **Not in the Chrome Web Store.** Install from a release zip or the repo; update
+  by unpacking a newer zip or `git pull`, then reload. There is no auto-update.
 - **No test creation from a run.** The Tests tab authors test cases; a run's
   checklist is whatever the run was created with.
 - **No bulk actions.** No multi-select, no "mark the rest skipped" other than
