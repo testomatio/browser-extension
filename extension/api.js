@@ -455,10 +455,37 @@ const TestomatAPI = (() => {
   // the token can reach; `id` is the project SLUG (the v2 base path) and
   // `attributes.title` the display name. Feeds the settings project picker;
   // needs only the base URL + token (no slug yet). ApiError kinds surface as-is.
+  //
+  // PAGED: the route answers `meta {total_pages, per_page, num, page}` and caps
+  // per_page at 200 — verified live, a bigger ask is clamped, not honoured. One
+  // read therefore hides project 201+ from an owner who has that many, so every
+  // page is drained. Three independent stops — the page count meta reports, a
+  // short page, `num` reached — so a meta-less answer still ends on the short
+  // page. PAGE_GUARD is the same runaway guard the v2 drain carries.
+  const PROJECTS_PER_PAGE = 200;
   async function listProjects() {
-    const doc = await jwtRequestRoot('/projects');
-    const rows = Array.isArray(doc?.data) ? doc.data : [];
-    return rows.map((n) => ({ id: String(n.id), title: (n.attributes || {}).title || '' }));
+    const all = [];
+    let totalPages = Infinity;
+    let total = Infinity;
+    for (let page = 1; page <= PAGE_GUARD; page++) {
+      let doc;
+      try {
+        doc = await jwtRequestRoot(`/projects?page=${page}&per_page=${PROJECTS_PER_PAGE}`);
+      } catch (e) {
+        // The FIRST page carries the verdict Settings validates the token on — it
+        // must surface. A tail dying mid-drain must not: the projects already in
+        // hand beat an empty picker over one failed request.
+        if (page === 1) throw e;
+        break;
+      }
+      const rows = Array.isArray(doc?.data) ? doc.data : [];
+      all.push(...rows.map((n) => ({ id: String(n.id), title: (n.attributes || {}).title || '' })));
+      const meta = doc?.meta || {};
+      if (typeof meta.total_pages === 'number') totalPages = meta.total_pages;
+      if (typeof meta.num === 'number') total = meta.num;
+      if (rows.length < PROJECTS_PER_PAGE || page >= totalPages || all.length >= total) break;
+    }
+    return all;
   }
 
   // Everything the open run needs from the JSON:API (JWT) run detail, in ONE read:
