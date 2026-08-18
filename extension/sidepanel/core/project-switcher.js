@@ -91,15 +91,27 @@ function renderProjectOptions() {
     li.setAttribute('aria-selected', p.id === current ? 'true' : 'false');
     li.dataset.projectId = p.id;
     li.classList.toggle('active', p.id === projectActiveId);
+    // Two lines — title over slug — so neither clips the other (#10); the count rides at the trailing edge.
+    const lines = document.createElement('div');
+    lines.className = 'project-option-lines';
     const title = document.createElement('span');
     title.className = 'project-option-title';
     title.textContent = p.title || p.id;
-    li.append(title);
+    lines.append(title);
     if (p.title && p.title !== p.id) {
       const slug = document.createElement('span');
       slug.className = 'project-option-slug';
       slug.textContent = p.id;
-      li.append(slug);
+      lines.append(slug);
+    }
+    li.append(lines);
+    // Shared trailing figure (`.row-count`, ROW TAIL in shared/components.css); a real 0 shows, an unknown count draws nothing.
+    if (p.testsCount != null && Number.isFinite(Number(p.testsCount))) {
+      const count = document.createElement('span');
+      count.className = 'row-count';
+      count.textContent = Number(p.testsCount).toLocaleString('en-US').replace(/,/g, ' ');
+      Tooltip.set(count, `${Number(p.testsCount)} tests`);
+      li.append(count);
     }
     li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the filter
     li.addEventListener('click', () => pickProject(p.id));
