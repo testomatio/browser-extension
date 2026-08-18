@@ -1,41 +1,23 @@
-// Step recorder (on-page content script). Injected on demand via
-// chrome.scripting.executeScript (NOT a declared content_script), same mechanism
-// as the annotator overlay — isolated world, capture-phase listeners, a Shadow
-// DOM indicator. It turns the tester's actions into human-readable Markdown steps
-// (never Playwright code) and ships each one to the service worker, which owns the
-// canonical recording state in chrome.storage.session. Nothing leaves the
-// extension (Single Egress holds).
-//
-// Protocol (chrome.runtime messages to background.js):
-//   STEPREC_ADD {entry:{kind,text,action,name,context,manual}}
-//                                   -> {ok,count,paused,manualPause,recording}
-//   STEPREC_STATUS                  -> {recording,count,paused,manualPause,tabId}
-//   STEPREC_STOP_REQUEST            -> recording=false (indicator Stop)
-//   STEPREC_CONTINUE                -> clears the CAP pause, grants +cap
-//   STEPREC_PAUSE {on}              -> the tester's own Pause/Resume (no +cap)
-// The service worker mutates state; this script only reflects it (poll STATUS) and
-// tears itself down when recording ends. v1: top frame only, no iframes/contenteditable.
+// Step recorder, injected on demand via chrome.scripting.executeScript (NOT a declared
+// content_script). background.js owns the state; this reflects it and tears itself down.
 
 /* global chrome */
 (() => {
   'use strict';
 
   const HOST_ID = '__testomat_step_recorder';
-  // One recorder per document. A full-load re-inject runs in a fresh document (no
-  // flag); a spurious same-document re-inject is a no-op.
+  // One recorder per document: a full-load re-inject runs in a fresh document (no flag),
+  // while a spurious same-document re-inject is a no-op.
   if (window.__testomatStepRecInited) return;
   if (!chrome?.runtime?.sendMessage) return;
   window.__testomatStepRecInited = true;
 
-  // ---- element naming: aria-label -> visible text -> label -> placeholder ->
-  //      table column header (#74) -> name/id -> null (bare tag).
-  //      Values trimmed to 40 chars. --------------------------------------------
+  // ---- element naming: aria-label -> text -> label -> placeholder -> column header (#74)
+  //      -> name/id -> null (bare tag); values trimmed to 40 chars. ---------------
   const trim40 = (s) => String(s).replace(/\s+/g, ' ').trim().slice(0, 40);
 
-  // Decorative chrome: a badge / pill / counter bubble, anything hidden from the
-  // a11y tree, or a <script>/<style> body. Its text is never a name a tester reads
-  // (#86: `in the "3" row`; #75: an analytics snippet inside a card naming the
-  // button after its source, `Click the "window.__x=1;" button`).
+  // Decorative chrome (badge, counter, anything hidden from the a11y tree, a <script>
+  // body): its text is never a name a tester reads — #86 `in the "3" row`, #75 a snippet.
   const BADGE_RE = /(^|[\s_-])(badge|pill|count|counter)([\s_-]|$)/i;
   const NOT_READ = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/;
   const badgeish = (el) => !!el && el.nodeType === 1
@@ -47,10 +29,8 @@
     return false;
   }
 
-  // The element's visible text runs in document order. `glued` = this run continues
-  // the previous one with NO whitespace ("ABCDE" + "$20.33") — the giveaway of a
-  // concatenation; `badge` = it came from decorative chrome. One run means the text
-  // IS the label; several mean it is parts of one stitched together.
+  // `glued` = this run continues the previous with NO whitespace ("ABCDE" + "$20.33"),
+  // the giveaway of a concatenation; `badge` = it came from decorative chrome.
   function textRuns(el, limit = 24) {
     const out = [];
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -68,10 +48,8 @@
     return out;
   }
 
-  // A buttonish element is often a whole CARD, and its textContent concatenates the
-  // parts into an unreadable name (#86: `Adjustable Wrench ABCDE$20.33`). Block-level
-  // structure or glued runs give that away; then name it by what a tester actually
-  // reads — heading, aria-label, image alt, longest run — never the concatenation.
+  // A buttonish element is often a whole CARD whose textContent concatenates into an
+  // unreadable name (#86: `Adjustable Wrench ABCDE$20.33`); block structure gives it away.
   const STRUCT_SEL = 'img, picture, h1, h2, h3, h4, h5, h6, p, div, section, article,'
     + ' figure, header, footer, ul, ol, li, table';
   const firstAttr = (el, sel, at) => {
@@ -84,8 +62,8 @@
     const kept = runs.filter((r) => !r.badge);
     if (!kept.length) return null; // nothing but chrome (an icon-font glyph) — let a label/id name it
     const raw = (el.textContent || '').trim();
-    // One run (or plain inline emphasis) — the raw text is the name, as before;
-    // dropped badge text is the one reason to rebuild it from the runs.
+    // One run (or plain inline emphasis): the raw text is the name — dropped badge text
+    // is the one reason to rebuild it from the runs.
     if (!(runs.length > 1 && (runs.some((r) => r.glued) || el.querySelector(STRUCT_SEL)))) {
       return kept.length < runs.length ? kept.map((r) => r.text).join(' ') : raw;
     }
@@ -97,8 +75,7 @@
   }
 
   // A wrapping <label> holds the control it labels, so its textContent bleeds the
-  // control's own text (e.g. a <select>'s option labels). Strip nested controls
-  // before reading, so `<label>Role <select>…</select></label>` yields "Role".
+  // control's own text (a <select>'s option labels) unless the controls are stripped.
   function cleanLabelText(labelEl) {
     if (!labelEl) return null;
     const clone = labelEl.cloneNode(true);
@@ -116,9 +93,8 @@
     return null;
   }
 
-  // "Names itself by its own text" — buttons, links, and every ARIA custom control
-  // we recognize (a [role=tab] is labelled by its text exactly like a button; the
-  // name/id fallback below would otherwise record `Open the "tab-details" tab`).
+  // "Names itself by its own text" — buttons, links and every ARIA custom control we
+  // recognize; without the roles, name/id records `Open the "tab-details" tab`.
   const isButtonish = (el) => {
     const tag = el.tagName;
     const role = (el.getAttribute && el.getAttribute('role')) || '';
@@ -127,8 +103,8 @@
       || (tag === 'INPUT' && /^(button|submit|reset|image)$/i.test(el.type || ''));
   };
 
-  // `fallback` (#74: the cell's column header) slots in AHEAD of name/id — those
-  // are developer strings, a column header is what the tester actually reads.
+  // `fallback` (#74: the cell's column header) slots in AHEAD of name/id — those are
+  // developer strings, a column header is what the tester actually reads.
   function elementName(el, fallback) {
     const aria = el.getAttribute && el.getAttribute('aria-label');
     if (aria && aria.trim()) return trim40(aria);
@@ -151,14 +127,12 @@
     return null;
   }
 
-  // ---- element context (#74): the row/card, the section and the table column an
-  //      element sits in. Read AT EVENT TIME — the DOM has moved on by the time
-  //      anyone reads the recording, so a name resolved later is a guess. --------
+  // ---- element context (#74): the row/card, section and column an element sits in ----
+  // Read AT EVENT TIME: the DOM has moved on by the time anyone reads the recording.
   const ROW_SEL = 'tr, li, [role=row], [role=listitem]';
   const ROW_TITLE_SEL = 'h1,h2,h3,h4,h5,h6,th,td,[role=rowheader],[role=cell],[role=gridcell],strong,b';
 
-  // Text of a title candidate with nested controls stripped, so the cell that
-  // merely HOLDS the control never ends up naming the row after it.
+  // Nested controls stripped, so the cell that merely HOLDS a control never names the row.
   function cleanText(node) {
     const clone = node.cloneNode(true);
     clone.querySelectorAll('input, select, textarea, button, script, style, noscript, template').forEach((n) => n.remove());
@@ -167,14 +141,11 @@
     return t || null;
   }
 
-  // What a tester would actually call a row: at least two characters and at least
-  // one letter. A bare counter ("3"), a price or a lone glyph is noise (#86).
+  // A bare counter ("3"), a price or a lone glyph is noise, not a row title (#86).
   const titleish = (t) => !!t && t.length >= 2 && /\p{L}/u.test(t);
 
-  // The row/card's own label: the first heading / header cell / cell / bold run in
-  // document order that is a title AT ALL (a badge is skipped, not emitted), else the
-  // item's whole text when it is short enough to BE a title (a card's paragraph body
-  // is not one, and a sliced paragraph reads as noise).
+  // The first title-ish heading/cell/bold run in document order (badges skipped), else the
+  // item's whole text when it is short enough to BE a title — a sliced paragraph is noise.
   function rowTitle(row) {
     for (const n of row.querySelectorAll(ROW_TITLE_SEL)) {
       const t = cleanText(n);
@@ -184,9 +155,8 @@
     return titleish(own) && own.length <= 60 ? trim40(own) : null;
   }
 
-  // The enclosing section: a fieldset's legend, else the nearest heading BEFORE the
-  // element in document order. Bounded walk (8 ancestors × 12 siblings) — a full-DOM
-  // sweep on every click is not worth one context clause.
+  // A fieldset's legend, else the nearest heading BEFORE the element. The walk is bounded
+  // (8 ancestors × 12 siblings): a full-DOM sweep on every click is not worth one clause.
   function sectionTitle(el) {
     for (let node = el, up = 0; node && up < 8; node = node.parentElement, up++) {
       if (node.tagName === 'FIELDSET') {
@@ -202,8 +172,7 @@
     return null;
   }
 
-  // A cell's column = the header cell above it (`cellIndex` is the honest mapping);
-  // only a table with a real header row answers.
+  // `cellIndex` is the honest mapping to the header cell; only a real header row answers.
   function columnTitle(el) {
     const cell = el.closest && el.closest('td, th');
     if (!cell || cell.tagName === 'TH') return null;
@@ -216,8 +185,8 @@
     return t ? trim40(t) : null;
   }
 
-  // A control a tester cannot name from the control alone borrows its column
-  // header — to them that IS its name ("the Bulk checkbox").
+  // A control a tester cannot name from the control alone borrows its column header —
+  // to them that IS its name ("the Bulk checkbox").
   const nameOf = (el) => elementName(el, columnTitle(el));
 
   // The three facts, minus any that only repeat the control's own name.
@@ -235,8 +204,8 @@
     return Object.keys(ctx).length ? ctx : null;
   }
 
-  // ONE clause in the step text, never two: the row is the more specific fact, the
-  // section is the fallback. The column already spoke — as the control's name.
+  // ONE clause per step, never two: the row is the more specific fact, the section is the
+  // fallback, and the column already spoke — as the control's name.
   const clauseOf = (ctx) => (!ctx ? ''
     : ctx.row ? ` in the "${ctx.row}" row`
       : ctx.section ? ` in the "${ctx.section}" section` : '');
@@ -247,10 +216,8 @@
   let manualPause = false; // the tester's own Pause (Resume clears it, no +cap)
   let count = 0;
 
-  // The entry carries the rendered `text` every consumer reads PLUS the structured
-  // {action, name, context} behind it (#74). `replaces` (dblclick only) is a wire
-  // instruction: the exact single-click text this action supersedes — the worker
-  // pops those trailing twins before appending.
+  // `replaces` (dblclick only) is a wire instruction: the exact single-click text this
+  // action supersedes — the worker pops those trailing twins before appending.
   function send(entry) {
     if (!entry || !entry.text) return;
     chrome.runtime.sendMessage({ type: 'STEPREC_ADD', entry })
@@ -267,9 +234,8 @@
 
   // ---- action recognizers ----------------------------------------------------
   const path0 = (e) => (e.composedPath && e.composedPath()[0]) || e.target;
-  // The indicator is a shadow host INSIDE the page, so its own clicks compose out
-  // into `document` and would record as steps — Pause/Resume/Stop are ours, not
-  // the tester's scenario.
+  // The indicator is a shadow host INSIDE the page, so its own clicks compose out into
+  // `document` and would record as steps.
   const fromIndicator = (e) => {
     const p = (e.composedPath && e.composedPath()) || [];
     return p.includes(host) || (e.target && e.target.id === HOST_ID);
@@ -282,44 +248,32 @@
   };
 
   // ---- sensitive values (#176) -----------------------------------------------
-  // Everything typed is recorded verbatim into the test case and uploaded, and
-  // `type=password` used to be the only thing masked — while card, CVV, expiry,
-  // OTP and tax-id fields are text/tel/numeric, never password. So a checkout
-  // rehearsed on staging with a real card published that card.
+  // Everything typed is recorded verbatim and uploaded, and card, CVV, expiry, OTP and
+  // tax-id fields are text/tel/numeric — never `type=password`.
 
-  // A developer string says the same word three ways — `cardNumber`, `card_number`,
-  // `CARD-NUMBER`. Split it into words once, then match whole words only, so
-  // `shipping` never reads as a `pin` and `Card number` matches `card`.
+  // Split a developer string (`cardNumber`, `card_number`, `CARD-NUMBER`) into words once,
+  // then match whole words only, so `shipping` never reads as a `pin`.
   const words = (s) => String(s || '')
     .replace(/([a-z\d])([A-Z])/g, '$1 $2')
     .replace(/[^A-Za-z\d]+/g, ' ')
     .trim().toLowerCase();
 
-  // BEST-EFFORT, deliberately: a field is only as findable as the site chose to
-  // name it, so this list will miss things and is meant to be extended. The Luhn
-  // check below is the backstop for the one case with real consequences, and the
-  // Settings toggle is the way out for anyone who cannot rely on a heuristic.
-  // Every entry is written the way `words()` leaves it, which is BOTH spellings:
-  // it splits `cardNumber`/`card-number` into `card number`, but a run-together
-  // lowercase `cardnumber` has no seam to split on and arrives whole — so the
-  // optional space in `card ?num(ber)?` is load-bearing, not cosmetic.
+  // Best-effort (Luhn below is the backstop). Entries are written the way `words()` leaves
+  // them: `cardnumber` has no seam to split on, so the space in `card ?num` is load-bearing.
   const CARD_NUMBER_WORDS = /\b(card ?num(ber)?|cc ?(num(ber)?|no))\b/;
   const SENSITIVE_WORDS = /\b(card ?num(ber)?|card|cc ?(num(ber)?|no)|cvv|cvc|csc|security code|ssn|social security|passport|otp|passcode|one[- ]?time|exp(iry|iration)?|secret|token|api[- ]?key|pin|iban|routing|account number|tax id)\b/;
-  // A revealed password is a `type=text` field (every show/hide eye button flips
-  // it), and a signup or admin form routinely ships no `autocomplete` at all.
-  // `passphrase` earns its place (SSH keys, wallets, PGP). `passport` must not
-  // land HERE — it is a government id, masked as "the value" by the list above,
-  // not a password — which is why these are whole words and not a `pass` prefix.
+  // A revealed password is a `type=text` field (every show/hide eye flips it). Whole words,
+  // not a `pass` prefix: `passport` is a government id, masked as "the value" above.
   const PASSWORD_WORDS = /\b(password|passwd|pwd|passphrase)\b/;
-  // `card` ALONE is not a card number — a Kanban "Card title" is masked by the list
-  // above, and calling that "the card number" would be a confident lie.
+  // `card` ALONE is not a card number: a Kanban "Card title" is masked by the list above,
+  // and calling that "the card number" would be a confident lie.
   const isCardNumber = (w) => CARD_NUMBER_WORDS.test(w)
     || (/\bcard\b/.test(w) && /\b(number|num|no|pan)\b/.test(w));
   // `autocomplete` is the one signal a site states on purpose rather than by habit.
   const SENSITIVE_AC = /^(cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year|cc-name|one-time-code|new-password|current-password)$/;
 
-  // Spec tokens: `section-*`, then billing/shipping, then the field name (and a
-  // trailing `webauthn`) — so test every token that is left, not just the last.
+  // Spec token order is `section-*`, billing/shipping, the field name, a trailing
+  // `webauthn` — so every remaining token is tested, not just the last.
   const acTokens = (el) => ((el.getAttribute && el.getAttribute('autocomplete')) || '')
     .toLowerCase().split(/\s+/)
     .filter((t) => t && t !== 'billing' && t !== 'shipping' && !t.startsWith('section-'));
@@ -329,9 +283,8 @@
     el.placeholder, el.getAttribute && el.getAttribute('aria-label'), labelText(el)]
     .filter(Boolean).join(' '));
 
-  // The backstop: 13-19 digits passing Luhn IS a payment card whatever the field is
-  // called, so a card typed into `input3` is still masked. `\s` and not ' ' — an
-  // auto-formatting card input separates its groups with a NBSP as often as a space.
+  // 13-19 digits passing Luhn IS a payment card whatever the field is called. `\s` and not
+  // ' ': an auto-formatting card input separates groups with a NBSP as often as a space.
   function looksLikeCard(val) {
     const d = String(val).replace(/[\s-]/g, '');
     if (!/^\d{13,19}$/.test(d)) return false;
@@ -344,9 +297,8 @@
     return sum % 10 === 0;
   }
 
-  // null = the value is safe to record; otherwise the noun the step says INSTEAD of
-  // it. Only two nouns are ever certain enough to name — everything else is "the
-  // value", which tells a reader what happened without narrowing what it was.
+  // null = the value is safe to record; otherwise the noun the step says INSTEAD of it.
+  // Only two nouns are ever certain enough to name; everything else is "the value".
   const isPassword = (el, ac, w) => (el.type || '').toLowerCase() === 'password'
     || PASSWORD_WORDS.test(w) || ac.includes('new-password') || ac.includes('current-password');
 
@@ -360,18 +312,13 @@
     return null;
   }
 
-  // Under the toggle every field reads alike, with exactly ONE exception: a
-  // password keeps its noun. No value is written either way, so this costs nothing
-  // in privacy, and `type=password` / PASSWORD_WORDS is a certainty rather than a
-  // heuristic — naming it makes the step readable without revealing anything. No
-  // other noun survives: a card, a CVV, an OTP and a passport all read like an
-  // ordinary field, which is the point of turning this on.
+  // Under the toggle every field reads alike but a password, which keeps its noun: no
+  // value is written either way, and `type=password` is a certainty, not a heuristic.
   const maskedAllAs = (el) => (isPassword(el, acTokens(el), fieldWords(el)) ? 'the password' : 'text');
 
   // ---- "Never record entered values" (#176) ----------------------------------
-  // Read from its OWN top-level key, never off `settings` — that object carries the
-  // API token, which has no business in a tab's isolated world (#175). Absent -> OFF:
-  // values keep being recorded, with the masking above applied.
+  // Read from its OWN top-level key, never off `settings` — that object carries the API
+  // token, which has no business in a tab's isolated world (#175). Absent -> OFF.
   const NEVER_KEY = 'stepRecNeverValues';
   let neverValues = null; // null = not read yet; a value is never emitted on a guess
   const flagRead = (chrome.storage && chrome.storage.local
@@ -384,15 +331,14 @@
   };
   if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.addListener(onFlagChanged);
 
-  // Type consolidation: remember the last value emitted per field so blur+Enter
-  // don't double-record, and empty fields never record. A masked field remembers a
-  // SENTINEL instead — the secret it just refused to send is not ours to hold.
+  // The last value emitted per field, so blur+Enter don't double-record. A masked field
+  // remembers a SENTINEL instead — the secret it just refused to send is not ours to hold.
   const lastTyped = new WeakMap();
   const MASKED = '\0masked';
   function flushType(el) {
     if (!isTextField(el)) return;
-    // The toggle read lands milliseconds after injection; a step that beats it waits
-    // for it rather than being recorded under a guessed default.
+    // The toggle read lands milliseconds after injection; a step that beats it waits for
+    // it rather than being recorded under a guessed default.
     if (neverValues === null) { flagRead.then(() => flushType(el)); return; }
     const val = el.value == null ? '' : String(el.value);
     if (!val.trim()) return;
@@ -414,8 +360,8 @@
       text: `Type "${trim40(val)}" into the ${field}${clauseOf(ctx)}` });
   }
 
-  // The indicator's own input is a text field inside the page (#78) — every one of
-  // these must ignore it, or typing an expected result records itself as a step.
+  // The indicator's own input is a text field inside the page (#78) — every one of these
+  // must ignore it, or typing an expected result records itself as a step.
   function onBlur(e) {
     if (!recording || fromIndicator(e)) return;
     flushType(path0(e));
@@ -451,22 +397,21 @@
       const name = nameOf(el);
       const ctx = contextOf(el, name);
       const clause = clauseOf(ctx);
-      // Nameless AND contextless stays silent, as before — "Choose the option" on
-      // its own tells a reader nothing. A context clause rescues it.
+      // Nameless AND contextless stays silent: "Choose the option" alone says nothing.
       if (name) send({ kind: 'step', action: 'choose', name, context: ctx, text: `Choose the "${name}" option${clause}` });
       else if (clause) send({ kind: 'step', action: 'choose', name, context: ctx, text: `Choose the option${clause}` });
     }
   }
 
-  // Clickable targets: the native ones plus the ARIA custom controls React/SPA UIs
-  // build out of <div>s — without these a whole tab strip or menu records nothing.
+  // The native targets plus the ARIA custom controls SPA UIs build out of <div>s —
+  // without these a whole tab strip or menu records nothing.
   const CLICK_SEL = 'a, button, [role="button"], summary,'
     + ' input[type="button"], input[type="submit"], input[type="reset"], input[type="image"],'
     + ' [role="checkbox"], [role="radio"], [role="switch"], [role="tab"],'
     + ' [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"]';
 
-  // Each role gets the verb a tester would write by hand; a nameless control keeps
-  // the bare-noun form the button recognizer already uses ("Click the button").
+  // Each role gets the verb a tester would write by hand; a nameless control keeps the
+  // bare-noun form ("Click the button").
   const menuPhrase = (n) => (n ? `Choose "${n}" in the menu` : 'Choose the menu item');
   const ROLE_PHRASE = {
     tab: (n) => (n ? `Open the "${n}" tab` : 'Open the tab'),
@@ -484,8 +429,7 @@
   };
   const roleOf = (el) => (el.getAttribute && el.getAttribute('role')) || '';
 
-  // The step a click on `el` produces — shared with dblclick, which supersedes it
-  // by exactly this text (context clause included).
+  // Shared with dblclick, which supersedes this exact text (context clause included).
   function clickPhrase(el, name, ctx) {
     const phrase = ROLE_PHRASE[roleOf(el)];
     const clause = clauseOf(ctx);
@@ -504,18 +448,17 @@
     if (raw.tagName === 'INPUT' && /^(checkbox|radio)$/i.test(raw.type || '')) return null;
     const el = raw.closest(CLICK_SEL);
     if (!el) return null;
-    // A label wrapping a checkbox/radio forwards its click to the control — the
-    // `change` step already covers it; don't also emit a Click.
+    // A label wrapping a checkbox/radio forwards its click to the control, which the
+    // `change` step already covers.
     if (el.tagName === 'LABEL') return null;
-    // Same rule for a role wrapper around a REAL control (a styled native
-    // checkbox): the `change`/type path records it, so one action stays one step.
+    // Same for a role wrapper around a REAL control (a styled native checkbox): the
+    // `change`/type path records it, so one action stays one step.
     if (ROLE_PHRASE[roleOf(el)] && el.querySelector('input, select, textarea')) return null;
     return el;
   }
 
-  // Clicks on text inputs / selects are focus noise (the following Type/Select
-  // absorbs them). Native checkboxes/radios record via `change`. Buttons, links
-  // and the ARIA custom controls here.
+  // Clicks on text inputs / selects are focus noise (the following Type/Select absorbs
+  // them); native checkboxes and radios record via `change`.
   function onClick(e) {
     const el = clickTarget(e);
     if (!el) return;
@@ -524,8 +467,8 @@
     send({ kind: 'step', action: 'click', name, context: ctx, text: clickPhrase(el, name, ctx) });
   }
 
-  // A real double-click fires click, click, dblclick — so the two clicks are
-  // already recorded when this lands; `replaces` pops them in the worker.
+  // A real double-click fires click, click, dblclick — the two clicks are already
+  // recorded when this lands, and `replaces` pops them in the worker.
   function onDblClick(e) {
     const el = clickTarget(e);
     if (!el) return;
@@ -591,9 +534,8 @@
 
   const steps = (n) => `${n} step${n === 1 ? '' : 's'}`;
 
-  // `icon` is a Material Symbols name from shared/icons.js, injected right
-  // before this file (background.js srInject). Absent set → the label alone,
-  // which is what every pill but the create one wants anyway.
+  // `icon` is a Material Symbols name from shared/icons.js, injected right before this
+  // file (background.js srInject); with no set present the label stands alone.
   function pillButton(label, cls, onClick, icon) {
     const b = document.createElement('button');
     if (cls) b.className = cls;
@@ -604,32 +546,23 @@
     return b;
   }
 
-  // Rebuilt on every 500ms poll, so the dot and the label are re-APPENDED nodes,
-  // never fresh ones — the open + Expected input relies on surviving a render.
+  // The pill is rebuilt on every 500ms poll, so the dot and the label are re-APPENDED
+  // nodes, never fresh ones — the open + Expected input relies on surviving a render.
   const dot = document.createElement('span');
   dot.className = 'dot';
   const txt = document.createElement('span');
   txt.className = 'txt';
 
   // ---- moving the pill -------------------------------------------------------
-  // The bottom-right corner is where a page puts its own cookie banner, chat
-  // bubble and toast stack — exactly the controls a tester has to reach WHILE
-  // recording. So the pill is draggable: grab it anywhere but a button or the
-  // input and drop it wherever it is out of the way.
-  //
-  // Dropped position lives in storage.local (its own top-level key, never
-  // `settings` — same rule as NEVER_KEY above), so it survives the re-injection
-  // every navigation performs and the pill does not jump back to the corner
-  // mid-recording. It holds nothing but two numbers.
+  // The dropped position lives in storage.local under its own top-level key (never
+  // `settings`), so it survives the re-injection every navigation performs.
   const POS_KEY = 'stepRecIndicatorPos';
   const EDGE = 8;          // never flush against the viewport edge
   const DRAG_SLOP = 4;     // below this a press is a press, not a drag
   let pos = null;          // {left, top} viewport px; null = the default corner
 
-  // A viewport is not the one the position was saved from — a narrower window, a
-  // second monitor, or just a pill that grew (the + Expected input is 220px wider
-  // than the label it replaces). Clamping on every apply is what keeps a dropped
-  // pill on screen instead of half past its edge.
+  // The viewport is rarely the one the position was saved from, and the pill itself grows
+  // (+ Expected adds 220px), so every apply re-clamps rather than trusting the stored pair.
   function clamp(p) {
     const w = box.offsetWidth || 0;
     const h = box.offsetHeight || 0;
@@ -658,8 +591,8 @@
     .catch(() => { /* no stored position — the default corner stands */ });
 
   function onPointerDown(e) {
-    // Left button / touch / pen only, and never a press that is aimed at a
-    // control: Stop must stay one click, not a click that might have moved.
+    // Never a press aimed at a control: Stop must stay one click, not a click that
+    // might have moved.
     if (e.button !== 0 || drag) return;
     dropAt = 0; // a new press: whatever the last drop left is spent
     if (e.target.closest && e.target.closest('button, input')) return;
@@ -694,20 +627,15 @@
     }
   }
 
-  // The move/up pair listens on the WINDOW, in the capture phase: pointer capture
-  // is best-effort (a synthetic pointer has none to take), and a hand that outruns
-  // the pill must not strand a half-finished drag. Capture, because the pill stops
-  // these events from bubbling out of itself — see below.
+  // On the WINDOW and in the CAPTURE phase: pointer capture is best-effort (a synthetic
+  // pointer has none), and the pill stops these events from bubbling out of itself.
   const winOpts = { capture: true };
   box.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, winOpts);
   window.addEventListener('pointerup', endDrag, winOpts);
   window.addEventListener('pointercancel', endDrag, winOpts);
-  // The click a drop produces (grabbed the pill, released over Stop) must not press
-  // the button under it — caught on the way DOWN, before the button's own handler.
-  // A browser fires that click in the same breath as the pointerup, so the window
-  // is short on purpose: a drag that never produced one must not leave something
-  // behind that eats the tester's next real click on Pause.
+  // The click a drop produces must not press the button under it — caught on the way DOWN.
+  // The window is short: a drag that produced no click must not eat the next real one.
   const DROP_CLICK_MS = 100;
   box.addEventListener('click', (e) => {
     if (!dropAt || performance.now() - dropAt > DROP_CLICK_MS) return;
@@ -729,10 +657,8 @@
   }
 
   // ---- + Expected (#78) ------------------------------------------------------
-  // The one thing a recorder cannot observe: an expectation is what the tester
-  // LOOKED at, not a DOM event. So it is typed — inside the shadow root, where no
-  // page CSS reaches it and (with the stopPropagation below) no page key handler
-  // sees it either.
+  // An expectation is what the tester LOOKED at, not a DOM event, so it is typed — in the
+  // shadow root, which no page CSS and (with the stopPropagation below) no page key reaches.
   let expOpen = false;
   let expInput = null;
 
@@ -751,8 +677,7 @@
 
   function closeExpected() { expOpen = false; expInput = null; }
 
-  // Enter commits (an empty input just collapses — never an empty expected), Esc
-  // collapses. A committed entry counts toward the cap exactly like a step.
+  // A committed entry counts toward the cap exactly like a step.
   function commitExpected() {
     const text = expInput ? String(expInput.value || '').replace(/\s+/g, ' ').trim() : '';
     closeExpected();
@@ -760,10 +685,8 @@
     render();
   }
 
-  // Our keystrokes are ours: stopped on the way OUT of the shadow root, so the
-  // page's own handlers (a "/" search hotkey, an Esc-closes-modal) never see the
-  // tester typing. A page listener in the CAPTURE phase still runs first — no DOM
-  // can prevent that — and our own capture listeners bail out via fromIndicator().
+  // Stopped on the way OUT of the shadow root, so a page's "/" hotkey never sees the tester
+  // typing. A page CAPTURE listener still runs first, hence fromIndicator() in ours.
   shadow.addEventListener('keydown', (e) => {
     if (expOpen && e.target === expInput) {
       if (e.key === 'Enter') { e.preventDefault(); commitExpected(); }
@@ -773,15 +696,13 @@
   });
   ['keyup', 'keypress', 'input', 'change'].forEach((t) => shadow.addEventListener(t, (e) => e.stopPropagation()));
 
-  // Three states, one pill: recording (+ Expected + Pause + Stop), the tester's own
-  // pause (Resume + Stop) and the cap's "Still recording?" (Continue + Stop). Both
-  // pauses share the amber styling; only the copy and the buttons differ, so
-  // Continue's +cap grant is never the way out of a manual pause.
+  // Three states, one pill: recording, the tester's own pause (Resume) and the cap's
+  // "Still recording?" (Continue) — so Continue's +cap never ends a manual pause.
   function render() {
     txt.textContent = manualPause ? `Paused · ${steps(count)}`
       : paused ? 'Still recording?' : `Recording · ${steps(count)}`;
     // An open input OWNS the pill: a poll re-render would take the caret and the
-    // half-typed text with it. A pause or a stop takes the pill back.
+    // half-typed text with it. A pause or a stop takes it back.
     if (expOpen) {
       if (recording && !paused && !manualPause) return;
       closeExpected();
@@ -797,14 +718,13 @@
       });
       box.append(cont, stop);
     } else {
-      // + Expected only while actually recording — a paused pill has no step to
-      // attach the expectation to, and the worker would drop it anyway.
+      // + Expected only while actually recording: a paused pill has no step to attach
+      // the expectation to, and the worker would drop it anyway.
       box.append(pillButton('Expected', 'exp', openExpected, 'add'),
         pillButton('Pause', '', () => setManualPause(true)), stop);
     }
-    // The pill just changed width (Pause drops two buttons, + Expected adds a
-    // 220px input). Anchored by its left edge, that is what can push it off
-    // screen — so re-clamp where it stands.
+    // The pill just changed width, and it is anchored by its LEFT edge — so re-clamp
+    // where it stands or the growth pushes it off screen.
     if (pos) applyPos();
   }
 
@@ -847,8 +767,8 @@
     window.__testomatStepRecInited = false;
   }
 
-  // Reflect the canonical state (count/paused) and self-remove once recording
-  // ends (editor Stop, indicator Stop, tab close — all flip recording=false).
+  // Self-removes once recording ends — editor Stop, indicator Stop and tab close all
+  // flip recording=false.
   pollTimer = setInterval(() => {
     chrome.runtime.sendMessage({ type: 'STEPREC_STATUS' })
       .then((s) => {
@@ -864,8 +784,8 @@
   (document.body || document.documentElement).append(host);
   render();
 
-  // Report this page's real title so the worker can refine the navigation entry
-  // (`The "<title>" page opens`) — reliable after a re-inject, unlike tab.title.
+  // The page's real title, for the worker's navigation entry — reliable after a
+  // re-inject, unlike tab.title.
   const reportTitle = () => chrome.runtime.sendMessage({ type: 'STEPREC_TITLE', title: document.title }).catch(() => {});
   if (document.title) reportTitle();
   else window.addEventListener('DOMContentLoaded', reportTitle, { once: true });

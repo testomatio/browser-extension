@@ -1,18 +1,10 @@
-// Runtime site access (IIFE global `SiteAccess` + the bare `ensureSiteAccess`).
-//
-// Since #198 there is exactly ONE question left — "may we touch the tab the tester
-// is looking at?" — and it is answered without ever prompting: `<all_urls>` is a
-// required host permission, so every http(s) tab is already ours and the only
-// negative verdict is a page Chrome keeps extensions off. The per-origin request
-// machinery this file used to carry (ensureOriginAccess, the one-time
-// permanent-grant toast, the `alwaysAllowOffered` list) died with that model —
-// narrowing access is Chrome's own Site access UI now, not ours to ask for.
+// Runtime site access (IIFE global `SiteAccess` + the bare `ensureSiteAccess`). Never
+// prompts: `<all_urls>` is required, so the only "no" left is a restricted page (#198).
 
 /* global resolveSiteTab */
 
 const SiteAccess = (() => {
-  // Verdict for the active site tab, in the shape the call sites expect: `.ok`
-  // plus `.tab`/`.origin`, or `.error` (already the honest per-state copy).
+  // `.ok` plus `.tab`/`.origin`, or `.error` — already the per-state copy to show.
   async function ensureSiteAccess() {
     const site = await resolveSiteTab();
     return site.state === 'ok'

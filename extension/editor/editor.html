@@ -4,56 +4,44 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Test case</title>
-    <!-- Tokens (values) → components (the controls shared with the side panel) →
-         this page's own chrome. Later file wins, so editor.css can adjust a
-         control for this page's layout but never re-draws one. -->
+    <!-- Tokens (values) → components (the controls shared with the side panel) → this page's chrome.
+         Later file wins. -->
     <link rel="stylesheet" href="../shared/tokens.css" />
     <link rel="stylesheet" href="../shared/components.css" />
     <link rel="stylesheet" href="./editor.css" />
-    <!-- Same head script as the panel: the saved colour scheme is pinned before
-         the first paint. It also subscribes to storage, so switching the theme
-         in the panel repaints this tab while it is open. -->
+    <!-- Same head script as the panel: the saved colour scheme is pinned before the first paint. -->
     <script src="../shared/theme.js"></script>
   </head>
   <body>
-    <!-- Vanilla test page (Amendment A1): the read-only view of an existing TC
-         (?test=) or the markdown editor for a new one (?suite=, #115). The shell
-         is built by editor.js so panel-only chrome (Back) can be omitted
-         entirely in ctx=tab. No inline scripts (MV3 extension-page CSP): plain
-         script tags, extension files only — zero third-party egress
-         (Constitution IV). -->
+    <!-- The read-only view of an existing TC (?test=) or the editor for a new one (?suite=, #115); the
+         shell is built by editor.js. No inline scripts (MV3 extension-page CSP), extension files only. -->
     <div id="root"></div>
     <script src="../api.js"></script>
     <script src="../vendor/showdown.min.js"></script>
     <script src="../vendor/overtype.min.js"></script>
     <script src="../shared/html-sanitize.js"></script>
-    <!-- …and the renderer that always runs it: markdown -> sanitized nodes, one
-         `showdown` config shared with the panel's step body. -->
+    <!-- …and the renderer that always runs it: markdown → sanitized nodes, one showdown config shared
+         with the panel's step body. -->
     <script src="../shared/markdown.js"></script>
     <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
     <script src="../shared/icons.js"></script>
-    <!-- The image swap the CSP forces on every rendered description (#205) —
-         after api.js, whose fetchAsset it goes through, and after icons.js,
-         whose ↗ its fallback link wears. -->
+    <!-- The image swap the CSP forces on every rendered description (#205) — after api.js, whose
+         fetchAsset it goes through, and after icons.js, whose ↗ its fallback link wears. -->
     <script src="../shared/img-hydrate.js"></script>
     <script src="../shared/priority-icons.js"></script>
-    <!-- …and the type-of-test mark, which this page's header wears beside the
-         name of the test it is showing. Same deal: after icons.js. -->
+    <!-- …and the type-of-test mark this page's header wears. Same deal: after icons.js. -->
     <script src="../shared/test-type.js"></script>
     <!-- The empty-state builder — after icons.js, which draws its mark. -->
     <script src="../shared/empty-state.js"></script>
-    <!-- …and its twin: the grey bars this page waits behind. -->
     <script src="../shared/skeleton.js"></script>
-    <!-- The extension's <select> — after icons.js (the caret and the tick) and
-         empty-state.js (what a filtered-down popup says). -->
+    <!-- The extension's <select> — after icons.js (the caret and the tick) and empty-state.js (what a
+         filtered-down popup says). -->
     <script src="../shared/dropdown.js"></script>
-    <!-- The tooltip engine: it only listens, so it can load before the page
-         that hands out `data-tip`. -->
+    <!-- The tooltip engine only listens, so it can load before the page that hands out data-tip. -->
     <script src="../shared/tooltip.js"></script>
     <script src="../shared/annotate-core.js"></script>
     <script src="../shared/site-tab.js"></script>
-    <!-- Same port the panel keeps (PanelLink.init() runs from editor.js): this page
-         IS the panel while a test is open in it, and a toolbar click must not
+    <!-- Same port the panel keeps (PanelLink.init() runs from editor.js): a toolbar click must not
          re-open the panel on top of a half-written test. -->
     <script src="../shared/panel-link.js"></script>
     <script src="../shared/site-access.js"></script>

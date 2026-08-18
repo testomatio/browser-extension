@@ -1,46 +1,8 @@
-/* Design tokens — the ONE place every surface of this extension gets its colour,
-   spacing, type, radius, shadow, depth and motion from.
+/* Design tokens: palette → scales → semantic. Loaded BEFORE each page's own stylesheet
+   (sidepanel/index.html, editor/editor.html). Values are Tailwind v3.4 defaults unless marked 'product'. */
 
-   Loaded with a <link> before each page's own stylesheet (sidepanel/index.html,
-   editor/editor.html). No build step, no import graph, and no font FETCHED off
-   the network (the one webfont here ships inside the extension, below): a plain
-   second stylesheet is all a zero-build extension needs, and it replaces what
-   used to be two hand-synced copies of the same hexes (the editor's header said
-   "values are COPIED from sidepanel/style.css" — this file is why it no longer
-   has to be).
-
-   Three layers, in this order:
-
-     1. PALETTE   raw colour, named after its scale step. Never used directly by
-                  a component — it is the vocabulary, not the meaning.
-     2. SCALES    spacing / type / radius / shadow / depth / motion, straight off
-                  Tailwind's defaults so a value is always a step, never a guess.
-     3. SEMANTIC  what a component actually asks for (--bg, --accent, --passed).
-                  The only layer that differs between light and dark — and it
-                  says both on one line, with light-dark(), so there is no second
-                  mirrored copy of it to keep in sync.
-
-   Values are Tailwind v3.4 defaults except where a token is marked `product` —
-   those come from ~/Developer/testomatio/testomatio-front's own tailwind.config
-   extension (the notify/dark ramps Tailwind has no equivalent for) and are cited
-   the same way the rest of this repo cites the product source. */
-
-/* ── The one bundled webfont: JetBrains Mono ──────────────────────────
-   The monospace face is the only one the product cannot leave to the system.
-   Sans is body copy and the OS chain (Inter → system) reads the same everywhere;
-   a MONO face is read character by character — a tester proof-reads `l1I` and
-   `0O` in a markdown body and in a test's own code — and the system chain
-   answers with a different set of shapes on every machine.
-   So this one is shipped: two weights, woff2, ~92KB each, served from the
-   extension itself. It is NOT a fetch — `font-src 'self'` (manifest.json) is the
-   whole permission it needs, and Single Egress is untouched.
-   Regular + Bold only: those are the two weights the editor and `code`/`pre`
-   actually ask for, and the browser synthesises nothing in between because
-   nothing in between is requested.
-   `font-display: swap` — the fallback stack below paints immediately and the
-   real face swaps in; on a local file that is imperceptible, and it means a
-   font that somehow failed to load never leaves an empty page behind.
-   JetBrains Mono is SIL OFL 1.1 (see fonts/OFL.txt). */
+/* The bundled webfonts (fonts/, SIL OFL 1.1) ship inside the extension: font-src 'self' in
+   manifest.json is the whole permission they need, and nothing is fetched off the network. */
 @font-face {
   font-family: "JetBrains Mono";
   src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
@@ -56,20 +18,8 @@
   font-display: swap;
 }
 
-/* Fira Mono — SHIPPED for the same reason, and for exactly one surface: the
-   markdown editor's writing pane (`--font-md-editor`, editor/editor.css). It
-   was NAMED there long before it was bundled, which meant every machine without
-   it installed quietly drew that pane in Menlo — a system face, on the one
-   screen of this product that is nothing but text.
-   Split by SUBSET, unlike JetBrains above, because that is how the face is
-   published and each slice is a tenth the size: the browser downloads only the
-   ranges the text actually uses, so an English test costs 10KB and a Cyrillic
-   one costs 16KB — against 92KB for a single combined file. `unicode-range` is
-   what makes that a decision the browser takes, not one we take for it.
-   Regular + Bold, no in-between weights: `**bold**` in the editor renders a real
-   <strong>, and with no bold FACE the browser synthesises one — which in a
-   monospace overlay changes advance widths and walks the caret off its glyphs.
-   Fira Mono is SIL OFL 1.1 (see fonts/OFL-FiraMono.txt). */
+/* Fira Mono — the markdown editor's pane (--font-md-editor). A real Bold is bundled because a
+   SYNTHESISED one changes advance widths in a mono overlay and walks the caret off its glyphs. */
 @font-face {
   font-family: "Fira Mono";
   src: url("fonts/FiraMono-Regular-latin.woff2") format("woff2");
@@ -120,19 +70,12 @@
 }
 
 :root {
-  /* Both schemes are supported, so light-dark() below resolves against whichever
-     one is in use — the OS preference by default, or whatever a page pins by
-     setting `color-scheme` on this element (that is the styleguide's toggle). */
+  /* light-dark() below resolves against this: the OS preference, or whatever a page pins here. */
   color-scheme: light dark;
 
-  /* ==================================================================
-     1. PALETTE
-     ================================================================== */
+  /* ---- 1. PALETTE ---- */
 
-  /* Neutral — the WHOLE tailwind `neutral` ramp, 50 → 950. Every surface, every
-     border and every piece of text in the chrome is a step of it: with indigo
-     below, these two ramps ARE the system palette, and a grey that is not here
-     does not exist. */
+  /* Neutral — the whole tailwind ramp, 50 → 950. */
   --c-white: #ffffff;
   --c-neutral-50: #fafafa;
   --c-neutral-100: #f5f5f5;
@@ -143,25 +86,12 @@
   --c-neutral-600: #525252;
   --c-neutral-700: #404040;
   --c-neutral-800: #262626;
-  /* off-ramp, the ONLY one: the exact 900/800 midpoint. 900→800 is the widest
-     jump at the dark end of the ramp, and the whole dark page lives inside it —
-     900 reads as a hole, 800 as a grey card blown up to full screen. Named as a
-     half-step rather than dropped in as a hex so it is still a position on the
-     ramp, and so the dark page has one home. */
+  /* The one off-ramp step: the exact 900/800 midpoint, which is where the dark page sits. */
   --c-neutral-850: #1f1f1f;
   --c-neutral-900: #171717;
   --c-neutral-950: #0a0a0a;
 
-  /* Indigo — the WHOLE tailwind `indigo` ramp, 50 → 950. The brand accent is 500
-     (button.scss:187 primary = bg-indigo-500); the rest of the ramp is here
-     because indigo is the system's ONLY blue. Every blue and every light blue in
-     the CHROME — a selected row, a focus ring, any tint that has to read as
-     "ours" — is a step of this ramp, never a sky and never a plain blue.
-
-     What this does NOT cover, and must not: the product's own semantic colours.
-     A run-kind badge (manual amber / automated purple / mixed sky) and a priority
-     mark carry the hue the web app gives them and stay exactly as they are — they
-     MEAN something, they are not chrome. */
+  /* Indigo — the whole tailwind ramp, and the system's only blue. Product semantic hues are NOT here. */
   --c-indigo-50: #eef2ff;
   --c-indigo-100: #e0e7ff;
   --c-indigo-200: #c7d2fe;
@@ -173,20 +103,14 @@
   --c-indigo-800: #3730a3;
   --c-indigo-900: #312e81;
   --c-indigo-950: #1e1b4b;
-  /* product: the front's own indigoDark ramp, used as the dark-scheme accent.
-     100 is the ramp's low end — not an accent but a FILL to put accent text on,
-     which is the one job the 600-900 steps above cannot do. */
+  /* product: the front's own indigoDark ramp — the dark-scheme accent. */
   --c-indigo-dark-100: #464a75;
   --c-indigo-dark-600: #7781e2;
   --c-indigo-dark-700: #818cf8;
   --c-indigo-dark-800: #9aa2f9;
   --c-indigo-dark-900: #b2b8fb;
 
-  /* Status hues. The 100 step of each is the COUNTER's fill (◇ UI app library →
-     counter, color=green|yellow|red): a counter is a much smaller box than a
-     status pill, so the library gives it one step more tint than the 50 the pill
-     wears — at 16px tall an emerald-50 fill on a white row is not a pill at all,
-     it is a number with a faint smudge behind it. */
+  /* Status hues. The 100 step of each is the COUNTER's fill, one step deeper than a pill's. */
   --c-emerald-50: #ecfdf5;
   --c-emerald-100: #d1fae5;
   --c-emerald-300: #6ee7b7;
@@ -211,9 +135,7 @@
   --c-purple-100: #f3e8ff;
   --c-purple-700: #7e22ce;
 
-  /* Translucent black/white, on tailwind's OPACITY scale (…/5, /15, /25, /35,
-     /40, /45, /50, /90 — steps of 5). Every scrim, every overlay tint and every
-     shadow alpha in this extension is one of these; nothing is hand-dialled. */
+  /* Translucent black/white, on tailwind's opacity scale. */
   --c-black-5: rgba(0, 0, 0, 0.05);
   --c-black-10: rgba(0, 0, 0, 0.1);
   --c-black-25: rgba(0, 0, 0, 0.25);
@@ -232,8 +154,7 @@
   --c-white-90: rgba(255, 255, 255, 0.9);
   --c-red-600-50: rgba(220, 38, 38, 0.5); /* red-600/50 */
 
-  /* product: notify + kind ramps with no Tailwind equivalent
-     (tailwind.config.js:73-78, 103-109 of the front). */
+  /* product: notify + kind ramps with no Tailwind equivalent (front tailwind.config.js:73-78, 103-109). */
   --c-success-notify-100: #234144;
   --c-error-notify-100: #412233;
   --c-warning-notify-100: #41392c;
@@ -245,17 +166,8 @@
   --c-yellow-dark-100: #745116;
   --c-yellow-dark-900: #f6a723;
 
-  /* product: the STATUS ramp's dark mode (◇ UI app library → Run status, node
-     2003-18939, section "Run status" on dark). Tailwind's dark answer to a
-     status colour is a lighter step of the same ramp — emerald-400 for
-     emerald-500 — and the library's is the opposite: it DEEPENS them, because
-     these sit on a near-black page as a small solid mark or a filled pill, and
-     the 400 steps glow on it. Read off the file's dark mode, one for one:
-       Green-500 #139a6d   Red-500 #c53c3c   Yellow-500 #ca840f
-       Green-50  #1a4d3c   Green-800 #12cf90   Yellow-700 #f59e0b
-     Green-50/800 and Yellow-100/700 are the FILL and the TEXT of a status pill
-     there — deep tint, bright letter — which is the same relationship the light
-     pill has, drawn for the other page. */
+  /* product: the STATUS ramp's dark mode. The library DEEPENS these rather than lightening them —
+     they sit on a near-black page as a solid mark, where the 400 steps glow. */
   --c-emerald-dark-50: #1a4d3c;
   --c-emerald-dark-500: #139a6d;
   --c-emerald-dark-800: #12cf90;
@@ -263,15 +175,9 @@
   --c-yellow-dark-500: #ca840f;
   --c-yellow-dark-700: #f59e0b;
 
-  /* ==================================================================
-     2. SCALES
-     ================================================================== */
+  /* ---- 2. SCALES ---- */
 
-  /* Spacing — tailwind's 0.25rem base, and NOTHING between the steps. The half
-     steps (2, 6, 10, 14) are gone: on the grid means divisible by 4, so every
-     margin, padding and gap in this extension is one of the values below.
-     The only sub-grid length left anywhere is 1px — a hairline (a border, an
-     optical nudge), which is not a spacing decision. */
+  /* Spacing — tailwind's 4px grid, with no half steps. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -284,30 +190,19 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* The page gutter: how far anything that spans the panel stays off its left
-     and right edges. One token, so the header strips, the content and the toast
-     all line up on the same vertical — and a row that starts with an icon button
-     backs off by the button's own air instead of inventing a number. */
+  /* The page gutter: how far anything spanning the panel stays off its left and right edges. */
   --gutter: var(--space-4);
 
-  /* Type — families. Product body font is Inter and headings Fira Sans; both are
-     Google-hosted webfonts we cannot fetch (Single Egress), so they are NAMED
-     first and used only when locally installed, then the product's own tailwind
-     `sans` system chain (tailwind.config.js:16-29) carries the rest. */
+  /* Type — families. Inter and Fira Sans are Google-hosted webfonts this extension cannot fetch
+     (Single Egress), so they are NAMED and used only where locally installed. */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   --font-heading: "Fira Sans", Inter, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
-  /* Mono leads with the face this extension SHIPS (@font-face, top of file), so
-     it is the one every machine actually gets; the rest of the chain is the
-     product's own (tailwind.config.js:31), kept behind it as the fallback for a
-     browser that refuses the woff2. */
   --font-mono: "JetBrains Mono", "Fira Mono", Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
 
-  /* Type — sizes. `text-*` is tailwind's scale; the panel then picks from it.
-     Three steps sit BELOW tailwind's smallest on purpose: a 380px side panel is
-     denser than a web page, and 13/11 are what the chrome was drawn at. */
+  /* Type — sizes. Tailwind's scale, plus three steps below its smallest for a 380px panel. */
   --text-3xs: 10px;  /* off-scale, the floor: a number riding INSIDE a control */
   --text-2xs: 11px;  /* off-scale, dense chrome only: counts, chips, timestamps */
   --text-xs: 12px;   /* tailwind xs (0.75rem) */
@@ -322,46 +217,31 @@
   --leading-normal: 1.5;
   --leading-relaxed: 1.625;
 
-  /* Type — what components ask for. Headings run title-lg → title → section, so
-     a screen never invents its own size. */
+  /* Type — what components ask for. */
   --fs-base: 13px;             /* compact side-panel body (off tailwind, see above) */
   --fs-sm: var(--text-xs);     /* secondary text, hints, meta */
   --fs-2xs: var(--text-2xs);   /* a badge, a small counter, a duration */
   --fs-3xs: var(--text-3xs);   /* the floor: a figure that must not rival the label beside it */
   --fs-title: var(--text-sm);  /* section heading (h2) */
   --fs-title-lg: var(--text-lg); /* screen title — the connect hero */
-  /* The text a user WRITES, as opposed to the chrome they write it in: the test
-     editor's title field. One step above --fs-base, because on that screen the
-     words are the screen — held at the chrome's own size the title read as one
-     more row of a dense form rather than as the name of the thing being
-     authored. (The markdown body under it is NOT this: it is a code surface,
-     with its own family and an integer line height to keep a caret glued to its
-     glyphs — see `--font-md-editor` in editor/editor.css.) */
+  /* The text a user WRITES rather than the chrome they write it in: the test editor's title. */
   --fs-prose: var(--text-sm);
 
-  /* Weight — tailwind's four named steps. The panel uses medium for controls,
-     semibold for headings and anything that has to win a row. */
+  /* Weight — tailwind's four named steps. */
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* Tracking — tailwind's `tracking-*`, in em so it follows the font size.
-     Only the uppercase micro-labels need it; at 12px, wide = 0.3px. */
+  /* Tracking — tailwind's, in em so it follows the font size. */
   --tracking-wide: 0.025em;
   --tracking-wider: 0.05em;
 
-  /* Border width — tailwind's `border` / `border-2` / `border-4`. 1px is the
-     default everywhere and stays written as 1px (tailwind writes it as plain
-     `border` too); the thicker two are the accent strip down a card's left edge
-     and the active tab's underline, which are decisions, not defaults. */
+  /* Border width — 1px is the default everywhere and stays written as 1px; these two are decisions. */
   --border-w-thick: 2px;
   --border-w-accent: 4px;
 
-  /* Prose — rendered user markdown (a test case body, a preview). RELATIVE on
-     purpose: the block scales with whatever font-size its container sets, which
-     px steps cannot do. Ratios are tailwind typography's (h2 1.5em is halved
-     here — a side panel is not an article). */
+  /* Prose — rendered user markdown. RELATIVE, so the block scales with its container's font-size. */
   --prose-h1: 1.375em;
   --prose-h2: 1.25em;
   --prose-h3: 1.125em;
@@ -374,130 +254,44 @@
   --radius-lg: 12px;     /* rounded-xl */
   --radius-pill: 9999px; /* rounded-full */
 
-  /* Controls — the THREE sizes every button, input and select in this extension
-     comes in, and the metrics that belong to each. The heights are spacing steps
-     6 / 7 / 8, so a control is as much "on the grid" as the margin beside it, and
-     a screen picks a size instead of inventing a padding.
-
-       xs 24  the circles and pills that live INSIDE a row (a status circle, an
-              in-tree "+ Suite") — as small as a control can be and still be hit
-       sm 28  dense chrome: an icon button in the header, a compact tool button
-       md 32  the default AND the ceiling. A plain button, an input, a select —
-              and the primary action of a screen too: in a 380px side panel a
-              taller control does not read as more important, it just reads as
-              out of scale, so the system has no step above this one. A screen
-              makes its primary action stand out with the accent fill and, when
-              it deserves the room, `.block` — never with height.
-
-     Padding is x only: the height is set outright, so vertical padding would just
-     fight it. Every control centres its content instead. */
+  /* Controls — the three sizes every button, input and select comes in, and their metrics.
+     Padding is x only: the height is set outright, so vertical padding would just fight it. */
   --control-h-xs: var(--space-6);   /* 24 */
   --control-h-sm: var(--space-7);   /* 28 */
   --control-h-md: var(--space-8);   /* 32 — the ceiling */
-  /* Side padding is the grid too, which leaves exactly two steps for three sizes,
-     and the library answers WHICH pair shares: 28 and 32 both carry 12 there and
-     differ by height and type alone (◇ UI app library → Buttons: small 28 px 12,
-     medium 32 px 12, large 36 px 16, xl 44 px 20 — one step of padding per two
-     steps of height). So the rung the 4px grid costs is at the BOTTOM of the
-     ladder, not in the middle: xs is the only size on 8. */
   --control-px-xs: var(--space-2);   /* 8 */
   --control-px-sm: var(--space-3);   /* 12 — library: small and medium share it */
   --control-px-md: var(--space-3);   /* 12 */
-  /* The side an ICON leads gets one rung less. A glyph is drawn inside a 16px
-     box it never fills — the mark sits a pixel or two in from every edge — so
-     the same 12 that reads right beside a capital letter reads wide beside an
-     icon, and a "+ New run" looks padded on the left and tight on the right
-     even though both sides carry the identical number. Taking the next step
-     down puts the OPTICAL edge back where the text-only button has it. The
-     grid gives one rung and no half-step, so this is the whole correction. */
+  /* The side an ICON leads gets one rung less: a glyph never fills its 16px box, so the same padding
+     that reads right beside a capital letter reads wide beside an icon. */
   --control-px-lead-xs: var(--space-1);   /* 4 */
   --control-px-lead-sm: var(--space-2);   /* 8 */
   --control-px-lead-md: var(--space-2);   /* 8 */
   --control-fs-xs: var(--fs-2xs);
   --control-fs-sm: var(--fs-sm);
   --control-fs-md: var(--fs-base);
-  /* Icon-to-label gap is 8 at EVERY size in the library — it is the one metric
-     that does not scale, because a gap that shrinks with the control is what
-     makes a small button read as a cramped one rather than a smaller one. xs
-     keeps 4: the library has no icon+label at 24 (mini is icon-only), and at
-     11px type 8 is wider than the space in the label beside it. */
   --control-gap-xs: var(--space-1);
   --control-gap-sm: var(--space-2);
   --control-gap-md: var(--space-2);
-  /* The icon INSIDE a control. One value, not three: the library draws 16 at 28
-     and at 32 alike and only steps up to 20 at 36 and 44 — both of which are
-     above this system's ceiling, so the step never arrives. A token the button
-     applies rather than a number each call site passes: `data-icon-size` still
-     sizes an icon that stands on its own (a status mark, a caret, a tree
-     chevron), but inside a control the CONTROL decides, the same way it already
-     decides the padding, the gap and the type around it. */
+  /* The icon INSIDE a control — one value: inside a control the CONTROL decides the size, not the
+     call site (data-icon-size still sizes an icon standing on its own). */
   --control-icon: 16px;
-  /* The radius follows the size, one step behind it — but only one: at 4px an xs
-     control reads as a hard little box next to the 8px ones, so the two small
-     sizes each moved up a step. 8px stays the ceiling, the same as md, because a
-     rounder corner than the page's cards would start to look like a pill. */
   --control-radius-xs: var(--radius-sm);
   --control-radius-sm: var(--radius);
   --control-radius-md: var(--radius);
 
-  /* Counters — the TWO sizes a number-in-a-pill comes in, straight off the
-     library (◇ UI app library → counter: `Size=20` and `Size=16px`, and there is
-     no third). They are the control ladder continued DOWNWARD by the same 4px
-     step — 32 · 28 · 24 · 20 · 16 — which is the whole reason the counter has a
-     scale of its own instead of a `.size-*` of the buttons': a counter never IS
-     a control, it rides inside one or inside a row, so its ladder starts where
-     the control ladder stops.
-
-       md 20  the default: a count standing on a surface — a tab, a folder row,
-              a disclosure head
-       sm 16  a count riding INSIDE a control, and the dense-row size (the suite
-              tree) — small enough that a 24px xs button still has air above and
-              below it
-
-     Side padding is the library's 8 at md. At sm the library draws 6, which this
-     system does not have (the grid has no half steps), so it takes the step
-     below: 4. That is the one metric on this page that is not the library's, and
-     the counter is the only place the difference is visible — at 16px tall, 8
-     either side would make a single digit as wide as it is tall twice over.
-
-     Type is 12/16 medium in BOTH library sizes; md keeps it. sm drops one step
-     to 11, because sm is the size that rides inside a control: an xs button sets
-     its own label at 11, and a count that out-sizes the word it belongs to stops
-     being a footnote and becomes a second label. */
+  /* Counters — the two sizes a number-in-a-pill comes in (20 / 16), the control ladder continued down. */
   --counter-h-md: var(--space-5);   /* 20 */
   --counter-h-sm: var(--space-4);   /* 16 */
   --counter-px-md: var(--space-2);  /* 8 — the library's own */
   --counter-px-sm: var(--space-1);  /* 4 — library 6, off this system's grid */
   --counter-fs-md: var(--text-xs);  /* 12 — `font-medium/text-xs`, both sizes */
   --counter-fs-sm: var(--fs-2xs);   /* 11 — see above */
-  /* One corner for both sizes: the library rounds a counter to 6 at 20 AND at 16
-     (it is `--radius-sm`, the same corner an xs control wears) — a pill would
-     turn a 3-digit count into a lozenge, and a 4px box reads as a hard chip. */
+  /* One corner for both sizes: a pill would turn a 3-digit count into a lozenge. */
   --counter-radius: var(--radius-sm);
 
-  /* Choice controls — the box a checkbox and a radio draw, and the track a
-     switch draws. They are the SAME ladder read two steps further down: the
-     controls stop at 24, the counter continues 20 · 16, and a choice ends it —
-     the switch is the counter's 20 laid on its side, the checkbox and the radio
-     are its 16. Which is also the icon size a control draws inside itself
-     (--control-icon), and that is the point: a tick is an icon, and a tick that
-     is not the size of every other icon in a row reads as a different system.
-
-     One size each, and no `.size-*` for them. A checkbox does not get bigger
-     because the row around it did — it is answered by the label beside it, and
-     the label is what carries the size. The controls have three sizes because a
-     button in a header and a button in a form are doing different amounts of
-     work; a tick is always doing the same amount.
-
-     The switch's geometry is shadcn's own (`h-5 w-9`), and it lands on this
-     file's grid exactly: 20 × 36 with a 16 knob, which leaves the knob a travel
-     of 16 — its own width. That is what makes on and off read as two positions
-     rather than as one knob that shifted: it moves a whole knob's worth.
-
-     The 2px of air around the knob is the one length here that is not a spacing
-     step. It is a hairline — the same order as a border — not a gap: the track
-     is drawn AROUND the knob, and 4px either side would make a 20px track into a
-     ring with a pea in it. */
+  /* Choice controls — the checkbox/radio box and the switch's track. ONE size each, no .size-*:
+     a tick is always doing the same amount of work. */
   --choice-size: var(--space-4);  /* 16 — checkbox and radio */
   --choice-mark: var(--space-3);  /* 12 — the tick inside the box */
   --choice-dot: var(--space-2);   /* 8 — the radio's dot, the mixed bar's length */
@@ -506,221 +300,94 @@
   --switch-knob: var(--space-4);  /* 16 — the checkbox's own box */
   --switch-pad: 2px;              /* the knob's air; a hairline, not a step */
 
-  /* Shadow. The raised-control step is the product's own (button.scss shadow-sm);
-     the rest are tailwind's lg/xl shape retuned for a narrow panel, where a menu
-     has to read as clearly detached over a list. Named by ROLE, not by size, so a
-     component picks by how detached the thing should read rather than by
-     eyeballing a blur radius. */
+  /* Shadow — named by ROLE, not by size. */
   --shadow-btn: 0 1px 2px light-dark(var(--c-black-10), var(--c-black-40));
   --shadow-bar: 0 2px 10px var(--c-black-35);     /* strip attached to an edge */
   --shadow-float: 0 6px 20px var(--c-black-30);   /* panel floating over content */
   --shadow-popup: 0 8px 24px var(--c-black-25);   /* menu opened from a control */
   --shadow-overlay: 0 10px 30px var(--c-black-40); /* modal over the whole page */
-  /* Hover is painted as an inset overlay so it works over ANY surface without
-     knowing which one it landed on — which means the token is a DELTA, and the
-     two schemes do not get the same one. Solving the library's grey button back
-     into an overlay: light steps #fafafa → #f5f5f5, about 2% of black; dark steps
-     white-10 → white-20, which over the 850 page is 11% of white. Five times the
-     move, because a wash on a dark surface has to fight a much narrower band of
-     values to be seen at all. Rounded to the file's steps of 5, that is 5 and 10
-     — light stays where it was, dark doubles.
-
-     Press is this doubled (`inset` twice, in .btn:active and .segment:active),
-     and the doubling is what lands it: 5% twice is 9.75 against the library's
-     8.4, 10% twice is 19 against its 22. Neither needs a token of its own. */
+  /* Hover is an inset overlay, so the token is a DELTA and the two schemes do not get the same one:
+     a wash on a dark surface fights a much narrower band of values. Press is this doubled. */
   --hover-overlay: light-dark(var(--c-black-5), var(--c-white-10));
 
-  /* Depth. The panel's stacking is load-bearing (#35/#126): the sticky header
-     must stay under the project popup, which must stay under nothing. Naming the
-     three levels is what stops the next z-index from being picked by eye. The
-     in-page overlays are deliberately absent — they live in a shadow root the
-     content script builds, out of this stylesheet's reach. */
+  /* Depth — the panel's stacking is load-bearing (#35/#126). In-page overlays are absent: they live
+     in a shadow root the content script builds, out of this stylesheet's reach. */
   --z-sticky: 2;   /* the pinned tab row */
   --z-toast: 5;    /* transient messages */
   --z-popup: 30;   /* project menu and friends — above both of the above */
-  --z-tooltip: 40; /* the pointer's own label — over the popup it may describe,
-                      because it is never a place you can click: the layer is
-                      pointer-events: none, so nothing can hide behind it */
-  --z-frame: 100;  /* the page's own edge — over all three, and never in the way
-                      (it is pointer-events: none) */
+  --z-tooltip: 40; /* over a popup it may describe: pointer-events: none, so nothing can hide behind it */
+  --z-frame: 100;  /* the page's own edge, and never in the way (pointer-events: none) */
 
   /* Motion. Anything longer reads as lag in a panel this small. */
   --dur-fast: 0.12s;
   --dur: 0.15s;
   --ease: ease;
 
-  /* Opacity. Raw values stay raw: every one already lands on tailwind's opacity
-     scale (steps of 5), so a token would rename a number to a number. What DOES
-     get named is the two that carry a meaning and repeat — they must move
-     together across every control that has the state. */
+  /* Opacity — only the two that carry a meaning and must move together are named. */
   --opacity-disabled: 0.4;
   --opacity-muted: 0.7;
 
-  /* Icon masks — the icons a ::before has to draw, where an <svg> element
-     cannot go. Same Material Symbols Rounded geometry as shared/icons.js (which
-     is the source of truth for every other icon); a mask rather than a
-     background so the shape is still painted in currentColor. Colour-free by
-     construction, so these live here rather than in the semantic layer. */
+  /* Icon masks — for a ::before, where an <svg> element cannot go; a mask, so the shape is still
+     painted in currentColor. Colour-free, so they live here rather than in the semantic layer. */
   --icon-check: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="m382-354 339-339q12-12 28-12t28 12q12 12 12 28.5T777-636L410-268q-12 12-28 12t-28-12L182-440q-12-12-11.5-28.5T183-497q12-12 28.5-12t28.5 12l142 143Z"/></svg>');
   --icon-chevron-right: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M504-480 348-636q-11-11-11-28t11-28q11-11 28-11t28 11l184 184q6 6 8.5 13t2.5 15q0 8-2.5 15t-8.5 13L404-268q-11 11-28 11t-28-11q-11-11-11-28t11-28l156-156Z"/></svg>');
   --icon-attach-file: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M720-330q0 104-73 177T470-80q-104 0-177-73t-73-177v-370q0-75 52.5-127.5T400-880q75 0 127.5 52.5T580-700v350q0 46-32 78t-78 32q-46 0-78-32t-32-78v-330q0-17 11.5-28.5T400-720q17 0 28.5 11.5T440-680v330q0 13 8.5 21.5T470-320q13 0 21.5-8.5T500-350v-350q-1-42-29.5-71T400-800q-42 0-71 29t-29 71v370q-1 71 49 120.5T470-160q70 0 119-49.5T640-330v-350q0-17 11.5-28.5T680-720q17 0 28.5 11.5T720-680v350Z"/></svg>');
   --icon-lock: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z"/></svg>');
 
-  /* ==================================================================
-     3. SEMANTIC — what a component asks for
-     ==================================================================
-     Both schemes live on ONE line per token: `light-dark(light, dark)`, resolved
-     against the root's `color-scheme` above. That replaced a second, mirrored
-     copy of this whole block inside `@media (prefers-color-scheme: dark)` —
-     which is how the two used to drift, and why a new token routinely shipped
-     light-only. Read a line as: what it is by day, what it is by night.
+  /* ---- 3. SEMANTIC — what a component asks for ---- */
+  /* Both schemes on ONE line: light-dark(light, dark), resolved against the root's color-scheme above.
+     Dark is not "light, inverted": a card is RAISED off the page and a well is RECESSED under it. */
 
-     Dark is not "light, inverted". Depth runs BOTH ways around the page: a card
-     is RAISED (lighter than the page), a well — code block, progress track, key
-     cap — is RECESSED (darker). The page sits at the 850 half-step and the well
-     at 900 under it, which keeps the whole thing clear of pure black — 900-on-950
-     read as a hole rather than a room, and the panel is a chrome surface, not a
-     canvas.
-
-     The RAISED step is the one value here the neutral ramp cannot give: 800 off
-     an 850 page barely lifts and 700 is a 1.6 jump, so a card either vanishes or
-     shouts. It is the page with a 5% white overlay instead — the same white the
-     hover overlay is painted with, on the same opacity scale — which lands on
-     the 1.15 card/page contrast the light scheme has. That is why --card is a
-     mix and not a hex: there is still no grey in this file that is not either a
-     step of the ramp or the page under a scale-step of white. Steps must stay
-     distinct: --border
-     pairs with --card in a row, a step and the confirm dialog, and with
-     --surface-2 in .hk-keys, so collapsing any two makes those borders vanish. */
-
-  /* Surfaces & text. app.scss:16 body = bg-white text-grayNeutral-800. */
+  /* Surfaces & text (app.scss:16 body = bg-white text-grayNeutral-800). */
   --bg: light-dark(var(--c-white), var(--c-neutral-850));
   --fg: light-dark(var(--c-neutral-800), var(--c-neutral-200));
-  /* The top of the text ramp — full contrast, both ends of it. --fg is chrome
-     text: it is deliberately a step off the extremes so that a panel full of
-     labels, counts and row titles does not glare. This is for the one place a
-     screen is nothing BUT the words the tester is writing — the markdown body of
-     the test editor — where that same step reads as the text having been greyed
-     out. Reach for it only there; a label that wears it out-shouts the content
-     around it, which is exactly the problem --fg exists to avoid. */
+  /* The top of the text ramp, for the markdown body alone — a label wearing it out-shouts its content. */
   --fg-strong: light-dark(var(--c-neutral-900), var(--c-white));
   --muted: light-dark(var(--c-neutral-500), var(--c-neutral-400));
   --border: light-dark(var(--c-neutral-200), var(--c-neutral-700));         /* dividers */
   --border-control: light-dark(var(--c-neutral-300), var(--c-neutral-600)); /* inputs, buttons */
-  /* Input fields only, pulled from Figma's dark-mode component (node 3131:6969):
-     a 5%/10% white wash for the field itself — the same wash --card and
-     --hover-overlay already paint, just at rest instead of on interaction — and
-     a 30%/40% white-opacity border, one step brighter on hover. Light mode has
-     no Figma reference here, so it keeps riding --bg/--border-control/--muted
-     unchanged. */
+  /* Input fields only, from Figma's dark-mode component (node 3131:6969); light keeps --bg/--border-control. */
   --input-bg: light-dark(var(--bg), color-mix(in srgb, var(--c-white) 5%, var(--c-neutral-850)));
   --input-bg-hover: light-dark(var(--bg), color-mix(in srgb, var(--c-white) 10%, var(--c-neutral-850)));
   --input-border: light-dark(var(--border-control), rgba(255, 255, 255, 0.3));
   --input-border-hover: light-dark(var(--muted), rgba(255, 255, 255, 0.4));
-  /* The edge the WHOLE page draws around itself (the FRAME section of
-     components.css). It is the divider rule taken outside: the panel is docked
-     against somebody else's site, and on light — white chrome beside a white
-     page — that hairline is the only thing that says where the extension starts.
-     Dark needs no such line, an 850 panel is already its own shape against any
-     site, so the token goes TRANSPARENT there rather than the frame being
-     switched off somewhere else. */
+  /* The edge the WHOLE page draws around itself. Transparent on dark, where an 850 panel is already
+     its own shape against any site. */
   --app-frame: light-dark(var(--border), transparent);
   --card: light-dark(var(--c-neutral-50),                                   /* raised */
                      color-mix(in srgb, var(--c-white) 5%, var(--c-neutral-850)));
   --card-bg: var(--card); /* alias, so the .card component can ask for it by name */
   --surface-2: light-dark(var(--c-neutral-100), var(--c-neutral-900));      /* code blocks, wells */
 
-  /* The bar a SKELETON draws where a word or an icon is going to land. It is a
-     filled block, not a rule, so it takes the step ABOVE the divider on light:
-     at neutral-100 a 12px bar on a white row is a smudge, at 200 it is a bar.
-     Dark takes the 700 every soft neutral in this file takes — the same fill the
-     neutral badge and the counter wear, which is what keeps a screen of
-     placeholders reading as the panel's own greys rather than as a second
-     palette. ONE value, not a pair: the pulse in components.css animates
-     opacity, so both ends of it come from this. */
+  /* The bar a SKELETON draws. ONE value, not a pair: the pulse animates opacity, so both ends come from it. */
   --skeleton: light-dark(var(--c-neutral-200), var(--c-neutral-700));
 
-  /* The segmented control. Its track is a LIGHT fill in both schemes — the page
-     lifted, not a well — because the answers sit ON it; and the chosen chip has
-     to lift once more off THAT. Light can spend the card for the chip (neutral-50
-     over the track's 100) exactly as the secondary button does. Dark cannot:
-     --card IS the page under 5% white, the very step the track takes, so the chip
-     takes the next step of the same white scale and nothing else changes. Two
-     tokens rather than a mix inside the component, for the same reason the toast
-     names its action's tints — a value belongs here, not in components.css. */
+  /* The segmented control's track and its chosen chip. Dark cannot spend --card on the chip — that IS
+     the track's step — so the chip takes the next step of the same white. */
   --segment-track: light-dark(var(--c-neutral-100),
                               color-mix(in srgb, var(--c-white) 5%, var(--c-neutral-850)));
   --segment-chip: light-dark(var(--c-neutral-50),
                              color-mix(in srgb, var(--c-white) 10%, var(--c-neutral-850)));
 
-  /* The switch. Its OFF track is a FILL, not an edge — a switch says its state
-     with a solid colour on both sides, which is the whole difference between it
-     and a checkbox — but it is the same neutral the edge of every control is
-     drawn in, one value doing two jobs: at 20px tall the track is barely more
-     than a thick border, and any deeper grey would read as a second, disabled
-     kind of dark. ON is --accent, with no token of its own: an accent fill is an
-     accent fill, whether it is a primary button or a switch that is on.
-
-     The knob is white in BOTH schemes and in both states, which is the one place
-     this file paints a raw --c-white rather than a surface: it is a physical
-     object that travels across the track, and an object that changed colour
-     halfway would read as two knobs rather than one moving. On light it clears
-     its own ground by the --shadow-btn it wears, exactly as a raised control
-     does. */
+  /* The switch. The knob is raw white in BOTH schemes and states: it is one object travelling across
+     the track, and an object that changed colour halfway would read as two. */
   --switch-off: var(--border-control);
   --switch-knob-bg: var(--c-white);
 
-  /* The counter (◇ UI app library → counter). Its resting pair is the library's
-     `Counter/counter-bg-default` #f5f5f5 + `counter-textColor-default` #262626 —
-     which is neutral-100 under neutral-800, i.e. the panel's own --neutral-bg
-     with the page's --fg on it rather than the badge's --neutral-fg. Written as
-     its own pair anyway: a badge is a WORD and steps back to 600 so it does not
-     out-shout the row's title; a counter is a NUMBER, the one thing on the row
-     that has to be legible at 11px, and it keeps the full text colour.
-     Dark maps the same way the rest of the library's dark column does —
-     GrayNeutral-800 → white-900 for the counter's text (the note under
-     --tab-hover-fg), over the neutral-700 fill every soft neutral takes here. */
+  /* The counter's resting pair. A NUMBER keeps the full text colour, where a badge steps back to 600. */
   --counter-bg: light-dark(var(--c-neutral-100), var(--c-neutral-700));
   --counter-fg: light-dark(var(--c-neutral-800), var(--c-white-90));
-  /* Coloured by WHAT it counts — the library's green / yellow / red counters,
-     which are the *-100 fill under the *-800 text. The text steps are the ones
-     the status pills already carry (--passed-fg is emerald-800 on light, exactly
-     `Colors/Green/Green-800`); only the FILL is a step deeper than a pill's, for
-     the reason spelled out beside --c-emerald-100 in the palette. Dark reuses the
-     product's notify surfaces, as every other soft status does. */
+  /* Coloured by WHAT it counts; only the FILL is a step deeper than a pill's. */
   --counter-passed-bg: light-dark(var(--c-emerald-100), var(--c-success-notify-100));
   --counter-failed-bg: light-dark(var(--c-red-100), var(--c-error-notify-100));
   --counter-skipped-bg: light-dark(var(--c-amber-100), var(--c-warning-notify-100));
 
-  /* The pill a COUNT wears inside a selected control. The control's own fill is
-     already --row-active, so a neutral count would be the one grey thing left in
-     an indigo button; it takes the next step of the SAME indigo instead — the
-     move --segment-chip makes on its track, in the brand hue. Its text is
-     --row-active-fg, the control's own. */
+  /* The pill a count wears inside a SELECTED control: the next step of the same indigo. */
   --selected-count: light-dark(var(--c-indigo-100),
                                color-mix(in srgb, var(--accent) 38%, var(--bg)));
 
-  /* Brand. Dark takes the product's own indigoDark ramp — indigo-500 on a
-     neutral-900 page is too dense to read as the accent.
-
-     The four lines below are ONE ramp read in opposite directions, which is the
-     whole of what the two schemes disagree about (◇ UI app library → Buttons,
-     the blue column of each theme):
-
-       light   500 → 600 hover → 700 press, and the border one step ahead of the
-               fill at 600. A control that is pressed goes DOWN the ramp: on a
-               white page, deeper means nearer.
-       dark    600 → 700 hover → 800 press, border 800. Up the ramp: on a dark
-               page the only way toward the pointer is lighter.
-
-     Monotonic in both, which is the part that was wrong here — dark used to run
-     700 → 800 hover → 600 press, so pressing a primary button jumped BACK past
-     its resting colour and the control flashed darker under the finger. Both
-     rows are read straight off the library's own state variants, dark included;
-     neither is inferred from the other.
-
-     --focus is the accent itself in both schemes (the ring sits outside the
-     control, on the page, so it does not have to differ from the fill). */
+  /* Brand. The two schemes read ONE ramp in opposite directions: light goes DOWN it when pressed
+     (deeper means nearer on white), dark goes UP. Monotonic in both, or a press flashes backwards. */
   --accent: light-dark(var(--c-indigo-500), var(--c-indigo-dark-600));
   --accent-border: light-dark(var(--c-indigo-600), var(--c-indigo-dark-800));
   --accent-hover: light-dark(var(--c-indigo-600), var(--c-indigo-dark-700));
@@ -728,107 +395,36 @@
   --on-accent: var(--c-white);
   --focus: var(--accent);
 
-  /* The tab bar (◇ UI app library → Tabs). It is NOT --accent: the library gives
-     the tab its own pair — `Tabs/tab-textColor-active` and `Tabs/tab-border-active`
-     are one value, so the label and the 2px rule under it are the same colour —
-     and that value sits one step off the button ramp in BOTH schemes: light
-     indigo-600, dark indigoDark-700. Which is the ramp read the same way as
-     everywhere else on this page: on white the underline needs the DEEPER step
-     or a 2px hairline reads as a tint, on the dark page it needs the LIGHTER one.
-     A button's fill and a 2px rule are not the same amount of colour, which is
-     why this is its own token and not an alias of --accent or --accent-border.
-
-     The hover has no fill at all in the design — the label alone answers, by
-     going one step PAST --fg to the end of the text ramp: light the 950, dark
-     the 90% white the library's own dark text takes (it maps GrayNeutral-800 →
-     white-900 for the counter beside it, so the deepest step maps the same way).
-     That is also why nothing here is --hover-overlay: a third of a 380px bar
-     washing grey is a much louder hover than the design asks for. */
+  /* The tab bar has its OWN pair, not an alias of --accent: a button's fill and a 2px rule are not
+     the same amount of colour. The hover has no fill — the label alone answers. */
   --tab-active: light-dark(var(--c-indigo-600), var(--c-indigo-dark-700));
   --tab-hover-fg: light-dark(var(--c-neutral-950), var(--c-white-90));
-  /* A counter that belongs to something ACTIVE and stands on the bare page —
-     the count in the OPEN tab (library `Counter/counter-bg-in-active`, the
-     component's `for active=on` variant). A counter at rest wears the plain
-     neutral fill every other list in the panel wears — the tab is not special,
-     the number is the same number. It is only the open one that tints it,
-     because there the grey pill would be the one grey thing left in an indigo
-     label + indigo rule.
-
-     Not --selected-count: that pill sits ON --row-active, a wash that has
-     already spent 35% of the accent, so it only has to clear its own ground by
-     a step. This one sits on the bare page and has to carry the tint alone,
-     which is why the library gives it the deeper IndigoDark-100 in dark. The
-     TEXT needs no token at all — --row-active-fg is already indigo-700 /
-     indigoDark-900, exactly what `Counter/counter-textColor-in-active` is. */
+  /* A count in the OPEN tab. Not --selected-count: that one sits on --row-active and only has to clear
+     its own ground, where this sits on the bare page and carries the tint alone. */
   --counter-active-bg: light-dark(var(--c-indigo-100), var(--c-indigo-dark-100));
 
-  /* Rows. A list in this product is NOT a stack of cards: rows are separated by a
-     single rule and answer with a wash — grey while the pointer is over one, and
-     the BRAND indigo while one is the open/selected row, so "where you are" is
-     said in the same hue as "what this product is". On dark the wash is the
-     accent mixed back into the page: the indigoDark ramp has no 50, and a solid
-     step of it would be a far louder selection than the 4% lift light gets.
-     Kept as their own tokens rather than aliases of --card / --hover-overlay: a
-     row wash has to survive whatever surface the list is dropped on.
-
-     The two dark mixes are the library's own Selected pair solved back into the
-     page. Its `button-grey-bg-forActive` #3c3f5f and `button-grey-border-forActive`
-     #5960a1 are, over the 850 page, the accent at almost exactly a THIRD and
-     two thirds — 0.33 and 0.67 on all three channels, which is too clean to be a
-     coincidence and is the relationship worth keeping when the accent moves.
-     Rounded to the file's steps of 5: 35 and 65, landing on #3d4163 / #585f9e.
-     Light needs no arithmetic — the library names the steps outright, indigo-50
-     under indigo-300.
-
-     --row-active-border is deliberately NOT --accent-border: that is the edge of
-     a FILLED accent control, three steps stronger, and around a pale wash it
-     reads as a box drawn on top of the tint rather than as the tint's own
-     outline. */
+  /* Rows. Their own tokens rather than aliases of --card/--hover-overlay: a row wash has to survive
+     whatever surface the list is dropped on. --row-active-border is NOT a filled control's edge. */
   --row-hover: light-dark(var(--c-neutral-100),
                           color-mix(in srgb, var(--c-white) 5%, var(--c-neutral-850)));
   --row-active: light-dark(var(--c-indigo-50), color-mix(in srgb, var(--accent) 35%, var(--bg)));
   --row-active-fg: light-dark(var(--c-indigo-700), var(--c-indigo-dark-900));
   --row-active-border: light-dark(var(--c-indigo-300),
                                   color-mix(in srgb, var(--accent) 65%, var(--bg)));
-  /* One step lighter than --border, and deliberately so: a divider is not an
-     EDGE. A list is a hundred of these stacked down a 400px column, and at the
-     border's own weight they add up to a ruled ledger that competes with the
-     titles they separate — the eye reads the lines instead of the rows. The
-     design library says the same thing outright (◇ Tests → tests-item, node
-     4744-564737: the row rule is gray-100, while the nesting line beside it is
-     gray-200), so the vertical guide stays a step stronger than the horizontal
-     rules it runs past — which is also what keeps the two readable as different
-     things where they meet.
-
-     Light takes the step the library names (gray-200 → gray-100). Dark cannot
-     take the same one: neutral-800 over the 850 page is a 7/255 difference and
-     the rules simply stop existing, where the equivalent step in light still
-     reads. So dark is mixed rather than stepped — most of the way from the
-     border toward the page, which lands about halfway between 800 and 700 and
-     holds the same RELATIONSHIP (a divider quieter than an edge, quieter than
-     the guide) that the named step gives light. */
+  /* A divider is not an EDGE: one step lighter than --border, or a hundred of them stacked down a
+     column read as a ruled ledger. Dark is mixed, not stepped — a named step simply stops existing there. */
   --row-border: light-dark(var(--c-neutral-100),
                            color-mix(in srgb, var(--c-neutral-700) 60%, var(--bg)));
 
-  /* Status — solid (the status mark, progress bars, step fills), straight off
-     the library's Run status (node 2003-18939), both modes. Dark is DEEPER than
-     light here, not brighter: see the --c-*-dark-500 note in the palette. */
+  /* Status — solid marks (library Run status). Dark is DEEPER than light here, not brighter. */
   --passed: light-dark(var(--c-emerald-500), var(--c-emerald-dark-500));
   --failed: light-dark(var(--c-red-500), var(--c-red-dark-500));
   --skipped: light-dark(var(--c-amber-500), var(--c-yellow-dark-500));
-  /* …and the fourth, which the family was missing while three components drew
-     it by hand off --muted: PENDING — a run that has not started, a result
-     nobody has set. The library gives it its own grey (Gray-400) rather than
-     the page's text-muted, and on dark that is white at 40% — a mark on a
-     surface, not a word in a paragraph. */
+  /* PENDING — the library's own grey, not the page's text-muted: this is a mark on a surface. */
   --pending: light-dark(var(--c-neutral-400), var(--c-white-40));
 
-  /* Status — soft pills, the library's `label` form of the same three (plus the
-     ring below). FAILED is the odd one and it is the library's own call: green
-     and amber are a deep tint under a bright letter, red is SOLID under white
-     (`.badge.failed`, components.css) — a failed run is the one status that
-     stops a reading eye. These stay soft because the toast, the notice and the
-     status buttons are built on them, and none of those is a pill. */
+  /* Status — soft pills. FAILED is the library's exception: solid under white, because a failed run
+     is the one status that has to stop a reading eye. */
   --passed-bg: light-dark(var(--c-emerald-50), var(--c-emerald-dark-50));
   --passed-fg: light-dark(var(--c-emerald-800), var(--c-emerald-dark-800));
   --failed-bg: light-dark(var(--c-red-50), var(--c-error-notify-100));
@@ -838,9 +434,7 @@
   --neutral-bg: light-dark(var(--c-neutral-100), var(--c-neutral-700));
   --neutral-fg: light-dark(var(--c-neutral-600), var(--c-neutral-300));
 
-  /* Soft 1px inner ring on status pills (badge.scss ring-inset) — a tint of the
-     solid status colour, so it cannot be an alias of one. One step stronger on
-     dark, where a 30% ring disappears into the card. */
+  /* Soft 1px inner ring on status pills — a tint of the solid colour, one step stronger on dark. */
   --passed-ring: light-dark(color-mix(in srgb, var(--passed) 30%, transparent),
                             color-mix(in srgb, var(--passed) 35%, transparent));
   --failed-ring: light-dark(color-mix(in srgb, var(--failed) 30%, transparent),
@@ -850,86 +444,38 @@
   --neutral-ring: light-dark(color-mix(in srgb, var(--c-neutral-500) 20%, transparent),
                              var(--c-white-15));
 
-  /* The LOADER (◇ UI app library → Run status, type=running-1…4): a ring in the
-     quietest grey the page has, with one quarter of it in the darkest — the
-     head. Two colours, so it is not a status colour and not an icon: a running
-     run is not "grey", it is a run whose mark is still turning. */
+  /* The LOADER's ring: two colours, so it is neither a status colour nor an icon. */
   --spinner-track: light-dark(var(--c-neutral-200), var(--c-white-20));
   --spinner-head: light-dark(var(--c-neutral-800), var(--c-white-80));
 
-  /* The progress bar's UNFILLED part, and it is the loader's track by another
-     name: the same "what is not done yet" in a straight line instead of a ring,
-     so it takes the same pair rather than a second grey of its own.
-     It used to ride --surface-2, which is a WELL — a step DARKER than the page —
-     and a well is wrong here twice over: the bar sits on an unfilled card, where
-     a dark strip reads as a hole punched through it, and on dark that hole was
-     black. A track is a rail the fill runs along; it has to be lighter than what
-     it sits on, which is exactly what --spinner-track already is on both
-     schemes. */
+  /* The progress bar's unfilled part is the loader's track by another name. Never --surface-2: a well
+     is a step DARKER than the page, and a rail has to be lighter than what it sits on. */
   --progress-track: var(--spinner-track);
 
-  /* KIND — what a run or a test IS, as opposed to how it went. ONE component
-     wears these now: the type-of-test mark (◇ UI app library → Type of test,
-     `.type-mark`), in both of its forms — the square a list row takes and the
-     label a header takes. The run header used to carry a second, text-only pill
-     of its own on the same tokens; a kind is a mark, and one set of colours had
-     been dressing two components. Product semantics, not chrome: these hues are
-     the web app's and stay exactly as they are, sky included.
-
-     The first three are the KIND itself — how the test runs. The last two are
-     GROUPS rather than kinds, because the library's nine marks resolve to five
-     tints: `alert` is worn by out-of-sync, detached and defect (something is
-     wrong with this test, and the glyph says which), `note` by note and by both
-     shared marks (this test came from somewhere else). Naming them after the
-     group is what keeps a fourth red mark from arriving with a fourth red
-     token — the tint says the category, the glyph says the case. */
+  /* KIND — what a test IS, as opposed to how it went. Product semantics, not chrome. 'alert' and
+     'note' are GROUPS, not kinds: the library's nine marks resolve to five tints. */
   --kind-manual-bg: light-dark(var(--c-amber-100), var(--c-yellow-dark-100));
   --kind-manual-fg: light-dark(var(--c-amber-700), var(--c-yellow-dark-900));
-  /* The 100 step, not the 50 the product's own pill carries: manual and mixed
-     are already 100s, and a 2%-of-black fill that works behind a WORD with 8px
-     of padding is nothing at all behind a 16px glyph in a 20px square — the
-     same reason the counter one section up takes a step more tint than the pill
-     it borrows its text from. One value for both FORMS, so `automated` is not
-     the one kind whose fill goes lighter when the mark takes its word.
-     (The library draws this mark on violet-100 #ede9fe; purple is
-     the ramp this file already has, and its 100 lands within a hair of it.) */
+  /* The 100 step, not the product pill's 50: a 2%-of-black fill is nothing behind a 16px glyph. */
   --kind-automated-bg: light-dark(var(--c-purple-100), var(--c-purple-dark-100));
   --kind-automated-fg: light-dark(var(--c-purple-700), var(--c-indigo-dark-900));
   --kind-mixed-bg: light-dark(var(--c-sky-100), var(--c-sky-dark-100));
   --kind-mixed-fg: light-dark(var(--c-sky-700), var(--c-sky-dark-900));
-  /* Not --failed-bg/fg: a failed RESULT and a broken link to the code are two
-     different reds, and the library gives the mark the deeper 100-under-700
-     pair a 16px square needs to read at all — the status pill's 50 fill under
-     an 800 text is drawn for a word with padding around it. Dark maps the same
-     way every other soft red here does, onto the product's errorNotify fill. */
+  /* Not --failed-bg/fg: a failed RESULT and a broken link to the code are two different reds. */
   --kind-alert-bg: light-dark(var(--c-red-100), var(--c-error-notify-100));
   --kind-alert-fg: light-dark(var(--c-red-700), var(--c-rose-200));
   --kind-note-bg: light-dark(var(--c-indigo-50), var(--c-indigo-dark-100));
   --kind-note-fg: light-dark(var(--c-indigo-700), var(--c-indigo-dark-900));
 
-  /* Error-notify icon — lighter than the text beside it
-     (custom-notify.scss:51 `.error.alert` icon = text-red-400). */
+  /* Error-notify icon — lighter than the text beside it (custom-notify.scss:51). */
   --failed-icon: light-dark(var(--c-red-400), var(--c-rose-200));
 
-  /* Priority marks (priority/icons.hbs:2-11, ◇ UI app library → Priority) —
-     product semantics again, and only THREE colours for five priorities: high,
-     important and critical all wear the same red and differ by their glyph
-     alone, which is what makes the top of the ladder read as one rung at three
-     heights rather than as three separate warnings.
-
-     Low is the library's sky, not the sky-400 blue it used to be: at 19px a
-     single hairline chevron is the thinnest mark in this file, and a 400 step
-     of any hue on a white row is a suggestion rather than a mark. It is the
-     same sky the mixed kind above carries, read the same way in both schemes —
-     the deep step on white, the light one on the dark page. */
+  /* Priority marks — three colours for five priorities: high, important and critical differ by glyph alone. */
   --priority-low: light-dark(var(--c-sky-700), var(--c-sky-dark-900));
   --priority-normal: light-dark(var(--c-neutral-700), var(--c-neutral-300));
   --priority-high: light-dark(var(--c-red-600), var(--c-red-400));
 
-  /* Toast (custom-notify.scss:218 default = grayNeutral-900). The toast is dark
-     in BOTH schemes — it only moves up a step on dark, so it still detaches from
-     the page — so its inline action is tinted with white overlays, and on the
-     error toast, which is a light tinted card, with a black one. */
+  /* Toast — dark in BOTH schemes, which is why its inline action is tinted with white overlays. */
   --toast-bg: light-dark(var(--c-neutral-950), var(--c-neutral-700));
   --toast-fg: light-dark(var(--c-white), var(--c-neutral-100));
   --toast-action-bg: var(--c-white-15);
@@ -937,34 +483,20 @@
   --toast-action-border: var(--c-white-35);
   --toast-action-bg-error-hover: var(--c-black-5);
 
-  /* Tooltip (shadcn/ui `tooltip`, whose box is `bg-primary text-primary-foreground`).
-     In shadcn's OWN default theme `primary` is not a brand hue — it is the
-     neutral ramp's far end, near-black on light and near-white on dark — so the
-     component's identity is INVERSION: the label is the one thing on screen
-     painted out of the page's own scheme, which is what says "this is not part
-     of the page, it is the pointer talking". Mapped onto this file's ramp that
-     is neutral-900 under white, and neutral-100 under neutral-900 on dark.
-
-     Not --toast-bg, the extension's other floating dark strip: a toast is a
-     SURFACE you can act on (it carries buttons, so on dark it stays a raised
-     700 that a control can sit on), while a tooltip is a transient label with
-     nothing inside it and 12px type to carry — so it takes the maximum contrast
-     the ramp has instead of the step that had to leave room for a button. */
+  /* Tooltip (shadcn/ui). Its identity is INVERSION — the one thing painted out of the page's own
+     scheme. Not --toast-bg: a toast is a surface you can act on, a tooltip carries nothing. */
   --tooltip-bg: light-dark(var(--c-neutral-900), var(--c-neutral-100));
   --tooltip-fg: light-dark(var(--c-white), var(--c-neutral-900));
 
-  /* Text on a solid status fill (a marked row button, a ticked step). Same in
-     both schemes: the fill is always saturated enough for white. */
+  /* Text on a solid status fill; the fill is always saturated enough for white. */
   --on-status: var(--c-white);
 
-  /* Scrim behind a modal. Two steps: over the panel, and over the annotator's
-     screenshot stage, which needs the image knocked back harder. */
+  /* Scrim behind a modal; the strong step is for the annotator's screenshot stage. */
   --scrim: var(--c-black-40);
   --scrim-strong: var(--c-black-45);
 
-  /* Annotator tool colour. NOT themed and NOT the accent on purpose: it is a
-     mark drawn onto the user's screenshot, so it must stay the same red the
-     exported image carries (drawn as a literal in annotate-core.js too). */
+  /* Annotator tool colour. NOT themed: it is a mark drawn into the user's exported screenshot
+     (a literal in annotate-core.js too). */
   --annot-tool: var(--c-red-600);
   --annot-tool-strong: var(--c-red-700);
   --annot-tool-ring: var(--c-red-600-50);

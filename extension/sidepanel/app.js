@@ -1,24 +1,17 @@
-// Panel bootstrap: wire up controls, restore settings/session, and pick the
-// initial view. Loaded last, after every core/ and screens/ script has defined
-// the globals this init uses.
+// Panel bootstrap: wire controls, restore settings/session, pick the initial view.
+// MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global TestomatAPI, Icons, Skeleton */
 
 // ---------- init ----------
 
 async function init() {
-  // The boot placeholder, before anything else: every line below this one is
-  // wiring, and every line after the first `await` is a network round trip the
-  // tester would otherwise spend looking at a white panel. It comes down
-  // in show(), on the first view there is something real to paint.
+  // The boot placeholder goes up before any wiring; show() takes it down on the first real view.
   Skeleton.paintBoot();
-  // Static chrome asks for its icons by name (data-icon); the one icon set fills
-  // them in. Everything below can already be looking at the header.
+  // Static chrome asks for its icons by name (data-icon).
   Icons.hydrate(document);
-  // Every toolbar's create button now that its icon is in: they say the whole
-  // errand ("New run", "New test") while the search beside them can spare the
-  // width, and the observers armed here keep answering that as the pane is
-  // dragged (core/views.js).
+  // After the icons are in: create buttons keep their full label while the pane can spare the width,
+  // and the observers armed here re-answer that as it is dragged (core/views.js).
   initActionLabelFit();
   $('tab-tests').addEventListener('click', () => switchTab('tests'));
   $('tab-runs').addEventListener('click', () => switchTab('runs'));
@@ -33,40 +26,30 @@ async function init() {
   });
   $('btn-back').addEventListener('click', goBack);
   $('btn-save-settings').addEventListener('click', () => saveSettings());
-  // Enter commits from the token field: on the first-run connect screen the form
-  // is that one field, and pressing Enter in it is what everyone does.
+  // On the first-run connect screen the form IS this one field, so Enter commits.
   $('set-token').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSettings(); });
   initSettingsSections(); // the settings accordion — one delegated click for every fold
   $('settings-advanced-head').addEventListener('click', toggleSettingsAdvanced); // Advanced collapse (#146)
-  // Appearance: System / Light / Dark. The theme itself was already pinned by
-  // the head script before this panel drew a pixel — this only wires the switch
-  // that changes it.
+  // The head script already pinned the theme before the first paint; this only wires the switch.
   initThemeSwitch();
-  // #177: the only way to take a saved token off this machine short of uninstalling.
-  // Disconnect is the same erase aimed at the ACTIVE instance; Forget (in
-  // Advanced) aims at whichever one the form is showing. Both are wrapped —
-  // forgetInstance takes options, and a click event is not one.
+  // #177: Disconnect erases the ACTIVE instance's token, Forget the one the form is showing.
+  // Both are wrapped — forgetInstance takes options, and a click event is not one.
   $('btn-disconnect').addEventListener('click', () => disconnectInstance());
   $('btn-forget-instance').addEventListener('click', () => forgetInstance());
   $('btn-sign-out').addEventListener('click', signOut);
-  // Token-help link tracks the Instance field as the user types — and so does the
-  // token field itself, which comes back for an instance we hold no token for.
+  // Both track the Instance field: the token box itself comes back for an instance we hold no token for.
   $('set-baseurl').addEventListener('input', () => { updateTokenHelpLink(); syncTokenField(); });
   // Instance history: picking a host restores its saved settings into the form.
   initHostHistoryDropdown();
-  // Header project switcher (#103/#126): the custom dropdown — picking a row
-  // repoints the panel and resets the tabs.
+  // Header project switcher (#103/#126): picking a row repoints the panel and resets the tabs.
   initProjectDropdown();
-  // Panel-wide Refresh (#127): the strip's own control — re-pulls the projects,
-  // the open view and both tab counts, from whichever tab it is pressed on.
+  // Panel-wide Refresh (#127): re-pulls the projects, the open view and both tab counts.
   $('btn-refresh').addEventListener('click', refreshAll);
-  // …and the strip's last control (#208): side panel ↔ its own window. Not
-  // awaited — it only has to know which surface it is in before the first click.
+  // #208 surface switch. Not awaited — it only needs to know its surface before the first click.
   initViewSwitch();
   $('degraded-banner-dismiss').addEventListener('click', dismissDegradedBanner);
   $('degraded-banner-refresh').addEventListener('click', refreshFromDegradedBanner);
-  // One runs input (#106): typing filters, a pasted run/group URL opens it
-  // (Enter re-tries the URL already in the box).
+  // One runs input (#106): typing filters, a pasted run/group URL opens it (Enter re-tries it).
   $('runs-search').addEventListener('input', onRunsSearch);
   $('runs-search').addEventListener('keydown', onRunsSearchKeydown);
   $('runs-search-clear').addEventListener('click', clearRunsSearch);
@@ -74,44 +57,38 @@ async function init() {
   $('run-search-clear').addEventListener('click', clearRunSearch);
   $('tc-search').addEventListener('input', onTcSearch);
   $('tc-search-clear').addEventListener('click', clearTcSearch);
-  // Tests screen: the same deal one level up — typing filters the suite tree.
   $('tc-tree-search').addEventListener('input', onTcTreeSearch);
   $('tc-tree-search-clear').addEventListener('click', clearTcTreeSearch);
   $('btn-passed').addEventListener('click', () => clickStatus('passed'));
   $('btn-failed').addEventListener('click', () => clickStatus('failed'));
   $('btn-skipped').addEventListener('click', () => clickStatus('skipped'));
-  // The pager's two steps — the ← / → keys' own move, ±1 through the visible
-  // list. (#108's status-aware jump to the next UNTESTED row is the N key.)
+  // ← / → move ±1 through the visible list; #108's jump to the next UNTESTED row is the N key.
   $('btn-prev-test').addEventListener('click', () => navigateTest(-1));
   $('btn-next-test').addEventListener('click', () => navigateTest(1));
-  // Test view sections: Description (the steps) / Status (the result + its controls).
   $('tab-test-desc').addEventListener('click', () => showTestSection('desc'));
   $('tab-test-status').addEventListener('click', () => showTestSection('status'));
   $('tab-test-summary').addEventListener('click', () => showTestSection('summary'));
   $('btn-screenshot-annotate').addEventListener('click', attachScreenshotAnnotated);
   // #192: the escape hatch for an annotation the upload re-check refused.
   $('btn-save-annotation').addEventListener('click', savePendingAnnotation);
-  // Full-page capture checkbox (M2 PR-3): persist + mirror; test-view only now.
+  // Full-page capture checkbox: persisted, and mirrored wherever else it shows.
   $('fullpage-test').addEventListener('change', (e) => setFullPageCapture(e.target.checked));
   $('btn-finish-run').addEventListener('click', finishRun);
   $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
-  // Custom status (US4) and Assignee (M4): both custom listboxes built into their
-  // static mounts, same deal as initProjectDropdown() above.
   initSubstatusDropdown();
   initAssigneeDropdown();
-  $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure); // control-tower diet
-  // Result summary disclosures (#117): Failure / Meta / Steps.
+  $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure);
   for (const key of ['failure', 'meta', 'steps']) {
     $(`summary-${key}-head`).addEventListener('click', () => toggleSummaryDisclosure(key));
   }
-  initEvidence(); // evidence recorder toggle + section wiring (M2 PR-1)
+  initEvidence();
   initAttachments(); // #107: the Attach file button + its hidden native picker
-  // While this panel is open the worker must not re-open it on the same toolbar
-  // click, or the tester loses the page they are on (shared/panel-link.js).
+  // While this panel is open the worker must not re-open it on a toolbar click, or the tester
+  // loses the page they are on (shared/panel-link.js).
   PanelLink.init();
   initLiveSync(); // M4 poll: visibilitychange catch-up (the timer starts on run open)
-  document.addEventListener('keydown', onHotkey); // web-runner hotkeys (US5); inert outside the test view
-  initHotkeyHints(); // status-button shortcut tooltips + the "?" legend
+  document.addEventListener('keydown', onHotkey); // web-runner hotkeys; inert outside the test view
+  initHotkeyHints();
   applyCapabilities(); // seed data-jwt="unknown" before any probe
 
   const stored = await loadStored();
@@ -119,8 +96,7 @@ async function init() {
   await migrateHostSettings(stored); // per-host map + history (seeds from `settings`)
   await dropAiApiKey(); // #105: the removed AI polish must leave no key behind
   await dropOnboardingState(); // …and the removed welcome checklist no progress slice
-  // Load the offline queue before any run renders so restored rows show their
-  // «queued» markers immediately (survives panel restart).
+  // Before any run renders, so restored rows show their «queued» markers immediately.
   if (typeof OfflineQueue !== 'undefined') await OfflineQueue.init();
   if (!state.settings) {
     fillSettingsForm();
@@ -129,15 +105,12 @@ async function init() {
     return;
   }
   TestomatAPI.configure(state.settings);
-  // Header project switcher (#103): paints the saved project at once and refreshes
-  // the list in the background. A config with no project (pre-#103 leftovers) gets
-  // one resolved here; when even that fails there is nothing to run against, so we
-  // land on Settings rather than a wall of unconfigured errors.
+  // Paints the saved project at once, refreshes the list in the background, and resolves one for a
+  // config that has none. Failing that there is nothing to run against — land on Settings.
   if (!(await initProjectSwitcher())) {
     fillSettingsForm();
     show('settings');
-    // The token is saved, so the form has no box to re-paste it into (#connection
-    // -card): the two ways forward are a retry and a fresh connection.
+    // The token is saved, so the form has no box to re-paste it into: retry, or reconnect.
     setStatusLine('settings-status',
       "Couldn't load your projects — press Save & validate to retry, or Disconnect to use another token", 'error');
     state.booting = false;
@@ -145,9 +118,8 @@ async function init() {
   }
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // panel open is a replay trigger
 
-  // Returning from the editor page (panel ctx): the one-shot breadcrumb set by
-  // openEditor() restores the exact suite's TC list. Consumed once so a later
-  // plain reload doesn't hijack the runs view.
+  // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list, and is
+  // consumed once so a later plain reload does not hijack the runs view.
   let tcReturn = null;
   try { tcReturn = JSON.parse(sessionStorage.getItem('tcReturn') || 'null'); } catch { /* ignore */ }
   if (tcReturn && tcReturn.suiteId) {
@@ -158,22 +130,16 @@ async function init() {
   }
 
   const session = stored.session;
-  // Sessions are keyed by record id. A pre-refactor session stored the old
-  // test_id-keyed `currentTestId`/`stepTicks`; those keys simply won't resolve
-  // (recordFor returns undefined → falls through to the run view; stale ticks
-  // never match a record id), so old sessions degrade to the run list without
-  // error rather than restoring a stale test — an acceptable one-time reset for
-  // an internal, ephemeral session shape.
+  // Sessions are keyed by record id; a session that predates that degrades to the run list
+  // (nothing resolves) rather than restoring a stale test.
   state.stepTicks = session?.stepTicks || {};
   state.expandedGroups = Array.isArray(session?.expandedGroups) ? session.expandedGroups : [];
   state.runsFilter = FILTER_KEYS.has(session?.runsFilter) ? session.runsFilter : 'all';
-  // Run info disclosure (#112): open unless this user closed it — an old session
-  // (no key) and a fresh profile both land on the default, which is open.
+  // Open unless this user closed it — no key (old session, fresh profile) means the default, open.
   runInfoOpen = session?.runInfoOpen !== false;
   state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
 
-  // Restore the last active tab. Old sessions (no activeTab) infer 'runs' from a
-  // persisted run/test view so an in-flight run still restores.
+  // Old sessions (no activeTab) infer 'runs' from a persisted run/test view, so an in-flight run restores.
   const activeTab = session?.activeTab
     || ((session?.view === 'run' || session?.view === 'test') ? 'runs' : null);
   if (activeTab === 'runs' && session?.runId && (session.view === 'run' || session.view === 'test')) {
@@ -185,8 +151,7 @@ async function init() {
   } else if (activeTab === 'settings') {
     openSettingsView();
   } else if (activeTab === 'tests') {
-    // The Tests tab restores its root; ephemeral sub-views (tclist/suite picker)
-    // fall back to the tree.
+    // The Tests tab restores its root; ephemeral sub-views fall back to the tree.
     openTcStudioView();
   } else {
     openRunsView();
@@ -195,8 +160,5 @@ async function init() {
   state.booting = false;
 }
 
-// A boot that throws before it reaches a view would leave the placeholder up for
-// good, and a panel frozen mid-load reads far worse than the empty one the
-// failure actually left behind. show() is what normally retires it; this is the
-// floor under that, and on the happy path it finds nothing left to do.
+// The floor under show(): a boot that throws before reaching a view must not leave the placeholder up.
 init().finally(() => Skeleton.bootDone());

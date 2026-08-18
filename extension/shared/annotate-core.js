@@ -1,57 +1,12 @@
-// Annotator core (shared) — the DOM-agnostic tool/canvas engine behind both the
-// editor-page annotator (editor/annotate.js) and the on-page overlay
-// (overlay/annotate-overlay.js). It renders its toolbar + a viewport-fitted
-// canvas into a MOUNT element it is given, handles all drawing, and reports
-// Apply/Cancel via callbacks — it does NOT know about chrome.storage, tabs, or
-// shadow roots. The consumer owns the handoff.
-//
-// The toolset is Jam-parity (#188): eleven tools on an icon rail — Select, Pen,
-// Arrow, Line, Box, Ellipse, Highlight, Blur, Text, Number, Crop — over a shared
-// ink (an eight-colour palette × three stroke weights) that a picked tool draws
-// with AND a selected annotation is restyled by. Undo/redo, Copy, Download and a
-// keyboard map (one letter per tool) sit on the same bar.
-//
-// What is FIXED and not themed: the ink. A palette colour is the same value in
-// the swatch, on the canvas and in the exported JPEG — the picture is the
-// contract, so those hexes are literals here, not tokens. The mosaic is real
-// pixel destruction (block-aligned, so live preview == JPEG export). The
-// un-blurred original is dropped from memory on Apply (privacy).
-//
-// Crop is state, not an op: `crop` is a rect in ORIGINAL image coordinates that
-// render() blits from, so a crop is lossless and undoable — the base image is
-// never rewritten, and ops shift with it. Undo is a bounded stack of {ops, crop}
-// snapshots pushed before every mutation, so a move, a delete and a crop are all
-// undoable; redo is the mirror stack, cleared by the next fresh mutation. The
-// selection marquee is UI only and never reaches the export.
-//
-// Three outcomes (Block 5 — unified Cancel semantics):
-//   Apply         → onApply(<flattened annotated JPEG>)
-//   Keep original → onApply(<the original, un-annotated image>) — Esc and closing
-//                   the overlay/tab map here; the consumer can't tell it from
-//                   Apply (both hand back a dataURL), which is exactly the point:
-//                   "keep" stages/uploads the raw shot instead of dropping it.
-//   Discard       → onCancel() — returns nothing; the only path that drops the
-//                   shot. confirmDiscard() guards it when annotations were drawn.
-//
-// AnnotateCore.create(opts) -> { hooks, destroy }
-//   opts.mount          : element the toolbar + stage are rendered into
-//   opts.doc            : document to bind keydown to (defaults to mount's)
-//   opts.dataUrl        : the base image to annotate
-//   opts.onApply(url)   : called with a dataURL to use (Apply OR Keep original)
-//   opts.onCancel()     : called on Discard — nothing to hand back (async ok)
-//   opts.confirmDiscard(): guard before discarding on Discard (default: allow)
-//   opts.onReady(hooks) : called once the image is loaded and the canvas is live
-//   hooks               : `__annot`-style test surface (same philosophy as __tc)
-//   destroy()           : detach the global listeners (for the overlay teardown)
+// Annotator core: the DOM-agnostic toolbar + canvas engine behind editor/annotate.js and
+// overlay/annotate-overlay.js — it knows nothing of chrome.storage, tabs or shadow roots.
 
 /* global chrome, Icons, Tooltip */
 window.AnnotateCore = (() => {
   'use strict';
 
   // ---- fixed ink ---------------------------------------------------------
-  // Eight colours, the Jam set mapped onto this product's ramps. These are
-  // LITERALS on purpose: a swatch, the live canvas and the exported JPEG must be
-  // the same colour, and an exported picture cannot follow a theme.
+  // Literal hexes, not theme tokens: swatch, canvas and exported JPEG must match.
   const PALETTE = [
     { id: 'red', hex: '#dc2626', label: 'Red' },
     { id: 'orange', hex: '#ea580c', label: 'Orange' },
@@ -62,41 +17,35 @@ window.AnnotateCore = (() => {
     { id: 'black', hex: '#171717', label: 'Black' },
     { id: 'white', hex: '#ffffff', label: 'White' },
   ];
-  const STROKE = PALETTE[0].hex;   // red — the annotator's long-standing default
-  const WIDTH = 3;                 // the M weight, and the default every legacy op falls back to
+  const STROKE = PALETTE[0].hex;
+  const WIDTH = 3;                 // the M weight; legacy ops with no width fall back to it
   const WEIGHTS = [
     { id: 's', w: 2, label: 'S', tip: 'Thin stroke' },
     { id: 'm', w: WIDTH, label: 'M', tip: 'Medium stroke' },
     { id: 'l', w: 6, label: 'L', tip: 'Thick stroke' },
   ];
 
-  const BLOCK = 12;         // the destroying pass: mosaic block ≈ 12px at natural scale
-  const BLUR_R = 10;        // …and the softening pass over it, in the same units
+  const BLOCK = 12;         // mosaic block, natural px
+  const BLUR_R = 10;        // blur radius, same units
   const JPEG_Q = 0.85;
   const HIT_CSS = 8;        // select-tool grab tolerance, in CSS px (scaled to natural)
-  const HISTORY_MAX = 50;   // bounded undo snapshot stack
+  const HISTORY_MAX = 50;
   const TEXT_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-  const HL_ALPHA = 0.35;    // highlighter: a marker lays ink ON the picture…
-  const HL_WIDTH = 6;       // …six times the stroke weight, like a real chisel tip
-  const MIN_CROP = 16;      // a crop drag under this (natural px) is a mis-click
-  const FLASH_MS = 2400;    // how long Copy/Download report back on the bar
-  // Step badge: a mark ON the screenshot, not a stamp over it. The radius is a
-  // fraction of the image width (so it reads the same at any resolution) with a
-  // floor for tiny shots, and it scales with the stroke weight exactly as the
-  // text label's size does — S/M/L is the badge's size control.
+  const HL_ALPHA = 0.35;
+  const HL_WIDTH = 6;       // × the stroke weight
+  const MIN_CROP = 16;      // natural px; a shorter crop drag is a mis-click
+  const FLASH_MS = 2400;
+  // Badge radius is a fraction of the image width, so it reads the same at any resolution.
   const NUM_DIV = 110;
   const NUM_MIN = 9;
-  const HANDLE_CSS = 9;      // the selection grip, in CSS px (scaled to natural)
-  const HANDLE_HIT_CSS = 12; // …and how close the pointer has to be to grab one
-  // The freehand tools draw with the TOOL under the pointer, in the ink it is
-  // about to lay down; the geometric ones keep the crosshair, because a glyph
-  // would cover the exact corner the drag has to start on.
+  const HANDLE_CSS = 9;      // CSS px (scaled to natural)
+  const HANDLE_HIT_CSS = 12;
+  // Freehand only: a glyph cursor would cover the corner a geometric drag starts on.
   const CURSOR_GLYPH = { pen: 'draw', highlight: 'ink_highlighter' };
-  const CURSOR_PX = 28;      // a cursor image the OS will still draw at 1:1
+  const CURSOR_PX = 28;      // the OS still draws a cursor image this size at 1:1
 
-  // One row per tool: the rail order, the icon, the letter that picks it, and the
-  // sentence the tooltip says. `id` is also the op's `tool` — 'pixelate' keeps its
-  // old id (the stored ops and the e2e hooks name it) under Jam's word, "Blur".
+  // `id` is also the op's `tool`: 'pixelate' keeps that id (stored ops and the e2e
+  // hooks name it) while the UI calls it Blur.
   const TOOLS = [
     { id: 'select', label: 'Select', icon: 'arrow_selector_tool', key: 'v', tip: 'Select an annotation: drag to move, double-click a label to retype it, Delete to remove' },
     { id: 'pen', label: 'Pen', icon: 'draw', key: 'p', tip: 'Draw freehand' },
@@ -110,10 +59,7 @@ window.AnnotateCore = (() => {
     { id: 'number', label: 'Number', icon: 'counter_1', key: 'n', tip: 'Numbered step marker — click to drop 1, 2, 3…; S/M/L sizes the badge' },
     { id: 'crop', label: 'Crop', icon: 'crop', key: 'c', tip: 'Crop: drag the part worth keeping (undoable)' },
   ];
-  // The tools that draw with a colour (Blur and Crop have no ink of their own).
   const INKED = new Set(['pen', 'arrow', 'line', 'rect', 'ellipse', 'highlight', 'text', 'number']);
-  // The tools whose gesture is a free path rather than a two-point drag. Text and
-  // Number are clicks; everything else left over is a drag.
   const FREEHAND = new Set(['pen', 'highlight']);
 
   function create(opts) {
@@ -130,9 +76,9 @@ window.AnnotateCore = (() => {
     let H = 0;
     let crop = null;          // {x, y, w, h} in ORIGINAL image coords
     const ops = [];           // vector list, in canvas (cropped) coords
-    const history = [];       // undo: {ops, crop} snapshots taken before each mutation
-    const future = [];        // redo: the mirror stack, cleared by a fresh mutation
-    let selected = null;      // index into ops while the Select tool holds one
+    const history = [];       // undo: {ops, crop} snapshots
+    const future = [];        // redo: the mirror stack
+    let selected = null;      // index into ops
     let tool = 'arrow';
     let color = STROKE;
     let weight = WIDTH;
@@ -148,7 +94,7 @@ window.AnnotateCore = (() => {
     let redoBtn = null;
     let undoBtn = null;
     let deleteBtn = null;
-    let inkBtn = null;        // the ink in force, and what opens the eight
+    let inkBtn = null;
     let inkMenu = null;
     let onKeyDown = null;
 
@@ -158,18 +104,14 @@ window.AnnotateCore = (() => {
     // ---- rendering --------------------------------------------------------
     function render(previewOp) {
       ctx.clearRect(0, 0, W, H);
-      // The crop is a source rect on the untouched base image — cropping never
-      // rewrites pixels, which is what makes it undoable.
+      // A source rect on the untouched base image — cropping never rewrites pixels.
       if (img && crop) ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, W, H);
       const preview = previewOp && previewOp.tool !== 'crop' ? previewOp : null;
       const list = preview ? ops.concat([preview]) : ops;
-      // A label being retyped is drawn by its input, not here — otherwise the old
-      // wording sits under the new one.
+      // A label being retyped is drawn by its input, not here (else two of it).
       const editing = textInput && textInput.edit;
       for (const op of list) if (op !== editing) drawOp(op);
       if (previewOp && previewOp.tool === 'crop') drawCropPreview(previewOp);
-      // Marquee last, above every op — but not around the label the input has
-      // taken over, which carries its own frame.
       if (selected != null && ops[selected] !== editing) drawSelection();
     }
 
@@ -184,10 +126,8 @@ window.AnnotateCore = (() => {
       else if (op.tool === 'number') drawNumber(op);
     }
 
-    // Text label: bold, size scales with the image so it reads the same at any
-    // resolution, and with the stroke weight so S/M/L mean something here too.
-    // Op is {tool:'text', x, y, text, color, size} in natural coords; `size` is
-    // frozen at commit, so a later weight change cannot reflow an existing label.
+    // Size scales with the image and the weight, and is frozen at commit — a later
+    // weight change cannot reflow an existing label.
     function textSize() { return Math.max(16, Math.round(W / 50)); }
     function textSizeFor(op) { return op.size || textSize(); }
     function drawText(op) {
@@ -200,8 +140,7 @@ window.AnnotateCore = (() => {
       ctx.restore();
     }
 
-    // Numbered step marker: a filled disc in the current ink with the numeral
-    // knocked out of it. `r` is frozen at drop time, like the text size.
+    // `r` is frozen at drop time, like the text size.
     function numberRadius() {
       return Math.max(NUM_MIN, Math.round((W / NUM_DIV) * (weight / WIDTH)));
     }
@@ -215,15 +154,12 @@ window.AnnotateCore = (() => {
       ctx.arc(op.x, op.y, r, 0, Math.PI * 2);
       ctx.fillStyle = ink;
       ctx.fill();
-      // A white disc needs an edge to exist at all on a light screenshot; the
-      // numeral flips to the ink for the same reason.
+      // A white disc needs an edge to exist on a light screenshot; the numeral flips too.
       ctx.lineWidth = Math.max(1, r / 8);
       ctx.strokeStyle = ink === '#ffffff' ? '#171717' : '#ffffff';
       ctx.stroke();
       ctx.fillStyle = ink === '#ffffff' ? '#171717' : '#ffffff';
-      // Two digits already crowd the disc and three overflow it, so the numeral
-      // steps down instead of growing the badge — a run of steps has to stay one
-      // size from 1 to 100.
+      // The numeral steps down instead of growing the badge — a run of steps stays one size.
       const fit = label.length > 2 ? 0.85 : label.length > 1 ? 1.05 : 1.25;
       ctx.font = `bold ${Math.round(r * fit)}px ${TEXT_FONT}`;
       ctx.textAlign = 'center';
@@ -243,8 +179,6 @@ window.AnnotateCore = (() => {
       ctx.restore();
     }
 
-    // The ellipse inscribed in the drag rect — the shape Jam's Ellipse draws, and
-    // the one that reads as "circle this" over a screenshot.
     function ellipseOf(op) {
       return {
         cx: (op.x1 + op.x2) / 2,
@@ -277,10 +211,7 @@ window.AnnotateCore = (() => {
       ctx.restore();
     }
 
-    // Pen and Highlight are one path op with two skins: the pen is opaque at the
-    // stroke weight, the marker is translucent, six times as wide, and multiplied
-    // into the picture so the pixels under it stay readable — which is the whole
-    // point of a highlighter.
+    // The marker multiplies into the picture, so the pixels under it stay readable.
     function strokePath(op) {
       const pts = op.pts || [];
       if (!pts.length) return;
@@ -302,12 +233,10 @@ window.AnnotateCore = (() => {
       ctx.restore();
     }
 
-    // An arrow BENDS. `cx, cy` is a quadratic control point, absent on a straight
-    // one and on every arrow drawn before the bend handle existed — so a stored
-    // op keeps meaning exactly what it meant.
+    // `cx, cy`: quadratic control point, absent on straight arrows and on ops stored
+    // before the bend handle existed.
     const curved = (op) => op.cx != null && op.cy != null;
-    // Where the curve actually passes at t=0.5 — which is where the bend handle
-    // has to sit, so the handle is ON the line the tester sees.
+    // The point at t=0.5 — the bend handle has to sit ON the drawn curve.
     function arrowMid(op) {
       if (!curved(op)) return { x: (op.x1 + op.x2) / 2, y: (op.y1 + op.y2) / 2 };
       return {
@@ -315,16 +244,13 @@ window.AnnotateCore = (() => {
         y: 0.25 * op.y1 + 0.5 * op.cy + 0.25 * op.y2,
       };
     }
-    // …and the control point that puts the curve THROUGH (px, py): the inverse of
-    // the line above, so dragging the handle drags the curve itself, not a
-    // control point sitting twice as far away as the hand expects.
+    // Inverse of arrowMid: the control point that puts the curve THROUGH (px, py), so
+    // the handle drags the curve, not a point twice as far away.
     const arrowCtrl = (op, px, py) => ({
       cx: 2 * px - (op.x1 + op.x2) / 2,
       cy: 2 * py - (op.y1 + op.y2) / 2,
     });
-    // The shaft, flattened to points — ONE source of truth for the stroke, the
-    // hit test and the bounding box, so a curved arrow is grabbable exactly where
-    // it is drawn.
+    // Flattened shaft: one source of truth for the stroke, the hit test and the bbox.
     function arrowPath(op, n = 24) {
       if (!curved(op)) return [{ x: op.x1, y: op.y1 }, { x: op.x2, y: op.y2 }];
       const pts = [];
@@ -339,10 +265,8 @@ window.AnnotateCore = (() => {
       return pts;
     }
 
-    // The arrowhead triangle in natural coords — one source of truth for both
-    // the fill below and the select tool's hit test. It grows with the stroke,
-    // and it points along the shaft's END tangent, which on a curve is the
-    // direction out of the control point rather than out of the tail.
+    // Shared by the fill and the hit test. Points along the shaft's END tangent —
+    // on a curve that is the direction out of the control point, not out of the tail.
     function headLen(op) { return Math.max(10, opWidth(op) * 4); }
     function arrowHead(op) {
       const head = headLen(op);
@@ -359,8 +283,7 @@ window.AnnotateCore = (() => {
     function strokeArrow(op) {
       const head = headLen(op);
       const tri = arrowHead(op);
-      // Shaft stops short of the tip so the solid head is not double-drawn —
-      // measured back along the END tangent, the same direction the head points.
+      // Shaft stops short of the tip so the solid head is not double-drawn.
       const fromX = curved(op) ? op.cx : op.x1;
       const fromY = curved(op) ? op.cy : op.y1;
       const dx = op.x2 - fromX;
@@ -388,22 +311,8 @@ window.AnnotateCore = (() => {
       ctx.restore();
     }
 
-    // Blur, in two passes, because the two things asked of it pull apart:
-    //
-    //   DESTROY   the region is first averaged into flat mosaic blocks. This is
-    //             the privacy half and it is not negotiable — a plain gaussian
-    //             is a reversible convolution, and "hide sensitive data" cannot
-    //             rest on how hard the reversal is. After this pass the original
-    //             pixels are gone from the canvas, and the canvas is the export.
-    //   SOFTEN    then the flattened region is redrawn through `filter: blur()`,
-    //             so what ships is the smooth frosted panel a reader expects
-    //             rather than a Minecraft square — no information comes back,
-    //             the blocks are only interpolated between.
-    //
-    // Both passes run inside render(), so the live preview IS what toDataURL
-    // encodes. The blur reads a padded source so the region's edge mixes with the
-    // real pixels around it, then paints clipped to the region: a hard edge on
-    // the rectangle, no dark rim where a transparent outside bled in.
+    // Mosaic FIRST and destructively: a gaussian alone is a reversible convolution, so
+    // privacy cannot rest on it. Runs in render(), so the preview IS what toDataURL gives.
     function pixelate(op) {
       const x0 = Math.round(Math.min(op.x1, op.x2));
       const y0 = Math.round(Math.min(op.y1, op.y2));
@@ -445,9 +354,8 @@ window.AnnotateCore = (() => {
       soften(cx, cy, cw, ch);
     }
 
-    // The second pass. `filter` is a canvas-2d feature (Chrome 123+ is the floor
-    // here); where it is missing the mosaic simply stays, which is the picture
-    // this tool shipped with and still hides what it has to.
+    // `ctx.filter` is canvas-2d (Chrome 123+); without it the mosaic alone still hides
+    // the data. The padded source keeps a transparent outside from bleeding a rim in.
     function soften(cx, cy, cw, ch) {
       const pad = Math.min(BLUR_R * 2, cx, cy, W - (cx + cw), H - (cy + ch));
       const sx = cx - pad;
@@ -472,8 +380,7 @@ window.AnnotateCore = (() => {
       } catch { /* no filter support: the mosaic stands on its own */ }
     }
 
-    // Crop preview: everything OUTSIDE the drag is scrimmed, so the gesture reads
-    // as "this is what survives". UI only — it never reaches the export.
+    // UI only — the scrim never reaches the export.
     function drawCropPreview(op) {
       const b = rectOf(op);
       ctx.save();
@@ -491,9 +398,8 @@ window.AnnotateCore = (() => {
     }
 
     // ---- geometry / hit-testing (Select tool, #68) ------------------------
-    // The canvas is at natural resolution but CSS-scaled to fit the stage, so
-    // tolerances are converted CSS px -> natural px: the grab zone then feels
-    // the same on screen whatever the capture resolution.
+    // The canvas is natural-resolution but CSS-scaled, so tolerances convert CSS px ->
+    // natural px: the grab zone feels the same whatever the capture resolution.
     function natPerCss() {
       if (!canvas) return 1;
       const r = canvas.getBoundingClientRect();
@@ -523,8 +429,7 @@ window.AnnotateCore = (() => {
       return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0));
     }
 
-    // Text bbox: measured width at the committed font, height ≈ size × 1.25
-    // from (x, y) — the label is drawn with textBaseline 'top'.
+    // Height ≈ size × 1.25 down from (x, y): the label is drawn with textBaseline 'top'.
     function textBox(op) {
       const size = textSizeFor(op);
       ctx.save();
@@ -550,8 +455,7 @@ window.AnnotateCore = (() => {
           x2: Math.max(...xs) + pad, y2: Math.max(...ys) + pad,
         };
       }
-      // A bent arrow leaves its own end-to-end box, so the box is taken off the
-      // curve as drawn (the head is inside it — it is drawn back from the tip).
+      // A bent arrow leaves its end-to-end box, so the bbox comes off the curve as drawn.
       if (op.tool === 'arrow' && curved(op)) {
         const pts = arrowPath(op);
         const xs = pts.map((p) => p.x);
@@ -609,21 +513,6 @@ window.AnnotateCore = (() => {
     }
 
     // ---- selection handles -------------------------------------------------
-    // A shape that can only be MOVED is a shape that has to be deleted and drawn
-    // again to be a little bigger — which loses its place on the picture. So the
-    // geometric ops carry grips:
-    //
-    //   Box · Ellipse · Blur   the four corners; the one dragged writes the pair
-    //                          of coordinates it is made of, so the opposite
-    //                          corner stays put whichever way the shape was drawn
-    //   Line                   its two ends
-    //   Arrow                  its two ends AND a bend in the middle, which is
-    //                          the one grip that changes the SHAPE rather than
-    //                          the size: an arrow that has to reach around a
-    //                          dialog is the ordinary case in a screenshot
-    //
-    // Freehand ink, a label and a step badge have none: a path is its own shape,
-    // and the other two are sized by the weight.
     function handlesOf(op) {
       if (!op) return [];
       if (op.tool === 'rect' || op.tool === 'ellipse' || op.tool === 'pixelate') {
@@ -645,7 +534,7 @@ window.AnnotateCore = (() => {
       }
       return [];
     }
-    // Write one grip's new position back into the op.
+    // A corner grip writes the coordinate pair it is named for, so the opposite corner stays.
     function moveHandle(op, id, x, y) {
       if (id === 'bend') { Object.assign(op, arrowCtrl(op, x, y)); return; }
       if (id === 'a') { op.x1 = x; op.y1 = y; return; }
@@ -653,16 +542,12 @@ window.AnnotateCore = (() => {
       if (id.includes('x1')) op.x1 = x; else op.x2 = x;
       if (id.includes('y1')) op.y1 = y; else op.y2 = y;
     }
-    // The grip under the pointer, if any — grips win over the shape's body, so a
-    // corner is always grabbable even when the shape is small.
     function handleAt(op, x, y) {
       const tol = HANDLE_HIT_CSS * natPerCss();
       for (const h of handlesOf(op)) if (Math.hypot(x - h.x, y - h.y) <= tol) return h;
       return null;
     }
-    // What the pointer says a grip will do. The two diagonals are read off the
-    // shape as it stands, so a box dragged right-to-left still names the corner
-    // the hand is actually on.
+    // Diagonals are read off the shape as it stands, so a box dragged right-to-left fits.
     function handleCursor(op, h) {
       if (h.id === 'bend') return 'crosshair';
       if (h.id === 'a' || h.id === 'b') return 'move';
@@ -671,9 +556,7 @@ window.AnnotateCore = (() => {
       return (main !== flipped) ? 'nwse-resize' : 'nesw-resize';
     }
 
-    // Selection marquee: white underlay + dark dash so it reads on any
-    // screenshot, then the grips on top. Drawn after every op and never exported
-    // (see exportJpeg).
+    // White underlay + dark dash so the marquee reads on any screenshot; never exported.
     function drawSelection() {
       const op = ops[selected];
       if (!op) return;
@@ -694,16 +577,13 @@ window.AnnotateCore = (() => {
       ctx.strokeStyle = '#171717'; // neutral-900 — fixed marquee ink, not a theme token
       ctx.strokeRect(x, y, w, h);
       ctx.setLineDash([]);
-      // The grips: a filled square in the marquee's own two inks, so the picture
-      // under them cannot swallow one. Same fixed colours, same reason.
       const g = HANDLE_CSS * s;
       ctx.lineWidth = 1.5 * s;
       for (const hd of handlesOf(op)) {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
         ctx.strokeStyle = '#171717';
         ctx.beginPath();
-        // The bend is round — it changes the line's shape, where a square corner
-        // changes its size, and one look has to tell them apart.
+        // Round for the bend, square for a size grip — one look has to tell them apart.
         if (hd.id === 'bend') ctx.arc(hd.x, hd.y, g / 2, 0, Math.PI * 2);
         else ctx.rect(hd.x - g / 2, hd.y - g / 2, g, g);
         ctx.fill();
@@ -713,17 +593,14 @@ window.AnnotateCore = (() => {
     }
 
     // ---- history ----------------------------------------------------------
-    // Undo is a bounded stack of {ops, crop} states pushed BEFORE every mutating
-    // action (add, move-commit, delete, restyle, crop): ops.pop() could only ever
-    // undo an add, and a crop is not in ops at all. Redo is the mirror stack — a
-    // fresh mutation clears it, which is the one rule every editor shares.
+    // Snapshots of {ops, crop} pushed BEFORE every mutation: ops.pop() would only undo
+    // an add, and a crop is not in ops at all. A fresh mutation clears the redo stack.
     const copyOps = () => ops.map((o) => (o.pts ? { ...o, pts: o.pts.map((p) => ({ ...p })) } : { ...o }));
     const snapshot = () => ({ ops: copyOps(), crop: { ...crop } });
     function restore(snap) {
       ops.splice(0, ops.length, ...snap.ops);
       selected = null;
-      // The snapshot's ops are already in the snapshot's crop coordinates, so this
-      // resizes WITHOUT the shift a fresh crop applies.
+      // The snapshot's ops are already in its crop coords — resize WITHOUT the shift.
       resizeToCrop(snap.crop);
     }
     function pushHistory(snap) {
@@ -739,9 +616,8 @@ window.AnnotateCore = (() => {
     }
 
     // ---- crop -------------------------------------------------------------
-    // `crop` is a window on the ORIGINAL image. Two ways in: resize the canvas to
-    // a crop whose coordinates the ops are ALREADY in (boot, undo/redo), or move
-    // the window and drag the ops along with it (the crop tool).
+    // `crop` is a window on the ORIGINAL image. Two ways in: resize to a crop the ops
+    // are ALREADY in (boot, undo/redo), or move the window and drag the ops with it.
     function resizeToCrop(next) {
       crop = { ...next };
       W = crop.w;
@@ -760,8 +636,7 @@ window.AnnotateCore = (() => {
       }
       resizeToCrop(next);
     }
-    // Commit a crop drawn in CANVAS coords: it composes with the crop already in
-    // force, and is clamped to it (a drag off the edge cannot grow the picture).
+    // Canvas coords: composes with the crop in force and is clamped to it.
     function applyCrop(box) {
       const x1 = Math.max(0, Math.round(Math.min(box.x1, box.x2)));
       const y1 = Math.max(0, Math.round(Math.min(box.y1, box.y2)));
@@ -777,8 +652,8 @@ window.AnnotateCore = (() => {
 
     // ---- pointer drawing --------------------------------------------------
     let drag = null;
-    let moveDrag = null;      // { x, y, before, moved } while dragging the selection
-    let sizeDrag = null;      // { id, before, moved } while dragging one of its grips
+    let moveDrag = null;
+    let sizeDrag = null;
     function toNatural(e) {
       const r = canvas.getBoundingClientRect();
       return {
@@ -786,25 +661,22 @@ window.AnnotateCore = (() => {
         y: (e.clientY - r.top) * (canvas.height / r.height),
       };
     }
-    // The style every new op is born with. Blur and Crop carry none — one has no
-    // ink, the other is not an op at all.
     const inkFor = (t) => (INKED.has(t) ? { color, width: weight } : {});
 
     function onDown(e) {
       if (tool === 'select') { onSelectDown(e); return; }
       // preventDefault: the click's default action would move focus off the just-
       // opened input, whose empty-blur handler would instantly cancel it.
-      if (tool === 'text') { e.preventDefault(); openTextInput(e); return; } // a click, not a drag
-      if (tool === 'number') { e.preventDefault(); dropNumber(e); return; }  // a click too
+      if (tool === 'text') { e.preventDefault(); openTextInput(e); return; }
+      if (tool === 'number') { e.preventDefault(); dropNumber(e); return; }
       canvas.setPointerCapture?.(e.pointerId);
       const p = toNatural(e);
       if (FREEHAND.has(tool)) { drag = { pts: [{ x: p.x, y: p.y }] }; return; }
       drag = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     }
 
-    // Select + double-click on a label reopens it as the input that wrote it.
-    // (The two clicks under it have already selected it and armed a move that
-    // never moved — that arming is dropped here, so the retype starts clean.)
+    // The two clicks under it armed a move that never moved; dropping it here starts
+    // the retype clean.
     function onDblClick(e) {
       if (tool !== 'select') return;
       const p = toNatural(e);
@@ -815,13 +687,11 @@ window.AnnotateCore = (() => {
       editText(i);
     }
 
-    // Select tool: a grip resizes, a hit selects (and arms a move), empty space
-    // deselects. The pre-drag snapshot is taken here but only committed on a real
-    // move (onUp) — a plain selecting click must not add an undo step.
+    // The pre-drag snapshot is taken here but committed only on a real move (onUp):
+    // a plain selecting click must not add an undo step.
     function onSelectDown(e) {
       const p = toNatural(e);
-      // A grip belongs to the CURRENT selection and beats everything under it:
-      // a corner sits on top of its own shape, and often on top of another.
+      // A grip belongs to the CURRENT selection and beats everything under it.
       const held = selected != null ? handleAt(ops[selected], p.x, p.y) : null;
       if (held) {
         canvas.setPointerCapture?.(e.pointerId);
@@ -840,8 +710,7 @@ window.AnnotateCore = (() => {
     }
 
     // ---- number tool ------------------------------------------------------
-    // The counter is DERIVED, never stored: undoing a badge has to give its
-    // number back, and a separate counter would drift the moment it did.
+    // The counter is DERIVED, never stored — a stored one would drift on undo.
     function nextNumber() {
       let max = 0;
       for (const op of ops) if (op.tool === 'number' && op.n > max) max = op.n;
@@ -855,20 +724,11 @@ window.AnnotateCore = (() => {
     }
 
     // ---- text tool --------------------------------------------------------
-    // A click opens a positioned inline <input> over the click point (CSS coords);
-    // Enter (or a non-empty blur) commits {tool:'text', x, y, text} in NATURAL
-    // coords, Esc (or an empty blur) cancels. Only one input is open at a time.
-    //
-    // The SAME input retypes a label already on the picture — Select, then
-    // double-click it. Text is the one op whose content is not its geometry, so
-    // it is the one op that cannot be corrected by dragging: without this, fixing
-    // a typo means deleting the label and drawing it again in the right place.
-    // `edit` is the op the input stands in for, and while it stands in for one
-    // the canvas stops drawing that op (there would otherwise be two of it).
-    let textInput = null;     // { input, x, y, size, edit } while editing
+    // The input is placed in CSS coords but commits in NATURAL ones. `edit` is the op
+    // it stands in for; while it does, render() skips that op (there would be two).
+    let textInput = null;
 
-    // Place the input over a point in NATURAL canvas coords, in the ink and at
-    // the on-screen size the committed label has (natural size × the CSS scale).
+    // Placed at NATURAL coords, sized natural × the CSS scale so it matches the label.
     function mkTextInput({ x, y, size, ink, value, edit }) {
       removeTextInput();
       const rect = canvas.getBoundingClientRect();
@@ -899,7 +759,6 @@ window.AnnotateCore = (() => {
       const p = toNatural(e);
       mkTextInput({ x: p.x, y: p.y, size: Math.round(textSize() * (weight / WIDTH)), ink: color });
     }
-    // Reopen a committed label as the input that wrote it.
     function editText(i) {
       const op = ops[i];
       if (!op || op.tool !== 'text') return false;
@@ -916,8 +775,7 @@ window.AnnotateCore = (() => {
     }
     function onTextBlur() {
       if (!textInput) return;
-      // A retype always commits: emptying an existing label is a real edit
-      // (below), where emptying a NEW one is just a click that changed its mind.
+      // A retype always commits — emptying an existing label is a real edit (below).
       if (textInput.edit || textInput.input.value.trim()) commitText(); else cancelText();
     }
     function commitText() {
@@ -929,8 +787,7 @@ window.AnnotateCore = (() => {
       if (edit) {
         const i = ops.indexOf(edit);
         if (i < 0) { render(); return; }        // deleted under the input
-        // Retyped to nothing, the label is gone — the same as deleting it, and
-        // as undoable. Anything else is one undo step for the new wording.
+        // Retyped to nothing == deleted, and as undoable.
         if (!body) {
           pushHistory();
           ops.splice(i, 1);
@@ -981,8 +838,6 @@ window.AnnotateCore = (() => {
         return;
       }
       if (tool === 'select') {
-        // Hover affordance: the grip's own cursor over a grip, 'move' over a hit
-        // (the class), the plain pointer over the picture.
         const p = toNatural(e);
         const held = selected != null ? handleAt(ops[selected], p.x, p.y) : null;
         canvas.style.cursor = held ? handleCursor(ops[selected], held) : '';
@@ -992,8 +847,7 @@ window.AnnotateCore = (() => {
       if (!drag) return;
       const p = toNatural(e);
       if (drag.pts) {
-        // Thin the path: a pointer emits far more samples than the curve needs,
-        // and every one of them would be stored and re-stroked.
+        // Thin the path: a pointer emits far more samples than the curve needs.
         const last = drag.pts[drag.pts.length - 1];
         if (Math.hypot(p.x - last.x, p.y - last.y) >= 1.5) drag.pts.push({ x: p.x, y: p.y });
         render({ tool, pts: drag.pts, ...inkFor(tool) });
@@ -1012,8 +866,7 @@ window.AnnotateCore = (() => {
         return;
       }
       if (moveDrag) {
-        // One drag == one undo step: the snapshot lands on release, and only if
-        // the op actually moved (a plain selecting click must not add a step).
+        // One drag == one undo step, and only if the op actually moved.
         if (moveDrag.moved) pushHistory(moveDrag.before);
         moveDrag = null;
         render();
@@ -1039,7 +892,7 @@ window.AnnotateCore = (() => {
     function setTool(t) {
       if (!TOOLS.some((x) => x.id === t)) return;
       tool = t;
-      selected = null;   // a selection never survives a tool switch (Backspace vs the text input)
+      selected = null;   // a selection never survives a tool switch
       moveDrag = null;
       sizeDrag = null;
       removeTextInput();
@@ -1047,8 +900,7 @@ window.AnnotateCore = (() => {
       for (const spec of TOOLS) {
         const b = toolBtns[spec.id];
         if (!b) continue;
-        // `selected` is the LIBRARY's chosen-control class (components.css) —
-        // the same state a picked filter or a picked view wears everywhere else.
+        // `selected` is the shared chosen-control class (components.css).
         b.classList.toggle('selected', spec.id === t);
         b.setAttribute('aria-pressed', spec.id === t ? 'true' : 'false');
       }
@@ -1063,17 +915,13 @@ window.AnnotateCore = (() => {
     }
 
     // ---- the drawing cursor -------------------------------------------------
-    // The freehand tools put the TOOL in the hand, in the ink it is about to lay
-    // down: the colour is then under the pointer, where the drawing is, instead
-    // of only up on the bar. Built from the same Material path the tool's own
-    // button wears (shared/icons.js), so the cursor and the button cannot drift.
+    // Built from the same Material path the tool's button wears (shared/icons.js).
     function cursorFor(t) {
       const name = CURSOR_GLYPH[t];
       const path = name && typeof Icons !== 'undefined' && Icons.PATHS ? Icons.PATHS[name] : null;
       if (!path) return '';
       const box = Icons.boxOf ? Icons.boxOf(name) : '0 -960 960 960';
-      // A halo in the opposite ink, so the glyph survives both a white dialog and
-      // a dark screenshot — the same rule the white step badge follows.
+      // A halo in the opposite ink, so the glyph survives a white dialog and a dark shot.
       const halo = color === '#ffffff' ? '#171717' : '#ffffff';
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CURSOR_PX}" height="${CURSOR_PX}" viewBox="${box}">`
         + `<path d="${path}" fill="${color}" stroke="${halo}" stroke-width="72"`
@@ -1086,8 +934,7 @@ window.AnnotateCore = (() => {
       canvas.style.cursor = cursorFor(tool);   // '' hands it back to the CSS classes
     }
 
-    // Picking a colour or a weight while an annotation is selected RESTYLES it —
-    // the same gesture Jam has, and the reason the ink lives outside the ops.
+    // Picking a colour or a weight while something is selected RESTYLES it.
     function restyleSelected() {
       const op = ops[selected];
       if (!op || !INKED.has(op.tool)) return false;
@@ -1108,8 +955,6 @@ window.AnnotateCore = (() => {
       paintInkBtns();
     }
     function paintInkBtns() {
-      // The trigger IS the current ink — a swatch that says what the next stroke
-      // will be, which is the whole reason the row folded into one control.
       if (inkBtn) {
         const c = PALETTE.find((p) => p.hex === color);
         inkBtn.style.setProperty('--swatch', color);
@@ -1134,7 +979,7 @@ window.AnnotateCore = (() => {
       const found = PALETTE.find((c) => c.id === hexOrId || c.hex === hexOrId);
       color = found ? found.hex : color;
       paintInkBtns();
-      paintCursor();   // the pen in the hand is the ink it draws with
+      paintCursor();
       if (textInput) textInput.input.style.color = color;
       restyleSelected();
     }
@@ -1169,8 +1014,7 @@ window.AnnotateCore = (() => {
     }
 
     // ---- export / hand-off ------------------------------------------------
-    // The marquee lives on the canvas, so it must be off it while the pixels are
-    // read back: re-render clean, encode, restore the selection.
+    // The marquee lives on the canvas — it must be off it while pixels are read back.
     function withCleanCanvas(fn) {
       const sel = selected;
       if (sel != null) { selected = null; render(); }
@@ -1189,11 +1033,8 @@ window.AnnotateCore = (() => {
       flashTimer = setTimeout(() => { if (flash) flash.textContent = ''; }, FLASH_MS);
     }
 
-    // Copy: PNG, because that is the only image type the clipboard reliably takes.
-    // It can still be refused (no focus, no permission) — the bar says which.
-    // The marquee is taken off by hand rather than through withCleanCanvas:
-    // toBlob is asynchronous, so the selection has to stay off the canvas until
-    // the encoder has actually answered.
+    // PNG: the only image type the clipboard reliably takes, and it can still be refused.
+    // The marquee comes off by hand, not via withCleanCanvas — toBlob is async.
     async function copyImage() {
       const sel = selected;
       if (sel != null) { selected = null; render(); }
@@ -1209,8 +1050,7 @@ window.AnnotateCore = (() => {
       }
     }
 
-    // Download: a real anchor click, so the browser owns the save dialog and the
-    // image never leaves the machine.
+    // A real anchor click: the browser owns the save dialog, the image never leaves.
     function downloadImage() {
       try {
         const a = doc.createElement('a');
@@ -1230,8 +1070,7 @@ window.AnnotateCore = (() => {
       img = null;
     }
 
-    // Apply: flatten the annotations and hand back the merged JPEG. Drops the
-    // un-blurred original from memory before reporting back (privacy).
+    // Drops the un-blurred original from memory before reporting back (privacy).
     async function applyResult() {
       if (done) return;
       done = true;
@@ -1241,10 +1080,8 @@ window.AnnotateCore = (() => {
       await onApply(resultDataUrl);
     }
 
-    // Keep original: hand back the ORIGINAL un-annotated image (annotations AND
-    // the crop are dropped, the shot is kept). Same callback as Apply — the
-    // consumer treats a returned dataURL identically (owner-approved: keep
-    // stages/uploads the raw shot). Esc + overlay/tab close route here.
+    // Hands the ORIGINAL shot back through the SAME onApply as Apply — deliberate: the
+    // consumer stages the raw shot instead of dropping it. Esc and overlay close route here.
     async function keepResult() {
       if (done) return;
       done = true;
@@ -1260,8 +1097,7 @@ window.AnnotateCore = (() => {
       await onCancel();
     }
 
-    // Discard button: confirm only when work was actually done (a crop counts —
-    // it is as destructive to lose as a drawing).
+    // Confirm only when work was actually done — a crop counts (history.length).
     function requestDiscard() {
       if ((ops.length || history.length) && !confirmDiscard()) return;
       discardResult();
@@ -1278,14 +1114,8 @@ window.AnnotateCore = (() => {
     }
 
     // ---- chrome -----------------------------------------------------------
-    // `icon` is a Material Symbols name from shared/icons.js — injected into the
-    // page alongside this file, and loaded before it on the editor page.
-    //
-    // One tooltip in both hosts: shared/tooltip.js is loaded on the editor page
-    // and injected with this file into the overlay, where it is mounted INTO the
-    // shadow root (a document-level hit test only ever finds the shadow host).
-    // The browser's `title` is the last resort — an injection that lost the
-    // tooltip must still say what its buttons do.
+    // icons.js must load before this file in both hosts; Tooltip can be missing after
+    // an injection, so the browser's `title` is the fallback.
     function tip(el, text) {
       if (!text) return;
       if (typeof Tooltip !== 'undefined') Tooltip.set(el, text);
@@ -1295,10 +1125,8 @@ window.AnnotateCore = (() => {
     function mkBtn(id, label, title, cls, icon) {
       const b = doc.createElement('button');
       b.id = id;
-      // `btn` is the shared control (shared/components.css) in BOTH hosts now —
-      // the overlay's shadow root is handed that stylesheet at injection time, so
-      // this toolbar is made of library buttons rather than of a copy of them.
-      // `annot-btn` is left as the hook this file's own layout rules aim at.
+      // `btn` is the shared control (shared/components.css); the overlay's shadow root
+      // is handed that stylesheet at injection. `annot-btn` is this file's layout hook.
       b.className = `btn annot-btn${cls ? ` ${cls}` : ''}`;
       b.type = 'button';
       const mark = icon && Icons.elIn(doc, icon, 16);
@@ -1327,8 +1155,7 @@ window.AnnotateCore = (() => {
       return s;
     }
 
-    // The eleven tools, icon-only: at this count a word per button is a second
-    // toolbar, and the letter in the tip is the label that actually gets learnt.
+    // Icon-only: eleven labelled buttons would be a second toolbar.
     function mkToolRail() {
       const rail = doc.createElement('div');
       rail.className = 'annot-group';
@@ -1343,16 +1170,8 @@ window.AnnotateCore = (() => {
       return rail;
     }
 
-    // The ink, as ONE control: a swatch showing the colour in force, which opens
-    // the eight over it. Eleven tools, eight swatches and three weights did not
-    // fit a 380px bar without wrapping it onto a second line, and seven of those
-    // eight swatches are, at any moment, answering a question nobody asked. The
-    // colours themselves stay inline `--swatch` values: they are data (the ink
-    // that will be in the picture), not a theme decision.
-    //
-    // A hand-built popover rather than shared/dropdown.js: this file is injected
-    // into a page on its own, so it has no dependency to call, and a menu with a
-    // row of swatches in it is not the field-with-a-list that component builds.
+    // Hand-built popover, not shared/dropdown.js: this file is injected on its own and
+    // has no dependency to call. `--swatch` stays inline — it is ink data, not a theme.
     function mkInkPicker() {
       const wrap = doc.createElement('div');
       wrap.className = 'annot-ink';   // position: relative — the menu hangs off it
@@ -1382,8 +1201,7 @@ window.AnnotateCore = (() => {
         b.style.setProperty('--swatch', c.hex);
         b.setAttribute('aria-label', c.label);
         tip(b, c.label);
-        // Picking is an answer, so the menu closes on it — and the keyboard goes
-        // back to the control that opened it, never to nothing.
+        // Focus goes back to the control that opened the menu, never to nothing.
         b.addEventListener('click', () => { setColor(c.hex); closeInkMenu(true); });
         swatchBtns[c.id] = b;
         row.append(b);
@@ -1426,8 +1244,6 @@ window.AnnotateCore = (() => {
       return seg;
     }
 
-    // The keyboard map, spelled out — every letter below is bound in onKeyDown,
-    // and this list is built from the SAME TOOLS table, so it cannot go stale.
     function mkHelp() {
       const box = doc.createElement('div');
       box.className = 'annot-help';
@@ -1469,9 +1285,8 @@ window.AnnotateCore = (() => {
       wrap.className = 'annot';
 
       const bar = doc.createElement('header');
-      // `bar` is the shared page-chrome row on the editor page; in the overlay's
-      // shadow root, which that stylesheet cannot reach, `annot-bar` carries the
-      // whole shape instead.
+      // `bar` is the shared page-chrome row on the editor page; in the overlay's shadow
+      // root, which that stylesheet cannot reach, `annot-bar` carries the shape.
       bar.className = 'bar sticky annot-bar';
 
       undoBtn = mkBtn('annot-undo', '', 'Undo (⌘/Ctrl Z) — a move, a delete and a crop count too', 'icon', 'undo');
@@ -1524,9 +1339,8 @@ window.AnnotateCore = (() => {
       keepBtn.addEventListener('click', keepResult);
       applyBtn.addEventListener('click', applyResult);
 
-      // Anywhere else in the overlay closes the ink menu. On `wrap` and in the
-      // capture phase: in the on-page overlay a document-level listener sees the
-      // shadow HOST as the target and could not tell inside from outside.
+      // On `wrap` and in the capture phase: a document-level listener sees the shadow
+      // HOST as the target and could not tell inside from outside.
       wrap.addEventListener('pointerdown', (e) => {
         if (!inkMenu || inkMenu.hidden) return;
         if (!(e.target && e.target.closest && e.target.closest('.annot-ink'))) closeInkMenu();
@@ -1543,9 +1357,7 @@ window.AnnotateCore = (() => {
     }
 
     // ---- keyboard ---------------------------------------------------------
-    // One letter per tool, the digits for the palette, the brackets for the
-    // weight — the map Jam trained testers on. Nothing here fires while the text
-    // input owns the keyboard (its own keydown stops the event before this).
+    // Nothing here fires while the text input owns the keyboard (its keydown stops it).
     function onKey(e) {
       const mod = e.metaKey || e.ctrlKey;
       if (e.key === 'Escape') {
@@ -1591,23 +1403,20 @@ window.AnnotateCore = (() => {
     }
 
     // ---- e2e hooks (same philosophy as the editor's window.__tc) ----------
-    // `add`/`undo` run the SAME ops list + render as a pointer gesture, in natural
-    // canvas coordinates; `pixelAt` reads the live canvas (pre-JPEG) so the block
-    // invariant is asserted losslessly.
+    // Natural canvas coords, same ops list + render as a pointer gesture; `pixelAt`
+    // reads the live canvas (pre-JPEG), so the block invariant is lossless.
     const hooks = {
       ready: false,
       natural: () => ({ w: W, h: H }),
       ops: () => copyOps(),
       tool: () => tool,
       setTool,
-      // The ink, readable and settable — `setColor` takes a palette id or a hex,
-      // `setWidth` an id ('s'|'m'|'l') or the pixel weight.
+      // setColor takes a palette id or a hex; setWidth an id ('s'|'m'|'l') or the px weight.
       palette: () => PALETTE.map((c) => ({ ...c })),
       color: () => color,
       width: () => weight,
       setColor,
       setWidth: setWeight,
-      // The step badge's radius at the ink in force — the weight sizes it.
       badgeRadius: () => numberRadius(),
       add: (op) => {
         const t = op.tool || tool;
@@ -1616,8 +1425,7 @@ window.AnnotateCore = (() => {
         if (t === 'text') ops.push({ tool: 'text', x: op.x, y: op.y, text: op.text, size: op.size, ...ink });
         else if (t === 'number') ops.push({ tool: 'number', x: op.x, y: op.y, n: op.n || nextNumber(), r: op.r || numberRadius(), ...ink });
         else if (op.pts) ops.push({ tool: t, pts: op.pts.map((p) => ({ ...p })), ...ink });
-        // `cx, cy` rides along when it is given: a bent arrow is the same op with
-        // a control point, and a test has to be able to make one.
+        // `cx, cy` rides along when given — a bent arrow is the same op with a control point.
         else {
           const bend = op.cx != null && op.cy != null ? { cx: op.cx, cy: op.cy } : {};
           ops.push({ tool: t, x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2, ...bend, ...ink });
@@ -1626,8 +1434,7 @@ window.AnnotateCore = (() => {
       },
       undo,
       redo,
-      // Editing (#68) in the same natural coords: select hit-tests topmost-first
-      // and returns the index (null = empty space, i.e. a deselecting click).
+      // Returns the index, or null for empty space (a deselecting click).
       select: (x, y) => {
         selected = hitTest(x, y);
         if (selected != null) syncInkToSelection();
@@ -1648,8 +1455,6 @@ window.AnnotateCore = (() => {
         render();
         return true;
       },
-      // The grips of whatever is selected, and dragging one — the pointer gesture
-      // without a pointer (see handlesOf/moveHandle).
       handles: () => (selected == null ? [] : handlesOf(ops[selected]).map((h) => ({ ...h }))),
       dragHandle: (id, x, y) => {
         if (selected == null) return false;
@@ -1670,8 +1475,8 @@ window.AnnotateCore = (() => {
       download: () => downloadImage(),
       help: (on) => { toggleHelp(on); return !helpBox.hidden; },
       apply: () => applyResult(),
-      keep: () => keepResult(),        // hand back the original un-annotated shot
-      discard: () => discardResult(),  // hand back nothing (drop the shot)
+      keep: () => keepResult(),
+      discard: () => discardResult(),
       cancel: () => discardResult(),   // back-compat alias: old cancel == discard
     };
 
@@ -1691,7 +1496,7 @@ window.AnnotateCore = (() => {
     img.onload = () => {
       const iw = img.naturalWidth || img.width;
       const ih = img.naturalHeight || img.height;
-      resizeToCrop({ x: 0, y: 0, w: iw, h: ih });   // sizes the canvas and renders
+      resizeToCrop({ x: 0, y: 0, w: iw, h: ih });
       hooks.ready = true;
       if (opts.onReady) opts.onReady(hooks);
     };

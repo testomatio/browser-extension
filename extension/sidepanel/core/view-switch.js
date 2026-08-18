@@ -1,28 +1,9 @@
-// The header's surface switch (#208): "Open in window" in the side panel, "Dock
-// to side panel" in the window. ONE control with two states, in the project strip
-// beside Refresh and the way out to the web app — the strip is the panel's own
-// chrome, and which surface the panel is in is exactly that.
-//
-// Both surfaces are the SAME document, so switching is: open the other one, then
-// close this one. Nothing has to be carried across — the session restore that
-// already survives a panel close (core/storage.js) is what puts the tester back
-// on the run they were executing.
-//
-// The two directions are not symmetric, and the asymmetry is the user gesture:
-//
-//   → window        the worker owns `windows.create` (background.js), so this is
-//                   a message, and an await before closing costs nothing.
-//   → side panel    `chrome.sidePanel.open()` may only be called while the click
-//                   is still on the stack, and it needs the id of a NORMAL window
-//                   (a popup cannot host a side panel). So the id is kept fresh
-//                   here — seeded on load, then updated live from the worker's
-//                   focus tracking — and the call is the FIRST statement of the
-//                   handler, before anything that awaits.
+// The header's surface switch (#208): one control, two states — side panel ↔ window.
+// Both surfaces are the SAME document, so switching is: open the other, close this one.
 
 /* global $, toast, Icons, Tooltip, ViewMode, hasChrome */
 
-// Which surface this document is: asked once at init, because a document never
-// moves between surfaces — it is reopened in the other one.
+// Asked once at init: a document never moves between surfaces, it is reopened.
 let inPanelWindow = false;
 // The window a dock would open the side panel in. Read synchronously by the click.
 let hostWindowId = null;
@@ -33,11 +14,10 @@ async function initViewSwitch() {
   btn.addEventListener('click', onViewSwitch);
   if (!hasChrome || !chrome.windows) { btn.hidden = true; return; }
   inPanelWindow = await ViewMode.inPanelWindow();
-  // Only the window surface can dock, and only the dock needs this id — in the
-  // side panel the two window lookups it costs would buy nothing.
+  // Only the window surface can dock, and only the dock needs this id.
   if (inPanelWindow) hostWindowId = await ViewMode.normalWindowId();
-  // The worker records every focus change into a normal window; this keeps the id
-  // above in step with it, so the dock click never has to look one up.
+  // The worker records every focus change into a normal window; this keeps the id in
+  // step, so the dock click never has to look one up.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'session' && changes[ViewMode.NORMAL_KEY]) {
       const next = changes[ViewMode.NORMAL_KEY].newValue;
@@ -64,9 +44,8 @@ function onViewSwitch() {
   else openInWindow();
 }
 
-// Side panel → window. The preference is written only once the window is really
-// there: a failed create must not leave the toolbar icon pointing at a surface
-// that could not be opened.
+// Side panel → window. The preference is written only once the window is really there:
+// a failed create must not leave the toolbar icon pointing at an unopenable surface.
 async function openInWindow() {
   let res = null;
   try { res = await chrome.runtime.sendMessage({ type: 'VIEW_OPEN_WINDOW' }); } catch { res = null; }
@@ -78,8 +57,8 @@ async function openInWindow() {
   closeSurface();
 }
 
-// Window → side panel. `sidePanel.open()` FIRST — everything else here can wait,
-// and the gesture cannot.
+// `sidePanel.open()` must run while the click is still on the stack (so: before any
+// await) and needs the id of a NORMAL window — a popup cannot host a side panel.
 function dockToSidePanel() {
   if (hostWindowId == null) {
     toast('Open a browser window first — the side panel lives in one', { error: true });

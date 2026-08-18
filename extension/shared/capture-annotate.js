@@ -1,13 +1,5 @@
-// Shared capture + annotate helpers (IIFE global `CaptureAnnotate`). Relocated
-// from the removed quick-capture screen so BOTH the side panel (test-view attach,
-// hotkeys.js) and the editor page (in-editor Attach screenshot) can reuse one
-// copy. Same module style as TestomatParams — plain <script>
-// include, no bundler.
-//
-// The annotate handoff rides ONLY in chrome.storage.session under a random key
-// (never local/sync); the annotator overwrites that key with the result. Session
-// storage is opened to content scripts by the service worker (setAccessLevel
-// TRUSTED_AND_UNTRUSTED_CONTEXTS) so the injected overlay can read it.
+// Shared capture + annotate helpers (IIFE global `CaptureAnnotate`). The handoff rides in
+// chrome.storage.session (access level TRUSTED_AND_UNTRUSTED_CONTEXTS, so the overlay reads it).
 
 /* global resolveSiteTab, Theme */
 
@@ -15,17 +7,15 @@ const CaptureAnnotate = (() => {
   const hasChrome = typeof chrome !== 'undefined' && !!chrome.runtime;
   const noop = () => {};
 
-  // Neither capture path reaches a page Chrome keeps extensions off, so the
-  // resolver's verdict is the preflight: `ok` or the honest reason for this page.
+  // The resolver's verdict IS the preflight — no capture path may reach a restricted page.
   async function ensureCapturePermission() {
     if (!hasChrome || typeof resolveSiteTab !== 'function') return { ok: true };
     const site = await resolveSiteTab({ verb: 'captured' });
     return site.state === 'ok' ? { ok: true } : { ok: false, state: site.state, error: site.error };
   }
 
-  // Screenshot the active tab via the background worker (local API, no network).
-  // Returns { ok, dataUrl, tabId, error? }. Format is fixed at JPEG q80 in the
-  // worker (background.js captureShot) — `fullPage` is the only knob.
+  // Format is fixed at JPEG q80 in the worker (background.js captureShot); `fullPage` is the
+  // only knob. Local API, no network.
   async function captureTab({ fullPage = false } = {}) {
     if (!hasChrome || !chrome.runtime?.sendMessage) return { ok: false, error: 'no extension context' };
     const resp = await chrome.runtime
@@ -34,39 +24,21 @@ const CaptureAnnotate = (() => {
     return resp || { ok: false, error: 'no response' };
   }
 
-  // Inject the on-page annotator overlay into `targetTabId`. Returns true on
-  // success. A restricted page (or missing scripting API) throws → caller falls
-  // back to the editor tab. The key is stashed on the page's window first (a tiny
-  // bootstrap func in the SAME isolated world) so the injected overlay picks it up
-  // — and the colour scheme rides along with it, RESOLVED to light or dark here:
-  // the overlay runs in the site's document, where the Appearance setting cannot
-  // be read, so a page that resolved it itself would ignore a pinned theme.
-  // The overlay's toolbar is drawn with the LIBRARY's own stylesheet — the same
-  // shared/tokens.css + shared/components.css the panel and the editor page load
-  // — handed over as TEXT, because a shadow root in somebody else's document
-  // cannot <link> an extension file, and making those files web-accessible would
-  // let every page the overlay ever touches fingerprint this extension by
-  // fetching them. Read here, in the extension's own context, where they are
-  // just local resources (no network, Constitution IV).
-  //
-  // Two edits on the way in, both forced by the move:
-  //   :root → :host   the token block has to land on the shadow HOST; `:root` in
-  //                   there is the SITE's <html> and matches nothing.
-  //   @font-face out  its `url()`s are relative, so inside the site's document
-  //                   they would be fetched FROM THE SITE — a request to a
-  //                   stranger's server for a font we ship. The stacks fall back
-  //                   to the system faces, which is what the overlay always did.
+  // The library stylesheet is handed over as TEXT: a shadow root in another document cannot
+  // <link> an extension file, and web-accessible files would let any page fingerprint us.
   let libCss = null;
   async function libraryCss() {
     if (libCss != null) return libCss;
     const files = ['shared/tokens.css', 'shared/components.css'];
     const parts = await Promise.all(files.map((f) => fetch(chrome.runtime.getURL(f)).then((r) => r.text())));
     libCss = parts.join('\n')
-      .replace(/@font-face\s*\{[^}]*\}/g, '')
-      .replace(/:root\b/g, ':host');
+      .replace(/@font-face\s*\{[^}]*\}/g, '')   // relative url()s would be fetched FROM THE SITE
+      .replace(/:root\b/g, ':host');            // `:root` in a shadow root is the SITE's <html>
     return libCss;
   }
 
+  // The key and the RESOLVED colour scheme are stashed on the page's window first, in the
+  // SAME isolated world: the overlay runs in the site's document and cannot read Appearance.
   async function tryInjectOverlay(targetTabId, key) {
     if (targetTabId == null || !chrome.scripting?.executeScript) return false;
     const scheme = typeof Theme !== 'undefined' ? Theme.resolved() : null;
@@ -83,25 +55,15 @@ const CaptureAnnotate = (() => {
       });
       await chrome.scripting.executeScript({
         target: { tabId: targetTabId },
-        // icons.js first — annotate-core.js draws its toolbar from that set — and
-        // tooltip.js with them, so the toolbar's labels are the product's own
-        // tooltip rather than the browser's `title` (it is mounted INTO the
-        // shadow root by the overlay).
+        // icons.js first — annotate-core.js draws its toolbar from that set.
         files: ['shared/icons.js', 'shared/tooltip.js', 'shared/annotate-core.js', 'overlay/annotate-overlay.js'],
       });
       return true;
     } catch { /* restricted page → fallback */ return false; }
   }
 
-  // Annotate an image dataURL and resolve with a dataURL on Apply/Keep original,
-  // or null on Discard. PRIMARY path: inject the on-page overlay into the captured
-  // tab (no new browser tab). FALLBACK: if injection throws (chrome://, Web Store,
-  // PDF, file://), open the editor-tab annotator (editor.html?annotate=) and toast
-  // that the page can't host it. `tabId` names the tab to inject into.
-  //
-  // `opts.forceTab` skips the overlay and opens the editor tab directly, WITHOUT
-  // the fallback toast — a neutral surface for re-annotating a saved image.
-  // `opts.toast` is the caller's toast fn (panel `toast` / editor `showToast`).
+  // Resolves with a dataURL on Apply/Keep original, null on Discard. The on-page overlay is
+  // the primary path; a page that cannot host it falls back to the editor tab.
   function annotateImage(dataUrl, tabId, opts = {}) {
     const toast = typeof opts.toast === 'function' ? opts.toast : noop;
     if (!hasChrome || !chrome.storage?.session) {
@@ -129,8 +91,7 @@ const CaptureAnnotate = (() => {
         if (v.resultDataUrl) finish(v.resultDataUrl);
         else if (v.cancelled) finish(null);
       };
-      // A raw close of the editor tab (no button clicked → no storage write) maps
-      // to Keep original: hand back the raw shot, not a discard.
+      // A raw close of the editor tab (no storage write) maps to Keep original, not Discard.
       const onRemoved = (id) => { if (fallbackTabId != null && id === fallbackTabId) finish(dataUrl); };
       chrome.storage.session.onChanged.addListener(onChanged);
       chrome.tabs.onRemoved.addListener(onRemoved);

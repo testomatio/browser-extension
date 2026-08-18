@@ -1,37 +1,19 @@
-// Auto env-info captured on a status write (cycle 008a, M2 Evidence Kit).
-// Client-side only, collected at click time — no new permission or storage key;
-// the toggle rides on the existing `settings` object.
-//
-// Since #116 the facts no longer land in the comment as an `Env:` line: they are
-// written as testrun META keys (Browser / OS / Viewport / URL), so the Failure
-// box holds only the actual failure. test-view.js writeStatus is the only
-// consumer. The collector is status-agnostic — the meta write covers passed and
-// skipped too, which the comment line never did.
-//
-// These keys are UPLOADED on every status write, so they are user-facing: adding
-// or renaming one changes what a tester sees leave their browser.
+// Env info collected client-side at status-write time, written as testrun META keys.
+// They are UPLOADED on every write: a new or renamed key changes what leaves the browser.
 
-// Toggle: absent/undefined -> ON (the A2 undefined-rule);
-// explicit `false` -> OFF.
+// Toggle: absent/undefined -> ON; explicit `false` -> OFF.
 function envInfoEnabled(settings) {
   return !(settings && settings.envInfoOnFail === false);
 }
 
-// Full-URL toggle (#177): absent/undefined -> OFF, the INVERSE of the
-// undefined-rule above and deliberately so. A query string routinely carries a
-// password-reset token, a signed link or a session id, and whatever lands here is
-// visible to everyone with project access — so the safe value is the one you get
-// without deciding.
+// Full-URL toggle (#177): absent/undefined -> OFF, deliberately the INVERSE of the
+// rule above — a query string can carry a session id, and project members see it.
 function envFullUrlEnabled(settings) {
   return !!(settings && settings.envFullUrl === true);
 }
 
-// Always REBUILT from `origin + pathname`, never short-circuited back to the raw
-// string: `origin` also drops `user:pass@` userinfo, which is the same class of
-// secret as a query token. The trailing `(query trimmed)` marks a value that lost
-// something — compared against the parsed href, so a URL with nothing to lose
-// stays unmarked.
-// Anything unparseable is passed through; envActiveTabUrl only yields http(s).
+// Always REBUILT from `origin + pathname`, never the raw string: `origin` also drops
+// `user:pass@` userinfo, the same class of secret as a query token.
 function envTrimUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return raw; }
@@ -60,9 +42,8 @@ function uaOs(ua) {
   return 'Unknown';
 }
 
-// Browser brand + major. Prefers UA-Client-Hints (low-entropy brands expose only
-// the major version, which is exactly what we want); the panel's own UA equals
-// the tested tab's UA.
+// Prefers UA-Client-Hints (low-entropy brands expose only the major version);
+// the panel's own UA equals the tested tab's UA.
 function envBrowser() {
   const brands = navigator.userAgentData?.brands;
   if (Array.isArray(brands) && brands.length) {
@@ -82,9 +63,8 @@ function envOs() {
   return navigator.userAgentData?.platform || uaOs(navigator.userAgent);
 }
 
-// Active tab URL via resolveSiteTab — the same verdict every page-touching feature
-// uses. '' for anything but an http(s) tab we can read (a restricted page, no
-// tab), so the URL segment is simply omitted rather than failing the comment.
+// Active tab URL via resolveSiteTab. '' for anything but a readable http(s) tab,
+// so the URL key is omitted rather than failing the write.
 async function envActiveTabUrl() {
   try {
     if (typeof resolveSiteTab !== 'function') return '';
@@ -93,11 +73,8 @@ async function envActiveTabUrl() {
   } catch { return ''; }
 }
 
-// The env facts as `[key, value]` meta pairs (#116) — the shape the testrun-meta
-// write takes. Empty array when the toggle is off, so the caller skips the write
-// entirely. `URL` is simply omitted when the active tab is not a readable http(s)
-// page: the same graceful degradation the `Env:` line had, one key short rather
-// than a failed write.
+// The env facts as `[key, value]` meta pairs — the shape the testrun-meta write
+// takes. Empty when the toggle is off, so the caller skips the write entirely.
 async function collectEnvMeta(settings) {
   if (!envInfoEnabled(settings)) return [];
   const entries = [

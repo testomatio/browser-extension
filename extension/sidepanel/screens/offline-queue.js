@@ -1,43 +1,28 @@
-// Offline queue (M4 cycle 2): a status click that fails on a network error or a
-// transient 401/403 «paused» token is applied locally and queued in
-// chrome.storage.local (survives restart), shown as pending, and replayed when
-// connectivity returns. Only test status writes ✓/✗/– (incl. the FAIL comment)
-// are queued — the run hot path; assign/custom status/finish/steps/attachments
-// fail honestly as before. Conflict policy is queue-wins (last-write-wins, same
-// as the server). Drains from the PANEL only (background is untouched): a closed
-// panel means the queue waits for the next open.
+// Offline queue: ONLY test status writes are queued (on network / transient
+// 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
 /* global TestomatAPI, state, capabilities, hasChrome, isReadonlyError, recordFor,
    runRowEl, repaintRow, toast, writeStatus, runStatusTerminal, $, Tooltip */
 
-// The drain is the ONE write path that outlives the run view, so it re-checks the
-// target run's write lock itself (#152 finished, #186 archived + automated) — see
-// dropLockedRunEntries below.
-
-// One entry PER record id (the only identity that separates two example rows of
-// a parametrized test); a newer click replaces the older, so only the final
-// status replays. In-memory cache is the source of truth for the synchronous
-// marker/count reads; storage is written through on every mutation.
+// One entry PER record id — the only identity separating two example rows of a
+// parametrized test; a newer click replaces the older, so only the final replays.
 let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, comment, queuedAt} }
 let queueDraining = false;  // FIFO, one drain at a time — no retry storm
 let queueRedrainRequested = false; // #192: a trigger that arrived mid-drain, honoured once after it
 let queueLastPass = false;         // the running pass is the last one — no more can be promised
-// e2e write-failure hook (storage.session `forceWriteFail`, mirroring the
-// pollInterval/stepRecCap precedent): null | 'network' | 'auth'. Cached and kept
-// live via storage.session.onChanged so writeStatus consults it with no per-call
-// storage read.
+// e2e hook (storage.session `forceWriteFail`): null | 'network' | 'auth', kept
+// live via onChanged so writeStatus needs no per-call storage read.
 let forceFail = null;
 
 const QUEUE_KEY = 'offlineQueue';
 const qKey = (recordId) => String(recordId);
 const normalizeFlag = (v) => (!v ? null : v === 'auth' ? 'auth' : 'network');
 
-// Only a network error or a 401/403 «paused» token qualifies for queueing; every
-// other API error (4xx validation, etc.) keeps today's honest error toast.
+// Only a network error or a 401/403 «paused» token queues; every other API error
+// keeps its honest error toast.
 function queueQualifies(e) { return !!e && (e.kind === 'network' || e.kind === 'auth'); }
 
-// The synthetic write failure for the e2e hook — a real ApiError so `qualifies`
-// and the caller treat it exactly like the live failure it stands in for.
+// A real ApiError, so callers treat it exactly like the live failure it stands in for.
 function forcedError() {
   if (!forceFail) return null;
   const kind = forceFail === 'auth' ? 'auth' : 'network';
@@ -52,9 +37,8 @@ async function persistQueue() {
   try { await chrome.storage.local.set({ [QUEUE_KEY]: queueCache }); } catch { /* best effort */ }
 }
 
-// Add or REPLACE the record's entry (newer click wins) and refresh the UI. The
-// stored comment is the RAW tester text — replay re-derives the env-info/evidence
-// suffix through writeStatus, so it reflects the state at replay time.
+// Add or REPLACE (newer click wins). The stored comment is the RAW tester text —
+// replay re-derives the env-info/evidence suffix at replay time.
 async function queueEnqueue({ recordId, runId, status, comment, queuedAt }) {
   queueCache[qKey(recordId)] = {
     recordId, runId, status, comment: comment || '', queuedAt: queuedAt || Date.now(),
@@ -71,36 +55,14 @@ async function queueRemove(recordId) {
   }
 }
 
-// #152/#186: a run can change state while its results sit in the queue, and the
-// queue is the one write path that outlives the view — replaying into a run the
-// panel now refuses to write would smuggle past the very lock every live control
-// respects (the server itself checks no run state). So the drain resolves each
-// DISTINCT target run once and drops everything aimed at a locked one. Entries
-// whose run cannot be read (offline — the common case here) are left alone: the
-// replay below fails on its own terms and keeps them for the next trigger.
-// Pre-#152 entries carry a runId too (offline-queue has stored one since day one),
-// but an absent one simply replays as before.
-//
-// The three reasons mirror run-view's runWriteLock(), same precedence — but read
-// from the API rather than from the open run, because the target run is usually
-// NOT the one on screen:
-//   * finished  — v2 run status, terminal (#152);
-//   * automated — v2 run `kind`, which the queue ignored entirely until #186.
-//     RUN level only: an entry for one automated row of a MIXED run still replays,
-//     since the drop resolves runs and the v2 run detail carries no per-row flag;
-//   * archived  — the JSON:API `is-archived` (#186). Session-only, exactly as in
-//     run-view: a basic-mode panel cannot see it and replays as before.
+// #152/#186: the SERVER checks no run state, and the queue is the one write path
+// that outlives the view — so the drain resolves each target run and drops locked ones.
 const QUEUE_DROP_FINISHED = 'Run finished';
 const QUEUE_DROP_AUTOMATED = 'Automated run';
 const QUEUE_DROP_ARCHIVED = 'Run archived';
 
-// The two reads go out TOGETHER, and so does every run: the archived flag lives on
-// a different endpoint from status/kind, and resolving them in series WIDENED the
-// drain's dead time — measured at ~1.35x, 158ms median to 117ms — which was enough
-// for a Retry click to arrive while `queueDraining` was still set (measured, not
-// theorised: it cost 36-finished-lock's queue case a toast it had always received).
-// Since #192 such a click is coalesced rather than dropped, but a narrow dead time
-// is still the cheaper half of the fix.
+// Both reads go out TOGETHER (archived lives on another endpoint): in series they
+// widened the drain's dead time ~1.35x — wide enough to swallow a Retry click.
 async function runDropReason(runId) {
   const [detail, info] = await Promise.all([
     TestomatAPI.getRun(runId).catch(() => null),
@@ -113,9 +75,8 @@ async function runDropReason(runId) {
   return '';
 }
 
-// Drop every entry whose run is locked; answers {reason: count} so the caller can
-// raise one honest toast per reason (never a silent discard — these are results
-// the tester believes are saved).
+// Answers {reason: count} — never a silent discard, these are results the tester
+// believes are saved.
 async function dropLockedRunEntries(list) {
   const runIds = [...new Set(list.map((e) => e.runId).filter((id) => id != null).map(String))];
   if (!runIds.length) return {};
@@ -132,18 +93,12 @@ async function dropLockedRunEntries(list) {
   return dropped;
 }
 
-// ONE pass over the queue, FIFO, off a snapshot taken here — an entry queued
-// after it waits for the next pass. A qualifying (still-offline) failure stops
-// the pass and keeps every entry for the next trigger; a non-qualifying failure
-// (e.g. the record was deleted) drops that one entry so it can't wedge the banner
-// forever. Records not currently loaded replay against a bare {id} pseudo-record
-// (replay needs only the API, not the run being open).
+// ONE FIFO pass off a snapshot. A still-offline failure stops the pass and keeps
+// every entry; any other failure drops that one, so it cannot wedge the banner.
 async function drainPass() {
   const list = Object.values(queueCache).sort((a, b) => a.queuedAt - b.queuedAt);
   if (!list.length) return;
-  // ONE toast, not one per reason: a second toast() replaces the first in the
-  // DOM, and a drop nobody was told about is exactly what this path exists to
-  // prevent. A single-reason drain reads the same as it always did.
+  // ONE toast, not one per reason — a second toast() replaces the first in the DOM.
   const dropped = Object.entries(await dropLockedRunEntries(list))
     .map(([reason, n]) => `${reason} — ${n} queued ${n === 1 ? 'result was' : 'results were'} not written`);
   if (dropped.length) toast(dropped.join(' · '), { error: true });
@@ -154,9 +109,8 @@ async function drainPass() {
     try {
       await writeStatus(record, snap.status, snap.comment, null, { noQueue: true });
     } catch (e) {
-      // #155: read-only access is not a permanent failure of THIS entry — a
-      // role change can still land it — so it keeps the queue like an offline
-      // failure does, instead of dropping results with a toast.
+      // #155: read-only is not a permanent failure of THIS entry — a role change
+      // can still land it, so it keeps the queue like an offline failure does.
       if (queueQualifies(e) || isReadonlyError(e)) break; // keep all, retry on the next trigger
       await queueRemove(snap.recordId); // permanent failure — drop so the banner can clear
       toast(`A queued status couldn't be saved and was dropped: ${e.message}`, { error: true });
@@ -171,23 +125,14 @@ async function drainPass() {
   }
 }
 
-// Drains, one at a time. Triggers: `online`, a successful poll tick, the banner
-// Retry, panel/run open. `user` marks the Retry — the one trigger with a human
-// behind it, and the only one allowed to raise a toast (a poll tick landing
-// mid-drain must stay quiet).
+// Triggers: `online`, a successful poll tick, the banner Retry, panel/run open.
+// `user` marks the Retry — the only trigger allowed to raise a toast.
 async function queueReplay({ user = false } = {}) {
-  // #192 (was a documented wart in #186): a trigger arriving mid-drain used to be
-  // swallowed here and raise nothing — the tester's click did nothing at all, and
-  // entries queued after the running drain took its snapshot waited for a trigger
-  // that might never come. It is COALESCED instead: remembered, and honoured by
-  // ONE more pass after the current drain. One, not a loop — that is what keeps
-  // the original "no retry storm" promise.
+  // #192: a trigger arriving mid-drain is COALESCED — honoured by ONE more pass
+  // after the current drain. One, not a loop, so there is still no retry storm.
   if (queueDraining) {
     queueRedrainRequested = true;
-    // Two wordings, because only one of them can be kept: inside the LAST pass
-    // there is no further pass to promise, and a click answered with a promise
-    // nothing will honour is a nicer-sounding version of the bug being fixed.
-    // Either way the click is answered — it is never silently ignored.
+    // Two wordings: inside the LAST pass there is no further pass to promise.
     if (user) {
       toast(queueLastPass
         ? 'Still syncing — give it a moment and try again'
@@ -217,9 +162,7 @@ async function queueReplay({ user = false } = {}) {
 
 // ---------- UI: pending banner + «queued» markers ----------
 
-// Slim banner «N changes pending · Retry» (degraded-banner style). Shown on the
-// runs/run/test views whenever the queue is non-empty — entries for runs other
-// than the open one still count.
+// Entries for runs other than the open one still count towards the banner.
 function updatePendingBanner() {
   const banner = $('pending-banner');
   if (!banner) return;
@@ -232,14 +175,8 @@ function updatePendingBanner() {
   if (txt) txt.textContent = `${n} ${n === 1 ? 'change' : 'changes'} pending`;
 }
 
-// The small «queued» marker on a run-view row (add/remove to match the record's
-// queue state). Called from repaintRow + testRow so every render path reflects
-// the queue.
-// The run-view row lost its `.meta` line when the rows went to ONE line (the
-// marks moved in front of the title), and this used to bail when it found none —
-// so an offline write silently stopped marking its row (#215). The row ITSELF is
-// the host now, and the marker lands before the ✓/✗/– cell so that cell still
-// closes the row; a `.meta` line, where one exists, is still preferred.
+// #215: rows went to ONE line and lost their `.meta`, and bailing on a missing
+// `.meta` stopped marking offline writes — the row ITSELF is the host now.
 function applyQueuedMarker(li, recordId) {
   if (!li) return;
   const host = li.querySelector('.meta') || li;
@@ -257,7 +194,6 @@ function applyQueuedMarker(li, recordId) {
   }
 }
 
-// The test-view «queued» marker for the open record.
 function updateTestQueuedMarker() {
   const el = $('test-queued');
   if (!el) return;

@@ -1,38 +1,5 @@
-// Dropdown (IIFE global `Dropdown`) — this extension's <select>.
-//
-// A native `<select>` is the one form control the design system could not reach.
-// Chrome draws its popup at OS LEVEL: in a 380px side panel that lands as a
-// huge menu placed beside the panel rather than under the field, in the OS's
-// own font and the OS's own colours (a light box on a dark panel), and it can
-// print nothing but plain option text — no icon per row, no muted second
-// column, no monogram, no type-to-filter box. Every one of those is something a
-// picker in this product actually needs.
-//
-// Three controls had already escaped it by hand-rolling the same listbox — the
-// project switcher (#126), the assignee picker (M4) and the editor's priority
-// chip (#34). This is that object, ONCE, so the fourth is a call instead of a
-// fourth copy, and so the three native selects that were left (the editor's
-// template picker, the panel's custom-status and the instance history) all
-// close, open, filter and answer the arrow keys identically.
-//
-//   FACE      the closed control is the library's field face — the same border,
-//             height, radius, hover, focus ring and disabled wash `.input` and
-//             `.select` wear (components.css → FIELDS). It is a `<button>`, so
-//             `disabled` is the real attribute and a gate's tooltip works on it.
-//   VALUE     lives on the trigger as `dataset.value`, the convention the
-//             project switcher set (`dataset.projectId`): a button has no
-//             `.value` to ask, so the dataset is the machine-readable one.
-//   CHANGE    `onChange` fires on a USER pick only, and only when the value
-//             actually moves — a native select's `change`. `setValue()` is the
-//             programmatic path and is silent, like assigning `select.value`.
-//   POPUP     the shared `.menu` + `.menu-option` (components.css → MENU), so
-//             the page holding it must not trap it in a stacking context of its
-//             own — see the note on `.project-bar` in the panel's stylesheet.
-//
-// `Dropdown.of(id)` hands the controller back from anywhere. The panel is built
-// on globals and `$('id')` lookups, so a registry keyed by the trigger's id is
-// how a screen (or an e2e) reaches a control it did not construct, without
-// threading the object through three modules to get there.
+// Dropdown (IIFE global `Dropdown`) — this extension's <select>: a `<button>` face plus the
+// shared `.menu`, so the host must not trap the popup in a stacking context of its own.
 
 (() => {
   const registry = new Map(); // trigger id → controller
@@ -40,7 +7,6 @@
   const CARET = 'keyboard_arrow_down';
   const CHECK = 'check';
 
-  // A row's label, for the default renderer and for the closed face.
   const labelOf = (opt) => (opt && opt.label != null ? String(opt.label) : String(opt && opt.value || ''));
 
   function create({
@@ -52,7 +18,7 @@
     placeholder = '',         // the closed face when no option is chosen
     options = [],
     value = '',
-    fallbackFirst = false,    // no value → the first row, the way a select has no empty state
+    fallbackFirst = false,    // no value → the first row; a select has no empty state
     icon = '',                // optional mark INSIDE the field, `.field-icon`
     align = 'start',          // which edge the popup is anchored to
     filter = false,           // type-to-filter box above the rows
@@ -67,9 +33,7 @@
     const root = document.createElement('div');
     root.className = `dropdown${className ? ` ${className}` : ''}`;
 
-    // The mark that says what KIND of thing is being picked, inside the field's
-    // own border rather than as a label beside it — `.field-icon` is that
-    // component already (components.css → FIELDS).
+    // `.field-icon` (components.css → FIELDS): the mark sits inside the field's border.
     if (icon && window.Icons) {
       const mark = Icons.el(icon, 16, 'field-icon');
       if (mark) root.append(mark);
@@ -119,8 +83,7 @@
     if (label) list.setAttribute('aria-label', label);
     menu.append(list);
 
-    // A popup that filtered down to nothing still has to SAY so — an empty box
-    // under the cursor reads as the control being broken.
+    // A popup filtered down to nothing must SAY so — an empty box reads as broken.
     const empty = window.EmptyState
       ? EmptyState.build({ compact: true, icon: 'search_off', text: emptyText, className: 'dropdown-empty' })
       : document.createElement('div');
@@ -130,8 +93,7 @@
     root.append(trigger, menu);
 
     // ---- state -------------------------------------------------------------
-    // `current` is the chosen value; `active` is the keyboard cursor, which only
-    // lives as long as the popup is open. `query` is the filter text.
+    // `active` is the keyboard cursor, alive only while the popup is open.
     let rows = [];
     let current = '';
     let active = null;
@@ -147,9 +109,7 @@
     const optId = (i) => `${id}-opt-${i}`;
 
     // ---- the closed face ---------------------------------------------------
-    // The label is always WRAPPED, never a bare text node: the face is a flex row
-    // (a custom row can be an icon plus a word), and only an element child can
-    // ellipsize inside one.
+    // Always WRAPPED, never a bare text node: only an element child ellipsizes in a flex row.
     function faceText(s) {
       const span = document.createElement('span');
       span.className = 'dropdown-value-text';
@@ -165,9 +125,7 @@
         face.classList.remove('placeholder');
         face.append(renderOption ? renderOption(opt) : faceText(labelOf(opt)));
       } else {
-        // No option answers the current value: the placeholder is what the
-        // control says instead, dimmed, so an unchosen field never reads as a
-        // chosen one whose label happens to be blank.
+        // Dimmed placeholder, so an unchosen field never reads as a chosen blank one.
         face.classList.add('placeholder');
         face.append(faceText(placeholder));
       }
@@ -196,9 +154,7 @@
           text.textContent = labelOf(opt);
           li.append(text);
         }
-        // The tick the OS menu drew for the chosen row, kept: the wash alone is
-        // easy to read as hover. Shown by CSS on `aria-selected`, so it holds
-        // its column in every row and nothing shifts as the choice moves.
+        // Shown by CSS on `aria-selected`, and built into EVERY row so the column never shifts.
         if (window.Icons) {
           const tick = Icons.el(CHECK, 14, 'dropdown-option-check');
           if (tick) li.append(tick);
@@ -211,22 +167,18 @@
       syncActive();
     }
 
-    // Whatever holds focus while the popup is open is what points a screen
-    // reader at the active row — the filter box when there is one, else the
-    // trigger itself.
+    // `aria-activedescendant` goes on whatever holds focus: the filter box, else the trigger.
     function syncActive() {
       const owner = filterInput || trigger;
-      // Read the row out of the LIST, not out of the document: an editor screen
-      // that was torn down and rebuilt leaves a detached copy of these ids behind
-      // for a moment, and getElementById would happily hand one back.
+      // Read the row out of the LIST, not the document: a torn-down editor screen leaves
+      // a detached copy of these ids behind, and getElementById would hand one back.
       const i = visibleRows().findIndex((o) => String(o.value) === String(active));
       const li = i === -1 ? null : list.children[i];
       if (li) { owner.setAttribute('aria-activedescendant', li.id); li.scrollIntoView({ block: 'nearest' }); }
       else owner.removeAttribute('aria-activedescendant');
     }
 
-    // ±1 through the VISIBLE rows, clamped at the edges (no wrap) — the same
-    // rule the panel's lists answer arrows with.
+    // ±1 through the VISIBLE rows, clamped at the edges (no wrap).
     function move(delta) {
       const shown = visibleRows();
       if (!shown.length) return;
@@ -263,9 +215,8 @@
 
     function onDocClick(e) { if (!root.contains(e.target)) close(); }
 
-    // Open-state keys are handled at document level (capture) so they work
-    // wherever focus sits, and so the screen's own arrow/Enter handlers never
-    // see the keys that belong to the popup.
+    // Document-level capture: works wherever focus sits, and the screen's own
+    // arrow/Enter handlers never see the keys that belong to the popup.
     function onDocKey(e) {
       if (menu.hidden) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focus: true }); return; }
@@ -276,8 +227,7 @@
         move(e.key === 'ArrowDown' ? 1 : -1);
         return;
       }
-      // Space picks only where it is not also typing: with a filter box open it
-      // is a character, and swallowing it would make the box refuse spaces.
+      // Space picks only where it is not also a character — a filter box must take spaces.
       if (e.key === 'Enter' || (!filterInput && (e.key === ' ' || e.key === 'Spacebar'))) {
         e.preventDefault();
         e.stopPropagation();
@@ -285,8 +235,8 @@
       }
     }
 
-    // A user pick: close first (a change often repaints the screen under it),
-    // then report — and only when the value actually moved, like `change`.
+    // Close first (a change often repaints the screen under it), then report — and
+    // only when the value actually moved, like a native `change`.
     function pick(v) {
       const opt = rowFor(v);
       if (!opt) return;
@@ -302,8 +252,8 @@
       if (menu.hidden) open(); else close({ focus: true });
     });
 
-    // Closed-state keys open the popup; preventDefault also stops Enter/Space
-    // from firing the button's own click, which would close it again.
+    // preventDefault also stops Enter/Space firing the button's own click, which would
+    // close the popup again.
     trigger.addEventListener('keydown', (e) => {
       if (!menu.hidden) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
@@ -325,16 +275,12 @@
       trigger,
       menu,
 
-      /** The chosen value ('' when nothing is). */
       get value() { return current; },
-      /** The option object behind it, or null. */
       get selected() { return rowFor(current); },
-      /** Every option currently offered. */
       get options() { return rows.slice(); },
 
-      /** Replace the option list. Keeps the current value when it survives the
-       *  swap, else falls back to `value` (or the first row when `fallbackFirst`
-       *  — what a native select does, having no empty state to fall back to). */
+      /** Keeps the current value when it survives the swap, else `value`, else the
+       *  first row when `fallbackFirst` (a native select has no empty state). */
       setOptions(next, { value: want, fallbackFirst: first = fallbackFirst } = {}) {
         rows = (next || []).map((o) => (
           o && typeof o === 'object' ? { ...o, value: String(o.value) } : { value: String(o), label: String(o) }
@@ -355,10 +301,9 @@
         return api;
       },
 
-      /** Choose as a tester would: sets the value AND reports the change. */
+      /** Sets the value AND reports the change, unlike setValue. */
       pick,
 
-      /** Close the popup if it is open (a screen swap, a gate landing). */
       close,
 
       get disabled() { return trigger.disabled; },
@@ -367,10 +312,8 @@
         if (v) close();
       },
 
-      // The root is what carries the layout, the trigger is what carries the id
-      // a caller looks the control up by — so hiding has to move both, or
-      // `document.getElementById(id).hidden` would answer for a control that is
-      // demonstrably off the screen.
+      // The id is on the TRIGGER and the layout on the root, so hiding must move both —
+      // else `getElementById(id).hidden` answers false for a control that is off screen.
       get hidden() { return root.hidden; },
       set hidden(v) {
         root.hidden = !!v;
@@ -378,8 +321,7 @@
         if (v) close();
       },
 
-      /** Drop it from the registry — for a control whose host is being torn
-       *  down and rebuilt (the editor mounts a fresh screen per test). */
+      /** Drop it from the registry — the editor mounts a fresh screen per test. */
       destroy() {
         close();
         if (registry.get(id) === api) registry.delete(id);
@@ -392,8 +334,7 @@
     return api;
   }
 
-  /** The controller behind a trigger id — how a screen (or an e2e) reaches a
-   *  control it did not build. */
+  /** The controller behind a trigger id — how a screen reaches a control it did not build. */
   const of = (id) => registry.get(typeof id === 'string' ? id : (id && id.id)) || null;
 
   window.Dropdown = { create, of };

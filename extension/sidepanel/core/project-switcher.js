@@ -1,30 +1,18 @@
-// Project switcher (#103): the active project lives in the panel header, on every
-// tab, instead of a Project ID field in Settings. Options come from the token's
-// own project list (JWT `GET /api/projects`, `id` = the slug the v2 routes carry).
-// The control is a custom dropdown with a type-to-filter input (#126) — a native
-// <select> pops an OS-level menu that swallows the narrow panel.
-// Switching rewrites `settings.projectId`, wipes every project-scoped piece of
-// state and lands the active tab on its root — nothing of the old project leaks.
-//
-// Per-host model is untouched: the list belongs to the ACTIVE instance's token, so
-// an instance switch re-resolves it (screens/settings.js `saveSettings`).
+// Project switcher (#103). Options come from the ACTIVE instance token's own list
+// (JWT `GET /api/projects`, `id` = the slug every v2 route carries).
 
 /* global TestomatAPI, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
    prefetchTabCounts, Tooltip */
 
-// Row label: the title, plus the slug when they differ — two teams name projects
-// alike, and the slug is what every API path and pasted URL actually carries.
+// Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
 
-// Dropdown-only state (#126): the filter text and the keyboard-active row live
-// for as long as the popup is open. The list itself is always `state.projects`.
+// Popup-only state; the list itself is always `state.projects`.
 let projectFilter = '';
 let projectActiveId = null;
 
-// The rows the dropdown offers. The saved project is always one of them, even
-// before (or without) a list — the header must show the truth the panel is
-// working against, never an empty box.
+// The saved project is always among the rows, even before (or without) a list.
 function projectRows() {
   const current = state.settings && state.settings.projectId;
   if (!current) return [];
@@ -32,8 +20,7 @@ function projectRows() {
   return list.some((p) => p.id === current) ? list : [{ id: current, title: '' }, ...list];
 }
 
-// Type-to-filter (#126): matched on title AND slug, since either is what the
-// tester remembers about a project.
+// Matched on title AND slug — either is what a tester remembers about a project.
 function filteredProjectRows() {
   const q = projectFilter.trim().toLowerCase();
   const rows = projectRows();
@@ -41,9 +28,8 @@ function filteredProjectRows() {
   return rows.filter((p) => `${p.title || ''} ${p.id}`.toLowerCase().includes(q));
 }
 
-// Paint the strip: the trigger carries the active project (label + a machine
-// readable `dataset.projectId`, which is what the panel's own tests read).
-// Hidden until a project is known.
+// The trigger carries the active project: label + `dataset.projectId`, which is
+// what the panel's own e2e reads.
 function renderProjectBar() {
   const bar = $('project-bar');
   const trigger = $('project-trigger');
@@ -68,12 +54,8 @@ function renderProjectBar() {
   if ($('project-menu') && !$('project-menu').hidden) renderProjectOptions();
 }
 
-// The strip's second control: the active project's page in the web app,
-// `<active host>/projects/<slug>` — the same route every run/test URL the panel
-// parses hangs under. Both halves come from the ACTIVE settings and it is
-// repainted from renderProjectBar(), so a project switch (or an instance switch,
-// which repaints the same way) repoints it. With nothing to link to it HIDES
-// rather than point at a 404 — the same deal "New run ↗" makes (#118).
+// The active project's page in the web app, `<active host>/projects/<slug>`. With
+// nothing to link to it HIDES rather than point at a 404.
 function renderProjectOpenLink() {
   const a = $('project-open');
   if (!a) return;
@@ -88,12 +70,10 @@ function renderProjectOpenLink() {
 }
 
 // ---- the dropdown (#126) -------------------------------------------------
-// A native <select> is unusable here: Chrome renders its popup at OS level, and
-// in a narrow side panel that lands as a huge misplaced menu over everything.
-// This is the same custom-listbox pattern the editor's priority picker uses (#34).
+// A native <select> is unusable here: Chrome renders its popup at OS level, which in
+// a narrow side panel lands as a huge misplaced menu. Custom listbox instead (#34).
 
-// Paint the option rows for the current filter; the active row is the keyboard
-// cursor, the current project is the selected one.
+// The active row is the keyboard cursor; the current project is the selected one.
 function renderProjectOptions() {
   const list = $('project-list');
   if (!list) return;
@@ -127,8 +107,8 @@ function renderProjectOptions() {
   syncProjectActiveOption();
 }
 
-// The filter input owns focus while the popup is open, so it is what points a
-// screen reader at the active row.
+// The filter input owns focus while the popup is open, so it is what carries
+// aria-activedescendant.
 function syncProjectActiveOption() {
   const input = $('project-filter');
   if (!input) return;
@@ -171,8 +151,8 @@ function onProjectDocClick(e) {
   if (dd && !dd.contains(e.target)) closeProjectMenu();
 }
 
-// Open-state keys are handled at document level (capture) so they work wherever
-// focus sits, and so the panel's own arrow/Enter handlers never see them.
+// Handled at document level (capture) so they work wherever focus sits, and so the
+// panel's own arrow/Enter handlers never see them.
 function onProjectMenuKey(e) {
   const menu = $('project-menu');
   if (!menu || menu.hidden) return;
@@ -191,8 +171,7 @@ function onProjectMenuKey(e) {
   }
 }
 
-// ±1 through the VISIBLE rows, clamped at the edges (no wrap) — same rule as the
-// test-view arrows.
+// ±1 through the VISIBLE rows, clamped at the edges (no wrap).
 function moveProjectActive(delta) {
   const rows = filteredProjectRows();
   if (!rows.length) return;
@@ -226,8 +205,7 @@ function onProjectTriggerKey(e) {
   }
 }
 
-// A pick closes first — the switch repaints whole views — then repoints the
-// panel. `switchProject()` itself ignores a pick of the active project.
+// Close first: the switch repaints whole views.
 function pickProject(projectId) {
   closeProjectMenu({ focus: true });
   switchProject(projectId);
@@ -240,9 +218,8 @@ function initProjectDropdown() {
   $('project-filter').addEventListener('input', onProjectFilterInput);
 }
 
-// Fetch the token's projects into state and repaint. Best-effort by design: a
-// failure (no session, offline) leaves the saved project as the only option and
-// the panel keeps working on it — Settings' Save is where a bad token is reported.
+// Best-effort: a failure (no session, offline) leaves the saved project as the only
+// option and the panel keeps working — Settings' Save reports a bad token.
 async function refreshProjects() {
   if (!state.settings || !state.settings.apiToken) return [];
   let projects;
@@ -252,16 +229,15 @@ async function refreshProjects() {
   return projects;
 }
 
-// Persist the active settings + their per-host entry (the switcher writes the same
-// two keys Save does, so a reload restores the project that is on screen).
+// Writes the same two keys Save does, so a reload restores what is on screen.
 async function persistActiveSettings(settings) {
   const host = hostOf(settings.baseUrl);
   if (host) state.hostSettings = { ...state.hostSettings, [host]: settings };
   if (!hasChrome) return;
   try {
     await chrome.storage.local.set({ settings, hostSettings: state.hostSettings });
-    // The stored session points at a run of the OLD project — drop it so a reload
-    // before the next persist can't restore a run this project doesn't have.
+    // The stored session points at a run of the OLD project — drop it, or a reload
+    // restores a run this project does not have.
     await chrome.storage.local.remove('session');
   } catch { /* best effort — a storage hiccup must not strand the switch */ }
 }
@@ -269,9 +245,8 @@ async function persistActiveSettings(settings) {
 async function switchProject(projectId) {
   const prev = state.settings;
   if (!prev || !projectId || projectId === prev.projectId) return;
-  // Drain first: a queued status belongs to the project we are leaving, and its
-  // testrun id means nothing in the next one — replayed there it would 404 and be
-  // dropped as unrecoverable. Best effort; still-offline entries just stay queued.
+  // Drain first: a queued status carries a testrun id that means nothing in the next
+  // project — replayed there it 404s and is dropped as unrecoverable.
   if (typeof OfflineQueue !== 'undefined' && OfflineQueue.count()) {
     try { await OfflineQueue.replay(); } catch { /* nothing more we can do here */ }
   }
@@ -285,19 +260,15 @@ async function switchProject(projectId) {
   if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
   else if (state.activeTab === 'tests') await openTcStudioView();
   else await openRunsView();
-  // …and count the OTHER tab too. The view above filled its own chip; the tab
-  // the tester is not standing on would otherwise show nothing until visited,
-  // which reads as "empty project" rather than "not looked yet". Not awaited:
-  // the switch is done, the toast is owed now, the chips fill in behind it.
+  // Count the OTHER tab too — a blank chip reads as "empty project", not "not looked
+  // at yet". Not awaited: the switch is done, the chips fill in behind it.
   prefetchTabCounts();
   const p = state.projects.find((x) => x.id === projectId);
   toast(`Switched to ${p ? (p.title || p.id) : projectId}`);
 }
 
-// Boot: paint the saved project immediately, then fill the list in the background.
-// A stored config with NO project (hand-edited, or a token saved before its list
-// could load) resolves one silently — returns false when even that is impossible,
-// so init can drop the tester on Settings instead of a wall of 404s.
+// Boot: paint the saved project, then fill the list in the background. Returns false
+// when no project can be resolved at all, so init can drop the tester on Settings.
 async function initProjectSwitcher() {
   renderProjectBar();
   if (state.settings && state.settings.projectId) {

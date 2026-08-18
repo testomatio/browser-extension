@@ -1,32 +1,18 @@
-// Local-file attachments on a test result (#107): the "Attach file" button next
-// to the screenshot flow, the native picker behind it, and the list of everything
-// already uploaded onto the open result.
-//
-// There is no second upload contract here on purpose — a picked File IS a Blob,
-// so it goes straight into TestomatAPI.uploadAttachment, the same JWT multipart
-// POST /testruns/{id}/attachment the screenshot (hotkeys.js) and the evidence .txt
-// (evidence.js) ride.
-//
-// The button's gate lives in test-view.js `updateTestActionsState()` (one place
-// decides what the test view can do); this file owns the picking, the upload loop
-// and the list.
+// Local-file attachments on a test result (#107). A picked File IS a Blob, so it
+// rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
    updateTestActionsState, Tooltip, EmptyState, ImgHydrate, isImageAttachment,
    attachmentThumb, IMG_GROUP_ATTS */
 
-// Uploads this PANEL SESSION made, keyed by record id. The server list only
-// refreshes when the test view is reopened (probeSession prefetches the JSON:API
-// detail once), so without this the file the tester just picked would vanish from
-// the list until they navigated away and back.
+// Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
+// only on reopen, so a just-picked file would otherwise vanish from it.
 const attUploaded = new Map();
 
 // ---- the list -----------------------------------------------------------
 
-// Server truth for the open result. Uploads surface on the JSON:API testrun
-// detail's `attachments` (the v2 `artifacts` field stays empty for them — an
-// asymmetry the e2e suite asserts), and probeSession already fetched
-// it into state.testrunDetail, so the list costs no extra request.
+// Uploads surface on the JSON:API detail's `attachments`; the v2 `artifacts` field
+// stays empty for them. probeSession prefetched it, so this costs no request.
 function attServerList() {
   const list = state.testrunDetail?.data?.attributes?.attachments;
   return Array.isArray(list) ? list : [];
@@ -39,13 +25,8 @@ function attRemember(recordId, entry) {
   attUploaded.set(key, list);
 }
 
-// Server rows first (they carry the canonical name/url), then anything this
-// session uploaded that the prefetched detail predates. De-duplicated by url so a
-// reopen — where the server now knows about the session upload — shows one row.
-// `type`/`display_url` ride along for #205: the first says whether the row is an
-// IMAGE, the second is the presigned link its thumbnail is fetched from. A
-// session upload knows neither — its response is `{url}` alone — so the name's
-// extension decides, exactly as it does for a step artifact without a type.
+// Server rows first (canonical name/url), de-duplicated by url. A session upload's
+// response is `{url}` alone, so its name's extension decides the type (#205).
 function attRows() {
   const rows = [];
   const seen = new Set();
@@ -62,10 +43,8 @@ function attRows() {
   return rows;
 }
 
-// The name, the shape a non-image row is entirely made of and an image row wears
-// beside its thumbnail. A url-less row can only come from an upload whose
-// response carried none — still worth showing (the file DID land), just not
-// clickable.
+// A url-less row (an upload whose response carried none) still shows — the file
+// DID land — just not clickable.
 function attNameLink(a) {
   const el = document.createElement(a.url ? 'a' : 'span');
   el.className = 'attachment-link';
@@ -75,10 +54,8 @@ function attNameLink(a) {
   return el;
 }
 
-// #205: an image attached to the result is shown, not just named — the same
-// thumbnail a reported step's screenshot gets, opening the same lightbox
-// (test-view.js owns both). Everything else stays a name row. A thumbnail whose
-// bytes never arrive drops back to exactly that row, paperclip included.
+// #205: an image row gets the same thumbnail and lightbox a step screenshot does
+// (test-view.js owns both); one whose bytes never arrive drops back to a name row.
 function attRow(a) {
   const li = document.createElement('li');
   li.className = 'attachment-row';
@@ -93,11 +70,8 @@ function attRow(a) {
   return li;
 }
 
-// The list is only drawn on the test view, and only ever holds a handful of
-// rows. When it holds none it says so in one compact line rather than
-// collapsing: the two Attach buttons sit right above it, and a list that
-// disappears leaves "did that upload land?" unanswered — which is exactly the
-// question a tester asks after picking a file.
+// An empty list says so in one compact line rather than collapsing — a list that
+// disappears leaves "did that upload land?" unanswered.
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
@@ -125,10 +99,8 @@ function onAttachFileClick() {
   if (input) input.click(); // the native picker; multi-select is on the element
 }
 
-// `change` from the hidden input. The FileList is snapshotted and the input
-// cleared IMMEDIATELY: that lets the same file be picked twice in a row (a
-// same-value input fires no change otherwise) and makes any duplicate change
-// event a no-op instead of a second upload.
+// The input is cleared IMMEDIATELY: a same-value input fires no `change`, so this
+// is what lets the same file be picked twice, and voids a duplicate event.
 function onAttachFilePicked(ev) {
   const input = ev.target;
   const files = Array.from(input.files || []);
@@ -136,10 +108,8 @@ function onAttachFilePicked(ev) {
   if (files.length) attUploadFiles(files);
 }
 
-// One file at a time, deliberately: a failure toasts THAT file and the loop
-// carries on (#107 — one rejected file must not cost the tester the other
-// eleven), and the status line can report honest progress. The endpoint also
-// de-duplicates by MD5 per record, so a repeat pick is cheap rather than wrong.
+// One file at a time: a failure toasts THAT file and the loop carries on. The
+// endpoint de-duplicates by MD5 per record, so a repeat pick is cheap.
 async function attUploadFiles(files) {
   const record = recordFor(state.currentRecordId);
   if (!record?.id) return; // the gate should have caught this; never upload blind
@@ -149,7 +119,7 @@ async function attUploadFiles(files) {
   let stopped = ''; // the lock reason that ended the loop early, if one landed
   try {
     for (let i = 0; i < files.length; i++) {
-      // #187 — the picker outlives the click-time gate, and a slow pick outlives the lock itself.
+      // #187: the picker outlives the click-time gate, and a slow pick the lock itself.
       stopped = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
       if (stopped) break; // at a file boundary — never half-way through an upload
       const f = files[i];
@@ -169,7 +139,7 @@ async function attUploadFiles(files) {
     updateTestActionsState(); // restore the gate-driven disabled state
   }
   const noun = files.length === 1 ? 'file' : 'files';
-  // A lock that landed mid-pick reports BOTH halves; with nothing uploaded the reason is the whole story.
+  // A lock that landed mid-pick reports BOTH halves.
   if (stopped && done) setStatusLine('test-status', `${done} of ${files.length} files attached — ${stopped}`, 'error');
   else if (stopped) setStatusLine('test-status', stopped, 'error');
   else if (done === files.length) setStatusLine('test-status', `${done} ${noun} attached ✓`, 'ok');
