@@ -1,14 +1,10 @@
-// Onboarding welcome checklist (M4): a first-run card at the top of Settings
-// guiding token → project → first run. Each step auto-checks; the card disappears
-// once all three complete or on an early ×-dismiss. Both states persist in
-// chrome.storage.local. Existing (already-configured) users are seeded as done so
-// the card never re-appears for someone already working.
+// Onboarding checklist: a first-run Settings card for token → project → first run.
+// Already-configured users are seeded as done, so it never appears for them.
 
 /* global $, state, hasChrome */
 
 const ONBOARDING_KEY = 'onboarding';
 
-// In-memory source of truth, written through on every change. Shape:
 // { token, project, run, dismissed } — the three step flags + the early dismiss.
 let obState = { token: false, project: false, run: false, dismissed: false };
 
@@ -17,10 +13,8 @@ function persistOnboarding() {
   chrome.storage.local.set({ [ONBOARDING_KEY]: obState });
 }
 
-// Seed once: from the persisted value if present, else (first feature run) from
-// existing config + last session — a configured user has token+project done, and
-// a session carrying a runId means they have opened a run. So an already-working
-// user is fully seeded (all done) and never sees the card.
+// Seeded once from the persisted value, else derived from the existing config +
+// last session — so an already-working user starts fully done.
 function onboardingInit(stored) {
   const saved = stored && stored[ONBOARDING_KEY];
   if (saved && typeof saved === 'object') {
@@ -42,8 +36,8 @@ function onboardingInit(stored) {
 
 const onboardingAllDone = () => obState.token && obState.project && obState.run;
 
-// Token link → the ACTIVE instance host's access-tokens page (per-host model):
-// the saved active instance, else the live Instance field, else the default app.
+// The ACTIVE instance's access-tokens page: the saved instance, else the live
+// Instance field, else app.testomat.io.
 function onboardingTokenHref() {
   const active = state.settings && state.settings.baseUrl;
   const field = $('set-baseurl') ? $('set-baseurl').value : '';
@@ -59,9 +53,8 @@ function updateOnboardingTokenLink() {
   if (a) a.href = onboardingTokenHref();
 }
 
-// Reflect state into the card: hidden when dismissed or all done, else the three
-// steps with their done marks. Safe from any view — the card lives in the settings
-// section, so a call while it's offscreen just updates hidden DOM.
+// Safe to call from any view — the card lives in the settings section, so an
+// offscreen call just updates hidden DOM.
 function renderOnboarding() {
   const card = $('onboarding-card');
   if (!card) return;
@@ -73,7 +66,7 @@ function renderOnboarding() {
   updateOnboardingTokenLink();
 }
 
-// Mark a step done (idempotent), persist, and re-reflect (hides on the last one).
+// Idempotent; the last step hides the card.
 function markOnboardingStep(step) {
   if (obState[step]) return;
   obState[step] = true;

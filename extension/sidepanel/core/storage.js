@@ -1,16 +1,12 @@
 // Core storage: load persisted settings/session and persist the session slice.
 
-// ---------- storage ----------
-
 async function loadStored() {
   if (!hasChrome) return {};
   return chrome.storage.local.get(['settings', 'session', 'hostSettings', 'hostHistory']);
 }
 
-// One-time migration (permission rework): the pre-rework single `settings` object
-// becomes the per-host map's entry for its own host, so a later instance switch
-// restores it with no re-entry. No-op once `hostSettings` exists (idempotent), and
-// on a fresh install it just seeds empty maps. Populates state.hostSettings/History.
+// One-time migration: the pre-rework single `settings` becomes the per-host map's
+// entry for its own host. No-op once `hostSettings` exists; seeds empty maps otherwise.
 async function migrateHostSettings(stored) {
   let hostSettings = stored.hostSettings && typeof stored.hostSettings === 'object' ? stored.hostSettings : null;
   let hostHistory = Array.isArray(stored.hostHistory) ? stored.hostHistory : null;
@@ -26,17 +22,14 @@ async function migrateHostSettings(stored) {
   state.hostHistory = hostHistory || [];
 }
 
-// One-time cleanup (#105): the AI step polish is gone, so the Anthropic key it
-// stored must not be left lying in chrome.storage.local — it is a live secret with
-// nothing left to read it. Removed at every boot, which is also the migration for
-// an install that had one. No-op on a profile that never had a key.
+// #105: the AI feature is gone, so its stored API key must not be left lying in
+// chrome.storage.local — a live secret with nothing left to read it. Every boot.
 async function dropAiApiKey() {
   if (!hasChrome) return;
   try { await chrome.storage.local.remove('aiApiKey'); } catch { /* best effort */ }
 }
 
-// Same deal for the welcome checklist: the card is gone, so its progress slice is
-// a key nobody reads. Dropped at every boot — no-op once, then forever after.
+// Same deal for the welcome checklist: a key nobody reads. Dropped at every boot.
 async function dropOnboardingState() {
   if (!hasChrome) return;
   try { await chrome.storage.local.remove('onboarding'); } catch { /* best effort */ }
@@ -44,9 +37,8 @@ async function dropOnboardingState() {
 
 function persistSession() {
   if (!hasChrome) return;
-  // Never persist during boot or before settings exist: a fire-and-forget write
-  // from a transient first load could otherwise race a reopen's storage reset and
-  // resurrect a phantom session (wrong tab on the next load).
+  // Never during boot or before settings exist: a fire-and-forget write from a transient
+  // first load can race a reopen's storage reset and resurrect a phantom session.
   if (state.booting || !state.settings) return;
   chrome.storage.local.set({
     session: {

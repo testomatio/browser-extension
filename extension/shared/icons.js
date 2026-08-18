@@ -1,33 +1,5 @@
-// Material Symbols (Google) — the panel's ONE icon set since #180: Rounded,
-// weight 400, grade 0, fill 0, optical size 24. Path data is vendored verbatim
-// from github.com/google/material-design-icons (Apache-2.0), file
-// `symbols/web/<name>/materialsymbolsrounded/<name>_24px.svg`, fetched
-// 2026-08-04 (the empty-state marks, 2026-08-05; more_horiz, 2026-08-05; the
-// markdown-toolbar set — format_bold/italic/h1/h2/h3/list_bulleted/quote, code,
-// link — plus edit + visibility, 2026-08-06; computer/light_mode/dark_mode,
-// the Appearance switch, 2026-08-07; web_asset + dock_to_right, the surface
-// switch, 2026-08-13; markdown, the editor's own tab, 2026-08-11; info, the
-// settings form's explanation mark, 2026-08-13; palette + tune, the Appearance
-// and Advanced section marks, 2026-08-13; the annotator's Jam-parity toolbar —
-// arrow_selector_tool, draw, horizontal_rule, radio_button_unchecked (already
-// here), ink_highlighter, counter_1, crop, redo, delete, content_copy, download
-// and keyboard — 2026-08-13). The old @mdi/js paths are gone —
-// one set, one line weight, and the vendored editor's own icons are drawn from
-// it too (editor/editor.js maps every OverType toolbar button onto a name here).
-//
-// Material Symbols draw on a 960-unit em box whose baseline is y=0, so the
-// viewBox is "0 -960 960 960", NOT mdi's "0 0 24 24". Nothing here carries an
-// inline fill: colour is always currentColor, set by the CSS around it.
-//
-// The blocks at the bottom (`type_*`, `status_*`, `tree_*`) are what is NOT
-// Material: the product's own type-of-test, run-status and tree glyphs, which
-// Material has no equivalent for. They come off the design library instead and
-// are drawn on their own boxes, so each names one in BOXES — see the note above
-// each block.
-//
-// Zero-build classic script (MV3 CSP: no inline scripts, no CDN) — exposes one
-// global, loaded via <script> like api.js. Injected into pages alongside
-// shared/annotate-core.js, which draws the annotator toolbar from it.
+// Material Symbols (Rounded 400), vendored verbatim from google/material-design-icons
+// (Apache-2.0). Their box is "0 -960 960 960"; no inline fill — colour is currentColor.
 
 /* exported Icons */
 (() => {
@@ -36,8 +8,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const VIEW_BOX = '0 -960 960 960';
 
-  // Keys are the upstream Material Symbols names, so any icon can be traced back
-  // to fonts.google.com/icons by searching its key verbatim.
+  // Keys are the upstream Material Symbols names — searchable verbatim on fonts.google.com/icons.
   const PATHS = {
     add: 'M440-440H240q-17 0-28.5-11.5T200-480q0-17 11.5-28.5T240-520h200v-200q0-17 11.5-28.5T480-760q17 0 28.5 11.5T520-720v200h200q17 0 28.5 11.5T760-480q0 17-11.5 28.5T720-440H520v200q0 17-11.5 28.5T480-200q-17 0-28.5-11.5T440-240v-200Z',
     arrow_back: 'm313-440 196 196q12 12 11.5 28T508-188q-12 11-28 11.5T452-188L188-452q-6-6-8.5-13t-2.5-15q0-8 2.5-15t8.5-13l264-264q11-11 27.5-11t28.5 11q12 12 12 28.5T508-715L313-520h447q17 0 28.5 11.5T800-480q0 17-11.5 28.5T760-440H313Z',
@@ -131,25 +102,8 @@
     web_asset: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Z',
 
     /* -- markdown toolbar — the Testomat APP's own, NOT Material -------------
-       The glyphs the app draws over its markdown editor, so a tester who writes
-       a test in the web app and then writes one in this panel reaches for the
-       same shapes. Supplied as SVG from the design file 2026-08-11.
-
-       They are a 16-unit outline set, not Material's 960 filled one, so each
-       names `0 0 16 16` in BOXES below. The export's own `fill="#0A0A0A"` is
-       dropped on the way in — colour here is always currentColor, set by the
-       CSS around the icon (the rule for every path in this file).
-
-       INCOMPLETE on purpose: the set covers bold, italic, code and the two
-       lists. There is no link or quote glyph in it, and no usable headings — the
-       three `format-header*.svg` files supplied were byte-identical, all three
-       the H2 drawing — so those buttons keep their Material shape (see
-       TOOLBAR_ICONS, editor/editor.js).
-       The H2 that DID arrive is deliberately not vendored here. These 16-unit
-       glyphs are drawn edge to edge where a Material one leaves padding inside
-       its box, so at one `size` they render visibly larger; that is invisible on
-       a bold or a list marker, and unmissable on the middle letter of H1 H2 H3.
-       A heading trio moves as a trio or not at all. */
+       INCOMPLETE on purpose: the three heading files supplied were byte-identical (all
+       H2), so link, quote and the headings keep Material shapes (editor/editor.js). */
     md_bold: 'M4 2.66699H8.33333C8.92064 2.66702 9.49502 2.83943 9.98525 3.16284C10.4755 3.48626 10.86 3.94646 11.0911 4.48637C11.3223 5.02629 11.3898 5.62216 11.2855 6.20012C11.1811 6.77808 10.9094 7.31269 10.504 7.73766C11.0752 8.06849 11.5213 8.57847 11.7733 9.18858C12.0252 9.79868 12.0689 10.4749 11.8976 11.1123C11.7263 11.7498 11.3495 12.3129 10.8256 12.7145C10.3018 13.1161 9.66008 13.3337 9 13.3337H4V12.0003H4.66667V4.00033H4V2.66699ZM6 7.33366H8.33333C8.77536 7.33366 9.19928 7.15806 9.51184 6.8455C9.8244 6.53294 10 6.10902 10 5.66699C10 5.22496 9.8244 4.80104 9.51184 4.48848C9.19928 4.17592 8.77536 4.00033 8.33333 4.00033H6V7.33366ZM6 8.66699V12.0003H9C9.44203 12.0003 9.86595 11.8247 10.1785 11.5122C10.4911 11.1996 10.6667 10.7757 10.6667 10.3337C10.6667 9.89163 10.4911 9.46771 10.1785 9.15515C9.86595 8.84259 9.44203 8.66699 9 8.66699H6Z',
     md_italic: 'M8.66699 13.3337H4.66699V12.0003H5.95166L8.69566 4.00033H7.33366V2.66699H11.3337V4.00033H10.049L7.30499 12.0003H8.66699V13.3337Z',
     md_code: 'M9.73301 11.0667L12.7997 8L9.73301 4.93333L10.6663 4L14.6663 8L10.6663 12L9.73301 11.0667ZM6.26634 11.0667L3.19967 8L6.26634 4.93333L5.33301 4L1.33301 8L5.33301 12L6.26634 11.0667Z',
@@ -157,21 +111,8 @@
     md_list_numbered: 'M3.98867 12.6663H2V11.9997H3.326V11.6663H2.66333V10.9997H3.32667V10.6663H2V9.99967H3.98867V12.6663ZM13.3333 11.9997H5.37933V10.6663H13.3333V11.9997ZM3.98867 9.33301H2V8.73301L3.19333 7.33301H2V6.66634H3.98867V7.26634L2.79533 8.66634H3.98867V9.33301ZM13.3333 8.66634H5.37933V7.33301H13.3333V8.66634ZM3.65733 5.99967H2.994V3.99967H2.33333V3.33301H3.65733V5.99967ZM13.3333 5.33301H5.37933V3.99967H13.3333V5.33301Z',
 
     /* -- type of test — the product's own nine, NOT Material -----------------
-       Vendored from the design library (◇ UI app library → Type of test,
-       node 1730-20999), exported 2026-08-05. Three of them (note, shared-from,
-       shared-to) are Material shapes the library redrew at a different weight,
-       and the other six — the manual cursor-and-sparkle, the automated ring,
-       the sync pair, its broken twin, the detached card and the defect bug —
-       have no upstream at all, which is why the whole family lives here as one
-       block rather than being half-borrowed from the set above.
-
-       They are drawn on the library's own 13.3333-unit box (the icon layer
-       inside the 20px symbol), not Material's 960 one, and each sits at the
-       offset the library gives it — so every one of them names its own viewBox
-       in BOXES below. The paths are the Figma export verbatim, translated to
-       that origin: the same commands and the same coordinates, so a glyph here
-       can be diffed against ◇ Type of test number by number. Same contract
-       otherwise: one path, no inline fill, colour from the CSS around it. */
+       Vendored from the design library (◇ UI app library → Type of test, node
+       1730-20999): the Figma export verbatim, on its own 13.3333 box (see BOXES). */
     type_manual: 'M0 5.21569V6.70588H2.22222V5.21569H0ZM1.48148 9.76079L2.51852 10.8412L4.11111 9.23922L3.03704 8.19608L1.48148 9.76079ZM1.48148 2.16078L3.03704 3.72549L4.11111 2.68235L2.51852 1.08039L1.48148 2.16078ZM5.92593 0V2.23529H7.40741V0H5.92593ZM9.22222 2.68235L10.2963 3.72549L11.8519 2.12353L10.8148 1.08039L9.22222 2.68235ZM9.2683 10.5527L12.0488 13.3332L13.3333 12.0486L10.5528 9.26813L13.0081 8.45513L6.50407 6.50391L8.45529 13.008L9.2683 10.5527Z',
     type_automated: 'M6.30894 10.4065C5.26829 10.3523 4.39024 9.95122 3.6748 9.20325C2.95935 8.45528 2.60163 7.55556 2.60163 6.50406C2.60163 5.42005 2.98103 4.49864 3.73984 3.73984C4.49864 2.98103 5.42005 2.60163 6.50406 2.60163C7.55556 2.60163 8.45528 2.95935 9.20325 3.6748C9.95122 4.39024 10.3523 5.26829 10.4065 6.30894L9.04065 5.90244C8.89973 5.31707 8.59621 4.8374 8.13008 4.46341C7.66396 4.08943 7.12195 3.90244 6.50406 3.90244C5.78862 3.90244 5.17615 4.15718 4.66667 4.66667C4.15718 5.17615 3.90244 5.78862 3.90244 6.50406C3.90244 7.12195 4.08943 7.66396 4.46341 8.13008C4.8374 8.59621 5.31707 8.89973 5.90244 9.04065L6.30894 10.4065ZM7.08943 12.9756C6.99187 12.9973 6.89431 13.0081 6.79675 13.0081H6.50406C5.60434 13.0081 4.75881 12.8374 3.96748 12.4959C3.17615 12.1545 2.4878 11.6911 1.90244 11.1057C1.31707 10.5203 0.853659 9.83198 0.512195 9.04065C0.170732 8.24932 0 7.40379 0 6.50406C0 5.60434 0.170732 4.75881 0.512195 3.96748C0.853659 3.17615 1.31707 2.4878 1.90244 1.90244C2.4878 1.31707 3.17615 0.853659 3.96748 0.512195C4.75881 0.170732 5.60434 0 6.50406 0C7.40379 0 8.24932 0.170732 9.04065 0.512195C9.83198 0.853659 10.5203 1.31707 11.1057 1.90244C11.6911 2.4878 12.1545 3.17615 12.4959 3.96748C12.8374 4.75881 13.0081 5.60434 13.0081 6.50406V6.79675C13.0081 6.89431 12.9973 6.99187 12.9756 7.08943L11.7073 6.69919V6.50406C11.7073 5.05149 11.2033 3.82114 10.1951 2.81301C9.18699 1.80488 7.95664 1.30081 6.50406 1.30081C5.05149 1.30081 3.82114 1.80488 2.81301 2.81301C1.80488 3.82114 1.30081 5.05149 1.30081 6.50406C1.30081 7.95664 1.80488 9.18699 2.81301 10.1951C3.82114 11.2033 5.05149 11.7073 6.50406 11.7073H6.69919L7.08943 12.9756ZM12.0488 13.3333L9.26829 10.5528L8.45528 13.0081L6.50406 6.50406L13.0081 8.45528L10.5528 9.26829L13.3333 12.0488L12.0488 13.3333Z',
     type_mixed: 'M7.11151 1.30107V0C7.95069 0.019397 8.74201 0.189505 9.4855 0.510323C10.2768 0.851786 10.9652 1.3152 11.5505 1.90057C12.1359 2.48593 12.5993 3.17428 12.9408 3.96561C13.2177 4.60746 13.3824 5.28496 13.4347 5.99813H12.1312C12.0264 4.76284 11.5293 3.70051 10.64 2.81114C9.66967 1.84084 8.49352 1.33748 7.11151 1.30107ZM3.84654 2.5021L5.96046e-08 2.5021V4.27915L3.84654 4.27915L2.71057 6.53984L8.55911 3.39063L2.71057 0.241413L3.84654 2.5021ZM10.4907 10.9457L14.3372 10.9457V9.16867L10.4907 9.16867L11.6267 6.90799L5.77813 10.0572L11.6267 13.2064L10.4907 10.9457ZM6.76801 13.3314V12.0303C5.386 11.9939 4.20985 11.4905 3.23955 10.5202C2.35017 9.63087 1.8531 8.56854 1.74834 7.33325H0.44482C0.497137 8.04642 0.661777 8.72392 0.938739 9.36577C1.2802 10.1571 1.74362 10.8454 2.32898 11.4308C2.91435 12.0162 3.6027 12.4796 4.39402 12.8211C5.13751 13.1419 5.92884 13.312 6.76801 13.3314Z',
@@ -182,70 +123,32 @@
     type_shared_from: 'M3.33333 7.73333C3.14444 7.73333 2.98611 7.66944 2.85833 7.54167C2.73056 7.41389 2.66667 7.25556 2.66667 7.06667V3.73333C2.66667 3.36667 2.79722 3.05278 3.05833 2.79167C3.31944 2.53056 3.63333 2.4 4 2.4H9.43333L8.18333 1.15C8.05 1.01667 7.98333 0.858333 7.98333 0.675C7.98333 0.491667 8.05 0.333333 8.18333 0.2C8.31667 0.0666667 8.475 0 8.65833 0C8.84167 0 9 0.0666667 9.13333 0.2L11.5333 2.6C11.6667 2.73333 11.7333 2.88889 11.7333 3.06667C11.7333 3.24444 11.6667 3.4 11.5333 3.53333L9.13333 5.93333C9.01111 6.05556 8.85833 6.11944 8.675 6.125C8.49167 6.13056 8.33333 6.06667 8.2 5.93333C8.06667 5.8 7.99722 5.64167 7.99167 5.45833C7.98611 5.275 8.05 5.11667 8.18333 4.98333L9.43333 3.73333H4V7.06667C4 7.25556 3.93611 7.41389 3.80833 7.54167C3.68056 7.66944 3.52222 7.73333 3.33333 7.73333ZM1.33333 11.7333C0.966667 11.7333 0.652778 11.6028 0.391667 11.3417C0.130556 11.0806 0 10.7667 0 10.4V5.73333C0 5.54444 0.0638889 5.38611 0.191667 5.25833C0.319444 5.13056 0.477778 5.06667 0.666667 5.06667C0.855556 5.06667 1.01389 5.13056 1.14167 5.25833C1.26944 5.38611 1.33333 5.54444 1.33333 5.73333V10.4H9.33333V8.4C9.33333 8.21111 9.39722 8.05278 9.525 7.925C9.65278 7.79722 9.81111 7.73333 10 7.73333C10.1889 7.73333 10.3472 7.79722 10.475 7.925C10.6028 8.05278 10.6667 8.21111 10.6667 8.4V10.4C10.6667 10.7667 10.5361 11.0806 10.275 11.3417C10.0139 11.6028 9.7 11.7333 9.33333 11.7333H1.33333Z',
     type_shared_to: 'M4 10.2833L1.26682 12.95C1.13348 13.0833 0.977926 13.1472 0.800149 13.1417C0.622371 13.1361 0.466815 13.0667 0.333482 12.9333C0.21126 12.8 0.147371 12.6444 0.141815 12.4667C0.13626 12.2889 0.200148 12.1333 0.333482 12L3.06667 9.33333H2.23333C2.04444 9.33333 1.88611 9.26945 1.75833 9.14167C1.63056 9.01389 1.56667 8.85556 1.56667 8.66667C1.56667 8.47778 1.63056 8.31944 1.75833 8.19167C1.88611 8.06389 2.04444 8 2.23333 8H4.66667C4.85556 8 5.01389 8.06389 5.14167 8.19167C5.26945 8.31944 5.33333 8.47778 5.33333 8.66667V11.1C5.33333 11.2889 5.26945 11.4472 5.14167 11.575C5.01389 11.7028 4.85556 11.7667 4.66667 11.7667C4.47778 11.7667 4.31944 11.7028 4.19167 11.575C4.06389 11.4472 4 11.2889 4 11.1V10.2833ZM0.666667 6.66667C0.477778 6.66667 0.319445 6.60278 0.191667 6.475C0.0638889 6.34722 0 6.18889 0 6V1.33333C0 0.966667 0.130556 0.652778 0.391667 0.391667C0.652778 0.130556 0.966667 0 1.33333 0H6.66667L10.6667 4V12C10.6667 12.3667 10.5361 12.6806 10.275 12.9417C10.0139 13.2028 9.7 13.3333 9.33333 13.3333H7.33333C7.14445 13.3333 6.98611 13.2694 6.85833 13.1417C6.73056 13.0139 6.66667 12.8556 6.66667 12.6667C6.66667 12.4778 6.73056 12.3194 6.85833 12.1917C6.98611 12.0639 7.14445 12 7.33333 12H9.33333V4.66667H6.66667C6.47778 4.66667 6.31945 4.60278 6.19167 4.475C6.06389 4.34722 6 4.18889 6 4V1.33333H1.33333V6C1.33333 6.18889 1.26944 6.34722 1.14167 6.475C1.01389 6.60278 0.855556 6.66667 0.666667 6.66667Z',
 
-    /* RUN STATUS (◇ UI app library → Run status, node 2003-18939) — the second
-       set that is not Material, and here for the same reason as the block above:
-       these are the marks the product draws a run with, and Material has no
-       equivalent of the record-circle or of this particular check. Two of them
-       are FILLED discs with the sign knocked out of them (a white tick, a white
-       minus), which is why they read as status at 16px where an outlined circle
-       reads as chrome. Same 16-unit box and the same one-path, no-fill contract
-       as the type marks; each names its offset in BOXES.
-
-       `status_record` is the ring-with-a-dot the library gives both PENDING and
-       SKIPPED — one glyph, two colours (--pending, --skipped): what separates
-       those two is not the shape, it is whether anybody decided. */
+    /* RUN STATUS (◇ UI app library → Run status, node 2003-18939) — not Material.
+       `status_record` is ONE glyph for both PENDING and SKIPPED; only the colour
+       (--pending / --skipped) tells them apart. 16-unit box, offsets in BOXES. */
     status_passed: 'M6.66667 0C3 0 0 3 0 6.66667C0 10.3333 3 13.3333 6.66667 13.3333C10.3333 13.3333 13.3333 10.3333 13.3333 6.66667C13.3333 3 10.3333 0 6.66667 0ZM5.33333 10L2 6.66667L2.94 5.72667L5.33333 8.11333L10.3933 3.05333L11.3333 4L5.33333 10Z',
     status_failed: 'M10 7.33333H3.33333V6H10M6.66667 0C5.79119 0 4.92428 0.172438 4.11544 0.50747C3.30661 0.842501 2.57168 1.33356 1.95262 1.95262C0.702379 3.20286 0 4.89856 0 6.66667C0 8.43478 0.702379 10.1305 1.95262 11.3807C2.57168 11.9998 3.30661 12.4908 4.11544 12.8259C4.92428 13.1609 5.79119 13.3333 6.66667 13.3333C8.43478 13.3333 10.1305 12.631 11.3807 11.3807C12.631 10.1305 13.3333 8.43478 13.3333 6.66667C13.3333 5.79119 13.1609 4.92428 12.8259 4.11544C12.4908 3.30661 11.9998 2.57168 11.3807 1.95262C10.7617 1.33356 10.0267 0.842501 9.21789 0.50747C8.40905 0.172438 7.54215 0 6.66667 0Z',
     status_record: 'M6.66667 0C5.79119 0 4.92428 0.172438 4.11544 0.50747C3.30661 0.842501 2.57168 1.33356 1.95262 1.95262C0.702379 3.20286 0 4.89856 0 6.66667C0 8.43478 0.702379 10.1305 1.95262 11.3807C2.57168 11.9998 3.30661 12.4908 4.11544 12.8259C4.92428 13.1609 5.79119 13.3333 6.66667 13.3333C8.43478 13.3333 10.1305 12.631 11.3807 11.3807C12.631 10.1305 13.3333 8.43478 13.3333 6.66667C13.3333 5.79119 13.1609 4.92428 12.8259 4.11544C12.4908 3.30661 11.9998 2.57168 11.3807 1.95262C10.7617 1.33356 10.0267 0.842501 9.21789 0.50747C8.40905 0.172438 7.54215 0 6.66667 0ZM6.66667 4.66667C7.1971 4.66667 7.70581 4.87738 8.08088 5.25245C8.45595 5.62753 8.66667 6.13623 8.66667 6.66667C8.66667 7.1971 8.45595 7.70581 8.08088 8.08088C7.70581 8.45595 7.1971 8.66667 6.66667 8.66667C6.13623 8.66667 5.62753 8.45595 5.25245 8.08088C4.87738 7.70581 4.66667 7.1971 4.66667 6.66667C4.66667 6.13623 4.87738 5.62753 5.25245 5.25245C5.62753 4.87738 6.13623 4.66667 6.66667 4.66667Z',
     status_terminated: 'M6.78333 2C7.45 2 8.10278 2.11111 8.74167 2.33333C9.38056 2.55556 9.98333 2.87778 10.55 3.3L11.0167 2.83333C11.1389 2.71111 11.2944 2.65 11.4833 2.65C11.6722 2.65 11.8278 2.71111 11.95 2.83333C12.0722 2.95556 12.1333 3.11111 12.1333 3.3C12.1333 3.48889 12.0722 3.64444 11.95 3.76667L11.4833 4.23333C11.9056 4.8 12.2278 5.40278 12.45 6.04167C12.6722 6.68056 12.7833 7.33333 12.7833 8C12.7833 8.28889 12.7611 8.575 12.7167 8.85833C12.6722 9.14167 12.6056 9.42778 12.5167 9.71667C12.4389 9.96111 12.3139 10.1222 12.1417 10.2C11.9694 10.2778 11.8056 10.2889 11.65 10.2333C11.4944 10.1778 11.3639 10.0778 11.2583 9.93333C11.1528 9.78889 11.1333 9.62222 11.2 9.43333C11.2889 9.18889 11.3528 8.94722 11.3917 8.70833C11.4306 8.46945 11.45 8.23333 11.45 8C11.45 6.71111 10.9944 5.61111 10.0833 4.7C9.17222 3.78889 8.07222 3.33333 6.78333 3.33333C6.56111 3.33333 6.32222 3.35278 6.06667 3.39167C5.81111 3.43056 5.55556 3.49444 5.3 3.58333C5.11111 3.63889 4.95 3.61667 4.81667 3.51667C4.68333 3.41667 4.58889 3.28889 4.53333 3.13333C4.47778 2.97778 4.48611 2.81389 4.55833 2.64167C4.63056 2.46944 4.77778 2.34444 5 2.26667C5.28889 2.17778 5.58333 2.11111 5.88333 2.06667C6.18333 2.02222 6.48333 2 6.78333 2ZM7.45 6.13333V5.33333C7.45 5.14445 7.38611 4.98611 7.25833 4.85833C7.13056 4.73056 6.97222 4.66667 6.78333 4.66667C6.67222 4.66667 6.56944 4.68889 6.475 4.73333C6.38056 4.77778 6.30556 4.84444 6.25 4.93333L7.45 6.13333ZM6.78333 14C5.96111 14 5.18611 13.8417 4.45833 13.525C3.73056 13.2083 3.09444 12.7778 2.55 12.2333C2.00556 11.6889 1.575 11.0528 1.25833 10.325C0.941667 9.59722 0.783333 8.82222 0.783333 8C0.783333 7.33333 0.886111 6.69167 1.09167 6.075C1.29722 5.45833 1.59444 4.9 1.98333 4.4L0.183333 2.6C0.0611111 2.47778 0 2.32222 0 2.13333C0 1.94444 0.0611111 1.78889 0.183333 1.66667C0.305556 1.54444 0.461111 1.48333 0.65 1.48333C0.838889 1.48333 0.994444 1.54444 1.11667 1.66667L12.45 13C12.5722 13.1222 12.6333 13.2778 12.6333 13.4667C12.6333 13.6556 12.5722 13.8111 12.45 13.9333C12.3278 14.0556 12.1722 14.1167 11.9833 14.1167C11.7944 14.1167 11.6389 14.0556 11.5167 13.9333L10.3833 12.8C9.85 13.1889 9.275 13.4861 8.65833 13.6917C8.04167 13.8972 7.41667 14 6.78333 14ZM6.78333 12.6667C7.25 12.6667 7.70556 12.5944 8.15 12.45C8.59444 12.3056 9.01111 12.1 9.4 11.8333L2.91667 5.35C2.65 5.73889 2.45 6.15556 2.31667 6.6C2.18333 7.04445 2.11667 7.51111 2.11667 8C2.11667 9.28889 2.57222 10.3889 3.48333 11.3C4.39444 12.2111 5.49444 12.6667 6.78333 12.6667ZM5.45 1.33333C5.26111 1.33333 5.10278 1.26944 4.975 1.14167C4.84722 1.01389 4.78333 0.855556 4.78333 0.666667C4.78333 0.477778 4.84722 0.319444 4.975 0.191667C5.10278 0.0638889 5.26111 0 5.45 0H8.11667C8.30556 0 8.46389 0.0638889 8.59167 0.191667C8.71944 0.319444 8.78333 0.477778 8.78333 0.666667C8.78333 0.855556 8.71944 1.01389 8.59167 1.14167C8.46389 1.26944 8.30556 1.33333 8.11667 1.33333H5.45Z',
 
     /* -- tree marks — the folder and the suite a list leads a row with -------
-       Vendored from the design library (◇ UI app library → Tree), exported
-       2026-08-06, and here for the same reason as the two blocks above: these
-       are the product's own marks for the two things a tree holds, and
-       Material's `folder`/`description` were only ever stand-ins for them.
-
-       They are drawn on the 20px symbol frame ITSELF — not inset in it the way
-       the type marks are — so the box below is a plain `0 0 20 20` and the
-       drawing bleeds to its edge.
-
-       The folders are TWO-TONE, which is the one thing a single path cannot
-       say: a solid outline with a lighter body inside it, so a folder reads as
-       a container at 16px rather than as a filled block. That is what the array
-       form is — `[d, fill-opacity]` layers, painted back to front. The body's
-       0.7 is the panel's own `--opacity-muted`, the same step every other muted
-       mark is drawn at. The suite is one tone and stays a plain string. */
+       Vendored from the design library (◇ UI app library → Tree). The folders are
+       TWO-TONE: `[d, fill-opacity]` layers, back to front; 0.7 is --opacity-muted. */
     tree_folder: [
       ['M6.79718 3H3.11765C1.9481 3 1 3.89543 1 5V14C1 15.1046 1.9481 16 3.11765 16H16.8824C18.0519 16 19 15.1046 19 14V7.08C19 5.97543 18.0519 5.08 16.8824 5.08H11.021C10.5368 5.08 10.0673 4.9233 9.69057 4.63601L8.12761 3.44399C7.75092 3.1567 7.28136 3 6.79718 3Z', 0.7],
       ['M0 14.22V4.77998C0 3.24486 1.29703 2 2.89648 2H6.69477C7.35669 2.00011 7.99834 2.21856 8.51334 2.61766L10.127 3.86732C10.3893 4.07063 10.7162 4.18168 11.0534 4.18178H17.1035C18.703 4.18178 20 5.42665 20 6.96176V14.22C20 15.7551 18.703 17 17.1035 17H2.89648C1.29703 17 5.63177e-07 15.7551 0 14.22ZM1.42156 14.22C1.42156 15.0021 2.08167 15.6356 2.89648 15.6356H17.1035C17.9183 15.6356 18.5784 15.0021 18.5784 14.22V6.96176C18.5784 6.17972 17.9183 5.54616 17.1035 5.54616H11.0534C10.3915 5.54606 9.7498 5.32758 9.23479 4.9285L7.62113 3.67782C7.35887 3.47465 7.0318 3.36449 6.69477 3.36438H2.89648C2.08167 3.36438 1.42156 3.99794 1.42156 4.77998V14.22Z'],
     ],
-    // The same folder with a house knocked out of its body — the ROOT of a tree,
-    // the one node that is not inside another. Even-odd is what cuts the house
-    // out: the sub-path is wound with the body, not against it.
+    // Root folder: even-odd is what cuts the house out — the sub-path is wound WITH the body.
     tree_folder_root: [
       ['M6.79688 3C7.28106 3 7.75124 3.15704 8.12793 3.44434L9.69043 4.63574C10.0671 4.92303 10.5373 5.08008 11.0215 5.08008H16.8828C18.0521 5.08031 19 5.97565 19 7.08008V14C19 15.1044 18.0521 15.9998 16.8828 16H3.11719C1.94785 15.9998 1 15.1044 1 14V5C1 3.89558 1.94785 3.00023 3.11719 3H6.79688ZM10.125 7.09961C10.052 7.04131 9.94799 7.04131 9.875 7.09961L5.44531 10.6436C5.29768 10.7617 5.38126 11 5.57031 11H6.7998C6.91026 11 7 11.0897 7 11.2002V13.7998C7 13.9103 7.08974 14 7.2002 14H8.7998C8.91026 14 9 13.9103 9 13.7998V11.2002C9 11.0897 9.08974 11 9.2002 11H10.7998C10.9103 11 11 11.0897 11 11.2002V13.7998C11 13.9103 11.0897 14 11.2002 14H12.7998C12.9103 14 13 13.9103 13 13.7998V11.2002C13 11.0897 13.0897 11 13.2002 11H14.4297C14.6187 11 14.7023 10.7617 14.5547 10.6436L10.125 7.09961Z', 0.7, 'evenodd'],
       ['M0 14.22V4.77998C0 3.24486 1.29703 2 2.89648 2H6.69477C7.35669 2.00011 7.99834 2.21856 8.51334 2.61766L10.127 3.86732C10.3893 4.07063 10.7162 4.18168 11.0534 4.18178H17.1035C18.703 4.18178 20 5.42665 20 6.96176V14.22C20 15.7551 18.703 17 17.1035 17H2.89648C1.29703 17 5.63177e-07 15.7551 0 14.22ZM1.42156 14.22C1.42156 15.0021 2.08167 15.6356 2.89648 15.6356H17.1035C17.9183 15.6356 18.5784 15.0021 18.5784 14.22V6.96176C18.5784 6.17972 17.9183 5.54616 17.1035 5.54616H11.0534C10.3915 5.54606 9.7498 5.32758 9.23479 4.9285L7.62113 3.67782C7.35887 3.47465 7.0318 3.36449 6.69477 3.36438H2.89648C2.08167 3.36438 1.42156 3.99794 1.42156 4.77998V14.22Z'],
     ],
-    // A suite: the page a test case lives on, with the tick that says it was run.
     tree_suite: 'M10.8154 1C11.5862 1.00007 12.3233 1.31327 12.8555 1.86523L16.2197 5.35449C16.7202 5.87389 16.9999 6.56434 17 7.28223V16.2061C17 17.7485 15.7366 19 14.1787 19H5.82129C4.2634 19 3 17.7485 3 16.2061V3.79395C3 2.25145 4.2634 1 5.82129 1H10.8154ZM5.82129 2.44922C5.07119 2.44922 4.46289 3.05126 4.46289 3.79395V16.2061C4.46289 16.9487 5.07119 17.5508 5.82129 17.5508H14.1787C14.9288 17.5508 15.5371 16.9487 15.5371 16.2061V7.62109H13.3955C11.8377 7.62109 10.5743 6.37052 10.5742 4.82812V2.44922H5.82129ZM12.1367 10.1133C12.3621 9.85338 12.7568 9.82392 13.0195 10.0469C13.2821 10.27 13.3121 10.6608 13.0869 10.9209L9.95312 14.542C9.8396 14.6729 9.67606 14.7511 9.50195 14.7578C9.32764 14.7644 9.15857 14.6982 9.03516 14.5762L6.94531 12.5068C6.7007 12.2644 6.70058 11.8722 6.94531 11.6299C7.19007 11.3878 7.58632 11.3877 7.83105 11.6299L9.44141 13.2256L12.1367 10.1133ZM12.0371 4.82812C12.0372 5.57071 12.6455 6.17285 13.3955 6.17285H14.9863L12.0371 3.11328V4.82812Z',
   };
 
-  // The icons that are NOT on Material's 960 box. The origin is the offset the
-  // library places the glyph at inside its own frame, so the shape lands centred
-  // in the caller's square without the caller knowing anything about it. Read a
-  // value as: "shift the drawing right and down by this much". Anything absent
-  // here is on VIEW_BOX, which is every Material icon above.
-  //
-  // The type marks are on the LIBRARY'S OWN 13.3333 frame — the box the icon
-  // layer occupies inside the 20px symbol (◇ Type of test: a 13.3333 icon inset
-  // 3.3333 from each edge). They used to be padded out to 16 to match the status
-  // set, which made `size` mean the frame rather than the drawing: asking for 16
-  // drew 13.3333 of glyph, and every length under the mark was a third of a
-  // pixel off the grid. On their own frame `size` is the drawing again, so
-  // test-type.js asks for 12 and gets 12 in a 20px square — 4px of air a side.
+  // Per-icon viewBox for the glyphs NOT on Material's 960 box; anything absent uses
+  // VIEW_BOX. Each is the library's own frame, so `size` means the DRAWING, not a padded box.
   const BOXES = {
-    // The app's markdown-toolbar set: a 16-unit box, drawn edge to edge, so
-    // `size` is the drawing exactly as it is for the type marks.
     md_bold: '0 0 16 16',
     md_italic: '0 0 16 16',
     md_code: '0 0 16 16',
@@ -264,40 +167,28 @@
     status_failed: '-1.3333 -1.3333 16 16',
     status_record: '-1.3333 -1.3333 16 16',
     status_terminated: '-1.6084 -0.9417 16 16',
-    // The tree marks ARE the 20px symbol, so their box is the symbol's own and
-    // the offset is zero: `size` here is the frame the library drew, edge to edge.
+    // The tree marks ARE the 20px symbol, so the offset is zero.
     tree_folder: '0 0 20 20',
     tree_folder_root: '0 0 20 20',
     tree_suite: '0 0 20 20',
   };
   const boxOf = (name) => BOXES[name] || VIEW_BOX;
-  // The centre of an icon's own box, as "cx cy" — what a rotation turns about.
-  // Read off the viewBox rather than written as the constant "480 -480" it used
-  // to be, so a glyph that is not on Material's box still spins about itself.
+  // Rotation centre, read off the icon's OWN viewBox — not every glyph is on Material's.
   function centreOf(name) {
     const [x, y, w, h] = boxOf(name).split(' ').map(Number);
     return `${x + w / 2} ${y + h / 2}`;
   }
 
-  // A glyph's LAYERS, as `[d, fillOpacity, fillRule]` rows painted back to
-  // front. Almost every icon is one opaque path and says so as a bare string;
-  // the tree marks are two-tone and say so as an array. Everything downstream
-  // reads this, so neither form is a special case anywhere else.
+  // `[d, fillOpacity, fillRule]` rows painted back to front: a bare string is one opaque
+  // path, an array is two-tone. Everything downstream reads this, so neither form is special.
   function layers(name) {
     const v = PATHS[name];
     if (!v) return null;
     return Array.isArray(v) ? v : [[v]];
   }
 
-  // One <svg> element for `name`, sized in px and classed `md-icon` plus whatever
-  // the caller adds. `doc` exists because the annotator also builds into a page's
-  // document (shadow DOM) rather than the panel's. Unknown name → null, so a typo
-  // fails visibly at the call site instead of drawing a stray empty box.
-  // `rotate` is degrees about the box centre, the same option `markup()` takes —
-  // one spelling for both forms. It is how a set with `chevron_right` in it also
-  // has the LEFT one: a chevron turned half a turn IS its mirror, so the pager
-  // draws both of its arrows from the one vetted path instead of carrying a
-  // second, hand-typed copy that can drift from it.
+  // `doc` exists because the annotator builds into a page's document (shadow DOM), not
+  // the panel's. Unknown name → null. `rotate` is degrees: chevron_right turned 180 IS left.
   function build(doc, name, size, cls, rotate = 0) {
     const parts = layers(name);
     if (!parts) return null;
@@ -308,8 +199,7 @@
     svg.setAttribute('fill', 'currentColor');
     svg.setAttribute('aria-hidden', 'true');
     svg.classList.add('md-icon', ...cls);
-    // Turned glyphs hang their paths off one <g>; an untouched one keeps the
-    // flat shape it always had, so nothing downstream sees a new wrapper.
+    // Only a turned glyph gets a <g> wrapper, so nothing downstream sees a new one.
     let host = svg;
     if (rotate) {
       host = doc.createElementNS(NS, 'g');
@@ -326,17 +216,8 @@
     return svg;
   }
 
-  // THE PROJECT'S OWN MARK, where it set one. Testomat lets a project replace a
-  // suite's or a test's icon with an emoji, and where it did, that emoji is what
-  // the thing is called by — so it is drawn in the same square the glyph it
-  // replaced would have used (`cls` is that square: a tree row's `.tree-icon`,
-  // a test row's `.type-mark`). It is text rather than an <svg>, which is the
-  // whole reason this lives here beside `el`: every call site asks the icon
-  // module for "the mark", and only this function knows the two forms one takes.
-  //
-  // null when there is nothing drawable — an empty value, or a `:shortcode:`
-  // the panel has no dictionary to resolve — so the call site falls back to the
-  // glyph instead of printing punctuation where an icon belongs.
+  // A project can replace a suite's or a test's icon with an emoji — text, not an <svg>.
+  // null for an empty value or a `:shortcode:` the panel cannot resolve, so callers fall back.
   function emoji(value, cls = '') {
     const s = String(value || '').trim();
     if (!s || /^:[a-z0-9_+-]+:$/i.test(s)) return null;
@@ -349,9 +230,7 @@
   const el = (name, size = 16, ...cls) => build(document, name, size, cls);
   const elIn = (doc, name, size = 16, ...cls) => build(doc || document, name, size, cls);
 
-  // Markup form, for the few call sites that assign innerHTML (the editor chrome
-  // and the priority chips). `rotate` is degrees about the box centre — the
-  // critical priority is a label turned to point upwards, mirroring the web app.
+  // Markup form, for the call sites that assign innerHTML (editor chrome, priority chips).
   function markup(name, size = 16, { cls = '', rotate = 0 } = {}) {
     const parts = layers(name);
     if (!parts) return '';
@@ -366,19 +245,13 @@
       + ` fill="currentColor" aria-hidden="true">${inner}</svg>`;
   }
 
-  // Static markup asks for an icon by NAME, never by path: a placeholder
-  //   <span class="md-icon disc-caret" data-icon="chevron_right" data-icon-size="16"></span>
-  // is swapped for the real <svg> here, carrying the placeholder's own classes so
-  // the CSS contract around it is unchanged. Before this, index.html held 23
-  // inline <svg>s — the close path alone was pasted six times — which is exactly
-  // the drift this module exists to end: a path fixed here would have left six
-  // stale copies behind. Called once from app.js init, after the document parses.
+  // Swaps `<span data-icon data-icon-size>` placeholders for real <svg>s, keeping the
+  // placeholder's own classes. Called once from app.js init, AFTER the document parses.
   function hydrate(root) {
     const host = root || document;
     for (const slot of host.querySelectorAll('[data-icon]')) {
       const size = Number(slot.dataset.iconSize) || 16;
-      // `data-icon-rotate` is the static form of `markup`'s `rotate`: the pager's
-      // back arrow is `chevron_right` turned 180, not a second path.
+      // `data-icon-rotate` is the static form of `markup`'s `rotate`.
       const svg = build(host.ownerDocument || document, slot.dataset.icon, size,
         [...slot.classList].filter((c) => c !== 'md-icon'),
         Number(slot.dataset.iconRotate) || 0);

@@ -1,19 +1,5 @@
-// Screenshot annotator — editor-page mode (`editor.html?annotate=<key>`), the
-// automatic FALLBACK for pages where the on-page overlay cannot be injected
-// (chrome://, Web Store, PDF viewer, file:// without access). editor.js hands the
-// page over to Annotate.init(key) before any editor rendering.
-//
-// This is now a thin shell around the shared engine (shared/annotate-core.js):
-// it owns only the chrome.storage.session handoff and closing its own tab; all
-// tool/canvas logic lives in the core, which the on-page overlay reuses verbatim.
-//
-// Handoff (chrome.storage.session, never local/sync): the caller stores
-// {dataUrl} at key `annotate-<rand>` and opens this tab. Apply and
-// Keep original both write {resultDataUrl} back to the SAME key (the flattened
-// export vs the raw shot); Discard writes {cancelled:true}. Either way the
-// original dataUrl is overwritten — after Apply nothing retains the un-blurred
-// original (privacy, spec §1). The caller reacts via
-// chrome.storage.session.onChanged and closes on its side; we also close here.
+// Screenshot annotator, editor-page fallback for where the overlay cannot be injected. Its
+// handoff always OVERWRITES the storage.session key, so no un-blurred original survives.
 
 /* global chrome, AnnotateCore */
 window.Annotate = (() => {

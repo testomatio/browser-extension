@@ -1,18 +1,5 @@
-// Annotator overlay (on-page) — the primary annotate surface. Injected on demand
-// via chrome.scripting.executeScript (NOT a declared content_script), alongside
-// shared/annotate-core.js, into the tab where the screenshot was taken. It builds
-// a full-viewport fixed host with a Shadow DOM (styles are the inline CSS string
-// below — page CSS cannot leak in, our CSS cannot leak out), blocks page scroll
-// while open, and reuses the shared core verbatim. Esc = Cancel. On pagehide
-// (navigation/close) it best-effort writes Cancel so the panel never hangs.
-//
-// Handoff: identical chrome.storage.session key contract as the editor-tab
-// fallback — Apply/Keep-original overwrite the key with {resultDataUrl} (Apply's
-// is the flattened export, Keep-original's is the raw shot), Discard with
-// {cancelled:true}; the panel reacts via onChanged. The panel stashes the key on
-// window.__testomatAnnotateKey (a prior executeScript func) before this runs.
-// Session storage is opened to content scripts by the service worker
-// (setAccessLevel TRUSTED_AND_UNTRUSTED_CONTEXTS).
+// Annotator overlay injected on demand into the captured tab (NOT a declared content_script).
+// It answers on a storage.session key the worker opened to content scripts (setAccessLevel).
 
 /* global chrome, AnnotateCore, Tooltip */
 (() => {
@@ -21,42 +8,21 @@
   const HOST_ID = '__testomat_annotator_overlay';
   const key = window.__testomatAnnotateKey;
   window.__testomatAnnotateKey = null; // consume the one-shot handoff key
-  // The panel's Appearance setting, ALREADY RESOLVED to light or dark — this
-  // overlay lives in the site's document, where neither of the two stores
-  // shared/theme.js keeps is readable, so the panel hands it a concrete scheme
-  // in the same bootstrap func that hands over the key. Anything else (an older
-  // panel, a direct injection) is the OS preference, exactly as before.
+  // The panel's Appearance setting, ALREADY RESOLVED: this overlay lives in the site's
+  // document, where neither store shared/theme.js keeps is readable.
   const scheme = window.__testomatAnnotateScheme === 'dark' || window.__testomatAnnotateScheme === 'light'
     ? window.__testomatAnnotateScheme
     : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   window.__testomatAnnotateScheme = null;
-  // The library's own stylesheet, read in the extension's context and handed
-  // over with the key (shared/capture-annotate.js). Without it this toolbar
-  // would be unstyled markup, so the injector treats a failure to read it as a
-  // failed injection and opens the editor-tab annotator instead.
+  // The library's stylesheet, read in the extension's context and handed over with the key;
+  // the injector treats a failure to read it as a failed injection (unstyled markup).
   const libCss = window.__testomatAnnotateCss || '';
   window.__testomatAnnotateCss = null;
 
   if (!key || !libCss || !chrome?.storage?.session || typeof AnnotateCore === 'undefined') return;
 
-  // The overlay's LOOK is the library's, not a copy of it: shared/tokens.css and
-  // shared/components.css arrive as text on `window.__testomatAnnotateCss` (the
-  // injector reads them — see the note in shared/capture-annotate.js) and are the
-  // first stylesheet in this shadow root. Every control the toolbar builds
-  // already carries the library's own class — `.btn`, `.btn.icon`, `.swatch`,
-  // `.segmented`/`.segment`, `.menu`, `.tooltip` — so what used to be ~120 lines
-  // of hand-copied button skin down here is now just the library, and a change to
-  // a button in the panel is the same change in this toolbar.
-  //
-  // What is left below is what the LIBRARY does not know about: the overlay's own
-  // layout (a bar over a stage), the canvas, the crop cursors, the shortcut card,
-  // the ink popover's position and the label typed onto the picture.
-  //
-  // The scheme is written on `.annot-root` as a concrete `color-scheme`, not left
-  // to a `prefers-color-scheme` media query: a media query cannot see the panel's
-  // Appearance setting, so an overlay under one would come up dark while the
-  // panel that opened it was pinned to Light. Every token in tokens.css is a
-  // `light-dark()` pair resolved against exactly that.
+  // `.annot-root` carries a concrete `color-scheme`: a media query cannot see the panel's
+  // Appearance setting, and every token in tokens.css is a `light-dark()` pair on it.
   const OVERLAY_CSS = `
     :host { all: initial; display: block; }
     *, *::before, *::after { box-sizing: border-box; }
@@ -162,9 +128,8 @@
     // Max positive 32-bit z-index; fixed + full viewport, above all page content.
     host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;';
     const shadow = host.attachShadow({ mode: 'open' });
-    // The library first, this file's layout second — so an overlay rule that has
-    // to win (the canvas cursors, the label typed onto the picture) wins by
-    // order rather than by a specificity race with the design system.
+    // The library first, this file's layout second, so an overlay rule that has to win
+    // wins by ORDER rather than by a specificity race with the design system.
     const lib = document.createElement('style');
     lib.textContent = libCss;
     const style = document.createElement('style');
@@ -174,9 +139,8 @@
     mount.dataset.scheme = scheme; // the panel's Appearance setting, resolved
     shadow.append(lib, style, mount);
     (document.body || document.documentElement).append(host);
-    // …and the product's own tooltip, drawn INSIDE this root: from the document
-    // the hit test only ever finds the shadow host, which is why this toolbar
-    // used to fall back to the browser's `title`.
+    // The tooltip is drawn INSIDE this root: from the document, a hit test only ever
+    // finds the shadow host.
     if (typeof Tooltip !== 'undefined') Tooltip.mount(shadow);
 
     // Block page scroll behind the modal; restore exactly on teardown.
@@ -204,8 +168,8 @@
       try { await chrome.storage.session.set({ [key]: { cancelled: true } }); } catch { /* best effort */ }
       teardown();
     };
-    // Navigation/close while open maps to Keep original (Block 5): best-effort
-    // write the raw shot back so the panel keeps it, and the promise settles.
+    // Navigation/close while open maps to Keep original: the raw shot goes back so the
+    // panel keeps it and its promise settles.
     const onPageHide = () => { try { chrome.storage.session.set({ [key]: { resultDataUrl: dataUrl } }); } catch { /* noop */ } };
     window.addEventListener('pagehide', onPageHide);
 

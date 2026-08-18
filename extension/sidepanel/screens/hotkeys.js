@@ -3,18 +3,10 @@
 /* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip */
 
 // ---------- hotkeys (US5) ----------
-// Web-runner parity (manual-run.hbs:223-232): Cmd/Ctrl+Enter -> passed,
-// Cmd/Ctrl+U -> failed, Cmd/Ctrl+I -> skipped. Each calls the SAME clickStatus
-// the big ✓/✗/− buttons call, so a shortcut and a click are one action (#77).
-// NONE of them navigates: since #108 marking always stays on the test (the web's
-// saveTestRun passes openNext=true for every status — this is our deliberate
-// divergence, so the substatus/assignee/comment/attachment controls that appear
-// on marking are actually reachable). Moving on is `N` -> nextTest(), the hotkey
-// half of the persistent "Next test →" button; the fast flow is those two keys.
-// Arrows step ±1 through the list without writing. Active only in the test view;
-// both Cmd and Ctrl accepted on every platform (mirrors the web's dual bindings).
+// Cmd/Ctrl+Enter/U/I mark passed/failed/skipped through the SAME clickStatus the
+// buttons call. Deliberate divergence from the web: none of them navigates (#108).
 
-// Suppress shortcuts while the tester is typing so keystrokes stay natural (FR-010).
+// Suppress shortcuts while the tester is typing.
 function typingInField(target) {
   const el = target || document.activeElement;
   if (!el || !el.tagName) return false;
@@ -22,44 +14,37 @@ function typingInField(target) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
-// Move ±1 through the VISIBLE sequence (filter + search applied), clamped at the
-// edges (no wrap-around). A row hidden by the filter is never navigated to.
+// ±1 through the VISIBLE sequence (filter + search applied), clamped, no wrap.
 function navigateTest(delta) {
   const order = visibleRecords();
   const from = order.findIndex((r) => String(r.id) === String(state.currentRecordId));
   if (from === -1) return;
   const to = from + delta;
-  if (to < 0 || to >= order.length) return; // stop at the edges of the visible seq (no wrap)
+  if (to < 0 || to >= order.length) return;
   openTestView(order[to].id);
 }
 
 const HOTKEY_STATUS = { Enter: 'passed', KeyU: 'failed', KeyI: 'skipped' };
 
 // ---- hotkey discoverability (tooltips + a "?" legend) --------------------
-// The handler accepts both Cmd and Ctrl on every platform; the LABELS show the
-// platform-appropriate modifier (mac ⌘ vs Ctrl+) so the hint reads naturally.
-// (The task assumed platform detection already lived here — it didn't, so this
-// mirrors env-info.js's UA-CH-first approach.)
+// The handler accepts both Cmd and Ctrl everywhere; only the LABELS are platform-
+// specific (mac ⌘ vs Ctrl+).
 const IS_MAC = /mac/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
 const HK_MOD = IS_MAC ? '⌘' : 'Ctrl+';
 const HK_STATUS_KEY = { passed: '⏎', failed: 'U', skipped: 'I' };
-// "Next test" is a bare letter on purpose (#108): every modified chord that reads
-// as "next" is taken by the browser (Cmd/Ctrl+N opens a window and cannot be
-// preventDefault'ed), and the plain arrows already mean ±1 in the list.
+// A bare letter on purpose (#108): Cmd/Ctrl+N opens a browser window and cannot be
+// preventDefault'ed, and the plain arrows already mean ±1 in the list.
 const HK_NEXT_KEY = 'N';
 
 function hotkeyStatusLabel(status) { return `${HK_MOD}${HK_STATUS_KEY[status]}`; }
 
-// Set the status-button tooltips and build the legend rows once (labels are
-// static per platform). Called from app init.
+// Built once — the labels are static per platform. Called from app init.
 function initHotkeyHints() {
   Tooltip.set($('btn-passed'), `Passed (${hotkeyStatusLabel('passed')})`);
   Tooltip.set($('btn-failed'), `Failed (${hotkeyStatusLabel('failed')})`);
   Tooltip.set($('btn-skipped'), `Skipped (${hotkeyStatusLabel('skipped')})`);
-  // The pager's two steps are the ARROWS' move (±1 through the visible list), so
-  // that is what their tooltips name. The bare-letter N — jump to the next
-  // UNTESTED row — has no button of its own any more; it lives in the legend
-  // below, which is the only place it is written down.
+  // N (jump to the next UNTESTED row) has no button of its own — the legend below
+  // is the only place it is written down.
   Tooltip.set($('btn-prev-test'), 'Previous test (↑ / ←)');
   Tooltip.set($('btn-next-test'), 'Next test (↓ / →)');
 
@@ -99,7 +84,7 @@ function toggleHotkeyLegend() {
 
 function onHotkey(e) {
   if (state.view !== 'test') return;         // hotkeys live only in the test view
-  if (typingInField(e.target)) return;       // never steal keys from a field (FR-010)
+  if (typingInField(e.target)) return;       // never steal keys from a field
   if (e.metaKey || e.ctrlKey) {              // Cmd (mac) / Ctrl (win/linux); accept both
     const code = e.code === 'Enter' || e.key === 'Enter' ? 'Enter' : e.code;
     const status = HOTKEY_STATUS[code];
@@ -116,20 +101,12 @@ function onHotkey(e) {
 }
 
 // ---- the annotation an upload refusal must not throw away (#192) ----------
-// #187 made the flow re-ask the write lock immediately before the upload, which
-// is right — but the refusal used to end at a status line, and the annotated
-// image (minutes of drawing) died with it. The upload still must not land, so
-// the image is KEPT in one slot instead and the tester can take it off the panel.
-// One slot: a second refusal is a newer shot, and the older one had its chance.
+// The refusal still blocks the upload, but the annotated image is KEPT in one slot
+// so the tester can take it off the panel. One slot — a newer shot wins.
 let pendingAnnotation = null; // { dataUrl, name, recordId } — dropped once saved to disk
 
-// Shown only on the record it was drawn for. openTestView() resets every other
-// per-test control for the same reason ("never let the previous test's
-// attachments linger"), and a Save button offered on test B would be lying about
-// what it saves. The SLOT is not dropped on navigation, though — coming back
-// finds the work still there, which is the whole point of keeping it.
-// Deliberately NOT gated by recordWriteLock: this writes to the tester's own
-// machine, never to the server, so a finished run has no say in it.
+// Shown only on the record it was drawn for; the SLOT itself survives navigation.
+// NOT gated by recordWriteLock — this writes to the tester's disk, not the server.
 function renderPendingAnnotation() {
   const btn = $('btn-save-annotation');
   if (!btn) return;
@@ -164,10 +141,8 @@ async function savePendingAnnotation() {
   }
 }
 
-// Single screenshot flow: capture the active tab, hand off to the annotator, then
-// upload whatever dataURL comes back. Apply uploads the merged JPEG (even with
-// zero annotations); Keep original uploads the raw shot (owner-approved); Discard
-// returns null → no upload, no state change.
+// Capture → annotate → upload. Apply uploads the merged JPEG even with zero
+// annotations, Keep original the raw shot, Discard returns null (no upload).
 async function attachScreenshotAnnotated() {
   const btn = $('btn-screenshot-annotate');
   if (btn?.disabled) return; // gated (no result / basic mode / finished or automated run) or a capture in flight
@@ -194,11 +169,8 @@ async function attachScreenshotAnnotated() {
     const resp = await chrome.runtime.sendMessage({ type: 'captureTab', fullPage }).catch((e) => ({ ok: false, error: String(e) }));
     if (!resp?.ok) {
       setStatusLine('test-status', '', '');
-      // #101: the one failure a toolbar click fixes — another extension's frame
-      // blocked the debugger and the viewport rescue is short of `activeTab`. The
-      // worker's sentence already names the fix, so it is shown as it stands rather
-      // than prefixed with a diagnostic; this surface holds no SiteResume, so the
-      // retry is the tester's second click on the shortcut.
+      // #101: another extension's frame blocked the debugger and the viewport
+      // rescue is short of `activeTab` — the worker's sentence names the fix.
       toast(resp?.needsGrant ? resp.error : `Capture failed: ${resp?.error || 'unknown'}`, { error: true });
       return;
     }
@@ -208,8 +180,8 @@ async function attachScreenshotAnnotated() {
     setStatusLine('test-status', 'Annotating…');
     const annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
     if (!annotated) { setStatusLine('test-status', '', ''); return; } // Discard — no upload, no state change
-    // #187 — the gate above is minutes old by now: the annotator is interactive and the
-    // run can finish under it, so the lock is re-asked immediately before the write.
+    // #187: the annotator is interactive and the run can finish under it, so the
+    // lock is re-asked immediately before the write.
     const lock = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
     // #192: refuse the upload, keep the drawing — the Save button is the way out.
     if (lock) { keepRefusedAnnotation(annotated, record.id); setStatusLine('test-status', lock, 'error'); return; }

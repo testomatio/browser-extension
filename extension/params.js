@@ -1,16 +1,8 @@
-// Parametrized-test placeholder substitution (US2). Pure: no DOM, no API.
-// EXACT mirror of the product frontend helper
-// `testomatio-front/app/helpers/descriptionWithExample.js:11-17`: for each
-// param name that is a non-empty, non-"0" string, global-replace `${name}` and
-// `{{name}}` with the positionally-aligned example value WRAPPED IN DOUBLE
-// QUOTES — byte-identical to what the web runner renders. `params` (aligned
-// name array, from `attributes.test.params`) and `example` (positional value
-// array, from `attributes.example`) align by index.
+// Parametrized-test placeholder substitution — an EXACT mirror of the product's own
+// `descriptionWithExample.js`, down to the non-"0" rule and the DOUBLE QUOTES it wraps values in.
 
 const TestomatParams = (() => {
-  // Substitute example values into raw markdown. Returns `text` unchanged when
-  // there is nothing to substitute (no params/example) so callers can render
-  // raw placeholders + a badge in degraded/missing-data modes (FR-007).
+  // Unchanged when there is nothing to substitute, so callers can render the raw placeholders + a badge.
   function substitute(text, params, example) {
     if (typeof text !== 'string' || !text) return text || '';
     if (!Array.isArray(params) || !Array.isArray(example)) return text;
@@ -25,13 +17,11 @@ const TestomatParams = (() => {
     return description;
   }
 
-  // True when `text` still carries a raw `${..}` or `{{..}}` placeholder — the
-  // signal that substitution could not run (missing example row / degraded).
+  // A raw `${..}`/`{{..}}` left in the text means substitution could not run (missing example row).
   const RAW_PLACEHOLDER = /\$\{[^}]+\}|\{\{[^}]+\}\}/;
   const hasPlaceholder = (text) => typeof text === 'string' && RAW_PLACEHOLDER.test(text);
 
-  // A test is parametrized iff it has at least one usable (non-empty, non-"0")
-  // param name — the same acceptance test the substitution loop uses.
+  // Parametrized iff at least one param name is usable — the same test the substitution loop uses.
   const isParametrized = (params) =>
     Array.isArray(params) && params.some(
       (p) => typeof p === 'string' && p.trim() !== '' && p.trim() !== '0');

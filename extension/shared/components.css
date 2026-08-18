@@ -1,55 +1,10 @@
-/* Global components — the controls that look the SAME on every surface of this
-   extension: buttons, icon buttons, link buttons, inputs, selects, textareas.
+/* Shared control components: buttons, fields, badges, lists, popups.
+   Loaded after shared/tokens.css and BEFORE a page's own stylesheet, so a page can override one. */
 
-   Loaded with a <link> after shared/tokens.css and BEFORE the page's own
-   stylesheet (sidepanel/index.html, editor/editor.html), so a page can still
-   override a component for its own layout, never the other way round.
-
-   Why this file exists: the same button was written out four times (the panel's
-   `button` base, the editor's `.tc-btn`, the annotator's `.annot-btn`, the
-   editor's own `.tc-tool`), each with its own padding, and the same input three
-   times. They drifted. Now there is one control, and a screen picks a VARIANT
-   and a SIZE rather than a padding.
-
-   The vocabulary — the whole of it:
-
-     intent   .primary   the one action of a screen: filled accent
-              .secondary the default: a raised card button with a border
-              .tertiary  a supporting action: no fill, no border, muted
-              (.danger is a MODIFIER on any of the three — red text, red hover)
-
-     size     .size-xs 24   .size-sm 28   .size-md 32 (the default, and the
-              ceiling — nothing in this system is taller). One vocabulary for
-              buttons AND fields, so a button next to an input lines up by
-              construction.
-
-     shape    .icon      icon-only: a square of the size's own height
-              .block     full width (a form's submit)
-              .pill      fully rounded (a chip-shaped toggle)
-
-     state    .selected  this control IS the answer right now — the indigo wash a
-                         selected row wears, over whichever intent it modifies
-                         (bordered on secondary, borderless on tertiary)
-
-   Anything that is NOT one of these — a tab, a status circle, a run row — is a
-   component of ONE screen and keeps its own rules in that screen's stylesheet.
-   The rule of thumb: if it appears on more than one page, it belongs here; if it
-   only makes sense inside one section, it does not. */
-
-/* ====================================================================
-   RESET — a <button> is a bare, inheriting element until a class gives it a skin
-   ====================================================================
-   This is what lets a tab, a chip or a status circle draw itself from scratch
-   without first undoing a base skin (the panel used to keep a growing list of
-   controls that had to opt out of `box-shadow` and `background`). Element-level
-   specificity, so any class below wins. */
-/* The `hidden` attribute must always win: the components below set an explicit
-   `display`, which would otherwise beat the UA `[hidden] { display: none }`.
-   Every page that loads this file gets it, so no component has to remember. */
+/* ---- RESET ---- */
+/* The components below set an explicit display, which would otherwise beat the UA [hidden] rule. */
 [hidden] { display: none !important; }
 
-/* Every page's own `body` sets the type family/size/colour for itself; this is
-   the one rule true of all of them, so it lives here instead of three times. */
 body { -webkit-font-smoothing: antialiased; }
 
 button {
@@ -66,20 +21,10 @@ button {
   cursor: pointer;
 }
 button:disabled { cursor: not-allowed; }
-/* Fields inherit the page's type too — no UA font on a control. */
 input, select, textarea { font: inherit; }
 
-/* ====================================================================
-   SIZE — one scale, shared by every control below
-   ====================================================================
-   A size sets five custom properties; the components read them. Declared once
-   here rather than per component so a button and the input beside it can never
-   fall out of step.
-
-   Each component's own default (md, or sm for the icon button) is written with
-   `:where()` — zero specificity — so a `.size-*` class ALWAYS wins, no matter
-   which of the two rules the cascade sees last. That is the whole trick that
-   lets `class="btn primary size-sm"` work without an !important anywhere. */
+/* ---- SIZE — one scale, shared by every control ----
+   Each component's own default is written with :where() (zero specificity), so a .size-* class always wins. */
 .size-xs {
   --ctl-h: var(--control-h-xs);
   --ctl-px: var(--control-px-xs);
@@ -105,16 +50,9 @@ input, select, textarea { font: inherit; }
   --ctl-radius: var(--control-radius-md);
 }
 
-/* ====================================================================
-   BUTTON
-   ==================================================================== */
+/* ---- BUTTON ---- */
 
-/* The base IS the secondary button: a card surface with a border, flat on the
-   page — the border is the whole of the edge, and a drop shadow under a control
-   that never leaves the surface only adds grey to a dense row. An <a> can wear it
-   too (the "+ New run" link, "Open in Testomat ↗"), which is why the
-   text-decoration and the explicit colour are here. */
-/* md is the default size — see the `:where()` note above. */
+/* The base IS the secondary button; an <a> can wear it too, hence the text-decoration and the colour. */
 :where(.btn) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -148,12 +86,7 @@ input, select, textarea { font: inherit; }
               color var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease);
 }
-/* Hover is an inset overlay, so it works on any fill without knowing which —
-   and pressing doubles it rather than naming a second grey, which is exactly the
-   move the library makes: its grey button steps #fafafa → #f5f5f5 → #e5e5e5 and
-   its dark one white-10 → white-20 → white-30, in both cases roughly twice the
-   hover delta. Every intent gets it, because every Type in the library has an
-   Active variant; only `.primary` overrides with a real ramp step, having one. */
+/* Hover is an inset overlay, so it lands on any fill without naming a second grey; :active doubles it. */
 .btn:hover:not(:disabled):not([aria-disabled="true"]) {
   box-shadow: inset 0 0 0 999px var(--hover-overlay);
 }
@@ -163,53 +96,24 @@ input, select, textarea { font: inherit; }
 }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
-/* The icon inside a button is a block so it centres on the label, never on the
-   alphabetic baseline — and it takes the CONTROL's icon size, overriding whatever
-   width/height the markup asked for. Nine call sites had drifted to 18 and 20
-   against a library that draws 16 at every height this system has; sizing it here
-   is what stops the tenth. */
+/* The icon takes the CONTROL's icon size, overriding whatever width/height the markup asked for. */
 .btn .md-icon, .btn svg {
   display: block;
   flex: none;
   width: var(--control-icon);
   height: var(--control-icon);
 }
-/* An icon LEADING a label takes the smaller side padding (--control-px-lead):
-   a glyph never fills its 16px box, so the same 12 that sits right beside a
-   capital letter leaves a visible extra sliver beside an icon, and "+ New run"
-   reads left-heavy. The correction belongs on the button, not on the icon, so
-   every call site gets it by writing the markup it was already writing.
-   `.icon` is excluded — an icon-only button has no label to be off-centre
-   against, and its `padding: 0` sits at LOWER specificity than this rule.
-   One thing the markup owes back: a TRAILING icon needs its label in a <span>
-   ("Next test ↗"), because `:first-child` counts elements only and a bare text
-   node before the icon is invisible to the selector — the icon would come out
-   first and the correction would land on the wrong edge. */
+/* Smaller side padding when an icon LEADS the label. A TRAILING icon needs its label in a <span>:
+   :first-child counts elements, so a bare text node before the icon is invisible to the selector. */
 .btn:not(.icon):has(> :is(.md-icon, svg):first-child) { padding-left: var(--ctl-px-lead); }
 
-/* A create button names the whole errand — "New run", "New test" — and every one
-   of them in this panel names it the same way: the plus from the icon set, then
-   New, then the thing. What differs between two of these rows is only how much
-   room is left for it, so the button carries BOTH forms and one is shown:
-
-     <button class="btn primary size-sm fit-label" data-label="New test">
-       <span class="md-icon" data-icon="add" data-icon-size="16"></span>
-       <span class="label-long">New test</span><span class="label-short">Test</span>
-     </button>
-
-   `.is-short` is the narrow form — same face, same plus, one word. Which form a
-   row wears is MEASURED, not guessed (fitActionLabels, sidepanel/core/views.js),
-   for the reason the filter chips are: the panel is a side pane the user drags,
-   and its width has nothing to do with the viewport's. The full errand survives
-   as the accessible name, so the short form loses nothing but letters. Neither
-   span is ever a zero-width box — `display: none`, so the measurement reads the
-   width the button actually asked for. */
+/* Long and short label forms; which one a row wears is measured by fitActionLabels (sidepanel/core/views.js).
+   display:none, never a zero-width box, so the measurement reads the width the button really asked for. */
 .fit-label > .label-short { display: none; }
 .fit-label.is-short > .label-long { display: none; }
 .fit-label.is-short > .label-short { display: block; }
 
-/* Secondary — spelled out rather than left implicit, so markup can say what it
-   means and so it still resets a stray intent that landed before it. */
+/* Spelled out rather than left implicit, so it also resets a stray intent that landed before it. */
 .btn.secondary {
   background: var(--card);
   border-color: var(--border-control);
@@ -225,10 +129,6 @@ input, select, textarea { font: inherit; }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn.primary:active:not(:disabled) { background: var(--accent-active); }
 
-/* Tertiary — a supporting action. No fill and no border at rest: it must not
-   compete with the primary, and in a dense row (a header, a toolbar) a third
-   bordered box is what makes the chrome look busy. The hover overlay is the
-   whole affordance. */
 .btn.tertiary {
   background: none;
   border-color: transparent;
@@ -239,57 +139,17 @@ input, select, textarea { font: inherit; }
   box-shadow: inset 0 0 0 999px var(--hover-overlay);
 }
 
-/* Danger — a modifier, not an intent: destructive actions in this extension are
-   all confirmed, and a filled red button reads as the primary action of the
-   screen it sits on (#177). Red text, red border on hover. */
 .btn.danger { color: var(--failed); }
 .btn.danger:hover:not(:disabled) { border-color: var(--failed); }
 .btn.primary.danger { background: var(--failed); border-color: var(--failed); color: var(--on-status); }
 
-/* Selected — a STATE, not an intent: the control that IS the answer right now
-   (the filter that is on, the view that is open, the tool that is armed). It
-   invents no colour — the fill and the text are the list's own `--row-active`
-   pair, the same indigo a selected ROW carries, so a chosen button and a chosen
-   row say "this one" in one language.
-
-   And it MODIFIES the intent it lands on rather than replacing it, which is what
-   answers the border question per intent instead of once for everything:
-
-     .btn.selected            the bordered case: the wash plus the WASH's own
-                              edge — `--row-active-border`, the pale step the
-                              library pairs with this tint (indigo-300 on light),
-                              not the filled button's `--accent-border`, which at
-                              indigo-600 draws a box on top of the tint instead
-                              of an outline around it
-     .btn.tertiary.selected   the borderless case: the same wash, no edge — in a
-                              row of tertiary buttons the fill alone IS the
-                              difference, and an edge on one of them would read
-                              as a different kind of control rather than as the
-                              same control, chosen
-     .btn.primary.selected    primary is already the answer it would announce, so
-                              being chosen only moves it ONE step along the accent
-                              ramp — the hover step, not the press step. That is
-                              the library's own reading — BOTH of its Selected
-                              variants are drawn with `button-blue-bg-hover`, the
-                              same fill their Hover variant takes (#4f46e5 light,
-                              #818cf8 dark) — and it leaves the press step free to
-                              still register under the finger: a
-                              chosen primary that already sat at the end of the
-                              ramp would have nowhere left to go when clicked
-     .btn.passed.selected …   a status keeps its own tint and takes its own colour
-                              as the edge: a chosen Failed never stops being red
-
-   `.selected` is the class; markup that is a toggle carries `aria-pressed`
-   beside it (a filter, a switch) and markup that is one of N carries
-   `aria-selected` — both are the caller's, because only the caller knows which
-   question the control is answering. */
+/* .selected MODIFIES the intent it lands on rather than replacing it. The matching aria-pressed /
+   aria-selected is the caller's: only the caller knows which question the control is answering. */
 .btn.selected {
   background: var(--row-active);
   border-color: var(--row-active-border);
   color: var(--row-active-fg);
 }
-/* Hover keeps the wash and adds the overlay on top: a selected control that fell
-   back to grey under the pointer reads as "it is not selected any more". */
 .btn.selected:hover:not(:disabled):not([aria-disabled="true"]) {
   color: var(--row-active-fg);
   box-shadow: inset 0 0 0 999px var(--hover-overlay);
@@ -308,34 +168,18 @@ input, select, textarea { font: inherit; }
 .btn.failed.selected { border-color: var(--failed); color: var(--failed-fg); }
 .btn.skipped.selected { border-color: var(--skipped); color: var(--skipped-fg); }
 .btn.neutral.selected { border-color: var(--muted); color: var(--neutral-fg); }
-/* A filled status is already saying it, so selected only keeps its own edge. */
 .btn.solid.selected { color: var(--on-status); }
 
-/* Status — the controls that MARK a result (Passed / Failed / Skipped), and any
-   button that has to carry a run's colour. A fourth intent rather than a
-   one-off, because it appears on the test view, on a run row and in the editor,
-   and because it must line up with the three above: same box, same sizes, same
-   focus ring — only the fill and the text colour move.
-
-   Two weights, both available at every size:
-     .passed / .failed / .skipped / .neutral   soft tint + coloured text, the
-       product's manual-run buttons (manual-run.scss:36-56). The resting state:
-       three of them side by side read as equals, none as the primary.
-     + .solid                                  the status colour filled, white
-       text — the state that says "this is the answer that was given". */
 .btn.passed, .btn.failed, .btn.skipped, .btn.neutral { border-color: transparent; }
 .btn.passed { background: var(--passed-bg); color: var(--passed-fg); }
 .btn.failed { background: var(--failed-bg); color: var(--failed-fg); }
 .btn.skipped { background: var(--skipped-bg); color: var(--skipped-fg); }
 .btn.neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
-/* Filled: the colour is saturated enough for white text in both schemes. */
 .btn.solid { color: var(--on-status); }
 .btn.passed.solid { background: var(--passed); border-color: var(--passed); }
 .btn.failed.solid { background: var(--failed); border-color: var(--failed); }
 .btn.skipped.solid { background: var(--skipped); border-color: var(--skipped); }
 .btn.neutral.solid { background: var(--muted); border-color: var(--muted); }
-/* Outline: the same four colours as a border + text only, for a status control
-   that sits ON a tinted surface (a banner), where a soft fill would vanish. */
 .btn.outline { background: var(--bg); }
 .btn.passed.outline { border-color: var(--passed); color: var(--passed-fg); }
 .btn.failed.outline { border-color: var(--failed); color: var(--failed-fg); }
@@ -347,33 +191,13 @@ input, select, textarea { font: inherit; }
 .btn.block { display: flex; width: 100%; }
 .btn.pill { border-radius: var(--radius-pill); }
 
-/* A count riding INSIDE a button — a status filter that says how much it would
-   show. The pill itself is the shared `.counter` (see its section below); all a
-   button says about it is its SIZE: the small step, always, whichever size the
-   button is. A count in a control is a footnote to the word beside it, and the
-   library's own 20px counter is as tall as the label + its air in a 24px xs
-   button — there would be nothing left of the control around it. */
 .btn .counter { --cnt-h: var(--counter-h-sm); --cnt-px: var(--counter-px-sm); --cnt-fs: var(--counter-fs-sm); }
-/* Inside a SELECTED button the count changes hue with the control. The neutral
-   pill would be the one grey thing left in an indigo button — the count belongs
-   to the button, so it is selected too: the next step of the same indigo, the
-   control's own text colour, and no ring, because it sits on a tint rather than
-   on the page.
-
-   Selected wins over the counter's own tint: the status colour says what the
-   number counts, but which button you are standing on has to be readable at a
-   glance across the whole row, and one colour that means "this one" beats four
-   that mean something else. */
 .btn.selected .counter {
   background: var(--selected-count);
   color: var(--row-active-fg);
   box-shadow: none;
 }
 
-/* Icon-only tertiary — the most repeated control in the chrome (Back, Refresh,
-   Clear search, Dismiss), so it gets one name instead of three classes. It is
-   exactly `.btn.tertiary.icon` at sm; anything else composes the classes. */
-/* sm by default — `class="icon-btn size-md"` makes it a 32px square. */
 :where(.icon-btn) {
   --ctl-h: var(--control-h-sm);
   --ctl-radius: var(--control-radius-sm);
@@ -393,16 +217,11 @@ input, select, textarea { font: inherit; }
   cursor: pointer;
   transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-/* The skin is worn by ANCHORS too — a control that leaves the extension ("Open
-   in Testomat ↗", the project strip's link out) has to be a real link so it can
-   be middle-clicked and copied. The only thing an <a> brings that the skin does
-   not want is the underline. */
 a.icon-btn { text-decoration: none; }
 .icon-btn:hover:not(:disabled) { background: var(--card); color: var(--fg); }
 .icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .icon-btn:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
-/* Chosen — the same wash a selected `.btn` wears, spelled out here because an
-   icon-btn does not carry the `.btn` class for `.btn.selected` to match. */
+/* Spelled out here: an .icon-btn carries no .btn class for .btn.selected to match. */
 .icon-btn.selected {
   background: var(--row-active);
   border-color: var(--row-active-border);
@@ -415,9 +234,6 @@ a.icon-btn { text-decoration: none; }
   height: var(--control-icon);
 }
 
-/* Link button — a real <button> that must READ as a link (it does something in
-   the panel, so it cannot be an <a> with an href). Not an intent: it carries no
-   box at all. */
 .link-btn {
   display: inline;
   padding: 0;
@@ -432,19 +248,8 @@ a.icon-btn { text-decoration: none; }
 .link-btn:hover:not(:disabled) { text-decoration: underline; }
 .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 
-/* ====================================================================
-   SWATCH — a control whose LABEL is a colour
-   ====================================================================
-   The annotator's ink picker, and anything else that asks "which colour" where
-   the answer cannot be written down: the swatch IS the value. That is why the
-   colour arrives as an inline `--swatch` and not as a token — it is data the
-   caller owns (an ink that will end up inside an exported picture), not a
-   theme decision this file gets to make.
-
-   Not `.btn`: a button carries a label and a surface that means something in
-   the theme, and both would fight the one thing this control has to show. It
-   keeps the button's square, corner, focus ring and 4px grid, and drops the
-   rest. The accessible name lives in `aria-label` — a swatch has no text. */
+/* ---- SWATCH — a control whose LABEL is a colour ----
+   The colour arrives as an inline --swatch, not a token: it is the caller's data. Name via aria-label. */
 .swatch-row {
   display: inline-flex;
   align-items: center;
@@ -460,58 +265,17 @@ a.icon-btn { text-decoration: none; }
   background: var(--swatch, var(--muted));
   cursor: pointer;
 }
-/* The same inset wash every control in this file hovers with — it works on a
-   swatch precisely because it does not need to know the colour underneath. */
 .swatch:hover:not(:disabled) { box-shadow: inset 0 0 0 999px var(--hover-overlay); }
 .swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .swatch:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
-/* Chosen — an ink ring around a page-coloured gap, drawn INSIDE the same 24px
-   box so picking one cannot nudge the row. A wash or a tint would be invisible
-   against half the palette; a hole is legible against all of it. */
+/* Chosen: the ring is drawn INSIDE the box, so picking one cannot resize it and nudge the row. */
 .swatch.active,
 .swatch[aria-pressed="true"] {
   border-color: var(--fg);
   box-shadow: inset 0 0 0 2px var(--bg);
 }
 
-/* ====================================================================
-   SEGMENTED — one control, N answers, exactly one of them chosen
-   ====================================================================
-   A filter that is always on (All / Manual / Automated), a view switch, a scope
-   picker. NOT a tab bar: a tab swaps the whole pane under it and owns the
-   screen; a segmented control sits INSIDE a row next to other controls and only
-   changes what the thing beside it shows. And not N loose buttons either — N
-   buttons say "N actions", this says "one question, pick an answer".
-
-   One light fill under the WHOLE group — the `--segment-track` surface — and the
-   answers sitting straight on it, edge to edge: no dividers between them and no
-   inset around them, so the chosen chip fills its cell of the track completely.
-   The track says the answers belong together; the chip says which one is given.
-   Which makes the component the two button intents and nothing else:
-
-     a segment    IS the tertiary button — no fill, no border, muted text, the
-                  hover wash is its whole affordance
-     the chosen   IS the secondary button — one border and the card fill lifted
-                  one step off the track, which is the whole of the difference
-                  (that is what `--segment-chip` is; on light it IS the card)
-
-   Heights are the shared ladder — `.size-xs` 24 · `.size-sm` 28 · `.size-md` 32,
-   md the default and the CEILING — and because nothing pads the track, the whole
-   control is exactly that: a segmented switch is the same 32px box as the button
-   and the input next to it, never taller.
-
-     <div class="segmented size-sm" role="group" aria-label="Kind">
-       <button class="segment" aria-pressed="true">All</button>
-       <button class="segment" aria-pressed="false">Manual <span class="counter">543</span></button>
-     </div>
-
-   A segment holds a word, an icon + a word, a `.counter`, or nothing but an
-   icon (`.segment.icon` — a square of the size's own height). The chosen one is
-   `.active` and/or `aria-pressed|aria-selected|aria-current="true"` — both
-   paint, for the same reason the tabs do it. `.block` spreads equal segments
-   across the full width. There is deliberately no fully-rounded variant: a
-   rounded-full track reads as a chip-shaped toggle, which is a different control
-   and a different answer to "is this one thing or a row of them". */
+/* ---- SEGMENTED — one control, N answers, exactly one chosen ---- */
 :where(.segmented) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -528,8 +292,7 @@ a.icon-btn { text-decoration: none; }
   border-radius: var(--ctl-radius);
   background: var(--segment-track);
 }
-/* A segment at rest is `.btn.tertiary`, spelled out here because it is a
-   different element and must not depend on `.btn` being in the class list. */
+/* A segment at rest is .btn.tertiary, spelled out because it must not depend on .btn being present. */
 .segment {
   display: inline-flex;
   align-items: center;
@@ -543,8 +306,7 @@ a.icon-btn { text-decoration: none; }
   color: var(--muted);
   font-family: inherit;
   font-size: var(--ctl-fs);
-  /* Medium at rest AND when chosen: a weight that changes on click re-measures
-     the label and shifts every segment beside it. The fill says which one it is. */
+  /* Medium at rest AND when chosen: a weight that changed would re-measure the label and shift its neighbours. */
   font-weight: var(--weight-medium);
   line-height: var(--leading-none);
   white-space: nowrap;
@@ -555,8 +317,6 @@ a.icon-btn { text-decoration: none; }
               color var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease);
 }
-/* Hover is the button's inset overlay, so it lands the same on a bare chip and
-   on the chosen one — and pressing doubles it rather than naming a second grey. */
 .segment:hover:not(:disabled):not([aria-disabled="true"]) {
   color: var(--fg);
   box-shadow: inset 0 0 0 999px var(--hover-overlay);
@@ -564,8 +324,7 @@ a.icon-btn { text-decoration: none; }
 .segment:active:not(:disabled):not([aria-disabled="true"]) {
   box-shadow: inset 0 0 0 999px var(--hover-overlay), inset 0 0 0 999px var(--hover-overlay);
 }
-/* Just outside the chip: the chips touch, so the system's 2px offset would sit
-   in the neighbour's lap. */
+/* The chips touch, so the system's 2px offset would sit in the neighbour's lap. */
 .segment:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .segment:disabled, .segment[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
 .segment .md-icon, .segment svg {
@@ -574,14 +333,8 @@ a.icon-btn { text-decoration: none; }
   width: var(--control-icon);
   height: var(--control-icon);
 }
-/* The button's leading-icon correction, for the same reason — a segment IS a
-   button, and a segmented control where one chip is icon+label and the next is
-   label-only would otherwise wear two different left edges. */
 .segment:not(.icon):has(> :is(.md-icon, svg):first-child) { padding-left: var(--ctl-px-lead); }
 
-/* Chosen — the secondary button, exactly, and lifted off the track by the same
-   shadow every raised control clears its ground with (Figma: ◇ UI app library,
-   Segmented Button, selected). */
 .segment.active,
 .segment[aria-pressed="true"],
 .segment[aria-selected="true"],
@@ -591,9 +344,6 @@ a.icon-btn { text-decoration: none; }
   color: var(--fg);
   box-shadow: var(--shadow-btn);
 }
-/* Hover on the chosen one keeps its fill and adds the wash on top of the lift —
-   a chip that fell back to the bare track under the pointer would read as "it
-   is not selected any more". */
 .segment.active:hover:not(:disabled),
 .segment[aria-pressed="true"]:hover:not(:disabled),
 .segment[aria-selected="true"]:hover:not(:disabled),
@@ -604,11 +354,8 @@ a.icon-btn { text-decoration: none; }
 .segmented.block { display: flex; width: 100%; }
 .segmented.block .segment { flex: 1; min-width: 0; }
 .segment.icon { width: var(--ctl-h); padding: 0; }
-/* A count inside a segment is the button's: the shared `.counter` at its small
-   step, because a segment IS a button. The one thing it adds is a ring — on
-   light the counter's fill and the TRACK's are the same step of the ramp, so
-   without an edge the number floats with no pill around it. The divider grey:
-   this line is a pill's edge against a surface, not a status ring. */
+/* The ring: on light the counter's fill and the TRACK's are the same step of the ramp, so without
+   an edge the number floats with no pill around it. */
 .segment .counter {
   --cnt-h: var(--counter-h-sm);
   --cnt-px: var(--counter-px-sm);
@@ -616,54 +363,11 @@ a.icon-btn { text-decoration: none; }
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-/* ====================================================================
-   FILTERS — the row of counts that narrows the list under it
-   ====================================================================
-   Six answers to "which of these do I want to see", each carrying how many
-   rows it would leave. Not a component of its own — a plain library button,
-   `.btn.secondary.size-sm`, with its word and its `.counter` (the count
-   riding at the TRAILING edge, same convention a badge count on a row already
-   uses) as its only content. `.filter-chip`/`.filter-label` name nothing in
-   this file; they exist so the two screens that own a filters row and
-   fitFilterChips (sidepanel/core/views.js) have something to query and to
-   toggle `.selected` on. Nothing here restyles the button.
-
-     <div class="filters" role="group" aria-label="Filter runs by status">
-       <button class="btn secondary size-sm filter-chip" data-filter="passed">
-         <span class="filter-label">Passed</span>
-         <span class="counter passed">24</span>
-       </button>
-       …
-       <div class="filter-more" hidden>                 only once something overflows
-         <button class="btn secondary icon size-sm filter-more-trigger"
-                 aria-haspopup="menu" aria-expanded="false">
-           <span class="md-icon" data-icon="more_horiz"></span>
-         </button>
-         <ul class="menu filter-more-menu" role="menu" hidden>
-           <li class="menu-option" role="menuitem">Scheduled <span class="counter">0</span></li>
-         </ul>
-       </div>
-     </div>
-
-   Natural width, not equal cells: six chips at their own size read as the same
-   row of buttons every other toolbar in the panel already has. What doesn't
-   fit — measured, not guessed, in fitFilterChips — does not shrink or lose its
-   word: it leaves the row entirely and waits in the `⋯` trigger's menu, in the
-   order it would have appeared. `.filter-more` and its trigger + menu exist in
-   the DOM only once something has actually overflowed; the trigger itself
-   carries `.selected` when the chosen filter is one of the chips it is
-   currently hiding, so the row is never silent about which answer is true. */
-/* Where the row sits in a screen's stack is the component's too, not each
-   screen's: above it is always the SEARCH field, and a row of chips pressed to
-   the underside of a field reads as one control that grew a second line rather
-   than as the second question the screen asks. So the air above it is a full
-   step (16 — the panel's own inset, the same air the tab row leaves above the
-   field), and below it is the toolbar's step (12), where the list starts. Above
-   beats below on purpose: the chips belong to the list they narrow, not to the
-   field they sit under.
-   The 16 wins over a `.toolbar`'s own 12 by collapsing against it, so a screen
-   that wraps its field in a toolbar beside a create and one that leaves it alone
-   still put the chips on the same vertical. */
+/* ---- FILTERS — the row of counts that narrows the list under it ---- */
+/* Plain .btn.secondary.size-sm chips; .filter-chip/.filter-label are only query hooks for fitFilterChips
+   (sidepanel/core/views.js), which measures what fits and moves the rest into the ⋯ menu. */
+/* The 16 above the row collapses against a .toolbar's own 12, so a screen that wraps its field in a
+   toolbar and one that leaves it alone still put the chips on the same vertical. */
 .filters {
   display: flex;
   align-items: stretch;
@@ -672,52 +376,23 @@ a.icon-btn { text-decoration: none; }
   margin-block: var(--space-4) var(--space-3);
 }
 
-/* The overflow trigger is the chips' own button, squared: `.btn.secondary.icon`
-   at `.size-sm` — 28×28, the same border and the same height as the words beside
-   it, because it stands in for one of them. `.icon` (SHAPES above) is what makes
-   it square: a text-shaped `.btn` centres a bare glyph inside horizontal TEXT
-   padding, which reads as off-centre and never comes out square. Borderless
-   (`.icon-btn`, the tertiary square) would read as a different kind of control
-   at the end of a row of bordered ones — and when the chosen filter is one it
-   hides, it drops `secondary` for `.selected` exactly as a chip does.
-   `.filter-more` is only the positioning root for its popup, so it has to be a
-   flex box of its own to pass the row's `align-items: stretch` through to the
-   button inside it. */
+/* .filter-more is only the popup's positioning root, and a flex box of its own so the row's
+   align-items: stretch reaches the button inside it. */
 .filter-more {
   position: relative;
   display: flex;
   flex: 0 0 auto;
 }
-/* Right-anchored, not left: the trigger is always the row's last chip, so a
-   menu hung from its left edge would run off the panel's own right edge. */
+/* Right-anchored: the trigger is always the row's last chip, so a left-hung menu would run off the panel. */
 .filter-more-menu {
   right: 0;
   left: auto;
   min-width: 11em;
 }
-/* A hidden chip's count sits at the option's trailing edge too, same as in the
-   row — the option's own flex row (`.menu-option`, MENU above) does the work. */
 .filter-more-menu .menu-option { justify-content: space-between; }
 
-/* ====================================================================
-   BADGE — the read-only pill
-   ====================================================================
-   The passive counterpart of the status button: same four meanings, same soft
-   tints, but nothing happens when you click it. Rounded-full and small, because
-   it always sits INSIDE something else — a row, a header, a tree node.
-
-     .badge                    neutral by default
-     .badge.passed|.failed|.skipped|.neutral
-     .badge.outline            ring + text only, for a second pill on a row that
-                               already carries a filled one
-
-   A NUMBER is not a badge: it is `.counter`, the section below. A badge is a
-   word — a status, an environment, a kind — and it is fully rounded because a
-   word in a rounded-rect reads as a button; a counter is a figure in a box with
-   a 6px corner, has two sizes, and is the one thing on a row that has to stay
-   legible at 11px. They were the same component here once (`.badge.count`), and
-   every surface that used it — a button, a segment, a tab — had to undo the
-   pill, the line-height and the size before it could use it. */
+/* ---- BADGE — the read-only pill ----
+   A badge is a WORD; a NUMBER is .counter (below), which is a box with two sizes rather than a pill. */
 .badge {
   display: inline-block;
   padding: 1px var(--space-2);
@@ -731,40 +406,14 @@ a.icon-btn { text-decoration: none; }
   box-shadow: inset 0 0 0 1px var(--neutral-ring);
 }
 .badge.passed { background: var(--passed-bg); color: var(--passed-fg); box-shadow: inset 0 0 0 1px var(--passed-ring); }
-/* FAILED is the library's own exception (◇ UI app library → Run status,
-   label=on): green and amber are a tint under a coloured word, red is the solid
-   status colour under white. It is the one result that has to stop the eye
-   scrolling a list, and a red tint beside an amber one does not. The ring goes
-   with the tint — there is nothing left for it to separate from. */
+/* FAILED is the library's own exception: the solid status colour under white, not a tint. */
 .badge.failed { background: var(--failed); color: var(--on-status); box-shadow: none; }
 .badge.skipped { background: var(--skipped-bg); color: var(--skipped-fg); box-shadow: inset 0 0 0 1px var(--skipped-ring); }
 .badge.neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
-/* Outline keeps the status ring and drops the fill: two filled pills of the same
-   tint on one row read as one smear. */
 .badge.outline { background: transparent; }
 
-/* ENV — a run's environments, which are a LIST and are drawn as one: a pill per
-   environment on the row's second line (`.list-lines > .meta.env-tags`), 4px
-   apart. The 4 is the tightest step on the grid, and it is the right one here
-   because these pills carry their own padding — the `.meta` line's own 8 put
-   them a whole word apart, which read as three separate facts instead of one
-   answer to "where did this run?". They were one pill holding "MacOS, beta,
-   Chrome" before, which read as neither.
-
-   The pill may shrink. It could not while it stood on the title's line — there
-   it would have been cut to make room for the name it was standing in front of;
-   on a line of its own the only thing it competes with is another environment,
-   so a long one is cut with an ellipsis rather than widening the row (the caller
-   puts the whole string on its tooltip).
-
-   The LIST is a component of its own, because two surfaces print it now: the
-   run row's second line, and Run info's Environment / Test plan fields, where it
-   is one field's value inside a `.kv.rows` cell (whose own 8px gap is the gap
-   BETWEEN values, not between the pills of one). Inline-flex, so it sits in that
-   cell as the single value it is; wrapping, so a fourth environment takes a
-   second line instead of widening the field.
-   The `.list .meta` variant keeps its own line: that rule is two classes deep
-   and would otherwise win the gap back. */
+/* ---- ENV — a run's environments, drawn as a list of pills ----
+   The .list .meta variant is restated because that rule is two classes deep and would win the gap back. */
 .env-tags {
   display: inline-flex;
   align-items: center;
@@ -782,38 +431,9 @@ a.icon-btn { text-decoration: none; }
   text-overflow: ellipsis;
 }
 
-/* ====================================================================
-   COUNTER — the pill a NUMBER wears
-   ====================================================================
-   How many runs failed, how many rows this filter would show, how many tests
-   are behind that tab. It appears on every screen of the extension and inside
-   three different hosts — a tab, a button, a segment — which is exactly why it
-   is one component with a SIZE rather than three sets of overrides.
-
-   The host is the point: a counter is a number riding in a CONTROL, and the box
-   it draws is that control's own vocabulary. A number ending a LIST ROW has no
-   control to belong to — it only qualifies the title beside it — and it is
-   `.row-count` instead (see ROW TAIL): plain muted text at the row's trailing
-   edge. A column of boxed chips down the right of a tree read as a column of
-   buttons, which is the thing that split the two apart.
-
-     .counter                  neutral: the count as data, no meaning attached
-     .counter.passed|.failed|.skipped
-                               coloured by WHAT it counts, so a filter row reads
-                               green / red / amber before a word of it is read
-     .counter.selected         it belongs to the thing that is currently chosen
-     .counter.size-sm|size-md  16 or 20 — the library's two, and there is no third
-
-   md (20) is the default and the standalone size: a count on a tab, in a
-   disclosure head. sm (16) is the count that rides inside a control —
-   a button and a segment set it themselves, so markup only names a size when it
-   wants the small one somewhere else (a dense row).
-
-   Both sizes centre the figure in a fixed-height box (`--leading-none`: the
-   number IS the line), and both set tabular figures — polling rewrites these
-   numbers under the pointer, and a proportional `1` would resize the control
-   around them mid-hover. Never a pill: a 3-digit count in a rounded-full box is
-   a lozenge, and the library draws the 6px corner at both sizes. */
+/* ---- COUNTER — the pill a NUMBER wears ---- */
+/* Tabular figures: polling rewrites these numbers under the pointer, and proportional digits would
+   resize the control around them mid-hover. A number ending a list ROW is .row-count instead. */
 :where(.counter) {
   --cnt-h: var(--counter-h-md);
   --cnt-px: var(--counter-px-md);
@@ -829,12 +449,7 @@ a.icon-btn { text-decoration: none; }
   border-radius: var(--counter-radius);
   background: var(--counter-bg);
   color: var(--counter-fg);
-  /* Inter, named outright rather than inherited (`font-medium/text-xs` is the
-     library's own style on this component). Everything else in this file takes
-     the face of whatever it lands in, but a counter lands inside headings too —
-     a section title, a run row's title, a fold head — and those wear Fira Sans
-     (--font-heading). A figure is DATA, not part of the heading it sits beside:
-     it stays on the body face wherever it is dropped. */
+  /* Named outright, not inherited: a counter also lands inside headings, which wear --font-heading. */
   font-family: var(--font-sans);
   font-size: var(--cnt-fs);
   font-weight: var(--weight-medium);
@@ -842,51 +457,26 @@ a.icon-btn { text-decoration: none; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   vertical-align: middle;
-  /* Room for TWO figures, always. A count is routinely painted before its number
-     is known — a filter chip resting at 0 while the nested run counts are still
-     on the wire, a tab's chip appearing — and a box that grows with the digits
-     drags the control around it every time one lands: in a 380px panel the
-     filter row can re-wrap on a single extra character, which moves the whole
-     list under it. Two digits is where that stops being worth paying for: it
-     covers the overwhelming majority of the counts this panel shows, and with
-     tabular figures above, every one of them lands in a box that was already the
-     right size. A third digit still grows the pill — reserving for it would make
-     every single-digit count read as a gap with a number in it. */
+  /* Room for TWO figures, always: a box that grows with its digits re-wraps the row around it. */
   min-width: calc(2ch + var(--cnt-px) * 2);
 }
-/* A figure that has just LANDED, faded in over the panel's own duration rather
-   than swapped in silently. The change is the information — the row was already
-   read at 0 — and a quarter of a second of movement is what makes it legible
-   without becoming something to watch. Restarted from JS (paintCounter,
-   core/views.js), which is why it is an animation and not a transition: only a
-   value that actually changed replays it. */
+/* An animation, not a transition, because it is restarted from JS (paintCounter, core/views.js) —
+   so only a value that actually changed replays it. */
 @keyframes counter-in { from { opacity: 0; transform: translateY(-2px); } }
 .counter.settled { animation: counter-in var(--dur) var(--ease); }
 @media (prefers-reduced-motion: reduce) {
   .counter.settled { animation: none; }
 }
-/* The two sizes, spelled out. Declared AFTER the host rules above (`.btn
-   .counter`, `.segment .counter`), which score the same 0-2-0 — so a size named
-   in the markup wins the tie against the one its host would have set. */
+/* Declared AFTER the host rules above (.btn .counter, .segment .counter), which score the same 0-2-0:
+   a size named in the markup wins the tie against the one its host would have set. */
 .counter.size-sm { --cnt-h: var(--counter-h-sm); --cnt-px: var(--counter-px-sm); --cnt-fs: var(--counter-fs-sm); }
 .counter.size-md { --cnt-h: var(--counter-h-md); --cnt-px: var(--counter-px-md); --cnt-fs: var(--counter-fs-md); }
 
-/* Tinted by what it counts. The fill is the counter's own step, one deeper than
-   a badge's (see --counter-passed-bg); the text is the status pill's, which is
-   already the library's *-800. */
 .counter.passed { background: var(--counter-passed-bg); color: var(--passed-fg); }
 .counter.failed { background: var(--counter-failed-bg); color: var(--failed-fg); }
 .counter.skipped { background: var(--counter-skipped-bg); color: var(--skipped-fg); }
 .counter.neutral { background: var(--counter-bg); color: var(--counter-fg); }
 
-/* Chosen — the library's `for active` variant. `.selected` is the class a
-   counter can be given outright; the three hosts that carry a chosen state paint
-   it themselves, so no caller has to keep a count's class in sync with the
-   control it rides in. (The chosen SEGMENT is deliberately absent: its chip is a
-   raised card, not a tint, so the count on it stays the neutral one — the ring
-   above is what separates them.) The `.btn.selected` case is not here: it sits
-   on a wash rather than on the page and takes --selected-count, up in the button
-   section. */
 .counter.selected,
 .tab.active .counter,
 .tab[aria-selected="true"] .counter {
@@ -895,39 +485,12 @@ a.icon-btn { text-decoration: none; }
   box-shadow: none;
 }
 
-/* ====================================================================
-   TABS
-   ====================================================================
-   One tab bar for both pages. Two looks, same markup and same states:
-
-     .tabs            underlined — a section switcher that owns the screen
-                      (the panel's Tests / Runs / Settings, and the test
-                      editor's Edit / Preview, which is the same kind of switch
-                      one document down)
-     .tabs.boxed      folder tabs — a switcher INSIDE a screen, over a pane.
-                      Nothing ships it at the moment: the editor's Edit /
-                      Preview wore it and moved to the underlined look, so that
-                      one shape answers "which section am I in?" everywhere.
-                      Kept as the library's second look, for a switcher that
-                      genuinely sits over a surface rather than over a screen.
-
-   The active tab is `.active` and, for a real tablist, `aria-selected="true"` —
-   both paint, because a tablist that only says it in ARIA looks broken and one
-   that only says it in a class is invisible to a screen reader.
-
-   The three states of the underlined look come straight off the library's Tab
-   component, and all three are ONE property — the label's colour, walking the
-   text ramp from --muted at rest, past --fg to --tab-hover-fg under the pointer,
-   and out to --tab-active when the tab is the open one, where the 2px rule joins
-   it in the same colour. No fill in any of them: the tab is not a button, it is
-   a label with a rule under it, and the rule is the whole of the answer. */
+/* ---- TABS ---- */
 .tabs { display: flex; background: var(--bg); }
 .tab {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* The library's own gap, for the tabs that carry more than a word — an icon
-     before the label, a count after it. */
   gap: var(--space-2);
   flex: none;
   padding: var(--space-3);
@@ -939,45 +502,22 @@ a.icon-btn { text-decoration: none; }
   cursor: pointer;
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-/* The OPEN tab does not take the hover colour: it is already saying the stronger
-   thing, and going near-black under the pointer reads as the tab deselecting
-   itself. The design has no active+hover variant for exactly this reason.
-   `:not(:where(…))` and not a plain `:not(…)`: :where() weighs nothing, so this
-   selector still scores exactly what it did before the exclusion — it matches
-   less without out-scoring anything, which matters because the boxed look below
-   overrides this colour on a deliberate tie. */
+/* :not(:where(…)), not a plain :not(): :where() weighs nothing, so this selector keeps the specificity
+   it had before the exclusion and the boxed look below still wins its deliberate tie. */
 .tab:hover:not(:disabled):not(:where(.active, [aria-selected="true"])) { color: var(--tab-hover-fg); }
 .tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .tab:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
 .tab.active, .tab[aria-selected="true"] { color: var(--tab-active); border-bottom-color: var(--tab-active); }
 
-/* The two variants the library draws beside the bare label — an icon before it,
-   a count after it. Neither carries a colour of its own: the icon is
-   currentColor, so it walks the same three states as the label it belongs to,
-   and the count is the panel's ordinary neutral pill until the tab is the open
-   one. That is the whole point of putting the state on ONE property. */
 .tab .md-icon, .tab svg {
   display: block;
   flex: none;
   width: var(--control-icon);
   height: var(--control-icon);
 }
-/* The one part of a tab allowed to give way. In a 380px panel three tabs with an
-   icon and a count can outgrow the bar, and when they do it must be the WORD
-   that clips — an icon cropped to half a glyph or a count reading "1…" is worse
-   than "Setti…", which is still the only thing here you can guess from. */
 .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A count in a tab is the shared `.counter` at its default size — the library
-   draws the 20px one here (a tab is a label with room around it, not a compact
-   control), and the tab adds nothing to it but the tint it takes when the tab is
-   the open one, which the counter's own section states. */
-/* A switcher that owns the width of its bar: the tabs share it out until there
-   is none left. `1 1 auto`, NOT `1` — the tabs used to take a flat third each,
-   which is only right while they hold the same thing. The moment one carries an
-   icon and a 3-digit count and its neighbour carries a bare word, a fixed third
-   clips the fuller tab to "T…" while the emptier one sits on slack it cannot
-   use. Growing from CONTENT spends that slack where it is actually needed, and
-   with three bare labels it still lands on thirds. */
+/* '1 1 auto', NOT '1': flat thirds clip a tab carrying an icon and a 3-digit count while a bare one
+   sits on slack it cannot use. */
 .tabs.fill { flex: 1; min-width: 0; }
 .tabs.fill .tab { flex: 1 1 auto; min-width: 0; }
 
@@ -992,9 +532,6 @@ a.icon-btn { text-decoration: none; }
   font-size: var(--fs-sm);
   opacity: var(--opacity-muted);
 }
-/* The folder look keeps its wash: its hover is a tab lifting toward the pane it
-   belongs to, not a label darkening on the page — the state the underlined look
-   above deliberately does without. */
 .tabs.boxed .tab:hover { opacity: 1; background: var(--hover-overlay); }
 .tabs.boxed .tab.active, .tabs.boxed .tab[aria-selected="true"] {
   opacity: 1;
@@ -1004,30 +541,9 @@ a.icon-btn { text-decoration: none; }
   background: var(--card-bg);
 }
 
-/* ====================================================================
-   MARKS — the three things a test row says about itself before its title
-   ====================================================================
-   A list row in this product opens with up to three marks, and they answer
-   three different questions in three different shapes, which is exactly why
-   they are three components and not one:
-
-     .prio       how much it MATTERS — a bare glyph, no box, five priorities
-     .type-mark  what it IS — a tinted square, nine kinds
-     .status-dot how it WENT — a filled circle, four run statuses
-
-   All three are `flex: none` and centre their content in a fixed box, so a
-   column of rows lines up on one vertical whether a row carries three marks,
-   one, or none. None of them is a control: nothing here is clickable, focusable
-   or a <button> — a mark states, it does not act.
-
-   PRIORITY (priority/icons.hbs, ◇ UI app library → Priority, node 3633-13383)
-   The five glyphs live in shared/priority-icons.js, which is also where a row
-   asks for one (`PriorityIcons.mark(p)`); this is only the box and the colour.
-   The box is the point: the library draws `normal` at 12px and the other four
-   at 19, so without a fixed square a list of them would step in and out by
-   7px down the left edge. Colour is by MEANING, not by glyph — high, important
-   and critical share the one red (see --priority-high), and the shape alone
-   says which of the three it is. */
+/* ---- MARKS — priority · type of test · run status ---- */
+/* The library draws 'normal' at 12px and the other four priorities at 19 (glyphs: shared/priority-icons.js),
+   so the fixed 20px square is what stops a column of them stepping in and out down the left edge. */
 .prio {
   display: inline-flex;
   align-items: center;
@@ -1037,71 +553,25 @@ a.icon-btn { text-decoration: none; }
   height: var(--space-5);
   line-height: var(--leading-none);
   color: var(--muted);
-  cursor: help; /* it has a tooltip and nothing else — the pointer says so */
+  cursor: help;
 }
-.prio svg { display: block; } /* the shared icon, coloured via currentColor */
+.prio svg { display: block; }
 .prio[data-priority="low"] { color: var(--priority-low); }
 .prio[data-priority="normal"] { color: var(--priority-normal); }
 .prio[data-priority="high"],
 .prio[data-priority="important"],
 .prio[data-priority="critical"] { color: var(--priority-high); }
-/* The mark with its value still on the wire: the same 20px box, holding the
-   library's skeleton disc cut to the 12px the `normal` ring measures. The box is
-   the point — a mark that arrives with a late read pushes the title beside it
-   sideways, and the header of an open test may not do that while a tester pages
-   through a run. (core/views.js → testPriorityMark.) */
+/* The same box while the value is still on the wire: a mark that arrives late would push the title
+   beside it sideways (core/views.js → testPriorityMark). */
 .prio > .skeleton.circle { --sk-size: 12px; }
 
-/* No text form, deliberately: unlike the kind, a priority never spells itself
-   out anywhere in the panel. Where it has room — the header row of an open test
-   — it still goes as the bare glyph, beside the type mark, because the two are
-   read as one pair of marks at the head of a name and a word on one of them
-   would break the pair. The word is on its tooltip. */
-
-/* TYPE OF TEST (◇ UI app library → Type of test, node 1730-20999)
-   Nine kinds — manual, automated, mixed, out-of-sync, detached, defect, note,
-   shared-from, shared-to — drawn by shared/test-type.js from the `type_*`
-   glyphs in icons.js, tinted here by the GROUP each belongs to (see the --kind-*
-   tokens: three kinds plus `alert` and `note`).
-
-   A square, not a pill. The badge above is fully rounded because it carries a
-   WORD, and a word in a rounded-rect reads as a button; this carries a 12px
-   glyph and nothing else, and a glyph in a rounded-full box reads as an avatar.
-   4px is the library's own corner here — one step under everything else on the
-   page, which is what keeps a 20px box from looking like a small button.
-
-   TWO FORMS, AND THE CHOICE IS THE SURFACE, NOT TASTE (the library ships them
-   as one component with `text=off | on`, so the panel does too):
-
-     IN A LIST → the square, icon only. `TestType.mark(kind)` /
-       `TestType.forRecord(rec)`. The row's title already carries the words, and
-       nine little labels down a 380px panel would leave no room for the thing
-       they describe. The word stays reachable as the mark's tooltip.
-     ANYWHERE ELSE → the label, glyph + word. `TestType.mark(kind, {text:true})`
-       — a header, a detail line, a card: a surface with the room and no title
-       beside it to lean on. This is what the run header's kind chip is.
-
-   Never a bare word in a `.badge` for a kind: a kind is a MARK, and the run
-   header wore a text-only pill until this component reached it — two spellings
-   of one thing, and the list and the header disagreeing about which.
-
-   `.type-label` is the only thing that changes the geometry: the square becomes
-   a chip with 4px of side padding and a 4px gap, which is the library's own
-   text variant. The word is the library's own (`manual`, `out of sync`), stored
-   lowercase because it is a token rather than prose, and printed in sentence
-   case by CSS — see the rule under `.type-label`. */
+/* Type of test: nine kinds, drawn by shared/test-type.js from the type_* glyphs in icons.js. */
 .type-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
   flex: none;
-  /* Square by construction: a 20px box around a 12px glyph — 4px of air a side,
-     one step of the grid, which is what the fixed width buys. (The glyph used to
-     be 13.3333 because the drawing was padded out to a 16-unit frame; it sits on
-     the library's own frame now, so the number is a number — icons.js → BOXES.)
-     No side padding: a length here would have to be 4px to be on the grid, and
-     4px either side of a 12px glyph is the square again, said twice. */
   width: var(--space-5);
   height: var(--space-5);
   border-radius: var(--radius-xs);
@@ -1110,8 +580,6 @@ a.icon-btn { text-decoration: none; }
   line-height: var(--leading-none);
 }
 .type-mark svg { display: block; }
-/* The text form: no longer a square, so it gives up the fixed width and pays
-   for its label with the grid's smallest padding. */
 .type-mark:has(.type-label) { width: auto; padding: 0 var(--space-1); }
 .type-label {
   display: inline-block; /* so ::first-letter below has a box to apply to */
@@ -1119,11 +587,7 @@ a.icon-btn { text-decoration: none; }
   font-weight: var(--weight-medium);
   white-space: nowrap;
 }
-/* Sentence case, and it has to be the first letter rather than `capitalize`:
-   the words are the library's own and four of them are phrases — `capitalize`
-   would print "Out Of Sync". The kind is stored lowercase (it is a token, not
-   prose) and the status chip beside it in the run header is capitalized by CSS
-   the same way, so the two chips read as one row rather than as two systems. */
+/* Not 'capitalize': four of the words are phrases, which would come out "Out Of Sync". */
 .type-label::first-letter { text-transform: uppercase; }
 .type-mark.manual { background: var(--kind-manual-bg); color: var(--kind-manual-fg); }
 .type-mark.automated { background: var(--kind-automated-bg); color: var(--kind-automated-fg); }
@@ -1131,24 +595,7 @@ a.icon-btn { text-decoration: none; }
 .type-mark.alert { background: var(--kind-alert-bg); color: var(--kind-alert-fg); }
 .type-mark.note { background: var(--kind-note-bg); color: var(--kind-note-fg); }
 
-/* RUN STATUS (◇ UI app library → Run status, node 2003-18939)
-   The library ships one status in four forms, and this section draws all four:
-   the DOT below, the ICON under it, the LABEL (`.status-label`) and the LOADER
-   a running run wears. Which one a surface takes is not taste:
-
-     .status-dot    a row too dense to spend 16px on — the colour is the message
-     .status-icon   the 16px glyph a row opens with
-     .status-label  the glyph WITH its word — a header, a detail line
-     .spinner       running, in place of the glyph, in either of the last two
-
-   (`.badge` is none of these: it is the pill a plain WORD wears, which is still
-   what a row spelling its status out in text takes.)
-
-   The DOT first, because it is the smallest. 8px is `--choice-dot`, the radio's
-   own — the smallest circle this system draws, and the one length that already
-   means "a filled mark, not a control". The dot is a background on an empty box
-   rather than a glyph, so it costs no icon and cannot be recoloured by a stray
-   currentColor. */
+/* ---- RUN STATUS — dot · icon · label · text · spinner ---- */
 .status-dot {
   display: inline-block;
   flex: none;
@@ -1163,20 +610,7 @@ a.icon-btn { text-decoration: none; }
 .status-dot[data-status="skipped"] { background: var(--skipped); }
 .status-dot[data-status="running"] { background: var(--accent); }
 
-/* The ICON form. It lived in the side panel's own stylesheet until the library
-   claimed the family, which is why the run view and the runs list both reach
-   for it: `Icons.el(name, 16, 'status-icon')` with the status on `data-status`.
-   The glyph says WHICH status and the colour agrees with it, so an unknown one
-   falls back to the neutral circle in the muted grey rather than to nothing.
-   `skipped` and `pending` were missing here while the dot and the pill both had
-   them — a status the library draws in three forms has to be drawable in all
-   three, or a screen picks its form by which one happens to be complete. */
-/* The glyph stays 16px (the set's own size) and the BOX is 20 — the same
-   square `.prio`, `.type-mark` and `.tree-icon` centre a mark in, so a row that
-   opens with a status icon starts its title on the same vertical as one that
-   opens with a priority or a type. `content-box` + 2px is how a bare <svg>
-   grows a box without scaling the drawing inside it (◇ Tests → tests-item: the
-   run-status slot is a 20px box around a 16px glyph). */
+/* content-box + 2px is how a bare <svg> grows to the 20px mark box without scaling the 16px drawing. */
 .status-icon {
   flex: none;
   box-sizing: content-box;
@@ -1186,26 +620,10 @@ a.icon-btn { text-decoration: none; }
 .status-icon[data-status="passed"] { color: var(--passed); }
 .status-icon[data-status="failed"] { color: var(--failed); }
 .status-icon[data-status="skipped"] { color: var(--skipped); }
-/* Pending, scheduled, terminated and anything unrecognised are all the same
-   sentence — nobody has decided yet — and the library gives that its own grey
-   (--pending), not the page's text-muted: this is a mark on a surface, and it
-   has to hold up on a row that is already full of muted words. */
 .status-icon[data-status="pending"],
 .status-icon[data-status="scheduled"],
 .status-icon[data-status="terminated"] { color: var(--pending); }
 
-/* The LABEL form — the mark with its word, for a surface that has the room and
-   no title beside it to lean on (the run header's state row). The library draws
-   it as a 20px chip: `px-8 py-2 rounded-6`, Inter Medium 12/16, filled with the
-   status' own soft pair (◇ Run status, label=on).
-
-   Not `.badge`: the badge is the pill a WORD wears anywhere in the panel, and a
-   pill is what it should stay — this is the marks family's own label, the same
-   20px box `.type-mark` and `.status-icon` stand in, so the kind chip and the
-   status chip in one header are two marks of one height and one corner rather
-   than a mark and a pill. The glyph keeps the mark's own colour: green on green
-   is the pairing the library draws, and it is what lets the chip be read by
-   shape at a glance and by word on a second look. */
 .status-label {
   display: inline-flex;
   align-items: center;
@@ -1219,30 +637,17 @@ a.icon-btn { text-decoration: none; }
   font-size: var(--fs-sm);
   font-weight: var(--weight-medium);
   line-height: var(--leading-none);
-  /* The word is server text (`running`, `passed`) — the case is CSS's, like
-     every other status the panel prints. */
+  /* The word is server text ('running', 'passed') — the case is CSS's. */
   text-transform: capitalize;
 }
 .status-label.passed { background: var(--passed-bg); color: var(--passed-fg); }
 .status-label.failed { background: var(--failed-bg); color: var(--failed-fg); }
 .status-label.skipped { background: var(--skipped-bg); color: var(--skipped-fg); }
 .status-label.neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
-/* The mark inside the chip drops to 12px of drawing in a 16px box: 16px is the
-   ROW size and would out-measure the 12px word beside it. Both forms take the
-   same cut, so a run that finishes does not resize its own chip. */
+/* 12px of drawing in both forms, so a run that finishes does not resize its own chip. */
 .status-label .status-icon { width: 12px; height: 12px; }
 .status-label .spinner { width: 12px; height: 12px; }
 
-/* The TEXT form — the glyph with its word, in the status' own colour and with
-   NO fill. It is what a status looks like as the VALUE of a field (Run info's
-   Status row), which is where the chip is wrong: a filled pill in a list of
-   plain facts reads as a control among labels, and the web's own run details
-   table prints the word in colour instead. So: same glyph, same vocabulary,
-   the colour carried by the type.
-   The deep `-fg` pair, not the mark's `--passed` — this is TEXT, and the fill
-   colours are tuned to sit on their own soft background, not on the card.
-   Semibold because the colour has to be read as meaning rather than as a stray
-   tint; every other value in the list stays regular. */
 .status-text {
   display: inline-flex;
   align-items: center;
@@ -1255,35 +660,15 @@ a.icon-btn { text-decoration: none; }
 .status-text[data-status="passed"] { color: var(--passed-fg); }
 .status-text[data-status="failed"] { color: var(--failed-fg); }
 .status-text[data-status="skipped"] { color: var(--skipped-fg); }
-/* Running is GREY here, unlike the mark forms above: this is the word as the
-   VALUE of a field, and the accent is the panel's link colour — a blue word
-   among plain facts reads as something to press. The spinner beside it is what
-   says "still going", which is the one thing the colour was carrying. */
 .status-text[data-status="running"],
-/* Nobody has decided yet — the same grey the icon form gives those three. */
 .status-text[data-status="pending"],
 .status-text[data-status="scheduled"],
 .status-text[data-status="terminated"] { color: var(--muted); }
-/* 14px of drawing beside a 12px word: bigger than the chip's 12 (there is no
-   fill here to hold the mark) and a step under the 16 a row opens with. */
 .status-text .status-icon { width: 14px; height: 14px; }
 .status-text .spinner { width: 14px; height: 14px; }
 
-/* The LOADER — the fourth form, and the only one that is not a glyph
-   (◇ UI app library → Run status, type=running-1…4). A running run is drawn as
-   a RING with one quarter of it darkened, turning.
-
-   The library ships that turn as four frames at 0/90/180/270° because a static
-   symbol cannot move — they are KEYFRAMES OF ONE ROTATION, not four states to
-   step through. So the ring turns continuously (`linear`); `steps(4)` played
-   the four frames literally, and four jumps a second read as a mark being
-   swapped rather than as one thing spinning.
-
-   Two colours means it cannot be an icon (an icon is one currentColor path), so
-   it is drawn in CSS rather than shipped as an SVG: a conic gradient for the
-   quarter, a radial mask for the hole. 16px of drawing in the same 20px box
-   every status mark stands in, so a running row does not shift by two pixels
-   when it finishes. */
+/* Two colours, so it cannot be an icon: a conic gradient for the quarter, a radial mask for the hole.
+   'linear', not 'steps(4)' — the library's four frames are keyframes of ONE rotation, not four states. */
 .spinner {
   flex: none;
   box-sizing: content-box;
@@ -1294,26 +679,17 @@ a.icon-btn { text-decoration: none; }
   background:
     conic-gradient(var(--spinner-head) 0deg 90deg, var(--spinner-track) 90deg 360deg)
     content-box;
-  /* The ring's own radii, as fractions of the 8px the box gives a ray: the
-     library draws it from 4.36 to 7 (54.5% → 87.5%), a 2.64px band that stops
-     one pixel short of the box — not a ring painted to the edge. */
+  /* 54.5% → 87.5%: the library's own 4.36→7px band, stopping a pixel short of the box. */
   -webkit-mask: radial-gradient(closest-side, transparent 0 54.5%, #000 54.5% 87.5%, transparent 87.5%) content-box;
   mask: radial-gradient(closest-side, transparent 0 54.5%, #000 54.5% 87.5%, transparent 87.5%) content-box;
   animation: spin 1s linear infinite;
 }
-/* Reduced motion keeps the mark and stops the tick — the ring alone still says
-   "not finished", the same deal `.spin` and the skeleton pulse make. */
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }
 
-/* ====================================================================
-   DISCLOSURE — a head that folds its body
-   ====================================================================
-   The panel folds half its screens this way (Run info, Failure, Meta, Steps,
-   Attachments & log, the console log, Advanced). The head is a real <button>
-   carrying `aria-expanded`, and the caret — an `.md-icon` with the chevron —
-   rotates off that attribute, so the state has exactly one source. */
+/* ---- DISCLOSURE — a head that folds its body ----
+   The head is a <button> carrying aria-expanded and the caret rotates off it, so the state has one source. */
 .disclosure { margin: var(--space-2) 0 var(--space-1); }
 .disclosure-head {
   display: flex;
@@ -1331,55 +707,11 @@ a.icon-btn { text-decoration: none; }
 .disclosure-head:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .disclosure-head > .md-icon:first-child { color: var(--muted); transition: transform var(--dur-fast) var(--ease); }
 .disclosure-head[aria-expanded="true"] > .md-icon:first-child { transform: rotate(90deg); }
-/* The head's SUBJECT mark, between the caret and the label — what the fold is
-   about, where the caret is only whether it is open. It takes NO colour of its
-   own, so it rides the head's `currentColor` with the label (and turns with it
-   on hover): it is part of the title, not chrome around it, and a muted one
-   next to the muted caret reads as two carets. Optional — a fold of a FACT
-   (Meta, Steps) has nothing to picture; a fold that is a SECTION of a screen
-   (every Settings block) does. */
 .disclosure-head > .head-icon { flex: none; }
 .disclosure-body { padding: var(--space-1) 0 0; }
 
-/* ====================================================================
-   ACCORDION — the fold, boxed: each item its own block
-   ====================================================================
-   DISCLOSURE folds ONE fact into a plain row; ACCORDION is for a GROUP of
-   them — the test view's Status pane (Log/Failure, Meta, Steps) and its
-   Attachments & log. A group of plain hairline rows reads as one long list,
-   not as separate facts, once three or four sit stacked in the same pane; a
-   border around each item is the fix.
-
-   Two rules, borrowed from Run info (the run summary card's own fold) and
-   now shared by every item here: NO fill — a filled box reads as a card
-   competing with the surface it sits on, where Run info's plain top rule
-   reads as grouping what is under it — and no line between the head and the
-   body, because the body is what the head opens ONTO rather than a second
-   block stacked under it. Run info stays its own layout in the panel's
-   stylesheet (it bleeds to its parent card's edges, which is a job this
-   generic box does not need), but the two rules above are now the same
-   rules, not a lookalike pair.
-
-   Markup is `.disclosure` + `.accordion-item` on the SAME node — the item
-   only adds the box; DISCLOSURE still owns the open/closed state
-   (aria-expanded, the caret's rotation), so nothing that already toggles a
-   disclosure has to change to gain the block look. `.accordion` is the
-   group's own flex column, its `gap` doing the spacing a margin used to. A
-   single item wears `.accordion-item` on its own, with no `.accordion`
-   parent, and keeps `.disclosure`'s own margin.
-
-   The head may also sit inside a HEADING (`<h3><button class="disclosure-head">`)
-   when the items are the sections of a page rather than facts inside one — the
-   Settings screen is a group of seven, and a screen whose whole structure is
-   folds still owes the document an outline. The wrapper is transparent to this
-   component: every head rule below matches it one level down, and the heading
-   itself is flattened where it is used (see `.settings-section-title` in the
-   panel's stylesheet).
-
-   A list inside one (Meta) is the same `.kv.rows` Run info's own fields use —
-   one hairline PER ROW instead of the head/body rule the box gave up, which
-   is the actual answer to "where did the divider go": it moved from framing
-   the body to separating what is actually different inside it. */
+/* ---- ACCORDION — the fold, boxed ----
+   Markup is .disclosure + .accordion-item on the SAME node: DISCLOSURE still owns the open/closed state. */
 .accordion { display: flex; flex-direction: column; gap: var(--space-2); }
 .accordion > .accordion-item { margin: 0; }
 .accordion-item {
@@ -1389,35 +721,20 @@ a.icon-btn { text-decoration: none; }
 }
 .accordion-item > .disclosure-head,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head { padding: var(--space-2) var(--space-3); transition: background var(--dur-fast) var(--ease); }
-/* The block's hover is the row lifting toward the surface it will open onto —
-   DISCLOSURE's plain-row hover turns the label accent instead, which reads as
-   a link and not as a trigger with room around it. */
 .accordion-item > .disclosure-head:hover:not(:disabled),
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:hover:not(:disabled) { background: var(--hover-overlay); color: var(--fg); }
-/* `overflow: hidden` above clips a 2px OUTSET ring at the item's own corners —
-   the same fix `.tab` needed for the same reason (components.css TABS). */
+/* 'overflow: hidden' above clips a 2px OUTSET ring at the item's own corners. */
 .accordion-item > .disclosure-head:focus-visible,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:focus-visible { outline-offset: -2px; }
-/* A trailing count (Meta 3, Steps 2) reads as the item's own badge when it is
-   pinned to the block's far edge, not floating a word after the label. */
 .accordion-item > .disclosure-head .counter,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head .counter { margin-left: auto; }
 .accordion-item > .disclosure-body { padding: var(--space-2) var(--space-3); }
 
-/* A block nested one level inside another (Attachments & log's own Console &
-   network log) sits inside a border already — a second one around it reads as
-   the same box drawn twice. It takes the WELL look instead: the tint
-   `--surface-2` already lends a code block, with no rule of its own. */
 .accordion-item.nested { border: none; border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--space-1) var(--space-2); }
 .accordion-item.nested > .disclosure-head { padding: var(--space-1) 0; }
 
-/* ====================================================================
-   MENU — the popup opened from a control
-   ====================================================================
-   A listbox floating under its trigger: the project switcher and the editor's
-   priority picker are the same object. It carries the popup depth, so the page
-   that holds it must NOT trap it in a stacking context of its own (see the note
-   on .project-bar in the panel's stylesheet — that rake cost a day once). */
+/* ---- MENU — the popup opened from a control ----
+   It carries the popup depth, so the page holding it must NOT trap it in a stacking context of its own. */
 .menu {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -1445,34 +762,10 @@ a.icon-btn { text-decoration: none; }
 }
 .menu-option:hover, .menu-option.active { background: var(--row-hover); }
 .menu-option[aria-selected="true"] { background: var(--row-active); color: var(--row-active-fg); font-weight: var(--weight-semibold); }
-/* A menu that filtered down to nothing takes the shared compact empty state
-   (the EMPTY section below), tightened to the menu's own padding: a popup is a
-   few rows tall, and the 8px a list row spends would make the one line saying
-   "nothing" the tallest thing in it. */
 .menu > .empty.compact { padding: var(--space-1) var(--space-2); }
 
-/* ====================================================================
-   TOOLTIP — the label the pointer asks for
-   ====================================================================
-   shadcn/ui `tooltip`, drawn in this system's tokens: an inverted box, the
-   6px corner (`rounded-md`), 12px type (`text-xs`), a rotated-square arrow
-   (`size-2.5 rotate-45 rounded-[2px]`) and the fade + `zoom-in-95` it opens
-   with. What shadcn spends on padding — `px-3 py-1.5`, 12/6 — lands here as
-   8/4: the same 2:1 shape on a grid that has no half steps, in a panel 380px
-   wide where 12px of side padding on a two-word label is a lozenge.
-
-   It replaces the browser's own `title` tooltip everywhere in this extension
-   (shared/tooltip.js is the engine; the markup only carries `data-tip`), and
-   the reasons are the ones a native tooltip cannot answer: it appears after
-   ~1s and cannot be hurried, it is drawn in the OS's fonts and colours rather
-   than the panel's, it cannot wrap a sentence to a readable width, it will not
-   show for a keyboard user at all, and it is the one piece of UI in this
-   product that neither scheme nor design system can reach.
-
-   The engine owns exactly two things in here — `left`/`top` on the box, and
-   the offset of the arrow along its edge. Everything else, the side included,
-   is CSS: `data-side` says which edge the arrow is on and which way the box
-   grows out of the control it belongs to. */
+/* ---- TOOLTIP — the label the pointer asks for ----
+   shared/tooltip.js owns left/top and the arrow's offset along the edge; the side is CSS's (data-side). */
 .tooltip {
   position: fixed;
   top: 0;
@@ -1488,18 +781,10 @@ a.icon-btn { text-decoration: none; }
   font-weight: var(--weight-normal);
   line-height: var(--leading-snug);
   text-align: left;
-  /* A tip is written as a sentence but may carry a URL or a token id (the raw
-     link on a run's row is a tooltip, by design): it wraps on spaces, and only
-     breaks a word when the word alone is wider than the box. */
   overflow-wrap: anywhere;
   box-shadow: var(--shadow-popup);
-  /* Never a target. It follows the pointer's own hit-testing, so a layer that
-     could be hit would put itself between the pointer and the control it
-     describes — and it is the reason nothing needs to stack above it. */
   pointer-events: none;
   opacity: 0;
-  /* zoom-in-95, out of the edge the arrow is on: the box grows FROM the
-     control rather than appearing beside it. */
   transform: scale(0.95);
   transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
@@ -1509,10 +794,7 @@ a.icon-btn { text-decoration: none; }
 .tooltip[data-side="right"] { transform-origin: left center; }
 .tooltip[data-open="true"] { opacity: 1; transform: scale(1); }
 
-/* The arrow is a square of the box's own fill, turned 45°, half of it buried
-   under the box — so it is the same colour as whatever the box is without
-   knowing it, and there is no second shape to re-tint. 2px of corner, the one
-   length here that is not a token: at 8px across, a 4px radius is a circle. */
+/* 2px of corner, the one length here that is not a token: at 8px across, a 4px radius is a circle. */
 .tooltip-arrow {
   position: absolute;
   width: var(--space-2);
@@ -1526,31 +808,13 @@ a.icon-btn { text-decoration: none; }
 .tooltip[data-side="left"] .tooltip-arrow { right: -4px; }
 .tooltip[data-side="right"] .tooltip-arrow { left: -4px; }
 
-/* Motion is the flourish, not the message: when it is turned off the label
-   still has to appear instantly and in place. */
 @media (prefers-reduced-motion: reduce) {
   .tooltip { transition: none; transform: none; }
   .tooltip[data-open="true"] { transform: none; }
 }
 
-/* ====================================================================
-   HOVERCARD — the label that is a LIST
-   ====================================================================
-   shadcn/ui `hover-card`, drawn in this system's tokens: the popup's surface,
-   border, corner and shadow — the same box the `.menu` is, because both are "a
-   panel a control opened" — with the tooltip's fade + `zoom-in-95` and its
-   `data-side` growth, because it is the POINTER that opened it.
-
-   It exists for the one thing a tooltip structurally cannot do. A `.tooltip` is
-   one string and `pointer-events: none` by design; the moment the answer is a
-   list of rows with a count and a way INTO the section holding the full set —
-   the Rec chip's caught errors — the label has to become a small panel that can
-   be entered and clicked. That is this, and nothing else: a card is a SUMMARY of
-   something already on the screen, never the only home of a fact or a control.
-
-   The engine (shared/hovercard.js) owns `left`/`top` and the side; the parts
-   below are the vocabulary its content is built from — a head that names what
-   the card is about, a muted meta line under it, and a foot holding the way on. */
+/* ---- HOVERCARD — the label that is a LIST ----
+   shared/hovercard.js owns left/top and the side. Unlike a tooltip it can be entered and clicked. */
 .hovercard {
   position: fixed;
   top: 0;
@@ -1559,9 +823,6 @@ a.icon-btn { text-decoration: none; }
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  /* Wide enough for a truncated URL and a timestamp on one line, and no wider
-     than the panel it opens in — a card that overhangs a 380px side panel is
-     clipped by the window, not by the viewport test that placed it. */
   width: max-content;
   min-width: 200px;
   max-width: 320px;
@@ -1585,8 +846,6 @@ a.icon-btn { text-decoration: none; }
 .hovercard[data-side="right"] { transform-origin: left center; }
 .hovercard[data-open="true"] { opacity: 1; transform: scale(1); }
 
-/* What the card is about: a title that gives way to whatever rides beside it (a
-   mark, a count), on the heading face the panel's section titles wear. */
 .hovercard-head {
   display: flex;
   align-items: center;
@@ -1602,16 +861,9 @@ a.icon-btn { text-decoration: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The line of facts under it — what window, how many, how old. `margin: 0`
-   because it is usually a `<p>` and the card sets its own rhythm with `gap`: a
-   paragraph's own 1em would open a hole between the head and the summary. */
+/* margin: 0 — it is usually a <p>, and the card sets its own rhythm with gap. */
 .hovercard-meta { margin: 0; color: var(--muted); }
 
-/* The summary itself: a few rows, each a mark and its line. `.hovercard-text`
-   stops at TWO lines — a card that grew with the length of what it quotes would
-   stop being a glance — and the row's mark is left to the caller, because what
-   marks a row is the caller's vocabulary (the Rec card lends the log's own
-   `.ev-icon`), not the card's. */
 .hovercard-list {
   display: flex;
   flex-direction: column;
@@ -1621,10 +873,6 @@ a.icon-btn { text-decoration: none; }
   list-style: none;
 }
 .hovercard-row { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
-/* The row's TAIL — when it happened, what it cost — pulled out of the quoted text
-   into a column of its own, the same move `.row-count` makes on a list row: a
-   timestamp buried at the end of every line is read as part of the message, and
-   six of them down a card never line up. Tabular figures, because they must. */
 .hovercard-row-meta {
   flex: none;
   color: var(--muted);
@@ -1638,18 +886,10 @@ a.icon-btn { text-decoration: none; }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  /* A row in a card quotes machine text — a URL, a stack frame — so it breaks a
-     word only when the word alone is wider than the box, like the tooltip does. */
   overflow-wrap: anywhere;
 }
-/* «+4 more» — the count of what the card stopped listing, and the honest half of
-   a summary. Muted like the meta line, and never a control: the way to those four
-   is the link in the foot below, and two ways into one section is one too many. */
 .hovercard-more { margin: 0; color: var(--muted); }
 
-/* …and the way on, cut off from the summary by the hairline every fold in this
-   system uses. A card's foot is one link or one hint, never a row of buttons:
-   the pointer got here by resting somewhere, and a choice belongs on the screen. */
 .hovercard-foot {
   display: flex;
   align-items: center;
@@ -1658,17 +898,12 @@ a.icon-btn { text-decoration: none; }
   border-top: 1px solid var(--border);
 }
 
-/* Motion is the flourish, not the message — the same rule as the tooltip's. */
 @media (prefers-reduced-motion: reduce) {
   .hovercard { transition: none; transform: none; }
   .hovercard[data-open="true"] { transform: none; }
 }
 
-/* ====================================================================
-   PROGRESS — the stacked status bar
-   ====================================================================
-   Segments in DOM order fill the track; each carries a status class, so the bar
-   is coloured by the same vocabulary as the buttons and the badges. */
+/* ---- PROGRESS — the stacked status bar ---- */
 .progress {
   display: flex;
   height: 5px;
@@ -1681,12 +916,7 @@ a.icon-btn { text-decoration: none; }
 .progress > .failed, .progress > .f { background: var(--failed); }
 .progress > .skipped, .progress > .s { background: var(--skipped); }
 
-/* ====================================================================
-   KV — the key/value list
-   ====================================================================
-   A <dl> as two columns: muted labels in a column that shrinks to its longest
-   label, values wrapping in the rest. Run info and the result Meta list are the
-   same grid. `.kv.mono` puts the values in the mono face (a meta value is data). */
+/* ---- KV — the key/value list ---- */
 .kv {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr);
@@ -1698,24 +928,8 @@ a.icon-btn { text-decoration: none; }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .kv.mono dd { font-family: var(--font-mono); }
 
-/* `.kv.rows` — the same two columns read as a LIST: one hairline between rows,
-   the way the web run page's details table reads. It is for a list long enough
-   that a reader scans DOWN it for one field (Run info), where the gap alone
-   stops telling you which value belongs to which label.
-   Deliberately no hover: nothing here is a target — the rows are read, not
-   pressed — and a highlight following the pointer down a table of facts would
-   promise a click that does not exist.
-   The column gap is dropped so the rule runs the full width of the list rather
-   than breaking in the middle; the value keeps its distance as padding instead.
-   Every field is ONE row of the panel's own row height (32, `.list li`), and the
-   rule between them is the LIST's rule (`--row-border`), not the heavier edge a
-   card draws — a column of facts is a list, and it has no business ruling itself
-   harder than the tests list beside it.
-   The cells are flex boxes rather than blocks so that height holds: a value that
-   is a person cell or a status word is an inline-flex box on the text baseline,
-   and the descender space under it used to make those rows a few pixels taller
-   than the plain ones. Flex takes the baseline out of it — every row is 32,
-   whatever is in it — and centres label against value while it is there. */
+/* .kv.rows — the same two columns read as a LIST. The cells are flex, not blocks, so a value that is
+   an inline-flex box on the text baseline cannot make its row taller by its descender space. */
 .kv.rows { gap: 0; }
 .kv.rows dt,
 .kv.rows dd {
@@ -1728,32 +942,10 @@ a.icon-btn { text-decoration: none; }
   border-bottom: 1px solid var(--row-border);
 }
 .kv.rows dd { padding-left: var(--space-3); }
-/* The last pair closes the list — the surface below it draws its own floor. */
+/* The last pair (dt + dd) closes the list. */
 .kv.rows > :nth-last-child(-n + 2) { border-bottom: 0; }
 
-/* ====================================================================
-   THUMB — a picture that is still take-back-able
-   ====================================================================
-   A row of small pictures a person has staged and can still drop before they
-   are committed: the screenshots the test editor holds until Save. It is a
-   LIST, so it grows — one picture is the same component as five.
-
-     <ul class="thumb-row" aria-label="Screenshots to attach on Save">
-       <li class="thumb">
-         <img src="…" alt="Screenshot 1">
-         <button class="icon-btn size-xs thumb-remove" aria-label="Remove screenshot 1">
-           <svg class="md-icon">…</svg>            (Icons.markup('close', 16))
-         </button>
-       </li>
-     </ul>
-
-   The remove control is a badge ON the picture, not a word beside it: at this
-   size there is no room for a word, and a row of pictures each trailed by
-   "Remove" reads as a form rather than as the pictures it is. It is drawn at
-   all times, never on hover alone — a control that only exists under a pointer
-   does not exist on a touch screen, and it is the only way back out of a
-   mis-click. It stands on a filled, bordered chip because it lands on a
-   PICTURE, whose colours this file cannot know. */
+/* ---- THUMB — a staged picture that can still be dropped ---- */
 .thumb-row {
   display: flex;
   flex-wrap: wrap;
@@ -1781,26 +973,13 @@ a.icon-btn { text-decoration: none; }
   background: var(--bg);
   border-color: var(--border-control);
 }
-/* Removing is destructive, so the hover says so — the library's failed colour,
-   the same one the editor's old "Remove" word wore. */
 .thumb-remove:hover:not(:disabled) { color: var(--failed); background: var(--bg); border-color: var(--failed); }
-/* The ring loses its offset: 2px outside a control sitting 4px inside the
-   picture's edge would draw across the picture instead of around the button. */
+/* No offset: 2px outside a control sitting 4px inside the picture would draw across the picture. */
 .thumb-remove:focus-visible { outline-offset: 0; }
 
-/* ====================================================================
-   USER CELL — who did it
-   ====================================================================
-   A person, printed: a round monogram then the name (`.user-cell` +
-   `.avatar`). Built by shared/user-cell.js, so every surface that names a
-   person — Run info's "Executed by", a future assignee line — draws the same
-   thing.
-   The monogram is INITIALS, not the photo the web shows: the panel's CSP
-   allows images from the extension itself only (`img-src 'self' data: blob:`),
-   so a remote avatar URL would render as a broken box on every row. Initials in
-   a tinted circle say the same thing at 20px and cost no request.
-   Round, unlike every other 20px square in the library (`.type-mark`,
-   `.prio`) — a circle is what reads as a person. */
+/* ---- USER CELL — who did it ---- */
+/* Initials, not the web's photo URL: the CSP allows img-src 'self' data: blob: only, so a remote avatar
+   would render as a broken box (shared/user-cell.js fetches it and hands over a blob: URL). */
 .user-cell {
   position: relative; /* the name is taken out of flow when the list stacks */
   display: inline-flex;
@@ -1814,7 +993,7 @@ a.icon-btn { text-decoration: none; }
   align-items: center;
   justify-content: center;
   flex: none;
-  overflow: hidden; /* the photo below is clipped to the circle */
+  overflow: hidden;
   width: var(--space-5);
   height: var(--space-5);
   border-radius: var(--radius-pill);
@@ -1825,22 +1004,10 @@ a.icon-btn { text-decoration: none; }
   line-height: var(--leading-none);
   text-transform: uppercase;
 }
-/* The photo, when there is one (shared/user-cell.js fetches it and hands the
-   circle a `blob:` URL — see that file for why it cannot be a plain remote src).
-   It REPLACES the initials in the same 20px circle, so a list of people keeps
-   its column whether or not everyone has a picture. `cover` because an avatar is
-   rarely square and a squashed face is worse than a cropped one. */
 .avatar > img { width: 100%; height: 100%; object-fit: cover; }
-/* Nothing shows through a photo — the tinted disc is the monogram's backing. */
 .avatar.has-photo { background: none; }
-/* One line, whatever the name: a long one truncates rather than wrapping under
-   its own monogram. */
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* SEVERAL of them as one value — Run info's "Assigned to", where a run's tests
-   are held by more than one tester. A wider gap than the one inside a cell, so
-   the monogram stays with ITS name instead of drifting toward the name before
-   it; they wrap onto a second line rather than pushing the field wider. */
 .user-cells {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1848,19 +1015,12 @@ a.icon-btn { text-decoration: none; }
   gap: var(--space-1) var(--space-4);
   min-width: 0;
 }
-/* …and the same list when the names do not fit: the monograms alone, overlapped
-   into a STACK, which is how the web prints a crowd and how the eye counts one
-   (four coins read as four; four truncated names read as noise). Set by the
-   screen after it measures the named form wrapping — a run held by two people
-   keeps its names, a run held by six does not have room for them.
-   The ring is the card's own fill, not a border: it is what cuts one circle out
-   of the one behind it, so it has to be the colour BEHIND the stack. */
+/* Stacked, set by the screen once the named form wraps: the ring is the card's own FILL, not a border —
+   it is what cuts one circle out of the one behind it, so it must be the colour behind the stack. */
 .user-cells.is-stacked { gap: 0; }
 .user-cells.is-stacked .user-cell + .user-cell { margin-left: calc(-1 * var(--space-2)); }
 .user-cells.is-stacked .avatar { box-shadow: 0 0 0 2px var(--card-bg); }
-/* The name stays in the accessibility tree and on the tooltip — it is only the
-   PICTURE that is left, and a stack of unnamed circles must still say who to a
-   reader that cannot see them. */
+/* The name stays in the a11y tree and on the tooltip; only the picture is left. */
 .user-cells.is-stacked .user-name {
   position: absolute;
   width: 1px;
@@ -1870,16 +1030,7 @@ a.icon-btn { text-decoration: none; }
   white-space: nowrap;
 }
 
-/* ====================================================================
-   NOTICE, HINT, STATUS LINE — the ways a screen speaks
-   ====================================================================
-     .notice       a block that states a condition and stays (read-only access,
-                   "nothing configured yet"); tones borrow the status tints
-     .hint         one muted line under a control or a heading
-     .lock-note    why the controls beside it can no longer be written
-     .status-line  the live region a screen writes its result into. It RESERVES
-                   its row (min-height) so a message landing does not shift the
-                   page under the pointer. */
+/* ---- NOTICE, HINT, LOCK NOTE, STATUS LINE — the ways a screen speaks ---- */
 .notice {
   display: flex;
   flex-direction: column;
@@ -1897,12 +1048,8 @@ a.icon-btn { text-decoration: none; }
 
 .hint { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-snug); }
 
-/* Read-only is a STATE, not a hint: the control beside it is dead, not optional,
-   and nothing failed for a `.notice` to report. So it gets a quiet well of its
-   own with the lock in front of it — one glyph the eye finds before the sentence
-   is read, and a fill that separates the reason from the controls it is about
-   without shouting over them. The glyph is a mask (`--icon-lock`), so it is
-   painted in the note's own colour and stays out of `textContent`. */
+/* The lock glyph is a mask (--icon-lock), so it is painted in the note's own colour and stays out
+   of textContent. */
 .lock-note {
   display: flex;
   align-items: center;
@@ -1924,30 +1071,16 @@ a.icon-btn { text-decoration: none; }
   mask: var(--icon-lock) center / contain no-repeat;
 }
 
-/* Its margins are the grid's, not the browser's: a <p> comes with `1em 0`, which
-   at this font size is ~13px — off the 4px grid, and enough air above AND below
-   an EMPTY reserved row to read as a gap somebody chose. 4px of lead-in, nothing
-   trailing; what follows the line places itself. */
+/* It RESERVES its row (min-height), so a message landing does not shift the page under the pointer. */
 .status-line { min-height: 16px; margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .status-line.error { color: var(--failed); }
 .status-line.ok { color: var(--passed); }
 
-/* ====================================================================
-   PAGER — where you are in a sequence, and the two steps out of it
-   ====================================================================
-   `‹ 3 of 11 ›`: two icon buttons with the position between them. It is for a
-   sequence you walk ONE at a time and can be anywhere in — the open test inside
-   its run — which is what makes it a pager and not a "next" button: a button
-   says where you can go, a pager also says where you are.
-   The buttons are the shared `.icon-btn` and the arrows the one chevron (the
-   back one turned 180 — see Icons.build), so nothing here draws a control; this
-   is the strip that holds the three and keeps them from jumping.
-   Each end goes `disabled` rather than hidden: a control that vanishes at the
-   edge moves the two beside it, and the position is read at a glance. */
+/* ---- PAGER — where you are in a sequence, and the two steps out of it ----
+   Each end goes disabled rather than hidden: a control that vanished would move the two beside it. */
 .pager { display: inline-flex; align-items: center; gap: var(--space-1); }
 .pager-pos {
-  /* Tabular figures and a floor under the width: paging 9 → 10 must not push the
-     arrows sideways, which is exactly what a proportional font does to digits. */
+  /* Tabular figures and a floor under the width: paging 9 → 10 must not push the arrows sideways. */
   min-width: 7ch;
   text-align: center;
   color: var(--muted);
@@ -1956,7 +1089,6 @@ a.icon-btn { text-decoration: none; }
   white-space: nowrap;
 }
 
-/* A key cap. The panel's hotkey legend and any future shortcut hint. */
 .kbd {
   padding: 1px var(--space-2);
   border: 1px solid var(--border);
@@ -1967,32 +1099,9 @@ a.icon-btn { text-decoration: none; }
   white-space: nowrap;
 }
 
-/* ====================================================================
-   FRAME — the edge of the extension itself
-   ====================================================================
-   Every page of this extension is docked INSIDE somebody else's window — the
-   panel beside a site, the editor in a tab of the same browser — and on the
-   light scheme it is white chrome next to a white page, with nothing between the
-   two. This is that nothing: a 1px hairline all the way round, the divider rule
-   taken outside the content (--app-frame).
-
-   Drawn as a FIXED pseudo-element, not a border on <html> or <body>: a border on
-   either scrolls with the document, so the bottom line would only show up once
-   the page was scrolled to its end — and the frame belongs to the WINDOW, not to
-   the content inside it. Fixed also keeps the line still while a list scrolls
-   under it, which is what makes it read as an edge rather than as a box.
-
-   It sits above every other layer (--z-frame) so a popup or a toast that reaches
-   the edge is CLOSED by it instead of crossing it, and it takes no pointer
-   events, so nothing under those 1px is any harder to click.
-
-   The corners are SQUARE: the frame traces the window's own edge, and the window
-   already clips whatever curve it has around it.
-
-   Dark draws no frame — --app-frame is transparent there — because an 850 page
-   against any site is already its own shape. The pseudo-element still exists in
-   both: a transparent hairline costs nothing and keeps the two schemes on one
-   rule instead of a second, mirrored one. */
+/* ---- FRAME — the 1px edge of the extension itself ---- */
+/* A FIXED pseudo-element, not a border on <html>/<body>: a border scrolls with the document, so the
+   bottom line would only appear once the page was scrolled to its end. Above every layer, no pointer events. */
 body::after {
   content: "";
   position: fixed;
@@ -2002,28 +1111,8 @@ body::after {
   pointer-events: none;
 }
 
-/* ====================================================================
-   BAR — a page-chrome row
-   ====================================================================
-   The strip that runs the full width of a page: the panel's project row, its tab
-   row and its context row; the editor's title bar and the annotator's toolbar.
-   Five copies of the same shape before this.
-
-   It draws NO rule under it. A hairline under every one of these rows stacked up
-   as three lines of chrome down the top of a 400px panel, each one boxing in a
-   row that is not a box; what separates a bar from the content is its own fill,
-   which a sticky bar keeps as the page scrolls beneath it. The one row that still
-   closes with a line is the panel's tab row — the header ends there, and the
-   active tab's accent needs a line to sit in — and it draws that itself
-   (sidepanel/style.css, `.header-top::after`).
-
-   `.bar.sticky` pins it — but the DEPTH is the page's business, not the
-   component's: each of these bars sits in a different stacking story (the panel's
-   tab row must stay UNDER the project popup, the annotator's toolbar must stay
-   under its own stage), so a page sets `z-index` itself. The component only
-   promises the row and the fill. */
-/* Its sides are the page GUTTER, not a padding of its own: a strip that spans
-   the page has to start where the content under it starts. */
+/* ---- BAR — a page-chrome row ----
+   The DEPTH is the page's business: each bar sits in a different stacking story, so a page sets z-index itself. */
 .bar {
   display: flex;
   align-items: center;
@@ -2032,41 +1121,13 @@ body::after {
   background: var(--bg);
 }
 .bar.sticky { position: sticky; top: 0; }
-/* A bar whose children set their own height (a tab row). */
 .bar.stretch { align-items: stretch; padding: 0; gap: 0; }
-/* The same row at the FOOT of a screen: what a form is committed or abandoned
-   with, pinned under the thing being edited (the test editor's Save / Cancel).
-   It is the one bar that DOES draw a rule, and for the opposite reason to the
-   header's: a header's fill separates it from content that scrolls beneath it,
-   while a footer sits under content that ends above it — with no line, the
-   buttons read as the last item of the body rather than as the page's own
-   closing row.
-   Order is the PAGE's business, not the component's: the actions lead the row
-   here (primary first, then the way out), which is what puts them under the
-   left edge of the field they commit, where the eye already is. */
 .bar.footer { position: sticky; bottom: 0; border-top: 1px solid var(--border); }
-/* The element that takes the leftover width and pushes the rest to the end. */
 .bar-spacer { flex: 1 1 auto; min-width: 0; }
 
-/* ====================================================================
-   CRUMBS — the path down to what is open
-   ====================================================================
-   The trail a drill-down carries in its header: the panel's contextual row
-   (Runs / ‹run› / ‹test›, Tests / ‹suite›) and the test page's title bar
-   (Tests / ‹suite›), which is the deepest step of that same path in a document
-   of its own. Both fold their navigation away to give the screen the height, so
-   this is the only thing left saying where the tester fell through from — and
-   every crumb is a way back up.
-
-   ANCESTORS ONLY. The page you are on is the title beside the trail, printed,
-   not linked: a breadcrumb that links to itself is a dead control.
-
-   Set as meta — one step down and muted — so the title under it stays the thing
-   being read, and plain text until it is hovered, because a header full of blue
-   reads as a toolbar. The FIRST crumb never shrinks (it is one short word and it
-   is the section being looked for); the ones after it give up width first, and
-   what they lose comes back as `data-tip` + `aria-label` — the caller sets those,
-   since only it knows the untruncated string. */
+/* ---- CRUMBS — the path down to what is open ---- */
+/* Ancestors only; the open page is the title beside the trail. What a truncated crumb loses comes back
+   as data-tip + aria-label, which the caller sets — only it knows the untruncated string. */
 .crumbs {
   display: flex;
   align-items: center;
@@ -2094,19 +1155,6 @@ body::after {
 .crumb:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 .crumb-sep { flex: none; }
 
-/* The last step of that path, printed: the name of the thing that is open, set
-   under its trail. ONE size for it wherever a drill-down prints its name — the
-   panel's contextual row and the test page's title bar are the same header seen
-   in two documents, and they had drifted to 14 and 16, which read as two
-   different levels of heading for the same step of the same path.
-
-   `--fs-title` is that size: the panel's section heading, the size `h2` and
-   `.notice-title` already use. The trail above it is one step down and muted
-   (see `.crumbs`), so the level below the heading is where the contrast is
-   spent, not between one header and the next.
-
-   Type only — the clamp (three lines, both rows), the flex and the tooltip on a
-   cut title belong to the row that measures them. */
 .context-title {
   min-width: 0;
   margin: 0;
@@ -2115,24 +1163,12 @@ body::after {
   font-weight: var(--weight-semibold);
   line-height: var(--leading-snug);
 }
-/* …and the thing's own MARKS at the head of that name — the suite glyph over a
-   suite's tests; over a test, its priority and then its type mark, the same two
-   marks in the same order a list row opens with. Each is drawn in the mark box
-   it wears everywhere else (20px), inline so it rides with the first line of a
-   title that wraps, and middle-aligned so a one-line title still centres in the
-   row. The gap is the same 4 that separates a leading icon from a label inside
-   a button. Both documents that print this header get it from here. */
 .context-title > :is(.tree-icon, .type-mark, .prio) {
   margin-right: var(--space-1);
   vertical-align: middle;
 }
 
-/* ====================================================================
-   SPIN — the one rotation in the extension
-   ====================================================================
-   A running status icon, a refreshing button, a loading tail, a busy control.
-   One keyframe (there were two, identical), one class, and it respects the
-   reduced-motion preference in ONE place instead of five. */
+/* ---- SPIN — the one rotation in the extension ---- */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }
 .spin.slow { animation-duration: 1.4s; }
@@ -2140,13 +1176,7 @@ body::after {
   .spin { animation: none; }
 }
 
-/* ====================================================================
-   TOOLBAR — a row of controls above the thing they act on
-   ====================================================================
-   The gap INSIDE it is 8 — the controls are one strip; the space UNDER it is a
-   step wider, because that is where the strip ends and the thing it acts on
-   begins. Two rows of chrome an equal 8 apart read as one block of controls with
-   no telling which of them owns the list below. */
+/* ---- TOOLBAR — a row of controls above the thing they act on ---- */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2154,23 +1184,13 @@ body::after {
   gap: var(--space-2);
   margin-bottom: var(--space-3);
 }
-/* Attached to the pane below it (the editor's capture tools) — a page-wide strip,
-   so its sides are the gutter, like every other one. */
 .toolbar.divided {
   margin-bottom: 0;
   padding: var(--space-2) var(--gutter);
   border-bottom: 1px solid var(--border);
 }
 
-/* ====================================================================
-   CARD — the grouped surface
-   ====================================================================
-   A raised block that holds other things: a result summary, a legend, a step, a
-   first-run checklist. One border, one radius, one fill — the depth comes from
-   the surface being lighter than the page (or darker, on dark; see tokens).
-
-     .card.accent   an accent strip down the left edge, for a block that is
-                    calling for attention rather than just holding content */
+/* ---- CARD — the grouped surface ---- */
 .card {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
@@ -2179,30 +1199,15 @@ body::after {
 }
 .card.accent { border-left: var(--border-w-accent) solid var(--accent); }
 
-/* The card's FOOT — the band across its bottom edge, under a hairline. It is
-   for the part of a card that is not its content but what you DO next with it:
-   the run card folds its field table into one (Run info), the test card carries
-   the two moves and the key legend in one.
-   It bleeds through the card's own padding — sideways to both edges and down to
-   the bottom one — so the hairline runs the full width of the card instead of
-   floating inside it with 12px of card either side. Which is why the negative
-   margins are the card's padding exactly: change one and change the other.
-   Sideways that padding is always 12. The FLOOR is not: the plain card pays 8
-   there and the summary card pays 12, so the bottom bleed reads `--card-pad-b`
-   and a card that changed its own padding says so once, on itself. */
+/* The negative margins ARE the card's padding, so the hairline runs the card's full width: change one
+   and change the other. The floor reads --card-pad-b, so a card that moved its own padding says so once. */
 .card-foot {
   margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--card-pad-b, var(--space-2)));
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border);
 }
 
-/* ====================================================================
-   TOAST — the transient message
-   ====================================================================
-   One strip pinned to the bottom of whatever page shows it (the panel and the
-   editor had a copy each). Dark in BOTH schemes on purpose — it has to detach
-   from the page it covers — which is why its inline action is tinted with white
-   overlays; the error toast is a light red card instead and re-tints them. */
+/* ---- TOAST — the transient message ---- */
 .toast {
   position: fixed;
   bottom: var(--space-3);
@@ -2222,15 +1227,12 @@ body::after {
 .toast-text { flex: 1; min-width: 0; }
 .toast-icon { flex: none; display: inline-flex; color: var(--failed-icon); }
 .toast-icon .md-icon { display: block; }
-/* The product's error notify (custom-notify.scss `.error.alert`): a red-TINTED
-   card with red-tinted copy, not a solid red fill. */
 .toast.error {
   background: var(--failed-bg);
   color: var(--failed-fg);
   box-shadow: var(--shadow-float), inset 0 0 0 1px var(--failed-ring);
 }
-/* The inline action is a `.btn.size-xs`; only its tint is the toast's, and it
-   needs the id-free specificity to beat the button's own hover. */
+/* Only the tint is the toast's; it needs this id-free specificity to beat the button's own hover. */
 .toast .toast-action {
   background: var(--toast-action-bg);
   border-color: var(--toast-action-border);
@@ -2243,18 +1245,9 @@ body::after {
 .toast .toast-dismiss { color: inherit; }
 .toast .toast-dismiss:hover { background: var(--toast-action-bg); color: inherit; }
 
-/* ====================================================================
-   DIALOG — the small modal box
-   ====================================================================
-   Used by a <dialog> (the panel's finish-run guard) and by a hand-rolled overlay
-   (the editor's unsaved-changes guard) — same box either way: a card at overlay
-   depth, its message, and its actions right-aligned in one row.
-
-   Order inside .dialog-actions reads left→right from least to most committed:
-   Cancel (and any secondary path, e.g. Discard) first, the PRIMARY action LAST
-   — it lands at the far right, the edge the row is packed against. This is the
-   shadcn AlertDialogFooter/DialogFooter convention. Never lead with primary:
-   that moves Cancel out of its expected spot and traps a hasty click. */
+/* ---- DIALOG — the small modal box ---- */
+/* .dialog-actions reads least → most committed: Cancel first, the PRIMARY action LAST (shadcn's convention).
+   Leading with primary moves Cancel out of its expected spot and traps a hasty click. */
 .dialog {
   width: 100%;
   max-width: 320px;
@@ -2270,15 +1263,7 @@ body::after {
 .dialog > p { margin: 0 0 var(--space-3); }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 
-/* ====================================================================
-   BANNER — the slim strip under the header
-   ====================================================================
-   A page-wide state that is not a toast (it does not time out) and not a dialog
-   (it does not block): degraded session, queued writes. Text takes the row, an
-   action and a dismiss pin right.
-
-     .banner.warning  amber — something is off
-     .banner.accent   brand-tinted, with a left edge — a queued/pending state */
+/* ---- BANNER — the slim strip under the header ---- */
 .banner {
   display: flex;
   align-items: center;
@@ -2303,12 +1288,7 @@ body::after {
 .banner.accent .btn { border-color: var(--accent-border); background: var(--bg); }
 .banner .icon-btn { color: inherit; }
 
-/* ====================================================================
-   CODE — a preformatted block
-   ====================================================================
-   A recessed well in the mono face: a reporter's raw message, a captured
-   response body, a fenced block inside rendered markdown. It scrolls rather than
-   wraps, because the indentation IS the information. */
+/* ---- CODE — a preformatted block ---- */
 .code {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
@@ -2320,7 +1300,6 @@ body::after {
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Inline, inside a sentence. */
 .code-inline {
   padding: 1px var(--space-1);
   border-radius: var(--radius-xs);
@@ -2329,37 +1308,11 @@ body::after {
   font-size: var(--prose-code);
 }
 
-/* ====================================================================
-   MARKDOWN — rendered user prose
-   ====================================================================
-   A test case body, a run description, a preview. Sizes are RELATIVE so the block
-   scales with whatever font-size its container sets.
-
-   A heading has TWO readings here and both are the library's now — the panel and
-   the test page each used to keep their own copy, and the copies had drifted into
-   two different type scales for the same rendered test:
-
-     plain      an article: h1-h4 are real headings in the heading face, stepping
-                down 1.375 / 1.25 / 1.125em. What a body being WRITTEN wants — the
-                create editor's Preview tab, where the structure is the point.
-     `.sections` a blob embedded in a screen's own chrome: `### Steps`,
-                `### Expected` are the sections of a checklist, not chapters of an
-                article, so they are set as small LABELS in the body face, one
-                step under the body text — and the only heading on the screen
-                stays the one the screen printed itself, its title. Both hosts read a test this way (the
-                panel's #test-steps, the test page's read-only view); without it a
-                test's `### Steps` came out bigger and heavier than the title of
-                the test it belongs to.
-
-   The block sets its own leading (1.625): this is the only place in the product
-   where text is READ rather than scanned — a step is a sentence a tester follows
-   with their finger while looking at another window — and the chrome's 1.5 packed
-   those sentences tight enough that a wrapped step ran into the next one. */
+/* ---- MARKDOWN — rendered user prose ---- */
+/* '.sections' is the blob embedded in a screen's own chrome: its headings are small labels in the body
+   face, so the only heading on the screen stays the one the screen printed itself. */
 .markdown {
   line-height: var(--leading-relaxed);
-  /* The step ladder (see STEPS below): the numbered coin's box, and the air
-     between it and the words it numbers. A host with more room than the panel
-     may step them up; nothing else in the block is allowed to. */
   --md-step-size: var(--space-5);
   --md-step-gap: var(--space-2);
 }
@@ -2369,20 +1322,11 @@ body::after {
   font-family: var(--font-heading);
   font-weight: var(--weight-semibold);
   line-height: var(--leading-tight);
-  /* On the grid, not on the em: a heading's air is spacing like any other, and
-     0.6em/0.3em of a 13px body is 7.8/3.9 — two values that exist on no scale
-     and that changed under every host that set a different font-size. */
   margin: var(--space-4) 0 var(--space-2);
 }
 .markdown h1 { font-size: var(--prose-h1); }
 .markdown h2 { font-size: var(--prose-h2); }
 .markdown h3, .markdown h4 { font-size: var(--prose-h3); }
-/* A SECTION label. It is subordinate to the screen's own title by size, weight
-   face and letterspacing — not by being dimmed: this label is the only word
-   telling a tester which part of the test they are looking at, and it used to be
-   printed in --muted, i.e. the colour this product uses for text that may be
-   skipped. Nothing here may be skipped. (Same rule the editor's syntax markers
-   answer to — text in this product is never faded to say it is secondary.) */
 .markdown.sections h1,
 .markdown.sections h2,
 .markdown.sections h3,
@@ -2397,41 +1341,13 @@ body::after {
 }
 .markdown p { margin: var(--space-2) 0; }
 .markdown ul, .markdown ol { margin: var(--space-2) 0; padding-left: var(--space-5); }
-/* A nested list belongs to the line above it — it opens no new block. */
 .markdown li > ul, .markdown li > ol { margin: var(--space-1) 0; }
 .markdown li { margin: var(--space-1) 0; }
-/* A link in a test body is usually the URL the run STARTS at, so it is marked
-   twice — accent AND underline. Colour alone is not a link. */
 .markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
-/* ---- STEPS — the list under a `### Steps` heading, whatever its marker ----
-   The steps of a test are not "an ordered list", and the app prints them the way
-   this does: each one numbered in its own coin, with a rail running from one coin
-   to the next so the steps read as a single thread down the page rather than as N
-   loose paragraphs that happen to carry digits. The browser's own markers cannot
-   do it — a marker sits outside the box, so it can be neither drawn nor
-   connected — hence the counter.
-
-   `.md-steps`, and ONLY `.md-steps`: every OTHER list in a body — a list of
-   accounts, of URLs, of anything — keeps the marker its author typed, because
-   coins on it would promise a checklist that isn't one. The class is stamped by
-   the renderer (shared/markdown.js `stepLists`) on the lists under a
-   "Steps"-like heading, since the fact that decides it is the TEXT of a heading
-   two elements back — which no selector can reach.
-
-   `.md-steps`, not `ol.md-steps`: `stepLists` stamps BOTH markers, and the panel
-   parses both into the same tickable rows, so a body whose steps were written
-   `- like this` is the steps just as much as one written `1. like this`. Tying
-   the coins to `<ol>` alone meant the Preview tab printed those bodies as loose
-   bullets while the panel showed them as a numbered thread — the same test
-   reading as two different documents, which is the one thing this renderer
-   exists to prevent. The ordinal is the list's POSITION, which the author wrote
-   by ordering the lines; the marker they typed to carry it is not the fact.
-
-   `:not(:has(> .step-row))` keeps this off the panel's INTERACTIVE steps: once
-   test-view.js has parsed the same list into tickable rows, the row's control is
-   its mark and the ordinal is already spent — two marks per step is one too many
-   (sidepanel/style.css owns that list). */
+/* ---- STEPS — the list under a '### Steps' heading ---- */
+/* .md-steps is stamped by shared/markdown.js 'stepLists' (the fact that decides it is the TEXT of a heading
+   two elements back); :not(:has(> .step-row)) keeps this off the panel's own interactive step rows. */
 .markdown .md-steps:not(:has(> .step-row)) {
   counter-reset: md-step;
   list-style: none;
@@ -2444,9 +1360,7 @@ body::after {
   padding: 0 0 var(--space-3) calc(var(--md-step-size) + var(--md-step-gap));
 }
 .markdown .md-steps:not(:has(> .step-row)) > li:last-child { padding-bottom: 0; }
-/* The coin, centred on the step's FIRST line (`1lh`, whatever the host's size and
-   leading) rather than on the top of its box — a step that wraps to three lines
-   otherwise floats its number half a step above the sentence it numbers. */
+/* The coin is centred on the step's FIRST line (1lh), not on the top of its box. */
 .markdown .md-steps:not(:has(> .step-row)) > li::before {
   content: counter(md-step);
   position: absolute;
@@ -2466,34 +1380,20 @@ body::after {
   line-height: var(--leading-none);
   letter-spacing: 0;
 }
-/* …and the thread between the coins: from just under this one to the top of the
-   next, so it is continuous down a list of any length and stops at the last. */
 .markdown .md-steps:not(:has(> .step-row)) > li:not(:last-child)::after {
   content: "";
   position: absolute;
   left: calc(var(--md-step-size) / 2);
   top: calc(max(0px, (1lh - var(--md-step-size)) / 2) + var(--md-step-size) + var(--space-1));
-  /* To the BOTTOM of the item, which is the top of the next coin — a rail that
-     stopped short left a 4px stub under a one-line step, reading as a rendering
-     fault rather than as a thread. The only break in it is the one under each
-     coin, where it is a gap on purpose. */
   bottom: 0;
   width: 1px;
   margin-left: -0.5px;
   background: var(--border);
 }
-/* A step's own sub-list — `- Expected: the Tests page opens`, the fact the step
-   is checked against. It hangs off the step's text column with a hollow ring for
-   a marker (the browser's second-level `circle`, drawn rather than typeset so it
-   lines up with the first line of a wrapped one). Its words carry the same ink as
-   the step: an expected result is the half of a step that decides pass or fail. */
 .markdown .md-steps:not(:has(> .step-row)) > li > ul,
 .markdown .md-steps:not(:has(> .step-row)) > li > ol {
   list-style: none;
   margin: var(--space-1) 0 0;
-  /* No indent of its own: the marker column below IS the indent. A panel is
-     380px wide and this line is already three levels in — the app can afford to
-     hang its expected results far to the right, this column cannot. */
   padding-left: 0;
 }
 .markdown .md-steps:not(:has(> .step-row)) > li > ul > li,
@@ -2506,9 +1406,7 @@ body::after {
   content: "";
   position: absolute;
   left: var(--space-1);
-  /* 6px is a MARK, not a step of spacing: the ring has to read as a bullet
-     beside 13px text, and the 4px grid's neighbours are a dot (4) and a button's
-     dot (8). Centred on the first line, like the coin above. */
+  /* 6px is a MARK, not a step of spacing — the grid's neighbours (4 and 8) both read wrong beside 13px text. */
   top: calc((1lh - 6px) / 2);
   width: 6px;
   height: 6px;
@@ -2516,11 +1414,8 @@ body::after {
   border-radius: var(--radius-pill);
 }
 .markdown img { max-width: 100%; }
-/* A content image is FETCHED, not linked — the CSP allows no remote <img>
-   (#205, shared/img-hydrate.js) — so between the render and the bytes it has no
-   src at all. That is a zero-height nothing unless it is given a box, and a
-   description that is only an image would flash as an empty pane. The box is
-   the waiting state; the attribute is gone once the blob lands. */
+/* The CSP allows no remote <img> (#205, shared/img-hydrate.js), so between the render and the bytes the
+   element has no src at all: the box is the waiting state, and the attribute is gone once the blob lands. */
 .markdown img[data-img="loading"] {
   display: block;
   min-width: 96px;
@@ -2529,9 +1424,6 @@ body::after {
   border-radius: var(--radius-sm);
   background: var(--surface-2);
 }
-/* …and when the bytes never come: the way OUT to the image, never a silent
-   blank. An inline chip with the ↗ every other new-tab link in the product
-   wears. */
 .img-fallback {
   display: inline-flex;
   align-items: center;
@@ -2556,66 +1448,23 @@ span.img-fallback { color: var(--muted); }
   font-family: var(--font-mono);
   overflow: auto;
 }
-/* A fenced block already IS the well — its code must not draw a second one. */
 .markdown pre code { padding: 0; background: none; font-size: inherit; }
 .markdown table { border-collapse: collapse; margin: var(--space-2) 0; }
 .markdown th, .markdown td { padding: var(--space-1) var(--space-3); border: 1px solid var(--border-control); }
-/* A quote is marked by its RULE and its inset, never by dimming the words —
-   the 0.9 opacity this used to carry took every glyph in the block a tenth of
-   the way to the background, including any code or link inside it. */
 .markdown blockquote {
   margin: var(--space-2) 0;
   padding: var(--space-1) var(--space-3);
   border-left: var(--border-w-accent) solid var(--border-control);
 }
 
-/* ====================================================================
-   LIST — the product's row list
-   ====================================================================
-   A list in this product is NOT a stack of cards. There is no box around the
-   list and no border around a row: rows are separated by a single bottom rule,
-   and the whole answer to the pointer is a wash — grey on hover, light blue on
-   the row that is open or selected. That is what makes a long list read as one
-   surface instead of a pile of receipts, and it is why a row keeps its own
-   background off at rest.
-
-   This is a WRAPPER, deliberately: `.list` + `.list-row` set the frame, the
-   rule, the padding and the three states. WHAT is inside a row — a title, a
-   status icon, badges, a fraction, buttons — belongs to the screen that renders
-   it, in that screen's stylesheet:
-
-     <ul class="list">
-       <li class="is-active"> …whatever this screen puts in a row… </li>
-     </ul>
-
-   Both spellings work — any `<li>` inside a `.list` (nested ones included: a
-   folder row holds its children in the same list), or an explicit `.list-row` on
-   anything (a <div> tree, an <a>) — so a list that cannot be a <ul> still gets
-   exactly the same row. */
+/* ---- LIST — the product's row list ---- */
+/* A WRAPPER: .list/.list-row own the frame, the rule, the padding and the three states; what is INSIDE a
+   row belongs to the screen that renders it. Any <li> in a .list, or .list-row on anything, gets the row. */
 .list { list-style: none; margin: 0; padding: 0; }
-/* ONE density, for every list in the panel. There used to be two — 8px of
-   padding for a runs/tests row, `.is-dense`'s 4 for a tree — and the two never
-   met: a tree row came out at the panel's 32 while the test list beside it, the
-   same one line of the same 20px marks, came out at 36. Four pixels is not a
-   density, it is a row that missed the grid; and the panel is a 380px column
-   where every list is scanned, not read, so the tighter one was always the
-   right answer. 4 top and bottom everywhere, and a one-line row lands on the
-   32 floor below — the same 32 as a control, a tree row and a suite head. */
 :where(.list, .list-row) {
   --row-px: var(--space-2);
   --row-py: var(--space-1);
 }
-/* …and EVERY row, at every depth, sits at that same 8. A nested row used to take
-   12 — "it has the guide beside it, not the panel's gutter" — and that one extra
-   step of 4 was what pulled the tree out of column: a level of nesting is 28
-   (`--tree-indent`) but the first level cost 32 and the rest 28, so a child's
-   glyph landed 4px right of the parent glyph it should have hung under, and the
-   rule under a folder head started 4px left of the rule under its own children.
-   One inset at every depth is what makes the arithmetic in TREE below close:
-   guide under the chevron, child glyph exactly one step in, all the rules in one
-   column. The line still has its room — a child row starts 28 in and the guide
-   comes down at 18, so there are 10px of white between them at every level, the
-   same 10 the top level always had. */
 .list li,
 .list-row {
   position: relative;
@@ -2625,14 +1474,8 @@ span.img-fallback { color: var(--muted); }
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-/* The rule between two rows, drawn as a pseudo rather than a border so it can
-   START somewhere other than the row's left edge. `--row-rule-inset` is where:
-   0 for a flat list, and — in a TREE — the column the row's TYPE glyph sits in,
-   so the rule begins at the folder/suite/test mark rather than out at the
-   chevron. Two reasons, and the second is the one that made it necessary: a
-   chevron is navigation, not content, so a rule running under it separates
-   nothing; and a rule that reached the chevron column would cross the vertical
-   guide the chevron drops when the folder opens. See TREE below. */
+/* The rule is a pseudo, not a border, so it can START somewhere other than the row's left edge:
+   --row-rule-inset is where — 0 for a flat list, the row's glyph column in a tree (see TREE below). */
 .list li::after,
 .list-row::after {
   content: "";
@@ -2644,21 +1487,14 @@ span.img-fallback { color: var(--muted); }
   background: var(--row-border);
   pointer-events: none;
 }
-/* The last rule would draw a line under the whole list with nothing beneath it —
-   but only the LIST's own last row is that row. Scoped to a direct child on
-   purpose: a tree row is wrapped in an <li> that also holds its children, so a
-   row with no children is `:last-child` of its wrapper by construction, and an
-   unscoped rule here left every leaf — every suite, every test — with no rule
-   under it while the folders around them kept theirs. */
+/* Direct children only: a tree row is wrapped in an <li> that also holds its children, so every leaf is
+   :last-child of its own wrapper and an unscoped rule would leave all of them without a rule. */
 .list > li:last-child::after,
 .list > .list-row:last-child::after { content: none; }
 
 .list li:hover,
 .list-row:hover { background: var(--row-hover); }
 
-/* Selected / open. `.is-active` is the class; `aria-selected` and `aria-current`
-   earn the same paint, because a row that announces itself as the current one to
-   a screen reader has to look like it too. */
 .list li.is-active,
 .list-row.is-active,
 .list li[aria-selected="true"],
@@ -2668,48 +1504,25 @@ span.img-fallback { color: var(--muted); }
   background: var(--row-active);
   color: var(--row-active-fg);
 }
-/* Hover on the selected row stays the selected blue: a row cannot be in two
-   states at once, and flashing back to grey reads as "it is not selected any
-   more". */
 .list li.is-active:hover,
 .list-row.is-active:hover,
 .list li[aria-selected="true"]:hover,
 .list-row[aria-selected="true"]:hover { background: var(--row-active); }
 
-/* A row that is only read, never opened (a reported step, a log entry). */
 .list.is-static > li,
 .list-row.is-static { cursor: default; }
 .list.is-static > li:hover,
 .list-row.is-static:hover { background: none; }
 
-/* (There is no density MODIFIER any more — `.is-dense` was the tree's 4px and
-   it is now what every list takes. A screen that wants a taller row is asking
-   for a taller row's CONTENT, not for a second density.) */
-
-/* A row that opens a nested list holds its children flush inside itself — the
-   nesting is drawn by indentation, never by a second box. */
 .list .list-children { list-style: none; margin: 0; padding: 0; }
 
-/* Framed: the exception to "no box around a list" — a list that is a WELL inside
-   a screen (a log, a picker) rather than the screen's own content, so it needs
-   an edge to say where it ends and a max-height to say it scrolls. */
 .list.framed {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden auto;
 }
 
-/* ====================================================================
-   LIST HEAD — a row's own content line
-   ====================================================================
-   `.list-row` gives a row its frame (padding, the rule, hover/active); this is
-   what a screen puts INSIDE one whenever the row is more than a title — an
-   icon or two, a title, a trailing count. A run row wears it directly inside
-   a plain `.list-row`; a tree row (a folder, a suite head) wears it as the
-   click target of an `<li>` whose own padding is reset to 0, because the row
-   nests a nested list beside it and the two cannot share one box. Either way
-   `.list-head` is the one row shape, so a folder head, a suite head and a
-   run row all land on the same 32px floor. */
+/* ---- LIST HEAD — a row's own content line ---- */
 .list-head {
   display: flex;
   align-items: center;
@@ -2718,19 +1531,8 @@ span.img-fallback { color: var(--muted); }
   min-height: var(--space-8); /* 32 — matches the plain row's own floor */
 }
 .list-head .title { min-width: 0; }
-/* A head is a ROW of marks and a BLOCK of text — not a row of everything. When a
-   row carries a second line (a run's environments), that line belongs under the
-   TITLE, on the title's own left edge, and not under the status glyph: the marks
-   are a column the eye scans straight down, and a second line starting at the
-   row's edge cuts across it. `.list-lines` is that block — a `.title` and, under
-   it, a `.meta` — and the head goes on laying out marks beside it.
-   The marks then centre on the FIRST line rather than on the block: a 20px glyph
-   halfway down a two-line row points at neither of its lines. `:has` scopes that
-   to the rows that actually GREW a second line — a block holding only a title is
-   one line, and it keeps the head's own centring.
-   (The other two-line shape — `.meta` as a SIBLING of the head, under the whole
-   row — is still right where the second line qualifies the row rather than the
-   title: a timestamp, a count. This one is for what qualifies the NAME.) */
+/* .list-lines is a title with its meta line as one block. :has() scopes the top-alignment to the rows
+   that actually GREW a second line; a block holding only a title keeps the head's own centring. */
 .list-head > .list-lines {
   display: flex;
   flex-direction: column;
@@ -2738,61 +1540,13 @@ span.img-fallback { color: var(--muted); }
   min-width: 0;
 }
 .list-head:has(> .list-lines > .meta) { align-items: flex-start; }
-/* …but a row has exactly ONE floor. A tree row wears both classes on the same
-   element (`.list-row.list-head`) and the two 32s are the same 32. A head NESTED
-   inside a row — the tests list, the first line of a run row — has the row's
-   floor above it already, and restating it there stacked a second floor on top
-   of the row's own padding: a one-line test row came out at 48, half of it air,
-   while every tree row beside it kept the panel's own height.
-
-   What a nested head owns instead is the LINE it stands on — 20, the box every
-   mark centres in — which holds it open when the row carries no marks at all (a
-   placeholder's bar, a run row with no kind pill).
-
-   …and when that head is the row's WHOLE content, which is nearly every row in
-   the panel, the line is the row: 24, the 32 floor less its 4+4 of padding. That
-   is what makes the floor exact rather than a minimum — the head fills the row
-   instead of standing at the top of it with 4px of slack underneath, so the
-   marks sit on the row's centre. It is also the height of the ✓/✗/– buttons a
-   checklist row ends with, so a row with them and a row without are one row. A
-   head with a `.meta` line under it keeps the 20: there the two lines are the
-   measure (4 + 20+20 + 4 = 48), and a 24 in front of them would only push the
-   row 4px off the grid. */
+/* A row has exactly ONE floor. A head NESTED inside a row owns only its LINE: 20 when a meta line sits
+   under it, 24 when the head is the row's whole content (the 32 floor less its 4+4 of padding). */
 .list li > .list-head:not(.list-row),
 .list-row > .list-head:not(.list-row) { min-height: var(--space-5); }
 .list li > .list-head:not(.list-row):only-child,
 .list-row > .list-head:not(.list-row):only-child { min-height: var(--space-6); }
 
-/* THE LINE, then, is what a row is measured in: the 24px line above, which the
-   20px mark boxes — `.prio`, `.type-mark`, `.status-icon`, `.tree-icon`, each
-   centring a 16px glyph — and the 24px row buttons both sit inside. A row is one
-   line or two, never a number of pixels a screen picked:
-
-     one line   4 + 24 + 4   = 32   a test, a run (grouped or not), a folder
-     two lines  4 + 20+20 + 4 = 48  a title with a meta line under it
-
-   Both lines are declared here rather than left to their content, because the
-   content is exactly what made the panel's two-line lists disagree: a meta of
-   plain text came out an 18px line box (12px type at normal leading) while a
-   meta carrying a 20px status badge came out 20 — so a runs row measured 58 and
-   a run's test row 60, neither a number anyone had chosen, with no rule to
-   appeal to when the next screen adds a third. Now the content sits IN the line
-   instead of setting it, and a placeholder's 13px grey bar stands in a row of
-   exactly the height the real one will take.
-
-   No margin between the two: a title and its meta are one block of text, and
-   the leading inside them is already the air between them — a margin on top of
-   that was what put the two lists 4px apart in the first place.
-
-   The first line WRAPS, up to two. A test title is a sentence — "Copy Executor
-   When Merge Takes Status From The Latest Run" — and a 380px panel cuts most of
-   them; a row that ends in "…" makes the reader hover it to find out what it
-   was, which is the tooltip doing the list's job. Two lines is where it stops:
-   past that a long title starts pushing the rows under it off the screen, and
-   the second line is already enough for almost every title the product writes.
-   `anywhere` is for the one thing wrapping cannot handle on its own — a URL or
-   a 40-character identifier with no space in it — which would otherwise widen
-   the row instead of breaking. */
 .list .title {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -2802,10 +1556,6 @@ span.img-fallback { color: var(--muted); }
   min-height: var(--space-5);
   font-weight: var(--weight-medium);
 }
-/* …except in a HEAD, which stays one line. A folder, a suite, a rungroup is
-   navigation: its row is a fixed step in a tree whose left edge is a column of
-   chevrons, and a head that grew to two lines would bend that column around it.
-   The names are also short — a suite is named, a test is described. */
 .tree-row .title {
   display: block;
   white-space: nowrap;
@@ -2821,53 +1571,15 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
 }
 
-/* ====================================================================
-   ROW TAIL — the count a row ends with, and the actions that replace it
-   ====================================================================
-   Nearly every list in the panel ends its rows with a NUMBER: how many tests a
-   suite holds, how many runs a rungroup carries, how much of a suite section is
-   done. That figure used to be a `.counter` — the boxed chip — and a column of
-   chips down the right edge of a tree read as a column of CONTROLS: the fill,
-   the corner and the tint all say "press me", when the only thing the number
-   does is qualify the title beside it. The run page's suite header already did
-   it the other way — a plain muted figure at the end of the line — and that is
-   the one shape the library keeps for a row: `.row-count`, everywhere a list
-   counts what a row contains.
-
-   `.counter` is still right where the number rides inside a CONTROL — a tab, a
-   filter chip, a segment, a list caption. There the box belongs to the control
-   and the number is a passenger. In a row there is no box for it to belong to,
-   so the box was one the number drew for itself.
-
-   The tail is ONE slot, not two. A row that reveals actions under the pointer
-   ("New test", the "Suite"/"Folder" pair) shows them WHERE the count was
-   standing, and the count steps aside for them: the alternative is a row whose
-   right edge holds a number and then, on hover, a number pushed left by two
-   buttons — a reflow every time the pointer crosses a row, down a whole list.
-   So `.row-actions.on-hover` is lifted out of the flow and laid over that end
-   of the row, over its own copy of the row's wash so a long title truncating
-   underneath fades out rather than colliding with the buttons. Nothing in the
-   flow moves; only what is drawn in the slot changes.
-
-     <div class="list-row list-head tree-row">
-       <span class="tree-icon file-icon">…</span>
-       <span class="title">Registration</span>
-       <span class="row-count">4</span>
-       <div class="row-actions on-hover"> <button class="btn size-xs">…</button> </div>
-     </div>
-
-   `.row-actions` without the modifier is the plain trailing cell — a checklist
-   row's ✓/✗/–, which are the row's whole point and are never hidden. */
+/* ---- ROW TAIL — the count a row ends with, and the actions that replace it ---- */
+/* ONE slot: .row-actions.on-hover is lifted out of the flow over the count, so nothing reflows as the
+   pointer crosses a row. A number riding in a CONTROL is .counter instead. */
 .row-count {
   flex: none;
-  /* The count goes to the trailing edge whether or not the title flexes, so a
-     row that forgot to grow its title still ends where every other row does. */
   margin-inline-start: auto;
   color: var(--muted);
   font-size: var(--fs-sm);
   line-height: var(--leading-snug);
-  /* A column of figures is read down, not across: tabular digits keep 12 and 7
-     the same width so the numbers line up on their own right edge. */
   font-variant-numeric: tabular-nums;
   transition: opacity var(--dur-fast) var(--ease);
 }
@@ -2880,9 +1592,7 @@ span.img-fallback { color: var(--muted); }
   margin-inline-start: auto;
 }
 
-/* The wash the overlay has to stand on — the same one the row itself takes, so
-   the two are one surface. A selected row washes blue, and the overlay follows
-   it rather than painting grey over the tint. */
+/* The wash the overlay stands on — the row's own, so on a selected row it follows the tint. */
 :where(.list li, .list-row) { --row-wash: var(--row-hover); }
 :where(.list li, .list-row):is(.is-active, [aria-selected="true"], [aria-current="true"]) {
   --row-wash: var(--row-active);
@@ -2892,14 +1602,12 @@ span.img-fallback { color: var(--muted); }
   position: absolute;
   inset-block: var(--row-py, var(--space-1));
   inset-inline-end: var(--row-px, var(--space-2));
-  /* 24 of fade before the first button: the title runs under it and dissolves
-     into the row instead of stopping dead behind a border. */
+  /* 24 of fade before the first button: a title running under it dissolves instead of stopping dead. */
   padding-inline-start: var(--space-6);
   background: linear-gradient(to right, transparent, var(--row-wash) var(--space-6));
   opacity: 0;
-  /* Hidden by opacity, not by `display`, so the buttons stay in the tab order:
-     a row's actions have to be reachable from the keyboard, which is also why
-     focus inside the row reveals them exactly as the pointer does. */
+  /* Hidden by opacity, not by display, so the buttons stay in the tab order — which is also why focus
+     inside the row reveals them exactly as the pointer does. */
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
 }
@@ -2910,48 +1618,11 @@ span.img-fallback { color: var(--muted); }
 :is(.list li, .list-row, .list-head):has(> .row-actions.on-hover):is(:hover, :focus-within) > .row-count {
   opacity: 0;
 }
-/* A row holding FOCUS wears the wash too, so the overlay has the same ground
-   under it whether the pointer or the keyboard brought it up. */
 :is(.list li, .list-row):has(> .row-actions.on-hover):focus-within { background: var(--row-wash); }
 
-/* ====================================================================
-   TREE — the folder/suite mark and the guide it draws when it opens
-   ====================================================================
-   Every collapsible row in the panel (a TC-studio folder, a rungroup, a run's
-   suite section) draws a chevron and, folders only, a type glyph — three
-   screens, three glyphs, one box: `.tree-icon` is the same 20px square
-   `.type-mark`/`.prio` already draw a mark in, so a chevron, a folder icon and
-   the title's own first letter all line up on one vertical whichever tree a
-   tester is looking at. The glyph inside stays 16px (the set's own size); the
-   box is what is fixed.
-
-   `.tree-children` is the one new mark this pass adds: a 1px rule down the
-   left edge of an OPEN folder's children, centred under the chevron that
-   opened them. It renders itself — no JS toggles it — because it lives on the
-   children container a screen already hides on collapse (`hidden`,
-   `display:none`), so the guide disappears with its rows for free.
-
-   ONE NUMBER makes the whole thing work: `--tree-indent`, the step a level of
-   nesting costs. The design library builds a row out of 20px slots with 8px
-   between them (◇ Tests → tests-item, node 4744-564737: `nesting-line-1..10`,
-   each a 20px box holding a 1px line), so a level is 20 + 8 = 28 — and because
-   a row's `--row-px` is the same 8 at EVERY depth (see LIST above), that one
-   number lands the whole tree on one grid, level after level:
-
-     depth 0   row 0    chevron 8·centre 18   glyph 36   rule 36
-     depth 1   row 28   chevron 36·centre 46  glyph 64   rule 64   guide 18
-     depth 2   row 56   chevron 64·centre 74  glyph 92   rule 92   guide 46
-
-   Three things fall out of that, and all three are what a tester actually sees.
-   The guide comes down at `--row-px` + 10, which is exactly the centre of the
-   chevron that opened it. A child's first glyph lands on 28 + 8 = 36 — the
-   column its parent's own glyph sits in, so icons stack under icons all the way
-   down. And every rule starts on that same glyph column, 18px right of the
-   guide, so a horizontal rule never crosses the vertical line. (At the 16 this
-   started at they crossed on every row, which is the one thing the library's own
-   table never does.) Any screen that indents by depth uses this token for its
-   step and derives `--tree-guide` from the same arithmetic — see
-   sidepanel/style.css. */
+/* ---- TREE — the tree mark, and the guide an open row drops ---- */
+/* ONE number holds the columns together: --tree-indent = a 20px slot + the row's own 8px gap = 28. Any
+   screen that indents by depth uses it and derives --tree-guide from it (sidepanel/style.css). */
 .tree-icon {
   display: inline-flex;
   align-items: center;
@@ -2962,27 +1633,11 @@ span.img-fallback { color: var(--muted); }
   color: var(--muted);
 }
 .tree-icon svg { display: block; }
-/* The chevron is CHROME — it says "there is more", not what the row is — so it
-   stays muted. The folder and the suite are the row's subject and are drawn at
-   full text colour, which is what the library gives them (◇ UI app library →
-   Tree: a near-black outline over a lighter body). The lighter body is inside
-   the glyph itself, as a second path at `--opacity-muted` (shared/icons.js), so
+/* The lighter body of a folder/suite glyph is a second path at --opacity-muted (shared/icons.js), so
    one colour here paints both tones and a theme flip carries them together. */
 .tree-icon:is(.folder-icon, .file-icon) { color: var(--fg); }
 
-/* A suite, a folder or a test whose icon was replaced in Testomat by a CUSTOM
-   EMOJI draws that emoji in the square the glyph would have used — the panel
-   shows the mark the project chose, exactly as the web tree does. Both boxes it
-   can land in are here: a tree row's `.tree-icon`, and the `.type-mark` slot a
-   test row opens with. It is text, not an svg, so it takes a size of its own;
-   16px is the glyph size it stands in for, and the box around it is unchanged,
-   so a row with an emoji and one without keep their titles on the same vertical.
-
-   An emoji is its own colour and carries no tint: the type mark's coloured
-   plate says "manual"/"automated" about a glyph that is no longer there, so a
-   slot holding an emoji drops it and is a plain square. Both boxes are already
-   that same 20px square, so nothing about the LAYOUT is restated here — only
-   what an emoji changes about what is drawn in it. */
+/* A custom emoji is text with its own colour, so the slot drops the type mark's coloured plate. */
 :is(.tree-icon, .type-mark).emoji {
   background: none;
   color: inherit;
@@ -2990,38 +1645,16 @@ span.img-fallback { color: var(--muted); }
   line-height: var(--leading-none);
 }
 
-/* A row that OPENS something leads with a chevron, and the rule under it starts
-   one slot in, at the folder/suite/test glyph beside it — never back at the
-   chevron, which is the column the guide comes down. Rows without a chevron
-   already lead with their glyph, so their rule starts at the row's own padding.
-   Both are the same sentence: the rule begins where the row's MEANING begins. */
 :where(.tree-row) { --row-rule-inset: var(--row-px, var(--space-2)); }
 :where(.tree-row.has-chevron) {
   --row-rule-inset: calc(var(--row-px, var(--space-2)) + var(--space-5) + var(--space-2));
 }
-/* …and a row INSIDE an open folder is a tree row whether or not the screen that
-   built it says the word — a run under a rungroup, a test under a suite, a
-   "Load more" tail. Its rule starts at its own first glyph (the status icon,
-   the type mark) exactly as the folder head's above it starts at the folder
-   icon, so one column of marks has one column of rules down the whole tree.
-   Left at the flat-list 0 they did not: a leaf's rule ran out to the container's
-   edge, past its own icon and into the vertical guide, which read as the leaf
-   being a level SHALLOWER than the folder holding it.
-
-   Direct children only, and never a row that already said `tree-row` itself —
-   a folder head keeps the chevron inset it declares above. The wrapper <li> of
-   a nested folder does match, harmlessly: its own rule is off
-   (`.tree-node::after`), and the head inside it declares its own inset, which
-   outranks the value it would otherwise inherit through. */
 :where(.tree-children > :is(li, .list-row):not(.tree-row)) {
   --row-rule-inset: var(--row-px, var(--space-2));
 }
 
-/* The <li> a tree node lives in is a CONTAINER, not a row: it holds the row and,
-   under it, that row's children. So it hands everything a row owns back to the
-   row inside it — the padding, the height floor, the hover wash and the rule —
-   and stays invisible. Every tree in the panel wrote these four lines itself
-   before they lived here. */
+/* The <li> of a tree node is a CONTAINER, not a row: it hands the padding, the floor, the hover and the
+   rule back to the row inside it and stays invisible. */
 .list li.tree-node {
   padding: 0;
   min-height: 0;
@@ -3047,36 +1680,13 @@ span.img-fallback { color: var(--muted); }
   pointer-events: none;
 }
 
-/* NAME-THE-NODE ROW — a tree row being typed rather than read.
-   A node about to exist is drawn where it will exist, in the row it will be:
-   the same glyph column, the same 32px floor, the same indent — with a bare
-   field standing in for the title and a tick/cross pair standing in for the
-   actions. The old shape (a bordered field floating above the tree, with two
-   worded buttons after it) said "a form about the tree"; this one says "this
-   row, unnamed".
-
-     <li class="tree-node">
-       <div class="list-row list-head tree-row tree-input-row has-chevron">
-         <span class="tree-icon chevron">…</span>
-         <span class="tree-icon folder-icon">…</span>
-         <input class="tree-input" placeholder="Enter folder name">
-         <button class="icon-btn size-xs">✓</button>
-         <button class="icon-btn size-xs">✕</button>
-       </div>
-     </li>
-
-   The buttons are `.size-xs` (24) so the pair rides INSIDE the dense row's
-   24px of content instead of setting its height. */
+/* A tree row being TYPED rather than read. The buttons are .size-xs (24) so the pair rides inside the
+   dense row's own 24px of content instead of setting its height. */
 .tree-input-row { cursor: default; }
 .tree-input-row:hover { background: none; }
-/* It keeps the rule every other row has: the row is standing in the list, and a
-   gap in the column of rules would read as the tree having lost a line there. */
-/* The chevron is a SPACER here — it keeps the glyph on its column, and there is
-   nothing yet to open — so it is drawn faint and takes no clicks. */
 .tree-input-row .chevron { opacity: var(--opacity-disabled); pointer-events: none; }
 
-/* The field IS the title cell: no box of its own, the row is the box. The caret
-   is its focus mark — a ring here would draw a second frame inside the row. */
+/* The field IS the title cell: no box of its own — a ring here would draw a second frame inside the row. */
 .tree-input {
   flex: 1;
   min-width: 0;
@@ -3100,46 +1710,19 @@ span.img-fallback { color: var(--muted); }
 }
 .tree-input::placeholder { color: var(--muted); font-weight: var(--weight-normal); }
 
-/* ====================================================================
-   LIST CAPTION — the line that names a list
-   ====================================================================
-   A list that follows a toolbar has nothing above it saying WHAT the rows are:
-   the screen's title is spent on the thing that was opened (a suite, a run), and
-   the search field only says how the rows are being narrowed. This is that line —
-   the noun, and the `.counter` saying how many of them are on screen right now:
-
-     <div class="list-caption">
-       <h2>Tests</h2> <span class="counter size-sm">18</span>
-     </div>
-     <ul class="list"> … </ul>
-
-   It is a caption, not a heading control: no box, no hover, nothing to press. The
-   word is the panel's small MUTED type and the count is the SMALL counter — the
-   same pairing a tab makes with its own chip — so the row titles under it stay
-   the loudest thing in the column. It is indented by the row's own padding, so
-   the word starts on the pixel column of the titles it names.
-
-   Anything carrying `.caption-action` is pushed to the far end of the same line,
-   which is where an action on the WHOLE list belongs — the caption is the only
-   full-width row a list has. */
+/* ---- LIST CAPTION — the line that names a list ---- */
 .list-caption {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 20px;
   margin: 0 0 var(--space-1);
-  /* The rows it names start at the list's own `--row-px`, and a caption that
-     did not would hang a heading off the edge of its own column. */
   padding-inline: var(--row-px, var(--space-2));
   color: var(--muted);
   font-size: var(--fs-sm);
   font-weight: var(--weight-semibold);
 }
-/* The label may be a real heading — a list is a section of the screen — and a
-   heading brings a UA size, weight and margins the caption does not want. Only
-   those: the FACE is left alone, so a heading keeps the heading family the page
-   gives it and the caption reads as a smaller relative of the titles below it
-   rather than as a different kind of text. */
+/* The label may be a real heading: reset only the UA size, weight and margins, never the FACE. */
 .list-caption > :where(h1, h2, h3, h4) {
   margin: 0;
   font-size: inherit;
@@ -3149,43 +1732,9 @@ span.img-fallback { color: var(--muted); }
 }
 .list-caption > .caption-action { margin-inline-start: auto; }
 
-/* ====================================================================
-   SKELETON — the shape of content that has not arrived yet
-   ====================================================================
-   Every screen in this panel opens on a network round trip: the boot walks token
-   → projects → runs before it can paint a single row, and on a project with a
-   few thousand tests that is seconds of nothing. A status line reading
-   "Loading runs…" is not an answer to that — it says the panel is busy, but not
-   that it is ALIVE, not where the content is going to land, and not how much of
-   it there is. This is: the screen's own layout, drawn in grey bars.
-
-   It is a VOCABULARY, not a set of screens. The placeholder for a view is built
-   out of the real components — `.list` rows, `.toolbar`, `.filters`, `.bar`,
-   `.tabs` — with these bars standing in for the text and the icons inside them,
-   which is what makes it an actual copy of the screen rather than a drawing of
-   one: a row that changes its padding changes here for free, because it IS that
-   row. So there is nothing to keep in step, and only four shapes to learn:
-
-     .skeleton.line       a line of text; `.sm` for the smaller type of a meta
-                          line. Its LENGTH is the caller's (an inline width) —
-                          how long the title it stands in for runs is content,
-                          not style
-     .skeleton.circle     an icon; `.control` for a round button
-     .skeleton.chip       a badge, a counter, a filter chip
-     .skeleton.control    a field or a button; `.fill` takes the leftover width
-
-   The motion is shadcn's — one pulse, no sweeping sheen. A gradient travelling
-   across a dozen bars animates `background-position`, which is repainted on
-   every frame; opacity is composited, and in a panel that is already waiting on
-   the network the placeholder must not be the expensive thing on screen. The
-   pulse is also honest about what it means: it says "still working", where a
-   sweep reads as progress that nothing is measuring.
-
-   Bars do not pulse in unison — a whole screen breathing as one block reads as a
-   single grey object rather than as a list of rows — so a `.skeleton-rows`
-   container walks a small delay down its rows. Six of them, then the wave
-   repeats: past the sixth row nobody is tracking the phase, and a delay that
-   kept growing would leave the last rows of a long list visibly out of step. */
+/* ---- SKELETON — the shape of content that has not arrived yet ---- */
+/* Built out of the real components, so nothing has to be kept in step. The pulse is opacity (composited);
+   a travelling gradient repaints background-position on every frame. */
 @keyframes skeleton-pulse { 50% { opacity: 0.45; } }
 .skeleton {
   display: block;
@@ -3194,19 +1743,6 @@ span.img-fallback { color: var(--muted); }
   background: var(--skeleton);
   animation: skeleton-pulse 1.6s var(--ease) infinite;
 }
-/* A bar standing in for text is rounded like a pill: at 12px tall a 4px corner
-   is a rectangle with the corners filed off, which reads as a box rather than as
-   a line of words. Its height IS the type size it replaces — the honest way to
-   say which of the panel's two text sizes is missing.
-
-   And it is the one shape that SHRINKS. Its length is a share of the row (a
-   title runs about two thirds of the way across), while the icons and chips
-   beside it are fixed — so in a narrow panel, or on a tree row that already
-   spends 60px on a chevron, a folder mark and a count, the sum is wider than
-   the row and something has to give. It is always the text: a clipped count or
-   half a status glyph is a broken row, a shorter title is just a shorter title.
-   Which is exactly what the real rows do — `.title` ellipsizes, the marks around
-   it never move. */
 .skeleton.line {
   flex: 0 1 auto;
   min-width: 0;
@@ -3219,42 +1755,19 @@ span.img-fallback { color: var(--muted); }
   height: var(--sk-size, var(--control-icon));
   border-radius: var(--radius-pill);
 }
-/* An icon-sized circle that is a CONTROL rather than a glyph. Nothing in the
-   panel is round any more (the checklist's ✓/✗/– took the library's corner
-   with everything else), so this is kept for a mark that genuinely is a disc —
-   a status glyph standing in at button size. */
 .skeleton.circle.lg { --sk-size: var(--control-h-xs); }
 .skeleton.chip { height: var(--counter-h-md); border-radius: var(--counter-radius); }
 .skeleton.control { height: var(--control-h-md); border-radius: var(--control-radius-md); }
 .skeleton.control.sm { height: var(--control-h-sm); border-radius: var(--control-radius-sm); }
-/* xs — the 24px square button a checklist row ends with, three of them. */
 .skeleton.control.xs { height: var(--control-h-xs); border-radius: var(--control-radius-xs); }
-/* An icon button: as wide as it is tall, whichever size it took. */
 .skeleton.square { aspect-ratio: 1; }
-/* The one bar in a row that takes whatever width is left (a search field beside
-   its two buttons) — everything else is `flex: none`, above. */
 .skeleton.fill { flex: 1 1 auto; min-width: 0; }
 
-/* A paragraph of prose, unloaded — a test's steps, which both the panel's test
-   view and the editor's read-only page wait on. The only composition that lives
-   in the vocabulary rather than in a screen's plan: it is the one placeholder
-   shape that is not a row of a list, and two documents draw it (see
-   shared/skeleton.js `lines()`). The padding is what a paragraph's own leading
-   would have left above and below it, so stacked groups read as paragraphs. */
 .sk-lines { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-1) 0; }
-/* Two of them are two PARAGRAPHS, and at the padding alone the break between
-   them measures the same 8px as the leading inside one — which is a ten-line
-   barcode, not prose. The step doubles it, so the groups read apart. */
 .sk-lines + .sk-lines { margin-top: var(--space-2); }
 
-/* A placeholder is ARMED, not shown — the screen that raises one starts a short
-   clock and draws nothing until it runs out (see DELAY_MS in
-   sidepanel/core/skeleton.js). Content that beats the clock cancels it, so a warm
-   tab opens straight onto its rows: a placeholder that appears and vanishes
-   inside a glance is a flash of grey between two painted screens, which draws
-   attention to a wait nobody felt. The one that does earn its place fades in
-   rather than popping, so a load landing just past the clock leaves a ghost
-   instead of a flicker. */
+/* ARMED, not shown: the screen starts a short clock first (DELAY_MS, sidepanel/core/skeleton.js), so
+   content that beats it never flashes grey. */
 @keyframes skeleton-in { from { opacity: 0; } }
 .skeleton-enter { animation: skeleton-in var(--dur) var(--ease); }
 
@@ -3264,50 +1777,13 @@ span.img-fallback { color: var(--muted); }
 .skeleton-rows > :nth-child(6n + 5) .skeleton { animation-delay: 0.32s; }
 .skeleton-rows > :nth-child(6n) .skeleton { animation-delay: 0.4s; }
 
-/* Reduced motion keeps the bars — they are the layout, not the animation — and
-   drops only the pulse, exactly as `.spin` does. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
 
-/* ====================================================================
-   EMPTY — the shape of content that is NOT there
-   ====================================================================
-   The skeleton above says "not yet". This says "nothing", and the two are
-   different sentences that were being answered with the same mumble: a muted
-   line of 12px text — "No runs in this project yet.", "No console or network
-   errors captured yet." — dropped where a list should have been. That is a
-   caption, not a screen. It leaves the biggest surface in the panel blank, it
-   rarely says what to do about it, and half the time it is the FIRST thing a
-   new tester sees.
-
-   An empty state has four parts, and only the mark and the title are always
-   drawn:
-
-     .empty-mark    an icon in a soft box. It is what turns a blank rectangle
-                    into something drawn on purpose — the eye lands on a shape
-                    rather than searching a grey page for a sentence
-     .empty-title   what is not here, said in the page's own text colour
-     .empty-text    why, and what to do about it. Muted, and capped at ~34
-                    characters a line: centred prose that runs the full width of
-                    a 380px panel reads as a paragraph, not as a caption
-     .empty-actions the way out. A screen with no rows is a dead end unless
-                    something on it is clickable
-
-   TWO shapes, because the panel has two kinds of nothing. The default is the
-   BLOCK: a whole view that came back with no rows (a project with no runs, a
-   run with no tests, a filter that matched nothing) — centred in its own
-   column, with the air of a screen. `.compact` is the LINE: something small
-   inside a screen that is otherwise full (an unopened folder, an errors-only
-   log, the attachment list under its button) — icon and text on one row,
-   left-aligned, the size of the row it stands in for. A block empty state
-   inside a 190px log would be a hole; a caption in place of the runs list is
-   what this section exists to end.
-
-   The mark is ALWAYS neutral — a muted glyph on the card, in both shapes. The
-   accent belongs to the way out (the primary button under the sentence), not to
-   the picture of the thing that is missing: an indigo mark is the loudest object
-   on an otherwise blank screen, and it is pointing at nothing. */
+/* ---- EMPTY — the shape of content that is NOT there ---- */
+/* Two shapes: the BLOCK by default (a whole view with no rows) and '.compact', one line inside a screen
+   that is otherwise full. The mark is always neutral; the accent belongs to the way out. */
 .empty {
   display: flex;
   flex-direction: column;
@@ -3316,10 +1792,6 @@ span.img-fallback { color: var(--muted); }
   padding: var(--space-8) var(--space-4);
   text-align: center;
 }
-/* The icon's box, at the size a control is NOT: 48 is one step past the 32px
-   ceiling every button in this system stops at, which is what keeps it reading
-   as an illustration rather than as something to press. Rounded by --radius-lg
-   for the same reason — a card's 8px corner on a 48px square is a button. */
 .empty-mark {
   display: grid;
   place-items: center;
@@ -3331,9 +1803,6 @@ span.img-fallback { color: var(--muted); }
   box-shadow: inset 0 0 0 1px var(--border);
   color: var(--muted);
 }
-/* Title and text are one block so the gap between THEM (4) can be tighter than
-   the gap between that block and the mark or the buttons (12) — two lines that
-   belong together, then air. */
 .empty-body {
   display: flex;
   flex-direction: column;
@@ -3355,9 +1824,6 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
   line-height: var(--leading-normal);
 }
-/* A link INSIDE the sentence ("start one in the web app") is the one place this
-   component paints the accent on text — everywhere else the way out is a button
-   in the row below. */
 .empty-text a { color: var(--accent); }
 .empty-text .link-btn { vertical-align: baseline; font-size: inherit; }
 .empty-actions {
@@ -3367,10 +1833,6 @@ span.img-fallback { color: var(--muted); }
   gap: var(--space-2);
 }
 
-/* The LINE. Same parts, laid on one row: the mark loses its box and becomes
-   just the icon (a 48px square beside a single sentence is a poster in a
-   margin), the text stops being centred, and the whole thing takes the padding
-   of the row it replaces rather than a screen's worth of air. */
 .empty.compact {
   flex-direction: row;
   align-items: center;
@@ -3388,16 +1850,9 @@ span.img-fallback { color: var(--muted); }
 .empty.compact .empty-body { align-items: flex-start; }
 .empty.compact .empty-title { font-size: var(--fs-sm); font-weight: var(--weight-medium); }
 .empty.compact .empty-text { max-width: none; }
-/* Pushed to the far end: a compact state's action is one link-sized control,
-   and sitting against the sentence it would read as part of it. */
 .empty.compact .empty-actions { margin-left: auto; }
 
-/* An empty state is very often the ONE child of a list — the runs list, a
-   folder's children, the evidence log — and a `<div>` inside a `<ul>` is not a
-   list, so it is written as an `<li>` and this takes the row skin back off it.
-   Every part of it: the row's padding (the component brings its own), the rule
-   under it (there is nothing below to divide from), the hover wash and the
-   pointer (nothing here is a row to open). */
+/* An empty state is often the ONE child of a list and written as an <li>: this takes the row skin off it. */
 .list li.empty,
 .list-row.empty {
   padding: var(--space-8) var(--space-4);
@@ -3410,20 +1865,9 @@ span.img-fallback { color: var(--muted); }
 .list li.empty:hover,
 .list-row.empty:hover { background: none; }
 
-/* ====================================================================
-   FIELDS — input, select, textarea
-   ====================================================================
-   Two selectors per rule on purpose:
-
-     .input / .select / .textarea   the component, used where markup is written
-                                    by hand and can say what it is;
-     :where(input), :where(select)  a ZERO-specificity fallback, so a plain field
-                                    anywhere in the extension already looks right
-                                    and any existing per-screen rule still wins.
-
-   Checkboxes, radios, files and ranges are excluded: they are not text fields
-   and the height/padding here would deform them. */
-/* md is the default size here too. */
+/* ---- FIELDS — input, select, textarea ---- */
+/* Two selectors per rule: the CLASS, plus a zero-specificity :where() fallback so a plain field already
+   looks right and any per-screen rule still wins. Checkbox/radio/file/range would be deformed by it. */
 :where(.input, .select, .textarea, .dropdown-trigger, input, select, textarea) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -3448,17 +1892,9 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--ctl-fs);
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-/* `.select` is now a FALLBACK, not a component this product builds with: every
-   picker in the extension is `.dropdown` (below), because Chrome draws a native
-   select's popup at OS level and in a 380px side panel that lands as a huge menu
-   beside the panel, in the OS's font and colours, printing nothing but plain
-   text. What is left here is the closed FACE, so a stray `<select>` — one this
-   repo did not write, or one an author reaches for out of habit — still looks
-   like the rest of the form instead of like the browser's default.
-   The caret is drawn rather than the UA's: the native glyph sits at a fixed
-   inset the engine controls, not this file, so it never actually moved off the
-   edge no matter how much room `padding-right` bought it. `currentColor` keeps
-   it on the field's own text colour through both themes without a second asset. */
+/* .select is a FALLBACK, not a component this product builds with: Chrome draws a native select's popup */
+/* at OS level, in the OS's font. The caret is drawn here because the UA glyph sits at an inset the engine
+   owns — padding-right never moved it — and currentColor keeps it themed without a second asset. */
 .select,
 :where(select) {
   appearance: none;
@@ -3469,8 +1905,6 @@ span.img-fallback { color: var(--muted); }
   background-size: 16px;
 }
 
-/* A textarea grows: the height token becomes a floor, and the padding turns
-   vertical again because the text wraps. */
 .textarea,
 :where(textarea) {
   height: auto;
@@ -3480,20 +1914,8 @@ span.img-fallback { color: var(--muted); }
   resize: vertical;
 }
 
-/* ── .textarea.autogrow — the field that is ONE line until it isn't ────
-   A title is a sentence, and a sentence occasionally runs long: this is the
-   control for a value that is normally one line but must be allowed a second
-   without a scrollbar, a drag handle or a fixed box two rows deep (the test
-   editor's title). It starts at exactly the control's own height — the SAME
-   28px a `.input.size-sm` beside it stands at, which is what `--space-1` of
-   vertical padding around one 1.5 line buys — and each wrapped line adds a line.
-
-   `field-sizing: content` is what measures it, so there is no resize observer,
-   no shadow element and no JS anywhere: the browser sizes the box from its own
-   value. Where it is unsupported the field simply stays at its floor and
-   scrolls, which is the plain textarea behaviour, never a broken one.
-   No `resize` handle — the content decides the height, so a hand-dragged one
-   would only be a second answer to the same question. */
+/* .textarea.autogrow — one line until it isn't. 'field-sizing: content' measures it, so there is no
+   observer and no JS; where it is unsupported the field stays at its floor and scrolls. */
 .textarea.autogrow {
   field-sizing: content;
   height: auto;
@@ -3509,9 +1931,8 @@ span.img-fallback { color: var(--muted); }
 .dropdown-trigger:hover:not(:focus):not(:disabled),
 :where(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"])):hover:not(:focus),
 :where(select):hover:not(:focus),
-/* `background-color`, not the shorthand: a select carries its caret as a
-   `background-image`, and the shorthand would rub it out for as long as the
-   pointer is on the control. */
+/* 'background-color', not the shorthand: a select carries its caret as a background-image, which the
+   shorthand would rub out for as long as the pointer is on the control. */
 :where(textarea):hover:not(:focus) { border-color: var(--input-border-hover); background-color: var(--input-bg-hover); }
 
 .input:focus,
@@ -3527,8 +1948,7 @@ span.img-fallback { color: var(--muted); }
   box-shadow: 0 0 0 1px var(--focus);
 }
 
-/* Invalid is driven by aria-invalid alone — ONE source of truth, and it has to
-   survive focus, because validation moves focus into the field it rejected. */
+/* Driven by aria-invalid alone, and it must survive :focus — validation moves focus into the field it rejected. */
 .input[aria-invalid="true"], .input[aria-invalid="true"]:focus,
 .select[aria-invalid="true"], .select[aria-invalid="true"]:focus,
 .textarea[aria-invalid="true"], .textarea[aria-invalid="true"]:focus,
@@ -3547,49 +1967,14 @@ span.img-fallback { color: var(--muted); }
 :where(select):disabled,
 :where(textarea):disabled { opacity: 0.6; cursor: default; }
 
-/* ── .field — the input with things INSIDE it ─────────────────────────
-   A search box is ONE control, not a row of them. The magnifier that says what
-   the box does and the × that empties it live inside the field's own border;
-   put them beside it and they read as two more controls in the row, competing
-   for the width — which is exactly what the runs/run/TC searches used to be, an
-   input and a loose `.icon-btn` sharing a flex row.
-
-     <div class="field">
-       <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
-       <input class="input size-sm" type="text" placeholder="Search tests…">
-       <button class="icon-btn field-clear" aria-label="Clear search" hidden>
-         <span class="md-icon" data-icon="close" data-icon-size="18"></span>
-       </button>
-     </div>
-
-   Both slots are optional and each is detected with `:has()`, so the field only
-   pays the padding for the ornament it actually carries — and it pays it
-   whether or not the × is currently `hidden`, so typing the first character
-   cannot shove the text sideways.
-
-   The 36px inset is a CONSTANT, not derived from `--ctl-h`: the size class sits
-   on the INPUT (`.input.size-sm`), so the wrapper cannot read the height, and
-   one number that clears both rungs is honest where a calc() that silently
-   resolves to the md default would not be. It is the same 36 on both sides:
-   12 + the 16px icon + 8 of air on the left, and on the right the clear button's
-   square (the height less its two 4px insets — 24 at md, 20 at sm) plus room to
-   breathe. `.field` is for the sm/md rungs; xs has no space for an ornament.
-
-   `.field-icon` is reused by `.dropdown` (below) for the same reason: a picker
-   whose closed state has to say what KIND of thing it is choosing (the editor's
-   template picker) carries the mark inside its own border, because beside it the
-   icon reads as one more control in the row. Only the leading inset is ever asked
-   for there — a dropdown's right side belongs to its caret. */
+/* .field — the input with things INSIDE it. Both slots are detected with :has(), so the field pays the */
+/* padding for the ornament it carries whether or not the × is currently hidden. The 36px inset is a
+   constant, not a calc: the size class sits on the INPUT, so the wrapper cannot read the height. */
 .field { position: relative; display: block; }
 .field > :where(.input, input, .select, select) { width: 100%; }
-/* 12 (the icon's own inset) + 16 (its width) + 4 of air to the text — a step
-   tighter than the icon's own leading inset, so the icon reads as attached to
-   the word it marks rather than centred in its own quarter of the field. */
 .field:has(> .field-icon) > :where(.input, input, .select, select) { padding-left: var(--space-8); }
 .field:has(> .field-clear) > :where(.input, input) { padding-right: var(--space-9); }
 
-/* The magnifier is a LABEL, not a control: muted, and transparent to the mouse
-   so clicking it puts the caret in the field like clicking any other part of it. */
 .field-icon {
   position: absolute;
   top: 50%;
@@ -3599,11 +1984,7 @@ span.img-fallback { color: var(--muted); }
   pointer-events: none;
 }
 
-/* The clear button IS `.icon-btn`; this only parks it in the field's right end.
-   `inset-block` + `aspect-ratio` is what keeps it square at BOTH rungs without
-   naming a height — 4px of air top and bottom, whatever the field is. The focus
-   ring loses its offset: 2px outside a button that sits 4px inside the border
-   would draw straight over it. */
+/* inset-block + aspect-ratio is what keeps it square at BOTH rungs without naming a height. */
 .field-clear {
   position: absolute;
   top: var(--space-1);
@@ -3615,46 +1996,12 @@ span.img-fallback { color: var(--muted); }
 }
 .field-clear:focus-visible { outline-offset: 0; }
 
-/* ====================================================================
-   DROPDOWN — the select this product actually ships
-   ====================================================================
-   A field face that opens the shared `.menu` under itself instead of the OS's
-   menu somewhere near it. Built by shared/dropdown.js — the markup below is
-   what it produces, and nothing hand-writes it:
-
-     <div class="dropdown">
-       <span class="md-icon field-icon" data-icon="description"></span>   (optional)
-       <button class="dropdown-trigger size-sm" id="tc-template"
-               aria-haspopup="listbox" aria-expanded="false" data-value="12">
-         <span class="dropdown-value">Test Template (default)</span>
-         <span class="md-icon dropdown-caret" data-icon="keyboard_arrow_down"></span>
-       </button>
-       <div class="menu dropdown-menu" hidden>
-         <input class="input size-sm dropdown-filter">                    (optional)
-         <ul class="menu-list dropdown-list" role="listbox">
-           <li class="menu-option dropdown-option" role="option" aria-selected="true">
-             <span class="dropdown-option-label">Test Template (default)</span>
-             <svg class="dropdown-option-check">…</svg>
-           </li>
-         </ul>
-         <div class="empty compact dropdown-empty" hidden>…</div>
-       </div>
-     </div>
-
-   The trigger takes the FIELDS face wholesale — it is in the same selector
-   lists as `.input` and `.select` above, so the border, the height ladder, the
-   hover, the focus ring, `aria-invalid` and the disabled wash are all one
-   definition and cannot drift. Only what a button does not already do is here.
-   The popup is the shared `.menu` (MENU, above), which means the page holding
-   one must not trap it in a stacking context of its own. */
+/* ---- DROPDOWN — the select this product actually ships ---- */
+/* Built by shared/dropdown.js; the trigger is in the FIELDS selector lists above, so only what a button
+   does not already do is here. The popup is the shared .menu, with .menu's stacking-context rule. */
 .dropdown { position: relative; display: block; }
-/* `display` here outranks the UA's `[hidden]` rule, so hiding one has to be
-   said in the component or `dd.hidden = true` leaves it on the screen. */
+/* This 'display' outranks the UA's [hidden] rule, so hiding one has to be said in the component. */
 .dropdown[hidden] { display: none; }
-/* The closed face is a row, not a line of text: the value takes the width and
-   the caret keeps its square at the end. `--space-2` on the right, not the
-   field's own `--ctl-px`: the caret is a real child with its own optical inset
-   inside a 16px box, where the native one was a background image with none. */
 .dropdown-trigger {
   display: flex;
   align-items: center;
@@ -3664,9 +2011,6 @@ span.img-fallback { color: var(--muted); }
   cursor: pointer;
 }
 .dropdown-trigger[hidden] { display: none; }
-/* The face takes the field's width so the caret stays pinned to the far end.
-   It is a ROW, not a line of text: a custom row (an icon and a word, a monogram
-   and a name) is drawn in the closed face as well as in the list. */
 .dropdown-value {
   flex: 1 1 auto;
   min-width: 0;
@@ -3674,9 +2018,6 @@ span.img-fallback { color: var(--muted); }
   align-items: center;
   gap: var(--space-2);
 }
-/* Shrink-only, and the only thing that gives way: a long value ellipsizes rather
-   than pushing the caret out of the field — the same deal `.project-current`
-   makes in the panel header. */
 .dropdown-value-text {
   flex: 0 1 auto;
   min-width: 0;
@@ -3684,14 +2025,10 @@ span.img-fallback { color: var(--muted); }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* Nothing chosen yet reads as a hint, not as an answer. */
 .dropdown-value.placeholder { color: var(--muted); }
 .dropdown-caret { flex: none; display: block; color: var(--muted); }
 .dropdown:has(> .field-icon) > .dropdown-trigger { padding-left: var(--space-8); }
 
-/* The popup starts at the trigger's own width and grows past it for a long
-   option — anchored to whichever edge the control sits against, so one at the
-   end of a toolbar opens leftwards instead of off the panel. */
 .dropdown-menu {
   left: 0;
   right: auto;
@@ -3707,53 +2044,14 @@ span.img-fallback { color: var(--muted); }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The tick the OS menu drew for the chosen row, kept — the wash alone is easy
-   to read as hover. It holds its column in EVERY row (hidden, not absent), so
-   nothing shifts sideways as the choice moves down the list. */
+/* The tick holds its column in EVERY row (hidden, not absent), so nothing shifts as the choice moves. */
 .dropdown-option-check { flex: none; visibility: hidden; }
 .dropdown-option[aria-selected="true"] .dropdown-option-check { visibility: visible; }
 
-/* ====================================================================
-   CHOICE — checkbox, radio, switch
-   ====================================================================
-   The three controls that answer a question with their own state instead of
-   doing something. They used to be the one hole in this file: `accent-color`
-   and nothing else, which left the BOX to the operating system — a Chrome
-   checkbox on macOS is a different shape, a different corner and a different
-   blue from every control above it, and on the dark scheme it is drawn in the
-   OS's idea of dark, not this file's. So the native box is switched off
-   (`appearance: none`) and the control is drawn here, from the same tokens as
-   the button beside it.
+/* ---- CHOICE — checkbox, radio, switch ---- */
+/* The native box is switched off (appearance: none) and drawn here: a Chrome checkbox is the OS's shape,
+   corner and blue, and on the dark scheme it is drawn in the OS's idea of dark, not this file's. */
 
-   Which of the three, and when — the ONE decision markup has to make:
-
-     .checkbox   a value that is part of a form: nothing happens until the form
-                 is submitted. Square, because a set of them is a set of
-                 independent answers.
-     .radio      one of N, where N is small and all of them are worth showing.
-                 Round, and it never fills: the ring plus a dot, so a column of
-                 radios cannot be misread as a column of checkboxes.
-     .switch     a setting that takes effect the moment it is flipped — there is
-                 no Save for it, and the track moving IS the confirmation.
-
-   That is why the panel's settings form keeps CHECKBOXES (Save & validate
-   commits the whole form at once) while "Full page" is a SWITCH (it writes
-   itself to storage on change and the next capture is already different).
-
-   Shared with the fields above: the resting border (--border-control), the
-   surface (--bg), the hover (--muted), the accent when it is on, and the
-   button's focus ring — 2px outside the box, because a 16px control has no room
-   for an inset one. Sizes are the tokens' --choice-* / --switch-*; see the note
-   there for why there is exactly one of each.
-
-   As with the fields, each rule is written twice: the CLASS, for markup that can
-   say what it is, and a zero-specificity `:where()` fallback on the bare element,
-   so every checkbox already in the extension — a step tick, a rendered markdown
-   task list — gets the skin without being found first. */
-
-/* The box: the shape both the checkbox and the radio start from. `inline-grid`
-   + `place-content: center` is what centres the mark inside it, at any size,
-   without a single length. */
 .checkbox,
 .radio,
 :where(input[type="checkbox"]:not(.switch)),
@@ -3774,19 +2072,12 @@ span.img-fallback { color: var(--muted); }
               border-color var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease);
 }
-/* The corner is the only thing that separates the two at rest, so it is the
-   sharpest one the system has (a checkbox at the control radius would be a
-   rounded lozenge at 16px) against the pill. */
 .checkbox,
 :where(input[type="checkbox"]:not(.switch)) { border-radius: var(--radius-xs); }
 .radio,
 :where(input[type="radio"]) { border-radius: var(--radius-pill); }
 
-/* The mark. It is always in the DOM and always the right shape — only its scale
-   changes — so ticking is a control growing its answer rather than a glyph
-   appearing out of nowhere, and nothing about the box's size can shift when it
-   does. `currentColor`, so each variant below sets its mark by setting `color`
-   and the mark follows. */
+/* The mark is always in the DOM and only its scale changes, so ticking cannot shift the box's size. */
 .checkbox::before,
 .radio::before,
 :where(input[type="checkbox"]:not(.switch))::before,
@@ -3797,8 +2088,7 @@ span.img-fallback { color: var(--muted); }
   transform: scale(0);
   transition: transform var(--dur-fast) var(--ease);
 }
-/* The tick is the icon set's own check, drawn as a mask so it is painted in
-   currentColor like every other icon in a control. */
+/* The tick is the icon set's own check drawn as a mask, so it is painted in currentColor. */
 .checkbox::before,
 :where(input[type="checkbox"]:not(.switch))::before {
   width: var(--choice-mark);
@@ -3818,11 +2108,6 @@ span.img-fallback { color: var(--muted); }
 :where(input[type="checkbox"]:not(.switch)):indeterminate::before,
 :where(input[type="radio"]):checked::before { transform: scale(1); }
 
-/* A ticked checkbox is FILLED — the same accent fill, the same edge one step
-   ahead of it, that the primary button wears. A ticked radio is not: it keeps
-   the page's surface and answers with the accent ring plus the accent dot, which
-   is what makes "one of these" and "any of these" tell themselves apart across a
-   form at a glance. */
 .checkbox:checked, .checkbox:indeterminate,
 :where(input[type="checkbox"]:not(.switch)):checked,
 :where(input[type="checkbox"]:not(.switch)):indeterminate {
@@ -3836,10 +2121,6 @@ span.img-fallback { color: var(--muted); }
   color: var(--accent);
 }
 
-/* Mixed (`el.indeterminate = true`) — a parent of a part-ticked set. A bar, not
-   a tick: it has to read as "some", and a smaller or fainter tick reads as a
-   tick that did not render. It is the radio's dot stretched to a rule, so the
-   two shapes inside the box stay one family. */
 .checkbox:indeterminate::before,
 :where(input[type="checkbox"]:not(.switch)):indeterminate::before {
   width: var(--choice-dot);
@@ -3849,10 +2130,8 @@ span.img-fallback { color: var(--muted); }
   mask: none;
 }
 
-/* The switch. One element, two parts: the input IS the track, its ::before is
-   the knob. Padding rather than an offset positions the knob, so the travel is
-   the track minus its own height and nothing has to be recomputed if the size
-   tokens move. */
+/* One element, two parts: the input IS the track, its ::before is the knob. Padding positions the knob,
+   so the travel follows the size tokens and nothing has to be recomputed if they move. */
 .switch {
   appearance: none;
   -webkit-appearance: none;
@@ -3882,11 +2161,6 @@ span.img-fallback { color: var(--muted); }
 .switch:checked { background: var(--accent); }
 .switch:checked::before { transform: translateX(calc(var(--switch-w) - var(--switch-h))); }
 
-/* States, all three at once. Hover is the field's — the edge coming forward —
-   and not the button's overlay: an overlay inside a 16px box is a wash over four
-   pixels of surface, invisible, while on the switch's track it would fight the
-   fill that is carrying the state. A control that is already ON has nothing to
-   say on hover; the pointer is over an answer, not an action. */
 .checkbox:hover:not(:disabled):not(:checked):not(:indeterminate),
 .radio:hover:not(:disabled):not(:checked),
 :where(input[type="checkbox"]:not(.switch)):hover:not(:disabled):not(:checked):not(:indeterminate),
@@ -3908,24 +2182,8 @@ span.img-fallback { color: var(--muted); }
   cursor: not-allowed;
 }
 
-/* The ROW the control lives in, because a choice control is never alone: the
-   label is what is clicked, what is read out, and what the hit area actually is
-   — so the component is the <label>, and the box inside it is half of it. The
-   row owns no spacing of its own (a margin belongs to the screen that stacks
-   them), only the gap between the control and its words.
-
-   The control sits on the FIRST LINE, not in the middle of the block: a label in
-   a 380px panel wraps to two lines as often as not (the settings form's do), and
-   a box floating between them reads as belonging to neither. Which is the same
-   thing as centred for a label that fits on one line, so there is one rule and no
-   variant — the control is top-aligned and then nudged down by half of what the
-   line has over it. That nudge is computed from the tokens rather than typed in:
-   the line box is `--leading-normal` of the label's own type, so the offset
-   follows a font size or a leading that moves, and a switch (20) and a checkbox
-   (16) each land on the same baseline without a second number.
-
-   `.choice-hint` is the second line for the labels that need one — the control
-   keeps the first line, the explanation runs under it in meta type. */
+/* The control sits on the FIRST line of a label that wraps: top-aligned, then nudged down by half of
+   what the line box has over it — computed from the tokens, so a font size or leading change carries. */
 .choice {
   display: flex;
   align-items: flex-start;
@@ -3943,30 +2201,12 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
   color: var(--muted);
 }
-/* `.choice-text` is the words as ONE flex item. A bare text node beside the
-   control is an anonymous item too, so the row looks the same without it — until
-   something has to sit AFTER the words and wrap with them rather than being
-   pushed to the end of the row, which is exactly what `.info-tip` below does. */
+/* .choice-text makes the words ONE flex item, so something after them (.info-tip) wraps with them
+   instead of being pushed to the end of the row. */
 .choice-text { min-width: 0; }
 
-/* ---------- .info-tip — the explanation mark ----------
-   A label says what a control IS; this says what it does, what its default is,
-   and what turning it off actually keeps. The settings form is where that split
-   came from: every row carried its own reasoning inline ("Attach console &
-   network log to failed tests") or in a paragraph under it, and eight settings
-   read as eight paragraphs — in a 380px panel each label wrapped to two or three
-   lines, so the form could not be scanned at all. Three or four words on the
-   line, the sentence one hover away.
-
-   A real <button>, not a <span>: interactive content inside a <label> does not
-   forward its click to the control, so pressing the mark asks the question
-   instead of silently answering the setting — and it is a tab stop, which is the
-   only way a keyboard user reaches a tooltip (shared/tooltip.js opens one on
-   :focus-visible). Give it the same text as `aria-label` so a screen reader is
-   told the explanation outright instead of being handed a mark named "info".
-
-   `--muted` is a COLOUR, not a fade: the mark is a glyph in the hint hue, drawn
-   at the same full opacity as every other glyph in the system. */
+/* .info-tip — a real <button>, not a <span>: interactive content inside a <label> does not forward its
+   click to the control, and it is a tab stop, which is the only way a keyboard user reaches a tooltip. */
 .info-tip {
   display: inline-flex;
   align-items: center;
@@ -3976,18 +2216,13 @@ span.img-fallback { color: var(--muted); }
   border-radius: var(--radius-xs);
   background: none;
   color: var(--muted);
-  /* Sits with the text it follows, not on its cap line: the mark is 14px in a
-     16px line box, so it drops by the half of the difference the baseline owes. */
+  /* Sits with the text it follows, not on its cap line: a 14px mark in a 16px line box. */
   vertical-align: -3px;
   cursor: help;
 }
 .info-tip:hover, .info-tip:focus-visible { color: var(--accent); }
 .info-tip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* Reduced motion drops the travel and the tick's grow — the STATE is a colour
-   and a position, both of which are still there without an animation to carry
-   them. Same reading as the skeleton above: keep what the thing is, drop what it
-   does on the way in. */
 @media (prefers-reduced-motion: reduce) {
   .checkbox::before, .radio::before, .switch::before,
   :where(input[type="checkbox"], input[type="radio"])::before { transition: none; }
