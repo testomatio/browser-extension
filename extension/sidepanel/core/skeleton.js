@@ -45,7 +45,9 @@ const Skeleton = (() => {
   function treeRow(i, { folder = true } = {}) {
     const li = el('li', 'tc-item');
     const row = el('div', 'list-row tc-row list-head');
-    if (folder) row.append(bar('circle'));
+    const lead = bar('circle'); // the chevron column: drawn for a folder, kept blank for a file
+    if (!folder) lead.style.visibility = 'hidden';
+    row.append(lead);
     row.append(bar('circle'), bar('line', pick(TITLE_W, i)), bar('line sm row-count', '16px'));
     li.append(row);
     return li;

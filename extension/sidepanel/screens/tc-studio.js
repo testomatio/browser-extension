@@ -48,6 +48,9 @@ function closeSuiteInput() {
   for (const el of document.querySelectorAll('.tc-new-suite')) el.remove();
 }
 
+// A leaf's first slot stays blank: its glyph and title line up with a folder's.
+const treeSlot = () => Object.assign(document.createElement('span'), { className: 'tree-icon' });
+
 // `mount(li)` places the row at the TOP of its list, one row under the button that
 // opened it. Enter or the tick create; Esc, the cross or losing focus dismiss.
 function openSuiteInput({ parentId, fileType, mount }) {
@@ -57,10 +60,8 @@ function openSuiteInput({ parentId, fileType, mount }) {
   li.className = 'tc-item tree-node tc-new-suite';
   const row = document.createElement('div');
   row.className = 'list-row tc-row list-head tree-row tree-input-row';
-  if (folder) {
-    row.classList.add('has-chevron');
-    row.append(treeIcon(CHEVRON_ICON, 'chevron'));
-  }
+  row.classList.add('has-chevron');
+  row.append(folder ? treeIcon(CHEVRON_ICON, 'chevron') : treeSlot());
   row.append(treeIcon(folder ? FOLDER_ICON : FILE_ICON, folder ? 'folder-icon' : 'file-icon'));
 
   const input = document.createElement('input');
@@ -206,8 +207,8 @@ function tcNode(node, ctx) {
       })));
     }
   } else {
-    row.classList.add('tc-file');
-    row.append(treeIcon(FILE_ICON, 'file-icon', node.emoji));
+    row.classList.add('tc-file', 'has-chevron');
+    row.append(treeSlot(), treeIcon(FILE_ICON, 'file-icon', node.emoji));
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = node.title || '(untitled)';
