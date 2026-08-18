@@ -255,22 +255,23 @@ body[data-connect="true"] .header-top { display: none; }
 
 .project-menu { left: 0; right: 0; }
 .project-filter { margin: 0; }
-/* A project row is title + slug on one baseline, not icon + label. */
-.project-option { align-items: baseline; }
-.project-option-title {
+/* A project row is two lines — title over slug — plus the trailing count, not icon + label. */
+.project-option { align-items: center; }
+.project-option-lines {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.project-option-title,
+.project-option-slug {
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The slug earns its own column: two teams name projects alike, and the slug is what every API path carries. */
+/* The slug keeps its own line: two teams name projects alike, and the slug is what every API path carries. */
 .project-option-slug {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   color: var(--muted);
   font-size: var(--fs-sm);
   font-weight: var(--weight-normal);

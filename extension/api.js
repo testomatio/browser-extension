@@ -389,7 +389,11 @@ const TestomatAPI = (() => {
         break;
       }
       const rows = Array.isArray(doc?.data) ? doc.data : [];
-      all.push(...rows.map((n) => ({ id: String(n.id), title: (n.attributes || {}).title || '' })));
+      all.push(...rows.map((n) => {
+        const a = n.attributes || {};
+        // `tests-count` rides along on the index (#10); null when the server sent none.
+        return { id: String(n.id), title: a.title || '', testsCount: a['tests-count'] ?? null };
+      }));
       const meta = doc?.meta || {};
       if (typeof meta.total_pages === 'number') totalPages = meta.total_pages;
       if (typeof meta.num === 'number') total = meta.num;
