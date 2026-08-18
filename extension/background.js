@@ -412,7 +412,7 @@ function srPushNav(st, text, cap) {
   return dup !== -1 ? dup : srPush(st, { kind: 'expected', text }, cap);
 }
 
-async function srStart() {
+async function srStart(sender) {
   // `activate`: a recording follows ONE tab, so bring that tab in front of the tester.
   const site = await resolveSiteTab({ verb: 'recorded', activate: true });
   if (site.state !== 'ok') return { ok: false, reason: site.error };
@@ -420,11 +420,40 @@ async function srStart() {
   // The `Open <url>` step is DEFERRED to the first real action, so start-then-stop records nothing.
   await srSet({
     tabId: tab.id, recording: true, paused: false, manualPause: false, capBonus: 0, blind: false,
+    docIds: await srOwnerIds(sender), // the editor document that owns this recording
     lastUrl: tab.url, startedAt: Date.now(), pendingOpen: tab.url,
     entries: [], lastNavIdx: -1, sent: 0,
   });
   await srInjectSync(tab.id);
   return { ok: true, tabId: tab.id };
+}
+
+// The owner's document id: a tab-hosted page's sender carries it, a side panel's sender has only its
+// URL — so that document is looked up by URL (exact match, query included). [] when it cannot be told.
+async function srOwnerIds(sender) {
+  if (sender && sender.documentId) return [sender.documentId];
+  if (!sender || !sender.url) return [];
+  try { return (await chrome.runtime.getContexts({ documentUrls: [sender.url] })).map((c) => c.documentId).filter(Boolean); }
+  catch { return []; }
+}
+
+// A recording belongs to the editor page that started it. Closing the panel (or the editor's own tab
+// or window) tears that page down with no unload, so the worker asks Chrome whether it is still there.
+async function srOwnerOpen(st) {
+  if (!st.docIds || !st.docIds.length) return true; // nothing to check — never end a live recording on a guess
+  try { return (await chrome.runtime.getContexts({ documentIds: st.docIds })).length > 0; }
+  catch { return true; }
+}
+
+// Ends a recording whose editor is gone (entries kept, as on tab close). True when it did.
+async function srOrphaned() {
+  const st = await srGet();
+  if (!st || !st.recording || await srOwnerOpen(st)) return false;
+  await srSerial(async () => {
+    const cur = await srGet();
+    if (cur && cur.recording) { cur.recording = false; await srSet(cur); }
+  });
+  return true;
 }
 
 // Prepend the deferred `Open <url>` step before the first recorded entry.
@@ -619,7 +648,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.title && srRefineNav(st, changeInfo.title, st.lastUrl)) changed = true;
     if (changed) await srSet(st);
   });
-  if (reinject) await srInjectSync(tabId);
+  if (reinject && !(await srOrphaned())) await srInjectSync(tabId); // an orphan gets no new pill
 });
 
 // Closing the recorded tab auto-stops but PRESERVES the entries — the editor's poll drains them.
@@ -639,9 +668,10 @@ function srSerial(fn) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg && msg.type) {
-    case 'STEPREC_START': srStart().then(sendResponse); return true;
+    case 'STEPREC_START': srStart(sender).then(sendResponse); return true;
     case 'STEPREC_ADD': srSerial(() => srAdd(msg.entry, sender)).then(sendResponse); return true;
-    case 'STEPREC_STATUS': srStatus().then(sendResponse); return true;
+    // The pill's poll doubles as the orphan check: an editor that is gone ends the recording here.
+    case 'STEPREC_STATUS': srOrphaned().then(srStatus).then(sendResponse); return true;
     // The editor's live poll (#160) — a read-modify-write, so it takes a chain slot.
     case 'STEPREC_PULL': srSerial(srPull).then(sendResponse); return true;
     case 'STEPREC_TITLE': srTitle(msg.title).then(sendResponse); return true;
