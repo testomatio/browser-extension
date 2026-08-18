@@ -1,5 +1,5 @@
 // Shared HTML sanitizer (IIFE global `HtmlSanitize` + `sanitizeHtml`). THE XSS
-// boundary of this extension: every `marked.parse()` result is injected with
+// boundary of this extension: every `showdown` render is injected with
 // innerHTML, so it passes through here before it reaches a live document — the
 // panel's step renderer (sidepanel/screens/test-view.js) and the editor's
 // markdown preview (editor/editor.js), both of which now render through

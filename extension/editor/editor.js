@@ -11,7 +11,7 @@
 //
 // The authoring engine is vendored OverType (raw-textarea markdown, its own
 // toolbar); the Preview tab AND the read-only view both render through the same
-// `marked` the panel uses. It reuses the panel's `TestomatAPI` global (plain
+// renderer the panel uses. It reuses the panel's `TestomatAPI` global (plain
 // <script> include) — same settings from chrome.storage, same v2 endpoints,
 // same ApiError kinds.
 //
@@ -204,7 +204,7 @@
 
   // ---- toolbar: default button set minus the dropped ones --------------------
   // Dropped: viewMode (our Preview tab is the single preview, rendered through
-  // `marked`) and taskList (`- [ ]` renders as a dead checkbox outside Steps in
+  // shared/markdown.js) and taskList (`- [ ]` renders as a dead checkbox outside Steps in
   // both the web UI and the run panel — owner bug report 2026-07-22, R8.1).
   // The vendored UMD tail overwrites `window.OverType` with the CLASS and puts
   // the button array in the bare global `defaultToolbarButtons` — reading
@@ -234,7 +234,7 @@
 
   // ---- markdown preview: the panel's renderer, not a second one (shared/markdown.js)
   function renderPreviewInto(box, md) {
-    // ONE renderer for the whole extension (shared/markdown.js): marked + the
+    // ONE renderer for the whole extension (shared/markdown.js): showdown + the
     // sanitize pass live in there, so the Preview tab and the panel cannot drift.
     const tmp = Md.render(md);
     // …and the same image swap (#205): the CSP allows no remote <img>, so the
@@ -712,7 +712,7 @@
 
   // ---- the read-only view of an existing TC (#115) -------------------------
   // What a test SAYS, with nothing to fill in: rendered markdown through the
-  // SAME marked+sanitize path as the editor's Preview tab — no OverType, no
+  // SAME showdown+sanitize path as the editor's Preview tab — no OverType, no
   // Save, no priority dropdown, no recorder/screenshot tools. Writing is one
   // button away (Edit, in the header) rather than absent; this stays the screen
   // a test is read on, and the one a create and an update both land back on.
@@ -1291,7 +1291,7 @@
     tools.append(recBtn, recContinue, attachBtn, tmplField, shotPreview);
     wrap.append(tools);
 
-    // body: OverType host + marked preview pane
+    // body: OverType host + showdown preview pane
     const body = document.createElement('div');
     body.className = 'tc-body';
     const editHost = document.createElement('div');

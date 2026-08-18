@@ -927,7 +927,7 @@ body[data-connect="true"] .header-top { display: none; }
 .step-title { overflow-wrap: anywhere; }
 /* A step's text is a LINE beside a control, not a paragraph in an article. What
    arrives in it depends on the author's markdown: a LOOSE list item comes back
-   from marked wrapped in a <p>, and `.markdown p`'s 0.5em top margin then drops
+   from showdown wrapped in a <p>, and `.markdown p`'s 0.5em top margin then drops
    that first line half a line below the box beside it — so the same run reads
    aligned on one step and sagging on the next, purely by how its author spaced
    the source. The block margins go at both ends of the body column; the air

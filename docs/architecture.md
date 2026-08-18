@@ -17,7 +17,7 @@ Companion docs — read across, they are not repeated here:
 
 1. **Zero build.** No bundler, no npm dependency, no compile step. `extension/`
    runs exactly as it is checked in. Third-party code is vendored as committed
-   single files under `extension/vendor/` (`marked.min.js`, `overtype.min.js`).
+   single files under `extension/vendor/` (`showdown.min.js`, `overtype.min.js`).
 2. **The module system is `<script>` tags.** Every panel/editor file is a
    classic script: no ES modules, no namespacing. Each file wraps its innards
    in an IIFE and assigns **one global** (`TestomatAPI`, `SiteTab`,
@@ -107,7 +107,7 @@ pulls in the surface preference, the tab resolver and the evidence recorder — 
 
 `index.html` is the whole DOM: every view is a `<section id="view-…">` toggled
 by `show()`. The 35 `<script>` tags at the foot of `index.html` (one vendored
-`marked.min.js`, the rest ours) are the module system.
+`showdown.min.js`, the rest ours) are the module system.
 
 **Design tokens — `extension/shared/tokens.css`.** One stylesheet, `<link>`ed
 before the page's own CSS by both the panel and the editor, holding every colour,
@@ -575,7 +575,7 @@ query string (`editor.js:3-11`):
 
 - `?test=<uid>` — the **read-only view** of an existing TC (`renderView()`):
   title, priority chip and the description rendered through the same
-  `marked` + `sanitizeHtml` pair the Preview tab uses. No OverType, no Save, no
+  `showdown` + `sanitizeHtml` pair the Preview tab uses. No OverType, no Save, no
   priority dropdown, no recorder/screenshot tools (tests are edited in
   the web app; the panel runs and creates them). Its header carries the one way
   out — an "Open in Testomat ↗" anchor to
@@ -900,7 +900,7 @@ live against `TestrunSerializer`:
 Rendering splits on `attributes.automated`, matching the web: a reporter message
 is printed verbatim (`white-space: pre-wrap`) because its newlines and
 indentation carry the assertion's shape, while a manual message — everything the
-panel itself writes — goes through `marked` + `sanitizeHtml`. The card is painted
+panel itself writes — goes through `showdown` + `sanitizeHtml`. The card is painted
 once per open and is not refreshed by the tester's own marking (that write has
 its own status line); re-opening the test re-reads it.
 
@@ -1798,7 +1798,7 @@ not put anything in it you would not hand to an arbitrary page.
 **8. The HTML sanitizer is the only XSS boundary — and there is now exactly one
 copy.** `shared/html-sanitize.js`, used by `test-view.js:153` and the test
 page's `renderPreviewInto()` (the Preview tab AND the read-only view). Both feed
-`marked.parse()` output into a live document, and TC content is authored in
+`showdown` output into a live document, and TC content is authored in
 Testomat and can carry raw HTML. It was two verbatim
 copies until cycle D. Do not re-inline it. It is a drop-list, so it is only
 half the boundary: `manifest.json`'s `content_security_policy.extension_pages`
