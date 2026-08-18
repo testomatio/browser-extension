@@ -273,7 +273,11 @@ of the result, says the test already has one.
   clicked back to unset (same rule as the web runner). In basic mode steps are
   plain local checkboxes that are not sent anywhere and reset when you leave the
   test. A nested `Expected:` (or `Expected Result:`) bullet renders as a muted
-  expected result under its step, not as a step of its own. **Images in the
+  expected result under its step, not as a step of its own. Every other
+  top-level list item in the description — under *Expected Results*,
+  *Preconditions*, a numbered list — gets the same control and is stored the
+  same way, exactly as the web runner treats it; a tick made in one place shows
+  in the other. Nested sub-bullets stay plain, as they are in the web. **Images in the
   description show**, the same ones the web shows you — they are loaded a moment
   after the text, and one that cannot be loaded (a picture that was deleted,
   a panel with no web login) leaves an **open image ↗** link in its place rather

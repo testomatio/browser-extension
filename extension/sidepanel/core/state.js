@@ -45,7 +45,7 @@ const state = {
   currentRecordId: null, // testrun RECORD id of the open row (not test_id): a
                          // parametrized TC has one record per example row, all
                          // sharing test_id, so the row identity is the record id
-  stepTicks: {},      // recordId -> { stepIndex: true } (v1 local ticks; degraded mode)
+  stepTicks: {},      // recordId -> { rowOrdinal: true } (v1 local ticks; degraded mode)
   runFilter: 'all',   // run-view status chip: all|passed|failed|skipped|untested (resets on run open)
   runSearch: '',      // run-view live search over test + suite titles (resets on run open)
   expandedSuites: {}, // run-view suite key -> user toggle: true expanded / false collapsed;
@@ -54,7 +54,7 @@ const state = {
   testDetailPending: false, // that prefetch is on the wire for the OPEN test — the
                       // header keeps the priority slot reserved (a skeleton disc)
                       // instead of guessing, so the title cannot shift when it lands
-  currentSteps: [],   // parsed steps of the open test: { li, pos, index, title, expected, state }
+  currentSteps: [],   // parsed rows of the open test: { kind: step|item, li, pos, index, title, expected, state }
   saving: false,
   inlineWrites: 0,    // in-flight run-view inline status writes (finish-run waits on these)
   expandedGroups: [], // rungroup ids expanded inline in the runs list (persisted)

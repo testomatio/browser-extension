@@ -199,39 +199,49 @@ function stepTitle(li) {
   return textIn(clone);
 }
 
-// Parse the rendered markdown into the step model (T012). `pos` MUST match the
-// web runner's step index: classical.js `stepEls` enumerates EVERY <li> of the
-// rendered description (nested Expected bullets and non-step lists included),
-// so pos = index among all <li>, snapshotted before extractExpected drops any.
-// `index` stays the step ordinal (display only). The Expected sub-bullet folds
-// into `expected`.
+// Row = control + body column (text, then expected). The body div owns `min-width: 0`
+// so a long title wraps; showdown's disabled `- [ ]` box goes — the control is the mark.
+function wrapRow(li, expected) {
+  li.querySelectorAll(':scope > input[type="checkbox"]').forEach((n) => n.remove());
+  const body = document.createElement('div');
+  body.className = 'step-main';
+  const text = document.createElement('div');
+  text.className = 'step-title';
+  while (li.firstChild) text.append(li.firstChild);
+  body.append(text);
+  if (expected) {
+    const ex = document.createElement('div');
+    ex.className = 'step-expected';
+    ex.textContent = expected;
+    body.append(ex);
+  }
+  li.append(body);
+  li.classList.add('step-row');
+}
+
+// Rows: `step` = top-level li of the Steps lists (Expected sub-bullet folded in), `item` = top-level
+// li of every other list (#2). Nested li count in `pos` (web: every li) but get no control (web hides it).
 function parseSteps(container) {
   const allItems = [...container.querySelectorAll('li')];
-  return stepListItems(container).map((li, idx) => {
+  const steps = stepListItems(container).map((li, idx) => {
     const pos = allItems.indexOf(li);
     const expected = extractExpected(li) || extractInlineExpected(li);
     const title = stepTitle(li);
-    // A step row is CONTROL + BODY, and the body is a column: the step's own text,
-    // then the expected result under it. The text has to be wrapped for that —
-    // loose text in a flex row is an anonymous item, and an anonymous item is the
-    // one thing a `min-width: 0` cannot be given, so the title and the expected
-    // block used to divide the row between them and wrap at four words each.
-    const body = document.createElement('div');
-    body.className = 'step-main';
-    const text = document.createElement('div');
-    text.className = 'step-title';
-    while (li.firstChild) text.append(li.firstChild);
-    body.append(text);
-    if (expected) {
-      const ex = document.createElement('div');
-      ex.className = 'step-expected';
-      ex.textContent = expected;
-      body.append(ex);
-    }
-    li.append(body);
-    li.classList.add('step-row');
-    return { li, pos: pos < 0 ? idx : pos, index: idx, title, expected, state: 'unset', saving: false };
+    wrapRow(li, expected);
+    return { kind: 'step', li, pos: pos < 0 ? idx : pos, index: idx, title, expected, state: 'unset', saving: false };
   });
+  const taken = new Set(steps.map((s) => s.li));
+  // `container.contains` (the div is detached) drops the Expected sub-bullets folded above.
+  const nested = (li) => li.parentElement?.parentElement?.tagName === 'LI';
+  const items = allItems
+    .filter((li) => !taken.has(li) && container.contains(li) && !nested(li))
+    .map((li, idx) => {
+      const title = stepTitle(li);
+      wrapRow(li, '');
+      li.classList.add('step-item');
+      return { kind: 'item', li, pos: allItems.indexOf(li), index: idx, title, expected: '', state: 'unset', saving: false };
+    });
+  return [...steps, ...items];
 }
 
 // US2: substitute ${param}/{{param}} in the raw step markdown from the run's
@@ -300,26 +310,24 @@ function applyStepMode(record) {
 }
 
 // ---- v1 local checkboxes (degraded mode, unchanged behavior) ----
-// Ticks are keyed by testrun record id so two example rows of one parametrized
-// test keep independent local state, and by step ordinal (never the server
-// `pos`) — these ticks are local-only and survive across sessions.
+// Keyed by record id + row ordinal (steps first, then items) — local only, never the server pos.
 function renderLocalCheckboxes(record) {
   const key = record.id;
   const ticks = state.stepTicks[key] || {};
-  for (const s of state.currentSteps) {
+  state.currentSteps.forEach((s, ord) => {
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'checkbox';
-    cb.checked = !!ticks[s.index];
+    cb.checked = !!ticks[ord];
     if (cb.checked) s.li.classList.add('done');
     cb.addEventListener('change', () => {
       const t = state.stepTicks[key] || (state.stepTicks[key] = {});
-      if (cb.checked) t[s.index] = true; else delete t[s.index];
+      if (cb.checked) t[ord] = true; else delete t[ord];
       s.li.classList.toggle('done', cb.checked);
       persistSession();
     });
     s.li.prepend(cb);
-  }
+  });
 }
 
 // ---- tri-state server-synced steps (T013/T014) ----
@@ -356,7 +364,7 @@ function serverStepStates() {
 function paintStep(s) {
   s.ctrl.dataset.state = s.state;
   paintStepMark(s.ctrl, s.state, 12);
-  s.ctrl.setAttribute('aria-label', `step ${s.index + 1}: ${s.state}`); // ordinal, not the web `pos`
+  s.ctrl.setAttribute('aria-label', `${s.kind} ${s.index + 1}: ${s.state}`); // ordinal within its kind, not the web `pos`
   for (const c of ['passed', 'failed', 'skipped']) s.li.classList.toggle(c, s.state === c);
 }
 
@@ -617,7 +625,7 @@ function refreshResultSummary(record) {
 // also mirrors the web, and the split matters: a reporter (automated) message is
 // assertion output whose newlines and indentation ARE the information, so it is
 // printed verbatim as text (pre-wrap, no markdown pass); a manual message — every
-// message the panel itself writes — is Markdown and goes through marked + the
+// message the panel itself writes — is Markdown and goes through showdown + the
 // shared sanitizer, the same XSS boundary the steps use.
 function renderSummaryFailure(attrs) {
   const wrap = $('summary-failure');

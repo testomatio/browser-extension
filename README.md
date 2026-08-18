@@ -120,7 +120,7 @@ Please do not paste API tokens or run URLs you would rather keep private.
 MIT — see [LICENSE](LICENSE).
 
 Third-party code is vendored under `extension/vendor/` as committed single files
-and keeps its own licence: [marked](https://github.com/markedjs/marked) (MIT)
+and keeps its own licence: [showdown](https://github.com/showdownjs/showdown) (MIT)
 and [OverType](https://github.com/panphora/overtype) (MIT). The icon paths come
 from [Material Symbols](https://fonts.google.com/icons) (Apache-2.0), and
 JetBrains Mono ships under the SIL Open Font License (`extension/shared/fonts/OFL.txt`).
