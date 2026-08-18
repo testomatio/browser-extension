@@ -29,8 +29,10 @@ mosaic, and the un-pixelated original is dropped on Apply.
 
 **Tests.** Browse suites and test cases; an existing test opens as a rendered
 read-only view. New test cases are written in a Markdown editor (with suites and
-folders), and a **step recorder** turns your clicks on the page under test into
-human-readable Markdown steps, masking values it recognises as sensitive.
+folders) — or added straight from a suite's list by title alone, one at a time
+or a whole list at once — and a **step recorder** turns your clicks on the page
+under test into human-readable Markdown steps, masking values it recognises as
+sensitive.
 
 **Graceful degradation.** The panel upgrades your API token to a web session
 automatically. When it cannot, it drops to *basic mode*: statuses, comments and

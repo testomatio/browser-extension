@@ -154,6 +154,12 @@ const TestomatAPI = (() => {
   // Flat payload; `suite_id` is REQUIRED — missing or unknown answers 404 "Suite is required".
   const createTest = (attrs) =>
     request('/tests', { method: 'POST', body: attrs }).then((r) => r?.data);
+  // One web /bulk request creates the whole list in order, appended at the suite's end (verified live).
+  // Titles go out as JSON-quoted YAML scalars, so ':' '#' '@' and quotes survive.
+  const bulkCreateTests = (suiteId, titles) => jwtRequest('/bulk', {
+    method: 'POST',
+    body: { append: true, suite: suiteId, yaml: titles.map((t) => `- ${JSON.stringify(t)}`).join('\n') + '\n' },
+  });
   // PATCH takes any SUBSET of the create payload; sending `suite_id` would MOVE the test, so the
   // editor never does. 404 for an unknown/deleted uid.
   const updateTest = (id, attrs) =>
@@ -634,7 +640,7 @@ const TestomatAPI = (() => {
 
   return {
     configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
-    getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest, updateTest,
+    getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,
     assetUrl, fetchAsset,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,
