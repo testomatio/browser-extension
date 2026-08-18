@@ -1,6 +1,6 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
-/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode */
+/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode, askForProject */
 
 // ---------- settings ----------
 
@@ -240,10 +240,11 @@ function evidenceWindowFromField() {
   return Math.min(600, Math.max(10, n));
 }
 
-// A still-reachable previous selection wins, else the first project (#103).
+// A still-reachable previous selection wins; a lone project needs no choosing; several with no
+// previous one leave '' — the pick is the tester's (#11).
 function resolveProjectId(projects, previous) {
   if (previous && projects.some((p) => p.id === previous)) return previous;
-  return projects.length ? projects[0].id : '';
+  return projects.length === 1 ? projects[0].id : '';
 }
 
 async function saveSettings() {
@@ -323,6 +324,12 @@ async function saveSettings() {
       return;
     }
   }
+  // Several projects and no previous one: the token is in, the project is the tester's pick (#11).
+  if (!settings.projectId) {
+    await commitSettings(settings, host);
+    askForProject();
+    return;
+  }
   // Then the project-scoped v2 call the panel actually runs on.
   TestomatAPI.configure(settings);
   try {
@@ -335,6 +342,14 @@ async function saveSettings() {
       return;
     }
   }
+  await commitSettings(settings, host);
+  renderProjectBar(); // the header switcher now carries this host's project list
+  setStatusLine('settings-status', 'Connected ✓', 'ok');
+  openRunsView(); // a first save lands on a fresh runs view (and enables the tabs)
+}
+
+// What Save persists once the token is in — with or without a project chosen yet (#11).
+async function commitSettings(settings, host) {
   // Landing on another project is a project switch — drop everything scoped to
   // the one we are leaving, same as the header switcher does.
   const wasOn = state.settings && state.settings.projectId;
@@ -344,20 +359,16 @@ async function saveSettings() {
   // needs no re-entry.
   state.hostSettings = { ...state.hostSettings, [host]: settings };
   state.hostHistory = [host, ...state.hostHistory.filter((h) => h !== host)];
-  if (hasChrome) {
-    await chrome.storage.local.set({
-      settings,
-      hostSettings: state.hostSettings,
-      hostHistory: state.hostHistory,
-      // Mirrored top-level so the in-page relay never reads `settings` (#175).
-      evidenceCaptureBodies: settings.evidenceCaptureBodies,
-      // Same reason for the step recorder's content script (#176).
-      stepRecNeverValues: settings.stepRecNeverValues,
-    });
-  }
-  renderProjectBar(); // the header switcher now carries this host's project list
-  setStatusLine('settings-status', 'Connected ✓', 'ok');
-  openRunsView(); // a first save lands on a fresh runs view (and enables the tabs)
+  if (!hasChrome) return;
+  await chrome.storage.local.set({
+    settings,
+    hostSettings: state.hostSettings,
+    hostHistory: state.hostHistory,
+    // Mirrored top-level so the in-page relay never reads `settings` (#175).
+    evidenceCaptureBodies: settings.evidenceCaptureBodies,
+    // Same reason for the step recorder's content script (#176).
+    stepRecNeverValues: settings.stepRecNeverValues,
+  });
 }
 
 // ---------- forget / sign out (#177) ----------

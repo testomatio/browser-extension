@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global TestomatAPI, Icons, Skeleton */
+/* global TestomatAPI, Icons, Skeleton, askForProject */
 
 // ---------- init ----------
 
@@ -106,13 +106,18 @@ async function init() {
   }
   TestomatAPI.configure(state.settings);
   // Paints the saved project at once, refreshes the list in the background, and resolves one for a
-  // config that has none. Failing that there is nothing to run against — land on Settings.
-  if (!(await initProjectSwitcher())) {
-    fillSettingsForm();
-    show('settings');
-    // The token is saved, so the form has no box to re-paste it into: retry, or reconnect.
-    setStatusLine('settings-status',
-      "Couldn't load your projects — press Save & validate to retry, or Disconnect to use another token", 'error');
+  // config that has none — or leaves that pick to the tester (#11). Failing all, there is nothing to
+  // run against — land on Settings.
+  const project = await initProjectSwitcher();
+  if (project !== 'ready') {
+    if (project === 'choose') askForProject();
+    else {
+      fillSettingsForm();
+      show('settings');
+      // The token is saved, so the form has no box to re-paste it into: retry, or reconnect.
+      setStatusLine('settings-status',
+        "Couldn't load your projects — press Save & validate to retry, or Disconnect to use another token", 'error');
+    }
     state.booting = false;
     return;
   }
