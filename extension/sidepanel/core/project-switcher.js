@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
-   prefetchTabCounts, Tooltip */
+   prefetchTabCounts, Tooltip, setStatusLine */
 
 // Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
@@ -12,10 +12,11 @@ const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})
 let projectFilter = '';
 let projectActiveId = null;
 
-// The saved project is always among the rows, even before (or without) a list.
+// The saved project is always among the rows, even before (or without) a list. With no project
+// chosen yet, the rows are the token's list as it stands — the picker's (#11).
 function projectRows() {
   const current = state.settings && state.settings.projectId;
-  if (!current) return [];
+  if (!current) return state.projects;
   const list = state.projects.length ? state.projects : [{ id: current, title: '' }];
   return list.some((p) => p.id === current) ? list : [{ id: current, title: '' }, ...list];
 }
@@ -36,7 +37,7 @@ function renderProjectBar() {
   const label = $('project-current');
   if (!bar || !trigger || !label) return;
   const current = state.settings && state.settings.projectId;
-  if (!current) {
+  if (!current && !state.projects.length) {
     closeProjectMenu();
     bar.hidden = true;
     label.textContent = '';
@@ -44,10 +45,12 @@ function renderProjectBar() {
     renderProjectOpenLink();
     return;
   }
-  const row = projectRows().find((p) => p.id === current);
-  label.textContent = row ? projectLabel(row) : current;
-  trigger.dataset.projectId = current;
-  Tooltip.set(trigger, `Active project: ${label.textContent}`);
+  // No project yet but a list to pick from: the trigger IS the picker (#11); `dataset.projectId`
+  // (what the e2e reads) stays absent until a pick.
+  const row = current ? projectRows().find((p) => p.id === current) : null;
+  label.textContent = current ? (row ? projectLabel(row) : current) : 'Choose a project';
+  if (current) trigger.dataset.projectId = current; else delete trigger.dataset.projectId;
+  Tooltip.set(trigger, current ? `Active project: ${label.textContent}` : 'Choose a project');
   renderProjectOpenLink();
   bar.hidden = false;
   // A list landing mid-open repaints the rows under the tester's cursor.
@@ -245,6 +248,7 @@ async function persistActiveSettings(settings) {
 async function switchProject(projectId) {
   const prev = state.settings;
   if (!prev || !projectId || projectId === prev.projectId) return;
+  const first = !prev.projectId; // this connection's first pick — it lands on Runs (#11)
   // Drain first: a queued status carries a testrun id that means nothing in the next
   // project — replayed there it 404s and is dropped as unrecoverable.
   if (typeof OfflineQueue !== 'undefined' && OfflineQueue.count()) {
@@ -257,30 +261,43 @@ async function switchProject(projectId) {
   await persistActiveSettings(settings);
   renderProjectBar();
   // Stay on the tab the tester is on, but at its root: the open run/test is gone.
-  if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
+  if (first) { setStatusLine('settings-status', 'Connected ✓', 'ok'); await openRunsView(); }
+  else if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
   else if (state.activeTab === 'tests') await openTcStudioView();
   else await openRunsView();
   // Count the OTHER tab too — a blank chip reads as "empty project", not "not looked
   // at yet". Not awaited: the switch is done, the chips fill in behind it.
   prefetchTabCounts();
   const p = state.projects.find((x) => x.id === projectId);
-  toast(`Switched to ${p ? (p.title || p.id) : projectId}`);
+  toast(`${first ? 'Connected to' : 'Switched to'} ${p ? (p.title || p.id) : projectId}`);
 }
 
-// Boot: paint the saved project, then fill the list in the background. Returns false
-// when no project can be resolved at all, so init can drop the tester on Settings.
+// Token in, project not: the full Settings form (the connect card has done its job), the status line
+// saying so, and the header switcher — which IS the picker — open (#11).
+function askForProject() {
+  fillSettingsForm();
+  show('settings');
+  renderProjectBar();
+  setStatusLine('settings-status', 'Connected ✓ — choose a project', 'ok');
+  openProjectMenu();
+}
+
+// Boot: paint the saved project, then fill the list in the background. A config without a project
+// resolves one the way Save does — a lone project is taken, several are the tester's pick (#11).
+// 'ready' | 'choose' | 'none' — none means nothing to run against, so init lands on Settings.
 async function initProjectSwitcher() {
   renderProjectBar();
   if (state.settings && state.settings.projectId) {
     refreshProjects(); // background: the dropdown fills in when it lands
-    return true;
+    return 'ready';
   }
   const projects = await refreshProjects();
-  if (!projects.length) return false;
+  if (!projects.length) return 'none';
+  if (projects.length > 1) return 'choose';
   const settings = { ...state.settings, projectId: projects[0].id };
   state.settings = settings;
   TestomatAPI.configure(settings);
   await persistActiveSettings(settings);
   renderProjectBar();
-  return true;
+  return 'ready';
 }
