@@ -498,40 +498,166 @@ function onTcSearch() {
 }
 
 function clearTcSearch() {
-  $('tc-search').value = '';
-  state.tcSearch = '';
-  $('tc-search-clear').hidden = true;
+  resetTcSearch();
   renderTcList();
   $('tc-search').focus();
 }
 
-async function openTcListView(suiteId, title) {
-  if (capabilities.readonly) { show('tclist'); return; } // #155 — locked project
-  state.tcSuiteId = suiteId;
-  state.tcSuiteTitle = title || 'Suite';
-  // Read off the tree already in memory — the callers have an id and a title,
-  // never the node. null (no tree, e.g. a restored session) draws the glyph.
-  state.tcSuiteEmoji = suiteNodeEmoji(state.tcSuites, suiteId);
-  // Search resets on every suite open (in-memory only).
+// Drops the query WITHOUT redrawing and WITHOUT taking focus — for callers about to redraw
+// anyway, and whose own field holds the caret (the quick bar's create).
+function resetTcSearch() {
   state.tcSearch = '';
   if ($('tc-search')) $('tc-search').value = '';
   if ($('tc-search-clear')) $('tc-search-clear').hidden = true;
-  show('tclist');
-  const sk = Skeleton.show('tclist');
-  setStatusLine('tclist-status', 'Loading tests…');
-  $('tc-list').replaceChildren();
-  // The previous suite's number is not this one's — the chip goes for the fetch.
-  if ($('tc-list-count')) $('tc-list-count').hidden = true;
+}
+
+// The suite's rows, read and drawn. Shared by the suite open and by every create in the
+// quick bar, so a new test is read back exactly the way the list was first filled.
+// `quiet` re-reads behind the rows already up — no skeleton over a list that is still there.
+async function loadTcList(suiteId, { quiet = false } = {}) {
+  const sk = quiet ? null : Skeleton.show('tclist');
+  if (!quiet) setStatusLine('tclist-status', 'Loading tests…');
   try {
     // v2 answers newest-first; the web orders a suite's tests by `position` ascending (#4).
     const tests = await TestomatAPI.getTestsBySuite(suiteId);
+    // A suite opened while this was on the wire owns the list now — these rows are the last one's.
     if (state.tcSuiteId !== suiteId) return;
     state.tcTests = tests.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     renderTcList();
   } catch (e) {
     handleApiError(e, 'tclist-status');
   } finally {
-    Skeleton.hide(sk);
+    if (sk) Skeleton.hide(sk);
+  }
+}
+
+async function openTcListView(suiteId, title) {
+  if (capabilities.readonly) { show('tclist'); return; } // #155 — locked project
+  // A DIFFERENT suite starts the bar clean; a refresh or a return to this one keeps what is half-typed.
+  if (String(state.tcSuiteId) !== String(suiteId)) resetTcQuickBar();
+  state.tcSuiteId = suiteId;
+  state.tcSuiteTitle = title || 'Suite';
+  // Read off the tree already in memory — the callers have an id and a title,
+  // never the node. null (no tree, e.g. a restored session) draws the glyph.
+  state.tcSuiteEmoji = suiteNodeEmoji(state.tcSuites, suiteId);
+  // Search resets on every suite open (in-memory only).
+  resetTcSearch();
+  show('tclist');
+  $('tc-list').replaceChildren();
+  // The previous suite's number is not this one's — the chip goes for the fetch.
+  if ($('tc-list-count')) $('tc-list-count').hidden = true;
+  await loadTcList(suiteId);
+}
+
+// ---------- Add new test: the quick/bulk bar (#3) ----------
+// Quick mode creates ONE test from a title, bulk mode a whole list in a single request.
+// Both append at the end of the suite, which is where the re-read finds them.
+
+// Lines parked while quick mode shows only the first of them — Bulk gets them back.
+let tcQuickParked = [];
+let tcQuickBusy = false;
+
+const tcQuickBulkOn = () => !!$('tc-quick-bulk')?.checked;
+
+// One space between words and none at the ends, the way the web trims a title.
+const tcQuickTitle = () => String($('tc-quick-title').value).replace(/\s+/g, ' ').trim();
+
+// Order kept and duplicates left alone: the tester typed the list they meant.
+const tcQuickLines = () =>
+  String($('tc-quick-titles').value).split('\n').map((s) => s.trim()).filter(Boolean);
+
+// What the button would send, in either mode.
+const tcQuickTitles = () => (tcQuickBulkOn() ? tcQuickLines() : [tcQuickTitle()].filter(Boolean));
+
+// Nothing to send, or a send already out — either way there is nothing to press.
+function syncTcQuickCreate() {
+  const btn = $('tc-quick-create');
+  if (btn) btn.disabled = tcQuickBusy || !tcQuickTitles().length;
+}
+
+// The fields stay READ-ONLY rather than disabled: a title in flight is still the tester's to read.
+function setTcQuickBusy(busy) {
+  tcQuickBusy = busy;
+  $('tc-quick-title').readOnly = busy;
+  $('tc-quick-titles').readOnly = busy;
+  $('tc-quick-bulk').disabled = busy;
+  $('tc-quick-create').textContent = busy ? 'Creating…' : 'Create';
+  syncTcQuickCreate();
+}
+
+// Every suite open starts the bar clean — quick mode, both fields empty, nothing parked.
+function resetTcQuickBar() {
+  const input = $('tc-quick-title');
+  const area = $('tc-quick-titles');
+  if (!input || !area) return;
+  tcQuickParked = [];
+  input.value = '';
+  area.value = '';
+  $('tc-quick-bulk').checked = false;
+  input.hidden = false;
+  area.hidden = true;
+  setTcQuickBusy(false);
+}
+
+// The text follows the switch, as it does in the web widget: the quick field is the FIRST line
+// of the list, and the lines under it wait in memory for Bulk to come back.
+function onTcQuickBulkToggle() {
+  const input = $('tc-quick-title');
+  const area = $('tc-quick-titles');
+  const bulk = tcQuickBulkOn();
+  if (bulk) {
+    area.value = [input.value.trim(), ...tcQuickParked].filter(Boolean).join('\n');
+    tcQuickParked = [];
+    input.value = '';
+  } else {
+    const lines = tcQuickLines();
+    input.value = lines[0] || '';
+    tcQuickParked = lines.slice(1);
+    area.value = '';
+  }
+  input.hidden = bulk;
+  area.hidden = !bulk;
+  (bulk ? area : input).focus();
+  syncTcQuickCreate();
+}
+
+const onTcQuickInput = () => syncTcQuickCreate();
+
+// Quick: Enter creates, and a modifier held with it does nothing (web parity). Bulk: Enter is a
+// newline, Cmd/Ctrl+Enter the create. Panel hotkeys never see either — hotkeys.js skips fields.
+function onTcQuickKeydown(e) {
+  if (e.key !== 'Enter') return;
+  if (tcQuickBulkOn()) {
+    if (!e.metaKey && !e.ctrlKey) return;
+  } else if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) {
+    return;
+  }
+  e.preventDefault();
+  submitTcQuick();
+}
+
+async function submitTcQuick() {
+  const titles = tcQuickTitles();
+  if (tcQuickBusy || !titles.length || !state.tcSuiteId) return;
+  const bulk = tcQuickBulkOn();
+  const suiteId = state.tcSuiteId;
+  const field = bulk ? $('tc-quick-titles') : $('tc-quick-title');
+  setTcQuickBusy(true);
+  try {
+    if (bulk) await TestomatAPI.bulkCreateTests(suiteId, titles);
+    else await TestomatAPI.createTest({ title: titles[0], suite_id: suiteId });
+    field.value = '';
+    if (bulk) tcQuickParked = [];
+    resetTcSearch(); // a live filter would hide the very row just made
+    await loadTcList(suiteId, { quiet: true });
+    // The new tests are appended, so the end of the list is where they landed. The page's own
+    // bottom, not the last row: scrolled all the way, the pinned bar sits under the list, over nothing.
+    if (state.tcSuiteId === suiteId) window.scrollTo({ top: document.documentElement.scrollHeight });
+  } catch (e) {
+    toast(e.message || String(e)); // the typed titles stay in the field
+  } finally {
+    setTcQuickBusy(false);
+    if (state.tcSuiteId === suiteId) field.focus();
   }
 }
 

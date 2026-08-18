@@ -84,6 +84,16 @@ body[data-immersive="true"] .context-bar {
 
 main { padding: var(--gutter); }
 
+/* ---- panel column (#3) ---- */
+/* The panel is a column at least a viewport tall, so the one screen with a pinned footer can push it
+   to the bottom edge on a short list. Every other view is a plain flex item and lays out as it did —
+   the chain stops at the section, and only #view-tclist opts into being a column itself. */
+body { display: flex; flex-direction: column; min-height: 100vh; }
+main { flex: 1 1 auto; display: flex; flex-direction: column; }
+#view-tclist:not([hidden]) { display: flex; flex-direction: column; }
+/* The list is the part that gives: it takes the leftover height so the bar lands on the bottom edge. */
+#view-tclist:not([hidden]), #tc-list { flex: 1 1 auto; }
+
 /* ---- boot placeholder ---- */
 /* Keyed on the body attribute and written into the markup rather than set from a script, so it holds
    from the very first paint; core/skeleton.js clears it and removes the container together. */
@@ -778,6 +788,36 @@ a.attachment-link:hover { text-decoration: underline; }
 /* Search + "New test": the field takes the leftover width, the action keeps its own; never wraps. */
 .tc-list-bar { flex-wrap: nowrap; gap: var(--space-3); }
 .tc-list-bar .field { flex: 1; min-width: 0; }
+
+/* "Add new test" (#3) — the row that closes the panel. Full-bleed like .bar.stretch.header-top at the
+   top, and past main's bottom padding as well, so the pinned row sits ON the edge instead of a gutter
+   above it. Top-aligned: in Bulk the field grows down and the two controls stay on its first line. */
+.tc-quick-bar {
+  z-index: var(--z-sticky);
+  align-items: flex-start;
+  margin: var(--space-3) calc(-1 * var(--gutter)) calc(-1 * var(--gutter));
+}
+/* The field is the only thing that shrinks; the button and the switch keep their own width, so the row
+   never wraps at the widths a side panel is dragged to. */
+.tc-quick-bar > :is(.input, .textarea) { flex: 1 1 auto; min-width: 0; }
+.tc-quick-bar > .btn { flex: none; }
+/* Three lines even when empty — a box that READS as a list — and a paste of fifty lines must not eat
+   the list: it grows to eight (plus its own padding), then scrolls. */
+.tc-quick-bar > .textarea {
+  min-height: calc(var(--control-fs-sm) * var(--leading-normal) * 3 + var(--space-2));
+  max-height: calc(var(--control-fs-sm) * var(--leading-normal) * 8 + var(--space-2));
+  overflow-y: auto;
+}
+/* A label's own block margins are for a form column, not for a row of controls. */
+.tc-quick-bulk {
+  flex: none;
+  align-items: center;
+  height: var(--control-h-sm);
+  margin: 0;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.tc-quick-bulk > .switch { margin-top: 0; }
 
 /* The three creates are a GROUP — the row's gap is 4 and the field adds 8 after it, making the same 12
    .runs-bar and .tc-list-bar put between search and actions. The field is the only thing that shrinks. */

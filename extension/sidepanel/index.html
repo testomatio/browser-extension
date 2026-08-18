@@ -428,6 +428,15 @@
       </div>
       <ul id="tc-list" class="list"></ul>
       <p id="tclist-status" class="status-line" role="status"></p>
+      <!-- Add new test (#3), the web app's own widget pinned at the panel's bottom: a title creates a
+           test in this suite without opening the editor, and Bulk turns the field into a list.
+           data-tip-side: the row sits on the bottom edge, so its labels open upward over the list. -->
+      <div id="tc-quick-bar" class="bar footer tc-quick-bar" data-tip-side="top">
+        <input id="tc-quick-title" class="input size-sm" type="text" placeholder="Add new test" autocomplete="off" aria-label="New test title" />
+        <textarea id="tc-quick-titles" class="textarea autogrow size-sm" rows="3" placeholder="One test title per line" aria-label="New test titles, one per line" hidden></textarea>
+        <button id="tc-quick-create" class="btn primary size-sm" type="button" disabled>Create</button>
+        <label class="choice tc-quick-bulk" data-tip="Add more"><input id="tc-quick-bulk" class="switch" type="checkbox" role="switch" /> Bulk</label>
+      </div>
     </section>
 
     <!-- Suite picker for the tree bar's "Test": reuses the TC-tree in pick mode. -->

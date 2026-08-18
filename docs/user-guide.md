@@ -459,6 +459,13 @@ Browse and author test cases.
   creates it; the **✕**, Esc, or clicking away cancels. Creating something
   clears an active search, so the new node is never made off screen.
 - Clicking a suite opens its test list (**+ New test**, plus a live search).
+- **Add new test** — the field pinned along the bottom of that list. Type a
+  title and press Enter, or **Create**, and the test is made in this suite right
+  there, with no editor in between. The **Bulk** switch beside it turns the one
+  field into one title per line, and **Create** — or `Cmd`/`Ctrl`+`Enter` —
+  makes the whole list in a single go. New tests land at the end of the list,
+  which reloads to show them; an active search clears itself so the row you just
+  made is never created off screen.
 - Clicking a test **shows** it — read-only.
 
 #### Reading a test
