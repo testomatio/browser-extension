@@ -522,10 +522,10 @@ async function openTcListView(suiteId, title) {
   // The previous suite's number is not this one's — the chip goes for the fetch.
   if ($('tc-list-count')) $('tc-list-count').hidden = true;
   try {
-    // Newest-first as the API returns them (created_at DESC).
+    // v2 answers newest-first; the web orders a suite's tests by `position` ascending (#4).
     const tests = await TestomatAPI.getTestsBySuite(suiteId);
     if (state.tcSuiteId !== suiteId) return;
-    state.tcTests = tests;
+    state.tcTests = tests.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     renderTcList();
   } catch (e) {
     handleApiError(e, 'tclist-status');
