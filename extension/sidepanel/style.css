@@ -415,6 +415,13 @@ body[data-connect="true"] .header-top { display: none; }
 .run-info-desc-more { font-size: var(--fs-sm); padding: var(--space-1) 0 0; white-space: nowrap; }
 .run-info-link { color: var(--accent); }
 
+/* The placeholder that stands in for this whole screen (core/skeleton.js runScreen) is built from the
+   classes above, so it needs no sizing of its own — with one exception. What sets the Run info head's
+   height there is the LINE the words make, not the 16px caret beside them, so the disc standing in for
+   that caret is grown to the same line and holds the head open at its real 26. */
+.sk-run { pointer-events: none; }
+.sk-run .disclosure-head { --sk-size: calc(var(--fs-sm) * var(--leading-normal)); }
+
 /* ---- Suite sections ---- a section header over its test rows, at every tree head's 32px floor. */
 .suite-head { cursor: pointer; }
 .suite-head:hover { background: var(--row-hover); }

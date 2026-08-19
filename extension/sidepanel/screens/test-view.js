@@ -49,13 +49,18 @@ async function openTestView(recordId) {
   syncFullPageToggles();
   const sk = Skeleton.show('test');
   try {
-    // Versioned steps from the testrun; fall back to the current TC text.
-    let source = record.id ? await TestomatAPI.getTestrun(record.id) : null;
+    // Versioned steps from the testrun, and the session probe alongside it: two
+    // independent reads, so the open costs one round trip rather than two. The gate has
+    // to be settled BEFORE RENDERING — so steps render once in the right mode — which
+    // this still is; the probe never throws, so it cannot fail the batch either.
+    const [fetched] = await Promise.all([
+      record.id ? TestomatAPI.getTestrun(record.id) : null,
+      probeSession(record.id),
+    ]);
+    // Fall back to the current TC text. Serial, and rare: only a testrun that carried none.
+    let source = fetched;
     if (!source?.description && record.test_id) source = await TestomatAPI.getTest(record.test_id);
     if (String(state.currentRecordId) !== String(record.id)) return; // moved on
-    // Settle the session gate BEFORE rendering so steps render once in the right mode.
-    await probeSession(record.id);
-    if (String(state.currentRecordId) !== String(record.id)) return;
     // Both JWT-only (cached); parallel to avoid a serial stall on two best-effort reads.
     if (capabilities.jwt) await Promise.all([loadProjectInfo(), loadProjectUsers()]);
     if (String(state.currentRecordId) !== String(record.id)) return;
