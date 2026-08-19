@@ -29,8 +29,9 @@ Companion docs — read across, they are not repeated here:
 3. **Single egress, no exceptions.** At runtime the extension talks only to the
    configured Testomat instance. No CDN, no analytics, no other host. The one
    exception this file used to record — the opt-in AI step polish to
-   `api.anthropic.com` — is gone with the feature, and the rule is absolute
-   again. A change that would add a third-party host is not a normal change: it
+   `api.anthropic.com` — is gone: the polish that exists today (#23) asks the
+   configured instance's own `/prompts` endpoint, so the rule is absolute again.
+   A change that would add a third-party host is not a normal change: it
    needs the maintainers' agreement first.
 4. **No invented endpoints.** Every API call is verified against the product's
    own source and curl-smoked before any UI code depends on it.
@@ -768,7 +769,7 @@ long-lived ports.
 | `EVIDENCE_HOOK_ON` / `EVIDENCE_HOOK_OFF` | worker → injected relay (`tabs.sendMessage`) | Un-mute / mute the page hook. The mute survives in a document that never navigates, so a NEW recording on the same tab has to un-mute it — a re-inject cannot (double-init guard). |
 | `EVIDENCE_STOPPED` `{reason}` | worker → panel (broadcast) | The recording ended without the tester. There is exactly one such reason: `target_closed`. |
 | `STEPREC_START` | editor → worker | Begin recording on the active site tab. |
-| `STEPREC_ADD` `{entry}` | injected script → worker | One recorded step/expected line: `{kind, text, action?, name?, context?:{row,section,column}, manual?}`. `text` is the rendered line every consumer reads; the structured fields are additive and stored verbatim, field by field, by `srEntry()`. `manual:true` marks an expected the tester typed on the indicator, as opposed to an auto navigation one. `entry.replaces` (dblclick only) names the single-click text this action supersedes and is a wire instruction — it never lands in the recording. Handled through `srSerial()` — one chain, because the state is a read-modify-write. |
+| `STEPREC_ADD` `{entry}` | injected script → worker | One recorded step/expected line: `{kind, text, action?, name?, context?:{row,section,column}, ctx?, manual?}`. `text` is the rendered line every consumer reads; the structured fields are additive and stored verbatim, field by field, by `srEntry()`. `ctx` (#23) is the action's **context packet** — `{action, element, near, page, value?, after}` — copied whole rather than field by field, and the only thing the editor's AI polish reads. `manual:true` marks an expected the tester typed on the indicator, as opposed to an auto navigation one. `entry.replaces` (dblclick only) names the single-click text this action supersedes and is a wire instruction — it never lands in the recording. Handled through `srSerial()` — one chain, because the state is a read-modify-write. |
 | `STEPREC_STATUS` | editor → worker | Poll `{recording, count, paused, manualPause, blind, tabId}`. |
 | `STEPREC_TITLE` `{title}` | injected script → worker | Real `document.title` after a navigation, to refine the last nav entry. |
 | `STEPREC_STOP_REQUEST` | injected script / editor → worker | Stop recording, keep the entries. |
@@ -1219,9 +1220,11 @@ editor  STEPREC_START
   → srInjectSync(tab.id) → executeScript(content/step-recorder.js)
 
 page    click/dblclick/type/select
-  → STEPREC_ADD {entry:{kind, text, action, name, context, replaces?}}
+  → the packet is armed AT EVENT TIME and the entry queued; ~400ms later (#23)
+    `ctx.after` is read and the entry leaves — one outbox, in arrival order
+  → STEPREC_ADD {entry:{kind, text, action, name, context, ctx, replaces?}}
   → srAdd → srPopTwins (a dblclick supersedes its own clicks)
-          → srFlushOpen (the deferred `Open <url>` first step) → srPush
+          → srFlushOpen (the deferred `Open <url>` first step) → srPlace/srPush
       cap = 50 (+ capBonus), overridable by storage.session `stepRecCap`
       at the cap the recording PAUSES and drops the action
 
@@ -1237,6 +1240,8 @@ editor  STEPREC_PULL (poll, 500ms) → the same status PLUS the entries that are
         final — the editor appends them to the open test right there
 editor  STEPREC_STOP → returns only what the last pull had not reached and clears
         the state; Stop itself just ends the recording
+        …then, with `Polish with AI` on, ONE POST /prompts over the whole
+        recording — the raw steps are already in the body (#23)
 page    STEPREC_STATUS (the content script's own poll) → status alone, no entries
 ```
 
@@ -1250,6 +1255,44 @@ awaiting its title for `SR_NAV_SETTLE_MS` (3000), after which the URL-derived ti
 stands. Past `sent` both rewriters give up (`srPopTwins`, `srRefineNav`): that line
 belongs to the editor now, and only rewriting our own copy would fork the two.
 
+**Polishing (#23, editor side)**. The `Polish with AI` switch (`storage.local`
+`polishSteps`, default off, hidden when `jwtAvailable() === false`) changes
+**nothing** about the insertion: every entry goes in raw, at once, exactly as it
+did before the feature existed. What the editor keeps alongside the body is the
+recording itself — `recEntries` (the entries, packets and all), `recStart` (the
+index its first item took in the `### Steps` ordered list, counted BEFORE the
+insert), `recCount`, and `recRawItems`/`recPolishedItems`, the two texts each of
+its items has had.
+
+`finishRecording()` drains the recorder, and *then*, with the switch on, sends the
+whole recording in ONE `polishRecordedSteps()` call (30s cap, `setPolishTimeout`
+in e2e) while the record button reads `Polishing…` and is disabled. The message is
+`TEST:` / `PAGE:` (from the first entry that has a packet) / `EXISTING STEPS`
+(items above `recStart`, omitted when there are none) / `RECORDED ACTIONS` — one
+block per recorded step: `raw:` (the sentence the recorder wrote), `action:`,
+`element:`, `value:`, `near:`, `after:`, `note:` (a manual expected that followed
+it; the worker's auto nav line adds nothing, its change is already in `after`). An
+entry with no packet — the deferred `Open <url>` — is still an action: `raw:` +
+`action: open` + `after: url=<the url>`.
+
+The answer's numbered items replace the recording's items **1:1 by index**
+(`replaceRecItems()`): fewer items leave the tail raw, extras are dropped, and an
+item whose current text is no longer what we last wrote there (`recWritten()`) was
+edited by hand and is skipped. Success toasts `Steps polished ✓`; a failure keeps
+the raw text and toasts once — a 422 in the **server's own words** (`error` /
+`details` out of the JSON body), a 401/403 switches the feature off, hides it and
+persists that.
+
+`#tc-polish-btn` beside the switch is the same button both ways: `Undo polish`
+right after a successful polish (back to `recRawItems`, 1:1, same skip rule), and
+`Polish recorded steps` whenever the draft holds a recording that is not polished
+— stopped with the switch off, the panel closed before Stop, or undone. Hidden
+while recording, with no recording, with the switch off, and after Save.
+
+Stop and the button share one lane (`runExclusive` / `recBusy`), which is also
+what `recStopping` reports and what `save()` awaits (`settleRec()`) — Save must
+never send the raw text a moment before the answer rewrites it.
+
 **Two pauses, one dropped action**. `paused` is the cap's — `STEPREC_CONTINUE`
 clears it *and* grants another cap's worth. `manualPause` is the tester's Pause on
 the indicator, cleared only by Resume, so stepping out of the scenario never buys
@@ -1257,6 +1300,24 @@ the indicator, cleared only by Resume, so stepping out of the scenario never buy
 `srAdd()` returns *before* `srFlushOpen()` so a pause taken right after Start cannot
 swallow the deferred `Open` step. A navigation during a manual pause is followed
 (`lastUrl`) but not recorded.
+
+**The context packet** (#23, `content/step-recorder.js`). Every action carries a
+`ctx` alongside its sentence: `element` (tag, role, type, own text, aria-label,
+title, placeholder, name, id, first 3 classes, icon), `near` (label, row, column,
+section, heading, the texts either side), `page` (title + `origin+pathname`, the
+env-meta trim), `value` for a type/select — **the masked noun, never the secret**
+— and `after`, read ~400ms later: url/title change, a toast, dialog or validation
+message ADDED in that window (one `MutationObserver`, armed at the action — a
+node classed `alert`/`error`/`invalid-feedback`/`help-block`/`validation`, or an
+`aria-invalid` control's own message, reads as the `dialog` half), the control's
+own state change, and a nearby badge that moved. Every field is best-effort inside a
+`try/catch`: a packet is never worth a lost step. Capped at ~1.5 KB of JSON
+(`siblings` and `class` go first). Two consequences elsewhere: the entry now
+leaves ~400ms late, so `pagehide`/`beforeunload` flush the outbox rather than let
+a navigating click die with the page, and `srPlace()` in the worker puts an action
+that lands right behind an auto-nav line back in front of it. The packet is built
+whether or not the AI switch is on — it is also what lets a nameless control be
+named by its row (`elementName(el, fallback, near)`).
 
 **What the injected script recognizes** (`content/step-recorder.js`): buttons,
 links, `summary`, the button-ish inputs, and the ARIA custom controls
@@ -1488,6 +1549,7 @@ Three areas, plus page-level `sessionStorage`. Nothing is ever written to
 | `settings` | The **active** instance plus its preferences: `{baseUrl, apiToken, projectId (resolved from the token's project list, never typed), envInfoOnFail, envFullUrl, evidenceWindowSec, evidenceAutoAttach, evidenceCaptureBodies, stepRecNeverValues}` (`screens/settings.js` `saveSettings()`) and `fullPageCapture` (`screens/test-view.js:419`) | `screens/settings.js`, `screens/test-view.js:431` |
 | `evidenceCaptureBodies` | The body-capture boolean ALONE, mirrored from the active `settings` on a save and on a recording start — the in-page relay reads this key, never `settings`, which holds the API token | `screens/settings.js`, `screens/evidence.js` |
 | `stepRecNeverValues` | The recorder's never-record-values boolean ALONE, mirrored from the active `settings` on a save — the injected `content/step-recorder.js` reads this key, never `settings`, for the same reason as the row above. Absent -> OFF, i.e. values are recorded with masking applied | `screens/settings.js` |
+| `polishSteps` | The test editor's **Polish with AI** switch (#23), its OWN top-level boolean — it belongs to this browser, not to the instance's `settings`, and is written the moment the switch moves (a 401/403 from `/prompts` writes `false` and hides it). Absent -> OFF | `editor/editor.js` |
 | `hostSettings` | `hostname → its saved settings object` — switching instances restores that host's token/project/prefs with no re-entry | `core/storage.js:22`, `screens/settings.js:295` |
 | `hostHistory` | Hosts used before, most-recent-first, deduped (the Instance dropdown) | same |
 | `session` | The restorable panel session: `{view, activeTab, tabViews, runId, runTitle, currentRecordId, stepTicks, expandedGroups, runsFilter}` (`core/storage.js:35-47`) | `persistSession()` |
@@ -1570,7 +1632,7 @@ unconfigured.
 | `viewPanelWindowId` | `shared/view-mode.js`, written by `background.js` | The panel's own popup window. One panel, not a stack: the next icon click focuses it. Removed when the window closes. |
 | `viewNormalWindowId` | `shared/view-mode.js`, written by `background.js` `windows.onFocusChanged` | The last focused NORMAL window — where the site under test is. What `activeTab()` resolves against in window mode (§4.1); `windows.getAll()` is the fallback when it is missing or stale. |
 | `annotate-<uuid>` | `shared/capture-annotate.js:75,102` | The screenshot handoff; the annotator overwrites the same key with `{resultDataUrl}` or `{cancelled:true}` (`overlay/annotate-overlay.js:145,149,154`, `editor/annotate.js:50`). |
-| `editorDraft:suite:<id>` | `editor/editor.js` `editorDraftKey()` / `persistDraftNow()` | `{title, markdown, priority, suite, ts}` — an unsaved NEW test in panel context. Creation-only: an existing test is read-only, so it can never be dirty. |
+| `editorDraft:suite:<id>` | `editor/editor.js` `editorDraftKey()` / `persistDraftNow()` | `{title, markdown, priority, suite, ts, params?, recording?}` — an unsaved NEW test in panel context. `recording` (#23) is `{entries, start, count, polished, rawItems, polishedItems}` — the recording the editor was holding, so a reopened panel can still polish it (or put it back) even though the steps are already in the body. Creation-only: an existing test is read-only, so it can never be dirty. |
 
 ⚠️ The worker calls
 `chrome.storage.session.setAccessLevel({accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS'})`
@@ -1649,9 +1711,11 @@ templates** (`listTemplates`), a test's **parameters and example rows**
 `deleteExample` — v2 serializes neither, so the editor's grid and the view's
 table hide themselves in basic mode), the reported-result **summary** of an open
 test (it reads the detail `probeSession` prefetched, plus a lazy
-`GET /testruns/{id}/steps` for an automated row), and **every upload**
-(`uploadAttachment` / `uploadTestAttachment` — the v2 attachments route is not
-deployed on prod).
+`GET /testruns/{id}/steps` for an automated row), the recorder's **AI polish**
+(`polishRecordedSteps` → `POST /prompts` with `prompt: 'polish_recorded_steps'`,
+the answer's `data.polished_steps` being the rewritten section — #23), and
+**every upload** (`uploadAttachment` / `uploadTestAttachment` — the v2
+attachments route is not deployed on prod).
 
 `listTemplates(kind)` carries two server quirks worth knowing before touching it
 (`Api::TemplatesController#index`, verified live): `?kind=` **falls back** to

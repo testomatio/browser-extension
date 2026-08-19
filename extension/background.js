@@ -477,9 +477,26 @@ async function srAdd(entry, sender) {
   // A dblclick supersedes the click(s) that produced it — those trailing twins are dropped first.
   if (entry && typeof entry.replaces === 'string') srPopTwins(st, entry.replaces);
   srFlushOpen(st, cap);
-  const idx = srPush(st, srEntry(kind, text, entry), cap);
+  const idx = srPlace(st, srEntry(kind, text, entry), cap);
   await srSet(st);
   return { ok: idx !== -1, ...srEcho(st) };
+}
+
+// #23: the recorder holds an action for ~400ms to see what it caused, so the navigation that
+// action triggered can reach the worker FIRST. A step landing right behind an AUTO nav line
+// goes in front of it — the page opened BECAUSE of it, and the line belongs under it.
+const SR_NAV_LEAD_MS = 900;
+function srPlace(st, entry, cap) {
+  const idx = srPush(st, entry, cap);
+  if (idx < 1 || entry.kind !== 'step') return idx;
+  const prev = st.entries[idx - 1];
+  if (!prev || prev.kind !== 'expected' || prev.manual) return idx;
+  if (idx - 1 < (st.sent || 0)) return idx; // already in the editor — never unwrite it (#160)
+  if ((entry.at || 0) - (prev.at || 0) > SR_NAV_LEAD_MS) return idx;
+  st.entries[idx - 1] = entry;
+  st.entries[idx] = prev;
+  if (st.lastNavIdx === idx - 1) st.lastNavIdx = idx;
+  return idx - 1;
 }
 
 // Copied field by field on purpose: `replaces` is a wire instruction and must never enter the recording.
@@ -492,6 +509,9 @@ function srEntry(kind, text, entry) {
     for (const k of ['row', 'section', 'column']) if (entry.context[k]) c[k] = String(entry.context[k]);
     if (Object.keys(c).length) e.context = c;
   }
+  // #23: the action's context packet rides along WHOLE — it is data the editor reads (and
+  // may send to the instance's AI), not a wire instruction like `replaces`.
+  if (entry.ctx && typeof entry.ctx === 'object') e.ctx = entry.ctx;
   if (kind === 'expected' && entry.manual) e.manual = true; // typed by the tester, not a navigation
   return e;
 }
