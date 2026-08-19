@@ -88,6 +88,11 @@ async function loadRuns() {
     state.listPaging = { page: res.page, total: res.total, totalPages: res.totalPages, loading: false };
     capabilities.jwt = true;
     applyCapabilities();
+    // The session is proven right here, and both caches memoize on success — so a run
+    // opened a moment later paints the member names and the viewer's own timezone in
+    // its FIRST frame, instead of the probe repainting both a round trip later.
+    loadProjectInfo();  // fire-and-forget; each swallows its own failure
+    loadProjectUsers();
     loadDescendantRuns(); // best-effort
   } catch (e) {
     if (TestomatAPI.jwtAvailable() === false) {
@@ -172,8 +177,16 @@ async function loadRunsCount(epoch) {
 // In-memory only — the runs search is never persisted.
 function resetRunsSearch() {
   state.runsSearch = '';
-  if ($('runs-search')) $('runs-search').value = '';
-  if ($('runs-search-clear')) $('runs-search-clear').hidden = true;
+  syncRunsSearchInput();
+}
+
+// A project switch clears the query in state (resetProjectScopedState) behind the
+// input's back, so the field is read FROM state rather than trusted to hold it.
+function syncRunsSearchInput() {
+  const input = $('runs-search');
+  if (!input) return;
+  if (input.value !== state.runsSearch) input.value = state.runsSearch;
+  if ($('runs-search-clear')) $('runs-search-clear').hidden = state.runsSearch.trim() === '';
 }
 
 // #157: the route is /runs/new — /runs/newrun is a dead web route that stacks the
@@ -192,14 +205,31 @@ function renderNewRunLink() {
 }
 
 async function openRunsView() {
+  // The rows this project already read are painted AT ONCE and re-read behind them.
+  // Coming back from a run they never left memory, and clearing the list to fetch the
+  // same ones again is what put an empty screen in front of the tester for 150ms.
+  const inMemory = state.listMode === 'dashboard' ? state.dashItems?.length : state.lastRuns?.length;
+  if (inMemory) {
+    show('runs');
+    renderNewRunLink();         // href tracks the active host + project (#118)
+    syncRunsSearchInput();      // the query outlives leaving the screen, a project switch clears it
+    renderFilterChips();
+    renderList();
+    loadRunsCount(state.projectEpoch); // tab chip only — never blocks the list
+    // #155: still gated, but the lockout REPLACES what is up — nothing is blanked for it.
+    if (await readonlyGate()) { applyReadonlyBlock(); return; }
+    await refreshRuns();        // the re-read, behind the rows already on screen
+    return;
+  }
   show('runs');
-  // The skeleton goes up BEFORE the read-only probe — that probe is its own round trip.
+  // Nothing to show from memory (first open, or a project switch emptied it), so the
+  // placeholder is drawn — BEFORE the read-only probe, which is its own round trip.
   const sk = Skeleton.show('runs');
   // #155: settle the read-only probe BEFORE any list request — a locked project
   // must not flash a runs list it is about to replace with the blocking panel.
   if (await readonlyGate()) { Skeleton.hide(sk); applyReadonlyBlock(); return; }
   renderNewRunLink();           // href tracks the active host + project (#118)
-  resetRunsSearch();
+  syncRunsSearchInput();
   renderFilterChips();
   setStatusLine('runs-status', 'Loading runs…');
   $('runs-list').replaceChildren();
@@ -494,12 +524,20 @@ function buildFilterChip(key, label) {
 function renderFilterChips() {
   const bar = $('runs-filter');
   if (!bar) return;
-  // Until the nested fetches settle every chip rests at 0 rather than a partial
-  // number that would count UP as folders land (tab chips instead stay absent).
+  // Until the nested fetches settle the loaded set is a lower bound that would count
+  // UP as folders land. A FIRST read has nothing better and rests at 0 (tab chips
+  // instead stay absent); a RE-read keeps the last settled numbers up — dropping them
+  // to zero and climbing back is the flicker every Back would otherwise show.
   const pending = state.listMode === 'dashboard' && !state.descendantsSettled;
   // Failed legs: the loaded set is a lower bound, so counts get a trailing "+".
-  const partial = state.listMode === 'dashboard' && state.descendantsSettled && state.descendantsPartial;
-  const counts = statusCounts(state.lastRuns || []);
+  const settledPartial = state.listMode === 'dashboard' && state.descendantsSettled && state.descendantsPartial;
+  const fresh = statusCounts(state.lastRuns || []);
+  const held = pending ? state.runsChipCounts : null; // null on a first read — nothing settled yet
+  if (!pending) state.runsChipCounts = { counts: fresh, partial: settledPartial };
+  const counts = held ? held.counts : fresh;
+  // The tooltip follows whatever the chips SHOW, so it is the snapshot's flag while
+  // the snapshot is the thing on screen.
+  const partial = held ? held.partial : settledPartial;
   Tooltip.set(bar, partial ? 'Some run counts couldn’t load — Refresh to complete them' : '');
   for (const [key, label] of RUN_FILTERS) {
     let chip = bar.querySelector(`[data-filter="${key}"]`);
@@ -508,7 +546,8 @@ function renderFilterChips() {
     chip.classList.toggle('selected', on);
     chip.classList.toggle('secondary', !on);
     chip.setAttribute('aria-pressed', String(on));
-    paintCounter(chip.querySelector('.counter'), pending ? 0 : `${counts[key] ?? 0}${partial ? '+' : ''}`);
+    paintCounter(chip.querySelector('.counter'),
+      pending && !held ? 0 : `${counts[key] ?? 0}${partial ? '+' : ''}`);
   }
   fitFilterChips(bar);
 }

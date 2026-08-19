@@ -554,7 +554,7 @@ Advanced) and `#signout-status`.
 | `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). |
 | `core/view-switch.js` | The header's surface switch: `initViewSwitch()` asks `ViewMode` which surface this document is in, `renderViewSwitch()` names and marks it for the one the press would land on ("Open in window" / "Dock to side panel"), and the click opens the other one and closes this. The two directions are not symmetric: the window is the worker's (`VIEW_OPEN_WINDOW`), while docking calls `chrome.sidePanel.open()` **before its first await** — the gesture lives only that long — on the normal-window id kept fresh from the worker's focus tracking, because a popup cannot host a side panel. |
 | `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta**. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
-| `core/skeleton.js` | `Skeleton` — the loading placeholders. Every one of them is **armed, not shown**: `show()`/`paintBoot()` start a 250 ms clock (`DELAY_MS`) and draw nothing until it runs out, so a warm tab or a fast boot opens straight onto its content and never flashes grey; the one that does earn its place fades in (`.skeleton-enter`). `paintBoot()` fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` arms a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` disarms/removes only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
+| `core/skeleton.js` | `Skeleton` — the loading placeholders. A **navigation draws its own at once**: the screen it left is already gone, so waiting out a clock only buys an empty view that fills 150 ms later, which reads as a flash of nothing rather than as speed; it fades in (`.skeleton-enter`). The **boot** is the one that still waits — `paintBoot()` starts a 250 ms clock (`DELAY_MS`) so a fast open lands on the real panel having drawn none, and fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` mounts a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` removes it only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. A screen that already **holds its rows in memory puts up no placeholder at all**: it paints them and re-reads behind them (see 3.1). Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
 
 **`screens/`** — one file per surface, all plain top-level functions:
 `runs-list.js` (703 lines, dashboard + v2 modes, groups, filters, search, URL
@@ -803,26 +803,41 @@ last. Nothing enforces either — see *Rakes*.
 
 ### 3.1 Opening a run
 
-`openRunsView()` → `loadRuns()` (`screens/runs-list.js:53-80`) tries
+`openRunsView()` takes the memory-first path whenever this project's list is
+already loaded (`state.dashItems` in dashboard mode, `state.lastRuns` in v2): the
+rows are painted **at once** — no clearing, no "Loading runs…", no placeholder —
+and `refreshRuns()` re-reads behind them. Only with nothing to show (first open,
+or a project switch having emptied them) does it put up the placeholder and go
+through `loadRuns()` (`screens/runs-list.js:53-80`), which tries
 `TestomatAPI.fetchDashboardPage(1)` (JWT). Success ⇒ `state.listMode =
 'dashboard'`, `capabilities.jwt = true`. Failure **only when
 `jwtAvailable() === false`** falls back to the v2 `listRuns` + `listRunGroups`
 pair (`listMode = 'v2'`); any other error is re-thrown, so a real outage is not
 silently mistaken for degradation.
 
-Clicking a run → `openRunView(runId, title)` (`screens/run-view.js:64-113`):
+Clicking a run → `openRunView(runId, title)` (`screens/run-view.js:78-166`):
 
-1. reset per-run nav state (`runFilter`, `runSearch`, `expandedSuites` only if
-   the run changed), `show('run')`;
-2. `Promise.allSettled([getRun, listTestruns])` — the two legs are independent
-   on purpose: a failed *meta* fetch degrades the header to a cached title and
-   a muted note, but the checklist still renders. Only a failed **test-list**
-   leg throws;
+1. reset per-run nav state (`runFilter`, `runSearch`, `expandedSuites`) — for a
+   DIFFERENT run only, which also empties `#run-info` and the status chips so the
+   new run can never wear the last one's fields under its own title. Re-opening the
+   run already on screen with its records in memory (Back from a test, the
+   panel-wide Refresh) tears nothing down at all: no placeholder, no cleared
+   checklist, no hidden pills — the paint stays and the re-read lands in it;
+   `show('run')`;
+2. `Promise.allSettled([getRun, listTestruns, getRunInfo?])` — the legs are
+   independent on purpose: a failed *meta* fetch degrades the header to a cached
+   title and a muted note, but the checklist still renders. Only a failed
+   **test-list** leg throws. The JSON:API `getRunInfo` rides in the same batch
+   whenever `capabilities.jwt` is already true, and is applied OVER the v2 base
+   before the first paint — so the run paints **once**, instead of inserting
+   Started / Duration / Executed by a paint later. Without a proven session yet
+   (the first run of a panel session) the old two-phase paint stands;
 3. `state.records = <sorted by id ASC>` (v2 returns newest-first; run order is
    creation order);
 4. `renderRunView()` → `startLiveSync()` → `OfflineQueue.replay()` →
-   `probeRunSession(runId)` (fire-and-forget; loads run-replies, settles the
-   Finish button, resolves assignee names).
+   `probeRunSession(runId, { infoRead })` (fire-and-forget; loads run-replies,
+   settles the Finish button, resolves assignee names — and skips its own
+   `refreshRunInfo()` when the batch above already read it).
 
 `state.records` are **testrun records**, keyed by record id — never `test_id`. A
 parametrized test has one record per example row and they all share `test_id`
@@ -944,13 +959,17 @@ reason is the same as not being told — an honest reason is the point of the ga
 
   **The open window, and why it is closed the way it is.** Unlike the finished-run lock — whose
   status ships on the v2 detail `openRunView` already awaits — the archived flag
-  only lands with the session probe, one round-trip *after* the run has rendered.
-  Locking while the answer is unknown was considered and rejected: with a session
-  in hand that is every run open, so every tester would get "Run is archived —
-  results are read-only" flashed over a live run, which is the dishonest reason
-  this gate exists to prevent. Instead the paint stays truthful and the **write**
-  waits: `openRunView` keeps the probe promise in `runStateProbe`, and every write
-  reachable inside the window awaits `awaitRunState()` before consulting the lock.
+  is JSON:API-only. With a session already proven it rides `openRunView`'s own
+  batch and is applied before the first paint; without one (the first run opened
+  in a panel session) it still lands with the session probe, one round-trip
+  *after* the run has rendered, and that is the window below.
+  Locking while the answer is unknown was considered and rejected: inside that
+  window a live run is indistinguishable from an archived one, so the tester would
+  get "Run is archived — results are read-only" flashed over a live run, which is
+  the dishonest reason this gate exists to prevent. Instead the paint stays
+  truthful and the **write** waits: `openRunView` keeps the probe promise in
+  `runStateProbe`, and every write reachable inside the window awaits
+  `awaitRunState()` before consulting the lock.
   The members leg — assignee names, the Run info people, and the viewer's own
   profile timezone — is detached into `probeRunAssignees()` so a click
   never waits on cosmetics.
@@ -970,10 +989,11 @@ reason is the same as not being told — an honest reason is the point of the ga
     before its first await, so those controls render live after one extra click, no
     round-trip needed. It claims `state.saving` before awaiting, for the same reason.
   * `finishRun` — button visibility is **not** a sufficient gate:
-    `updateRunActions()` runs inside `probeRunSession` *before* `refreshRunInfo`, so
-    Finish is live on an archived+running run for that sub-window, and the confirm
-    dialog can then sit open indefinitely. `finishBlockedReason()` is therefore
-    checked on **both** sides of the dialog. It deliberately mirrors what
+    when the probe is the one reading the run info, `updateRunActions()` runs inside
+    `probeRunSession` *before* `refreshRunInfo`, so Finish is live on an
+    archived+running run for that sub-window, and the confirm dialog can then sit
+    open indefinitely. `finishBlockedReason()` is therefore checked on **both**
+    sides of the dialog. It deliberately mirrors what
     `updateRunActions()` hides on (archived, finished) rather than calling
     `runWriteLock()`, which would also bar finishing an automated run — something
     the panel has always allowed (the automated lock gates results, not the run), and which
@@ -1833,8 +1853,10 @@ runs during load. Reorder those two tags and it becomes a temporal-dead-zone
 `state.runsFilter` is the **runs-list** chip (`all|running|passed|failed|
 scheduled|terminated`) and it **is persisted** in the `session` object.
 `state.runFilter` is the **run-view** chip (`all|passed|failed|skipped|untested`)
-and it is in-memory only, reset on every run open (`run-view.js:73`). Same trap
-for `runsSearch`/`runSearch`. Grep before you touch either.
+and it is in-memory only, reset when a DIFFERENT run opens (re-opening the one on
+screen keeps chip, search and folding). Same trap for `runsSearch`/`runSearch` —
+and `runsSearch` now outlives leaving the runs list too, cleared only by a project
+switch. Grep before you touch either.
 
 **3. Record id is not `test_id`.** Rows are keyed by testrun **record** id
 throughout — a parametrized test case has one record per example row and they

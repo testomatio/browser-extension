@@ -13,6 +13,7 @@ async function init() {
   // After the icons are in: create buttons keep their full label while the pane can spare the width,
   // and the observers armed here re-answer that as it is dragged (core/views.js).
   initActionLabelFit();
+  initCounterFade(); // a counter's flash is one-shot — it must not replay on every re-show
   $('tab-tests').addEventListener('click', () => switchTab('tests'));
   $('tab-runs').addEventListener('click', () => switchTab('runs'));
   $('tab-settings').addEventListener('click', () => switchTab('settings'));

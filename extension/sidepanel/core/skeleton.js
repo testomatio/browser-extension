@@ -117,32 +117,33 @@ const Skeleton = (() => {
     return ul;
   }
 
-  // ---------- when a placeholder is worth drawing ----------
-  // Armed, never shown at once: a load that beats the clock cancels it having drawn
-  // nothing. 250ms is where a panel stops reading as instant.
-  const DELAY_MS = 250;
+  // ---------- when a placeholder is drawn ----------
+  // A NAVIGATION draws its own at once. The screen it left is already gone, so a
+  // clock buys nothing: what it bought was an empty view that fills 150ms later,
+  // which reads as a flash of nothing rather than as speed. Only the boot still
+  // waits (paintBoot) — there the panel is the placeholder, and a fast open should
+  // land on the real thing having drawn none.
+  const DELAY_MS = 250; // boot only
 
-  // At most one placeholder pending or on screen. `{ view, node }` — `node` stays
-  // null while it is only armed, the whole difference between armed and drawn.
+  // At most one placeholder on screen, `{ view, node }` — the handle a caller holds.
   let pending = null;
-  let timer = 0;
 
-  // Hand back a HANDLE: a stranded fetch settles AFTER a newer one armed its own
-  // placeholder, and the handle is what stops it taking down the winner's screen.
+  // Hand back a HANDLE: a stranded fetch settles AFTER a newer one put its own
+  // placeholder up, and the handle is what stops it taking down the winner's screen.
   function show(view) {
     hide();
     const plan = PLANS[view];
     if (!plan || !$(plan.anchor)) return null;
     const handle = { view, node: null };
     pending = handle;
-    timer = setTimeout(() => { timer = 0; mount(handle, plan); }, DELAY_MS);
+    mount(handle, plan);
     return handle;
   }
 
-  // The clock ran out — this load is a wait, so draw it.
+  // The screen has opened with nothing in it — draw it.
   function mount(handle, plan) {
     const anchor = $(plan.anchor);
-    if (!anchor || pending !== handle) return; // the view moved on under the timer
+    if (!anchor) return;
     handle.node = plan.build();
     handle.node.classList.add('skeleton-enter');
     // Silent to a screen reader: the view's own status line already announces the load.
@@ -151,18 +152,16 @@ const Skeleton = (() => {
   }
 
   // With a handle: only while it is still the one in hand. Without: take down whatever
-  // is up (a view change invalidates any). Disarms first either way.
+  // is up (a view change invalidates any).
   function hide(handle) {
     if (!pending || (handle && handle !== pending)) return;
-    clearTimeout(timer);
-    timer = 0;
     if (pending.node) pending.node.remove();
     pending = null;
   }
 
   // ---------- boot ----------
 
-  // Same clock as every other placeholder — only a boot that is really a wait draws one.
+  // The one placeholder still on a clock — only a boot that is really a wait draws one.
   let bootTimer = 0;
   function paintBoot() {
     if (bootTimer || !$('boot-skeleton')) return; // idempotent: a second boot arms nothing
