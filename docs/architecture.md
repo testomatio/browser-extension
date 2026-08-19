@@ -442,7 +442,15 @@ for 12 and gets 12px of glyph in its 20px square.
   Refresh is the same call. `#project-open` is an `<a>` wearing the icon-button
   skin, pointed at `<active host>/projects/<slug>` by `renderProjectOpenLink()`
   (`core/project-switcher.js`) and hidden when either half is unknown — the same
-  deal "New run" makes. Both fold away with the strip when immersed.
+  deal "New run" makes. The link folds away with the strip when immersed; the
+  Refresh does not — `homeRefreshButton()` (called from `setImmersive()`, the
+  way `homeRecSlot()` moves the Rec chip) re-parents the same `#btn-refresh`
+  into `#context-bar` just before `#context-open`, and back, so every screen
+  has the one Refresh at its top-right (#27). On the suite list its leg is an
+  in-place re-read (`refreshTcList()`, `screens/tc-studio.js`): the rows stay
+  up until the read lands and the search query and the Add-new-test text are
+  kept; `loadTcList()` counts its reads so a slower older answer never paints
+  over a newer one.
 - On a tab root `#header-top` is the **only** sticky row (`z-index: 2`) — the
   project strip above it scrolls away, the tabs pin. `#project-bar` must stay
   unpositioned and z-index-free or its dropdown is trapped (the stacking-context rake); since

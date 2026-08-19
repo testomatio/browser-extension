@@ -47,7 +47,9 @@
       </div>
     </div>
     <!-- Panel-wide Refresh, scoped by the project beside it: it re-pulls the WHOLE panel (refreshAll(),
-         core/views.js). data-tip-side="bottom" — this is the top row, so a label above would open off it. -->
+         core/views.js). On a drill-down this row folds away and the button MOVES into row 3, the only
+         chrome left there — homeRefreshButton(), #27. data-tip-side="bottom" — this is the top row, so
+         a label above would open off it, and row 3 tips open downward too. -->
     <button id="btn-refresh" class="icon-btn" data-tip="Refresh all data"
             data-tip-side="bottom" aria-label="Refresh all data">
       <span class="md-icon" data-icon="refresh" data-icon-size="20"></span>
@@ -120,7 +122,8 @@
     <a id="context-open" class="icon-btn" target="_blank" rel="noopener noreferrer" hidden>
       <span class="md-icon" data-icon="open_in_new" data-icon-size="20"></span>
     </a>
-    <!-- (#rec-slot is moved in here while the row is up — see homeRecSlot().) -->
+    <!-- (#rec-slot and #btn-refresh are moved in here while the row is up — see homeRecSlot() and
+         homeRefreshButton(); the Refresh lands just before the link above, as it sits in row 1.) -->
   </div>
 
   <!-- Degraded/login-blocked banner (Block 4): what basic mode disables and how to restore it. -->
