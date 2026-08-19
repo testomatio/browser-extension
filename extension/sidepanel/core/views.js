@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, Icons, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
    PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
-   openTcStudioView, openTcListView, openTestSuitePicker */
+   openTcStudioView, refreshTcList, openTestSuitePicker */
 
 // ---------- tab model ----------
 // `promote` is the suite picker's historical view name (see tc-studio.js).
@@ -165,6 +165,16 @@ function homeRecSlot(contextual) {
   if (slot && host && slot.parentElement !== host) host.append(slot);
 }
 
+// The same move for the one Refresh (#27): on a drill-down the two rows above fold
+// away, so the button rides along into the only chrome left instead of going
+// unreachable. Its listener survives the move, and it keeps its seat left of the open-link.
+function homeRefreshButton(contextual) {
+  const btn = $('btn-refresh');
+  const host = contextual ? $('context-bar') : $('project-bar');
+  const before = contextual ? $('context-open') : $('project-open');
+  if (btn && host && before && btn.parentElement !== host) host.insertBefore(btn, before);
+}
+
 // Contextual header row (#127): outside a tab root it is the panel's only chrome —
 // the project strip and the tab row fold away (immersive), hence the trail here.
 function updateContextBar(view) {
@@ -187,6 +197,7 @@ function updateContextBar(view) {
 function setImmersive(on) {
   document.body.dataset.immersive = on ? 'true' : 'false';
   homeRecSlot(on);
+  homeRefreshButton(on);
 }
 
 // Repaint for a title that settles after the view opened (a run detail landing late).
@@ -266,15 +277,16 @@ async function refreshAll() {
   }
 }
 
-// Re-pull the open view WITHOUT navigating; each opener is that screen's own load
-// path. Failures stay the screens' — their openers already report them.
+// Re-pull the open view WITHOUT navigating; each leg is that screen's own load path —
+// its opener, or an in-place re-read where re-opening would throw away what the screen
+// already holds (tclist, #27). Failures stay the screens' — those paths report them.
 function refreshCurrentView() {
   const v = state.view;
   if (v === 'runs') return refreshRuns();
   if (v === 'run' && state.runId) return openRunView(state.runId, state.runTitle);
   if (v === 'test' && state.currentRecordId) return openTestView(state.currentRecordId);
   if (v === 'tcstudio') return openTcStudioView();
-  if (v === 'tclist' && state.tcSuiteId) return openTcListView(state.tcSuiteId, state.tcSuiteTitle);
+  if (v === 'tclist') return refreshTcList();
   if (v === 'promote') return openTestSuitePicker(); // the + New test picker
   // Settings holds no server data of its own.
   return Promise.resolve();

@@ -511,17 +511,23 @@ function resetTcSearch() {
   if ($('tc-search-clear')) $('tc-search-clear').hidden = true;
 }
 
+// Two reads of the SAME suite can be in flight — a refresh clicked while the quick bar's
+// create is re-reading, or the other way round — and they may answer out of order (#27).
+let tcListReadSeq = 0;
+
 // The suite's rows, read and drawn. Shared by the suite open and by every create in the
 // quick bar, so a new test is read back exactly the way the list was first filled.
 // `quiet` re-reads behind the rows already up — no skeleton over a list that is still there.
 async function loadTcList(suiteId, { quiet = false } = {}) {
+  const seq = ++tcListReadSeq;
   const sk = quiet ? null : Skeleton.show('tclist');
   if (!quiet) setStatusLine('tclist-status', 'Loading tests…');
   try {
     // v2 answers newest-first; the web orders a suite's tests by `position` ascending (#4).
     const tests = await TestomatAPI.getTestsBySuite(suiteId);
     // A suite opened while this was on the wire owns the list now — these rows are the last one's.
-    if (state.tcSuiteId !== suiteId) return;
+    // Same for a later read of THIS suite: only the newest one may paint.
+    if (state.tcSuiteId !== suiteId || seq !== tcListReadSeq) return;
     state.tcTests = tests.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     renderTcList();
   } catch (e) {
@@ -547,6 +553,15 @@ async function openTcListView(suiteId, title) {
   // The previous suite's number is not this one's — the chip goes for the fetch.
   if ($('tc-list-count')) $('tc-list-count').hidden = true;
   await loadTcList(suiteId);
+}
+
+// The panel-wide refresh's leg for the suite list (#27) — a re-read in place, not a re-open:
+// the rows stay up until it lands, and the search query and whatever is half-typed in the
+// Add-new-test bar are kept, because a refresh is not a suite change. Errors go to
+// `tclist-status` the way every other read of this list reports them (loadTcList).
+async function refreshTcList() {
+  if (!state.tcSuiteId) return;
+  await loadTcList(state.tcSuiteId, { quiet: true });
 }
 
 // ---------- Add new test: the quick/bulk bar (#3) ----------
