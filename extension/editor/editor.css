@@ -157,6 +157,11 @@ code, pre { font-family: var(--font-mono); }
 /* The toolbar this row sits in is card-coloured, so the picker keeps that fill rather than the
    form-field one and reads as part of the strip until it is hovered. */
 .tc-template-trigger { background-color: var(--card); }
+/* The AI switch reads as a setting OF the row rather than a control in it: small type, and it
+   never stretches — the buttons either side keep their size. */
+.tc-polish { flex: none; align-items: center; gap: var(--space-1); font-size: var(--fs-sm); white-space: nowrap; }
+.tc-polish > .switch { margin-top: 0; }
+.tc-polish[hidden] { display: none; }
 .tc-tool.recording { color: var(--on-status); background: var(--annot-tool); border-color: var(--annot-tool-strong); }
 .tc-tool.recording:hover:not(:disabled) { background: var(--annot-tool-strong); }
 /* A full-width line of its own: the row grows as more shots are taken and must never push the camera

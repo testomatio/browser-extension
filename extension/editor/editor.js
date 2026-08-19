@@ -235,6 +235,74 @@
     return out;
   }
 
+  // ---- AI polish (#23): the recording's own items, rewritten in place --------
+  // 1:1 by index over the `count` items starting at `start` — polished item N replaces
+  // recorded item N. An item whose text is no longer what we last wrote there (`written`)
+  // was edited by hand and is left exactly as it is; so is one the answer has nothing for.
+  function replaceRecItems(md, start, count, next, written) {
+    const { lines, hIdx, end, existing } = sectionSlice(md, 'Steps', true);
+    const items = [];
+    if (hIdx === -1 || start < 0) return { md, items, touched: 0 };
+    let touched = 0;
+    for (let i = 0; i < count; i++) {
+      const it = existing[start + i];
+      if (!it) { items.push(null); continue; } // the tester deleted it — hold the numbering
+      const want = next && next[i];
+      const ours = (written && written[i] && written[i].text) || null;
+      if (want && it.text === ours) {
+        it.text = want.text;
+        // Replaced only when the answer HAS subs: an expected result the recorder folded in
+        // is not something a silent answer may drop.
+        if (want.subs && want.subs.length) it.subs = want.subs.slice();
+        touched++;
+      }
+      items.push({ text: it.text, subs: (it.subs || []).slice() });
+    }
+    if (!touched) return { md, items, touched };
+    const rebuilt = ['', ...fmtItems(existing, true)];
+    const out = [...lines.slice(0, hIdx + 1), ...rebuilt, '', ...lines.slice(end)]
+      .join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
+    return { md: out, items, touched };
+  }
+
+  // The server wraps the section in these markers inside `text`; `data.polished_steps` may
+  // carry them too, so the same cut runs on whichever field answered.
+  const POLISH_START = '<!-- ![START polished_steps]! -->';
+  const POLISH_END = '<!-- ![END polished_steps]! -->';
+  function polishedSection(res) {
+    const raw = (res && res.steps) || (res && res.text) || '';
+    const a = raw.indexOf(POLISH_START);
+    const b = raw.indexOf(POLISH_END);
+    return a !== -1 && b > a ? raw.slice(a + POLISH_START.length, b) : raw;
+  }
+
+  const asExpected = (s) => `Expected: ${String(s).replace(/^expected\s*:?\s*/i, '').trim()}`;
+
+  // `N. sentence`, each with any number of `- Expected: …` sub-lines under it (a `*` bullet
+  // and a bare `Expected:` count as well — the wording is the model's, the shape is ours).
+  function parsePolishedItems(section) {
+    const items = [];
+    for (const line of String(section || '').split('\n')) {
+      const num = line.match(/^\s*\d+[.)]\s+(.*\S.*)$/);
+      if (num) { items.push({ text: num[1].trim(), subs: [] }); continue; }
+      if (!items.length) continue;
+      const sub = line.match(/^\s*(?:[-*]\s+)?(Expected\b.*)$/i);
+      if (sub) items[items.length - 1].subs.push(asExpected(sub[1]));
+    }
+    return items;
+  }
+
+  // A refusal the instance explains itself (a 422: "Ai is not available in your subscription
+  // plan") is worth more than our own wording — `ApiError.message` carries the JSON body.
+  function serverMessage(e) {
+    try {
+      const j = JSON.parse((e && e.message) || '');
+      const m = j && (j.error || j.details || j.message);
+      if (m) return String(Array.isArray(m) ? m.join('; ') : m);
+    } catch { /* not JSON — we have no better words than our own */ }
+    return '';
+  }
+
   // ---- toast (bottom, auto-hides) -----------------------------------------
   // `{ error: true }` escalates the live region to `alert` so a reader interrupts instead
   // of queueing — the same contract the panel toast follows (#72/#81).
@@ -1062,7 +1130,7 @@
   function renderEditor({
     ctx, mode = 'create', uid = null, test = null,
     suite, title, markdown, priority, dirty: initialDirty = false,
-    templates = [], templateId: initialTemplateId = null, params = null,
+    templates = [], templateId: initialTemplateId = null, params = null, recorded = null,
   }) {
     const editing = mode === 'edit';
     // The page this screen returns to: the test's own read-only view, minus `edit`.
@@ -1083,11 +1151,28 @@
     let recording = false;
     let recPollTimer = null;
     let recEnding = false;   // guards the drain against a poll/stop race
-    let recStopping = false; // a Stop is running: its tail is not in the body yet
     let recBlind = false;    // recorder lost host access to the recorded tab (see REC_BLIND)
     let recManualPause = false; // tester paused it from the on-page indicator (#71)
     let recStepInserted = false; // a step of THIS recording is already in the body (#160)
     let recAnyInserted = false;  // …anything at all, so Stop knows it recorded something
+
+    // ---- AI polish (#23) — off by default, ONE request when the recording stops ----
+    const POLISH_KEY = 'polishSteps';   // its OWN storage.local key, like stepRecNeverValues
+    let polishOn = false;
+    let polishTimeoutMs = 30000;        // per request; __tc.setPolishTimeout shortens it in e2e
+    let lastPolishMessage = '';         // e2e reads the exact message that went out
+    let recPolishing = false;           // a request is out — the record button says so
+    let recBusy = null;                 // …that request, or a Stop: Save and a leave wait on it
+    // The recording this editor holds: its entries (packets and all), where its items sit in
+    // the Steps list, and both texts every item has had — raw as recorded, polished if it was.
+    let recEntries = (recorded && recorded.entries) || [];
+    let recStart = recorded && recorded.start >= 0 ? recorded.start : -1;
+    let recCount = (recorded && recorded.count) || 0;
+    let recPolished = !!(recorded && recorded.polished);
+    let recRawItems = (recorded && recorded.rawItems) || [];
+    let recPolishedItems = (recorded && recorded.polishedItems) || [];
+    // What we last wrote into those items — the only texts a replacement is allowed to touch.
+    const recWritten = () => (recPolished ? recPolishedItems : recRawItems);
 
     // Dirty tracking is centralized so the tab-ctx `beforeunload` guard mirrors it —
     // registered only while dirty; panel ctx persists to storage.session instead.
@@ -1120,6 +1205,14 @@
       // would restore an empty grid over real parameters.
       const grid = paramsCtl.draft();
       if (grid) draft.params = grid;
+      // #23: the recording itself — its entries (packets included) and where its items are —
+      // so a reopened panel can still polish it, or put it back.
+      if (recEntries.length) {
+        draft.recording = {
+          entries: recEntries, start: recStart, count: recCount,
+          polished: recPolished, rawItems: recRawItems, polishedItems: recPolishedItems,
+        };
+      }
       try { chrome.storage.session.set({ [draftKey]: draft }); } catch { /* best effort */ }
     }
     function schedulePersist() {
@@ -1301,6 +1394,24 @@
     recContinue.textContent = 'Continue';
     recContinue.hidden = true;
     Tooltip.set(recContinue, 'Carry on recording into this test');
+    // #23: a SWITCH, not a checkbox — it writes itself on change and the recording that stops
+    // next is already treated differently, so there is no Save for it to belong to.
+    const polishLabel = document.createElement('label');
+    polishLabel.className = 'choice tc-polish';
+    const polishInput = document.createElement('input');
+    polishInput.id = 'tc-polish';
+    polishInput.type = 'checkbox';
+    polishInput.className = 'switch';
+    polishInput.setAttribute('role', 'switch');
+    polishLabel.append(polishInput, document.createTextNode('Polish with AI'));
+    Tooltip.set(polishLabel, 'Rewrite the recorded steps with Testomat AI when you stop recording');
+    // The same one button both ways: it polishes a recording that was not, and undoes one
+    // that was. It exists only while this editor still holds a recording.
+    const polishBtn = document.createElement('button');
+    polishBtn.id = 'tc-polish-btn';
+    polishBtn.type = 'button';
+    polishBtn.className = 'btn size-sm tc-tool';
+    polishBtn.hidden = true;
     const attachBtn = document.createElement('button');
     attachBtn.id = 'tc-attach';
     attachBtn.type = 'button';
@@ -1315,7 +1426,7 @@
     shotPreview.hidden = true;
     // The template sits at the far end of the row (`margin-inline-start: auto`, editor.css),
     // off the two buttons that get used over and over.
-    tools.append(recBtn, recContinue, attachBtn, tmplField, shotPreview);
+    tools.append(recBtn, recContinue, polishLabel, polishBtn, attachBtn, tmplField, shotPreview);
     wrap.append(tools);
 
     const body = document.createElement('div');
@@ -1510,6 +1621,16 @@
     const REC_TIP_ON = 'Stop recording — the steps go into this test';
 
     function updateRecUi(count, paused, blind, manualPaused) {
+      // The polish is the tail of the recording: nothing may start a second one over it.
+      if (recPolishing) {
+        Tooltip.set(recBtn, 'Testomat AI is rewriting the steps you just recorded');
+        setRecBtn(ICON_RECORD, 'Polishing…');
+        recBtn.disabled = true;
+        recBtn.classList.remove('recording');
+        recContinue.hidden = true;
+        return;
+      }
+      recBtn.disabled = false;
       let tip = recording ? REC_TIP_ON : REC_TIP_OFF;
       if (blind) tip = REC_BLIND;
       else if (manualPaused) tip = REC_MANUAL_PAUSE;
@@ -1549,17 +1670,218 @@
       if (previewing) renderPreviewInto(previewPane, md);
     }
 
-    // The recording's single insertion point — the live poll and Stop's tail flush
-    // both come through here.
+    // The recording's single insertion point — the live poll and Stop's tail flush both come
+    // through here. The sentences go in RAW, switch or no switch: polishing happens at Stop,
+    // over the whole recording, and what it needs is kept alongside the body.
     function insertEntries(entries) {
+      for (const e of entries) {
+        if (!e || !e.text) continue;
+        recEntries.push({ kind: e.kind, text: e.text, ctx: e.ctx || null, manual: !!e.manual });
+      }
+      return insertRaw(entries);
+    }
+
+    function insertRaw(entries) {
       const md = editor.getValue();
       const parts = splitRecorded(entries, recStepInserted && sectionHasItems(md, 'Steps', true));
       if (!parts.steps.length && !parts.expected.length && !parts.leadSubs.length) return false;
+      // #23: where this recording's own items begin — counted in the list BEFORE the insert.
+      if (recStart === -1 && parts.steps.length) recStart = sectionSlice(md, 'Steps', true).existing.length;
       setMarkdown(insertRecorded(md, parts));
       if (parts.steps.length) recStepInserted = true;
       recAnyInserted = true;
+      readRecItems();
       return true;
     }
+
+    // The recording's items as they now stand: its span in the list, and the raw texts a
+    // replacement is allowed to overwrite (nothing else in the body is ever touched).
+    function readRecItems() {
+      if (recStart === -1) return;
+      const existing = sectionSlice(editor.getValue(), 'Steps', true).existing;
+      recCount = Math.max(0, existing.length - recStart);
+      recRawItems = existing.slice(recStart).map((it) => ({ text: it.text, subs: (it.subs || []).slice() }));
+    }
+
+    // ---- polishing: one request, at Stop, over the whole recording -----------
+    // 30s and the raw sentences stand: a recording cannot wait on a model that never answers.
+    const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timed out')), ms);
+      p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+    });
+    const reasonOf = (e) => (e && e.status ? `HTTP ${e.status}` : (e && e.message) || 'failed');
+    const hasRecording = () => recEntries.length > 0 && recStart >= 0 && recCount > 0;
+
+    async function polishRecording() {
+      if (!hasRecording() || recPolishing) return;
+      recPolishing = true;
+      updateRecUi(0, false, false, false);
+      updatePolishBtn();
+      lastPolishMessage = polishMessage();
+      try {
+        const res = await withTimeout(
+          TestomatAPI.polishRecordedSteps(lastPolishMessage, editing ? uid : null), polishTimeoutMs,
+        );
+        const items = parsePolishedItems(polishedSection(res));
+        if (!items.length) throw new Error('nothing came back');
+        // The raw texts are captured BEFORE the write, so Undo has somewhere to go back to.
+        const raw = recRawItems.map((it) => (it ? { text: it.text, subs: it.subs.slice() } : null));
+        const done = replaceRecItems(editor.getValue(), recStart, recCount, items, recWritten());
+        if (done.md !== editor.getValue()) setMarkdown(done.md);
+        recRawItems = raw;
+        recPolishedItems = done.items;
+        recPolished = true;
+        showToast('Steps polished ✓');
+      } catch (e) {
+        polishFailed(e); // the raw steps stand exactly as they were recorded
+      } finally {
+        recPolishing = false;
+        updateRecUi(0, false, false, false);
+        updatePolishBtn();
+        schedulePersist();
+      }
+    }
+
+    // Back to the sentences the recorder wrote — item by item, and never over one the tester
+    // has since rewritten.
+    function undoPolish() {
+      const done = replaceRecItems(editor.getValue(), recStart, recCount, recRawItems, recWritten());
+      if (done.md !== editor.getValue()) setMarkdown(done.md);
+      recRawItems = done.items;
+      recPolished = false;
+      updatePolishBtn();
+      schedulePersist();
+    }
+
+    // 401/403: this instance has no such prompt (or no session for it), so the switch goes
+    // away rather than failing again on the next recording.
+    function polishFailed(e) {
+      if (e && (e.kind === 'auth' || e.status === 401 || e.status === 403)) { disablePolish(); return; }
+      const own = e && e.status === 422 ? serverMessage(e) : '';
+      showToast(own || `Couldn’t polish — raw steps kept (${reasonOf(e)})`, { error: true });
+    }
+
+    function disablePolish() {
+      polishOn = false;
+      polishInput.checked = false;
+      polishLabel.hidden = true;
+      writePolishPref(false);
+      updatePolishBtn();
+      showToast('Polishing isn’t enabled on this server yet');
+    }
+
+    // The recording's steps, each carrying the manual note that followed it. The worker's own
+    // nav line adds nothing: its url/title change is already in the packet's `after`.
+    function recActions() {
+      const acts = [];
+      for (const e of recEntries) {
+        if (e.kind === 'expected') {
+          const last = acts[acts.length - 1];
+          if (last && e.manual) last.note = last.note ? `${last.note}; ${e.text}` : e.text;
+          continue;
+        }
+        acts.push({ raw: e.text, ctx: e.ctx || null, note: '' });
+      }
+      return acts;
+    }
+
+    // The deferred first step is `Open <url>` and carries no packet — its own sentence is
+    // the only place that url is written down.
+    const openUrl = (raw) => (String(raw).match(/^Open\s+(\S+)/) || [])[1] || '';
+
+    // The wire format the prompt expects. Values are double-quoted with inner quotes escaped
+    // and newlines collapsed, so one fact is always one line.
+    const pq = (v) => `"${String(v == null ? '' : v).replace(/\s*[\r\n]+\s*/g, ' ').replace(/"/g, '\\"')}"`;
+    function polishMessage() {
+      const acts = recActions();
+      const withPage = acts.find((a) => a.ctx && a.ctx.page);
+      const page = (withPage && withPage.ctx.page) || null;
+      const out = [`TEST: ${titleInput.value.replace(/\s+/g, ' ').trim()}`];
+      if (page && (page.title || page.url)) out.push(`PAGE: ${page.title || ''} | ${page.url || ''}`);
+      const before = sectionSlice(editor.getValue(), 'Steps', true).existing.slice(0, Math.max(0, recStart));
+      if (before.length) {
+        out.push('EXISTING STEPS (written before the recording — keep their wording, do not repeat them):');
+        before.forEach((it, i) => out.push(`${i + 1}. ${it.text}`));
+      }
+      out.push('RECORDED ACTIONS:');
+      acts.forEach((a, i) => {
+        const c = a.ctx || {};
+        const e = c.element || {};
+        const n = c.near || {};
+        const af = c.after || {};
+        out.push(`${i + 1}. raw: ${String(a.raw).replace(/\s*[\r\n]+\s*/g, ' ')}`);
+        out.push(`   action: ${c.action || 'open'}`);
+        if (c.element) {
+          out.push(`   element: ${e.tag || ''} role=${pq(e.role)} type=${pq(e.type)} text=${pq(e.text)}`
+            + ` aria-label=${pq(e.ariaLabel)} title=${pq(e.title)} placeholder=${pq(e.placeholder)}`
+            + ` name=${pq(e.name)} id=${pq(e.id)} class=${pq(e.class)} icon=${pq(e.icon)}`);
+        }
+        if (c.value) out.push(`   value: ${pq(c.value.text)}${c.value.masked ? ' (masked)' : ''}`);
+        if (c.near) {
+          out.push(`   near: label=${pq(n.label)} row=${pq(n.row)} column=${pq(n.column)}`
+            + ` section=${pq(n.section)} heading=${pq(n.heading)} siblings=${pq(n.siblings)}`);
+        }
+        out.push(`   after: url=${pq(af.url || openUrl(a.raw) || 'unchanged')} title=${pq(af.title || 'unchanged')}`
+          + ` toast=${pq(af.toast)} dialog=${pq(af.dialog)} state=${pq(af.state)} counter=${pq(af.counter)}`);
+        if (a.note) out.push(`   note: ${a.note}`);
+      });
+      return out.join('\n');
+    }
+
+    // One button, two jobs — and no button at all when there is no recording to do them to.
+    const POLISH_DO = 'Polish recorded steps';
+    const POLISH_UNDO = 'Undo polish';
+    function updatePolishBtn() {
+      const show = !recording && !recPolishing && !done && polishOn && !polishLabel.hidden && hasRecording();
+      polishBtn.hidden = !show;
+      if (!show) return;
+      polishBtn.textContent = recPolished ? POLISH_UNDO : POLISH_DO;
+      Tooltip.set(polishBtn, recPolished
+        ? 'Put the recorded steps back the way they were recorded'
+        : 'Rewrite the steps you recorded with your Testomat.io AI');
+    }
+    polishBtn.addEventListener('click', () => {
+      if (recPolished) { undoPolish(); return; }
+      runExclusive(polishRecording);
+    });
+
+    // Stop (drain + polish) and the button's own polish both run through here — one after the
+    // other, never side by side — so Save and a leave have exactly ONE promise to wait on.
+    function runExclusive(fn) {
+      const prev = recBusy;
+      const p = (async () => {
+        if (prev) await prev.catch(() => {});
+        try { await fn(); } finally { if (recBusy === p) recBusy = null; }
+      })();
+      recBusy = p;
+      return p;
+    }
+    async function settleRec() { while (recBusy) await recBusy.catch(() => {}); }
+
+    // Its OWN storage.local key (never `settings`), read once when the editor opens.
+    function writePolishPref(on) {
+      if (!hasLocal()) return;
+      try { chrome.storage.local.set({ [POLISH_KEY]: !!on }); } catch { /* best effort */ }
+    }
+    // Basic mode has no session to ask, so the row does not offer it at all.
+    function syncPolishVisible() {
+      polishLabel.hidden = TestomatAPI.jwtAvailable() === false;
+      updatePolishBtn();
+    }
+    // The switch may move at any point in a recording — only where it stands at Stop counts.
+    polishInput.addEventListener('change', () => {
+      polishOn = polishInput.checked;
+      writePolishPref(polishOn);
+      updatePolishBtn();
+    });
+    (async () => {
+      if (hasLocal()) {
+        try { polishOn = (await chrome.storage.local.get(POLISH_KEY))[POLISH_KEY] === true; }
+        catch { /* default off */ }
+      }
+      polishInput.checked = polishOn;
+      syncPolishVisible();
+    })();
 
     async function startRecording() {
       if (!canRecord) { showToast('Recording needs the extension context'); return; }
@@ -1575,17 +1897,25 @@
       recManualPause = false;
       recStepInserted = false;
       recAnyInserted = false;
+      // A new recording replaces the one this editor was holding — polished or not.
+      recEntries = [];
+      recStart = -1;
+      recCount = 0;
+      recPolished = false;
+      recRawItems = [];
+      recPolishedItems = [];
       updateRecUi(0, false, false, false);
+      updatePolishBtn();
       clearInterval(recPollTimer);
       recPollTimer = setInterval(pollRec, 500);
     }
 
     // Ends the recording and inserts the tail the live poll had not pulled yet (#160 —
-    // the steps before it are in the body already).
+    // the steps before it are in the body already). Then, with the switch on, the whole
+    // recording goes out for polishing in ONE request; Save waits on the same latch.
     async function finishRecording(toastMsg) {
       if (recEnding) return;
       recEnding = true;
-      recStopping = true;
       clearInterval(recPollTimer);
       recording = false;
       recBlind = false;
@@ -1593,9 +1923,10 @@
       updateRecUi(0, false, false, false);
       const resp = canRecord ? await chrome.runtime.sendMessage({ type: 'STEPREC_STOP' }).catch(() => null) : null;
       const inserted = insertEntries((resp && resp.entries) || []);
-      recStopping = false;
       if (toastMsg) showToast(toastMsg);
       else if (!inserted && !recAnyInserted) showToast('No steps recorded');
+      if (polishOn && !polishLabel.hidden) await polishRecording();
+      updatePolishBtn();
     }
 
     // One message per tick: it carries the status AND the entries that are final,
@@ -1605,7 +1936,8 @@
       const s = await chrome.runtime.sendMessage({ type: 'STEPREC_PULL' }).catch(() => null);
       if (!s) return;
       if (s.entries && s.entries.length) insertEntries(s.entries);
-      if (s.recording === false) { finishRecording(); return; } // stopped on the page / tab closed
+      // stopped on the page / tab closed — the same exclusive lane Stop takes
+      if (s.recording === false) { runExclusive(() => finishRecording()); return; }
       // Toast once per blind stretch (the poll runs every 500ms); the button label and
       // its tooltip carry the warning for as long as it lasts.
       if (s.blind && !recBlind) showToast(REC_BLIND);
@@ -1614,7 +1946,10 @@
       updateRecUi(s.count, s.paused, recBlind, recManualPause);
     }
 
-    recBtn.addEventListener('click', () => { if (recording) finishRecording(); else startRecording(); });
+    recBtn.addEventListener('click', () => {
+      if (recording) runExclusive(() => finishRecording());
+      else startRecording();
+    });
     recContinue.addEventListener('click', async () => {
       if (!canRecord) return;
       await chrome.runtime.sendMessage({ type: 'STEPREC_CONTINUE' }).catch(() => {});
@@ -1707,7 +2042,8 @@
         showToast(`Parameters couldn't be loaded: ${(e && e.message) || e}`, { error: true });
       }
     }
-    loadParams();
+    // …and the same probe answers whether the AI switch has a session to work with.
+    loadParams().then(syncPolishVisible, syncPolishVisible);
 
     // Latching `done` is what makes a second Save (button or Cmd+S) impossible —
     // creating, that would be a duplicate TC.
@@ -1733,7 +2069,10 @@
       saveBtn.textContent = 'Saving…';
       try {
         // A running recorder is drained FIRST — what is not in the body is not in the payload.
-        if (recording) await finishRecording();
+        if (recording) await runExclusive(() => finishRecording());
+        // …and a polish already out (Stop's, or the button's) is waited for, or Save would
+        // send the raw text a moment before the answer rewrites it.
+        await settleRec();
         const description = editor.getValue();
         // A paste can bring real newlines into the wrapping field; what goes to the API
         // is one line either way.
@@ -1824,7 +2163,7 @@
     // lost), stay in the editor. A second one leaves through the unsaved-changes dialog.
     function requestBack(to = goHome) {
       leaveTo = to;
-      if (recording) { finishRecording('Recording stopped'); return; }
+      if (recording) { runExclusive(() => finishRecording('Recording stopped')); return; }
       if (dirty) openGuard(); else navigateBack();
     }
 
@@ -1907,9 +2246,25 @@
       templateId: () => templateId,
       pickTemplate: (id) => tmplDD.pick(String(id)),
       recording: () => recording,
-      // Stop flips `recording` at once, but its tail insert is a round trip away — a
-      // reader of the body has to wait for this to clear as well.
-      recStopping: () => recStopping,
+      // Stop flips `recording` at once, but its tail insert — and the polish behind it — are
+      // round trips away; a reader of the body has to wait for this to clear as well.
+      recStopping: () => recBusy !== null,
+      polishing: () => polishOn,
+      setPolishing: (on) => {
+        polishInput.checked = !!on;
+        polishOn = !!on;
+        writePolishPref(polishOn);
+        updatePolishBtn();
+      },
+      lastPolishMessage: () => lastPolishMessage,
+      // The button's current words, or null when it is not offered at all.
+      polishBtnLabel: () => (polishBtn.hidden ? null : polishBtn.textContent),
+      // What this editor still holds of a recording — what the draft would persist.
+      recordingInDraft: () => (hasRecording()
+        ? { entries: recEntries.length, start: recStart, count: recCount, polished: recPolished }
+        : null),
+      // A 30s wait is not something an e2e can sit through.
+      setPolishTimeout: (ms) => { polishTimeoutMs = Number(ms) || polishTimeoutMs; },
       recBlind: () => recBlind,
       pendingShots: () => pendingShots.slice(),
       pendingShot: () => (pendingShots.length ? pendingShots[pendingShots.length - 1] : null),
@@ -2014,6 +2369,7 @@
           let markdown = (tc && tc.description) || '';
           let priority = (tc && tc.priority) || 'normal';
           let params = null;
+          let recorded = null;
           let restoredDirty = false;
           // An unsaved edit of THIS test outranks what the server still holds — closing
           // the side panel mid-sentence is not a discard.
@@ -2024,6 +2380,7 @@
               if (draft.markdown != null) markdown = draft.markdown;
               priority = draft.priority || priority;
               params = draft.params || null;
+              recorded = draft.recording || null;
               restoredDirty = true;
             }
           }
@@ -2031,7 +2388,7 @@
           // the picker would only offer to replace the test.
           renderEditor({
             ctx: cx.ctx, mode: 'edit', uid: cx.test, test: tc || null,
-            title, markdown, priority, params, dirty: restoredDirty,
+            title, markdown, priority, params, recorded, dirty: restoredDirty,
           });
           return;
         }
@@ -2063,6 +2420,7 @@
     let markdown = initialTemplate ? initialTemplate.body : '';
     let priority = 'normal';
     let params = null;
+    let recorded = null;
     let restoredDirty = false;
     // The restored draft is the tester's own text — it outranks the template seed.
     if (panelCtx) {
@@ -2072,12 +2430,15 @@
         if (draft.markdown != null) markdown = draft.markdown;
         priority = draft.priority || 'normal';
         params = draft.params || null;
+        // #23: the recording it was holding — the steps are already in the body, and this is
+        // what still lets them be polished (or put back).
+        recorded = draft.recording || null;
         restoredDirty = true;
       }
     }
     renderEditor({
       ctx: cx.ctx, suite: cx.suite,
-      title, markdown, priority, params, dirty: restoredDirty,
+      title, markdown, priority, params, recorded, dirty: restoredDirty,
       templates, templateId: initialTemplate ? initialTemplate.id : null,
     });
   }

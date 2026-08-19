@@ -559,7 +559,10 @@ borrows its column header. So the bulk checkbox in a product table records as
 checkbox*. Outside lists the enclosing section answers instead — the nearest
 heading above, or a form's caption: *Click the "Save" button in the "Shipping"
 section*. Only one such clause is ever added, and never one that just repeats the
-control's own name.
+control's own name. A control with no name of its own — an icon-only **+** —
+borrows the nearest label, or that row, instead of the `name`/`id` its developers
+gave it: *Click the button in the "Bolt Cutters" row*, not *Click the "qty-plus"
+button*.
 
 **Expected results while you record.** Click **+ Expected** in the pill the
 moment you have checked something, type what you saw and press Enter (Esc drops
@@ -581,9 +584,36 @@ Resume does not. Closing the recorded tab — or the editor — stops the record
 and everything recorded up to that moment is already in the test. The output is
 human-readable Markdown, not Playwright code.
 
+**Polish with AI.** The switch next to **Record steps**, **off** by default. While
+you record, nothing about it changes: every step appears in the list the moment
+you do it, in the recorder's own words. The rewriting happens **when you stop** —
+the button reads *Polishing…*, your own Testomat.io instance's AI reads the whole
+recording in one go, and each recorded step is replaced by the sentence it wrote
+for that step. Steps you had written before the recording are never touched. You
+may flip the switch at any point while recording; only where it stands when you
+press Stop decides anything.
+
+Right after a polish, the small **Undo polish** button beside the switch puts the
+recording back exactly as it was recorded. And a recording that was *not* polished
+— you stopped with the switch off, the panel closed before you stopped, or you
+undid it — leaves that button reading **Polish recorded steps**, so you can ask
+for the rewrite whenever you like. Either way, a step you have edited by hand is
+left alone: only lines still holding the words the extension put there are
+swapped.
+
+If the request fails, times out or comes back unusable, the raw steps stay exactly
+as they were recorded and a toast says why — nothing is ever lost to a failed
+polish. When your plan carries no AI, that toast is the server's own sentence
+(*"Ai is not available in your subscription plan"*). The switch needs the web
+session, so it is hidden in *basic mode*, and an instance that refuses the request
+outright turns it off with *"Polishing isn't enabled on this server yet"*. What is
+sent is described in [the privacy policy](../PRIVACY.md) — read it before you turn
+this on for a site whose content is confidential.
+
 Nothing recorded leaves your browser except into the test you are writing: the
 steps go straight into the editor, and the only place they are ever sent is your
-own Testomat instance, when you save.
+own Testomat instance — when you save, or, with *Polish with AI* on, when you
+stop the recording.
 
 ### Settings tab
 
@@ -784,8 +814,8 @@ Step recorder:
   textareas, selects, checkboxes, radios, buttons, links and ARIA custom
   controls — tab, menu item, option, checkbox, switch, radio — are).
 - Element naming falls back through `aria-label` → visible text → label →
-  placeholder → table column header → `name`/`id`; an element with none of those
-  records as `Click the button`, with the row or section clause if there is one.
+  placeholder → table column header → the row/section clause → `name`/`id`; an
+  element with none of those records as `Click the button`.
 - Row context comes from the row's first heading, header cell, cell or bold text;
   a card whose whole text is one long paragraph gets no clause rather than a
   truncated one.

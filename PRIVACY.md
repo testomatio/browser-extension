@@ -61,6 +61,15 @@ files of its own.
 | **Screenshots**, annotated or original | Only when you click Apply or Keep in the annotator. Discard uploads nothing |
 | Files you choose yourself with **Attach file** | When you pick them |
 | Test cases, suites and folders you create in the panel | When you save them |
+| The whole recording's **context packets** — for each action you recorded: the attributes and visible texts of the control you used and of its surroundings (its label, its row, its column, its section, the heading above it, the texts either side of it), the page title and URL (query trimmed the same way as above), the value you typed **exactly as it was already masked**, and what changed on the page right after the action (a toast, dialog or validation message that appeared, the control's own new state, a counter that moved) — plus the test's title and the steps you had already written above the recording | **Once**, when you stop a recording while the test editor's *Polish with AI* switch is on — **off by default** — or when you press *Polish recorded steps*. **Nothing is sent while you record.** It goes to your instance's own AI prompt endpoint and nowhere else |
+
+The packets are built for **every** recording, switch or no switch: they are what
+lets a nameless control be recorded by the row it sits in. With the switch off
+they never leave the browser — they travel with the recording, are held in
+`chrome.storage.session` like the steps themselves, and are dropped when the
+recording is saved or the browser restarts. Nothing about them is kept by the
+extension beyond that, and they are never sent to any third party — there is no
+recipient other than the Testomat.io instance you configured.
 
 Two details worth knowing, because they are the most sensitive things the
 extension can capture:
@@ -107,10 +116,14 @@ are discarded and nothing is written to disk.
   checksum. Recognition is **best effort**, so a switch that needs no heuristic
   exists: *Settings → Step recorder → Never record entered values* drops every
   typed value.
-- It never uses AI. An optional "polish the recorded steps with AI" feature
-  existed briefly and was removed entirely. If an old install still holds an
-  Anthropic key in storage, the extension deletes that key the next time the
-  panel opens.
+- It never sends anything to a third-party AI, and it holds no AI key of its own.
+  The one AI feature — *Polish with AI* in the test editor, off by default — asks
+  **your own Testomat.io instance**, in a single request when you stop recording,
+  to rewrite the steps you just recorded, over the same session the panel already
+  uses; what it sends is the row above. Nothing goes out while you record. No
+  third-party AI host is contacted, and no AI key is asked for or stored. If an
+  old install still holds an Anthropic key from the removed early feature, the
+  extension deletes that key the next time the panel opens.
 - It never updates itself silently. There is no auto-update: the extension is
   installed unpacked, from a release zip or a clone, and a new version reaches
   you only when you replace that folder and press reload.

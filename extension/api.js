@@ -626,6 +626,17 @@ const TestomatAPI = (() => {
     }).filter((t) => t.kind === kind);
   }
 
+  // ---- AI prompts (#23) — the instance's own endpoint, JSON:API (JWT, project base) ----
+  // The prompt lives SERVER-side: `message` is the recorded actions, the answer carries the
+  // rewritten section in `data.polished_steps` (and the same text between markers in `text`).
+  async function polishRecordedSteps(message, testId) {
+    const doc = await jwtRequest('/prompts', {
+      method: 'POST',
+      body: { prompt: 'polish_recorded_steps', message, ...(testId ? { test_id: testId } : {}) },
+    });
+    return { text: (doc && doc.text) || '', steps: doc?.data?.polished_steps || '' };
+  }
+
   // Multipart upload, one retry on a fresh JWT. The endpoint accepts any file (image OR text/plain —
   // verified live); `scope` is the owning collection, 'testruns' or 'tests'.
   async function uploadTo(scope, id, blob, filename) {
@@ -689,7 +700,7 @@ const TestomatAPI = (() => {
     fetchDashboardPage, fetchGroupChildren, fetchGroupRunsNested, fetchGroupSubgroups, getRunGroup,
     setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf,
     listProjectUsers, listProjects, assignTestrun,
-    listTemplates,
+    listTemplates, polishRecordedSteps,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
     readonlyAccess: () => readonly, ApiError,
   };

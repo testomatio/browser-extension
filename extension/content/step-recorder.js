@@ -14,7 +14,8 @@
 
   // ---- element naming: aria-label -> text -> label -> placeholder -> column header (#74)
   //      -> name/id -> null (bare tag); values trimmed to 40 chars. ---------------
-  const trim40 = (s) => String(s).replace(/\s+/g, ' ').trim().slice(0, 40);
+  const trimTo = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
+  const trim40 = (s) => trimTo(s, 40);
 
   // Decorative chrome (badge, counter, anything hidden from the a11y tree, a <script>
   // body): its text is never a name a tester reads — #86 `in the "3" row`, #75 a snippet.
@@ -104,8 +105,9 @@
   };
 
   // `fallback` (#74: the cell's column header) slots in AHEAD of name/id — those are
-  // developer strings, a column header is what the tester actually reads.
-  function elementName(el, fallback) {
+  // developer strings, a column header is what the tester actually reads. `near` (#23) is
+  // the surroundings, read once per action.
+  function elementName(el, fallback, near) {
     const aria = el.getAttribute && el.getAttribute('aria-label');
     if (aria && aria.trim()) return trim40(aria);
     const labelledby = el.getAttribute && el.getAttribute('aria-labelledby');
@@ -122,6 +124,11 @@
     if (lbl) return trim40(lbl);
     if (el.placeholder && el.placeholder.trim()) return trim40(el.placeholder);
     if (fallback) return fallback;
+    // #23: `near.label` IS the label branch above. What is new is the row/section — a
+    // nameless control is named by the clause the sentence already carries ("Click the
+    // button in the "Bolt Cutters" row"), which beats writing a dev string over it.
+    if (near && near.label) return trim40(near.label);
+    if (near && (near.row || near.section)) return null;
     if (el.getAttribute && el.getAttribute('name')) return trim40(el.getAttribute('name'));
     if (el.id) return trim40(el.id);
     return null;
@@ -185,22 +192,56 @@
     return t ? trim40(t) : null;
   }
 
+  // The nearest heading ABOVE the element: its own tag, then each ancestor's preceding
+  // siblings. Same bounded walk as sectionTitle, minus the fieldset legend.
+  function headingOf(el) {
+    for (let node = el, up = 0; node && up < 8; node = node.parentElement, up++) {
+      if (/^H[1-6]$/.test(node.tagName)) { const t = cleanText(node); if (t) return trim40(t); }
+      let sib = node.previousElementSibling;
+      for (let i = 0; sib && i < 12; i++, sib = sib.previousElementSibling) {
+        if (/^H[1-6]$/.test(sib.tagName)) { const t = cleanText(sib); if (t) return trim40(t); }
+      }
+    }
+    return '';
+  }
+
+  // What sits either side of the control — the "- | 1" a lone + button is read by.
+  function siblingsOf(el) {
+    const one = (n) => (n ? trimTo(cleanText(n) || '', 24) : '');
+    return [one(el.previousElementSibling), one(el.nextElementSibling)].filter(Boolean).join(' | ');
+  }
+
+  // The surroundings, read ONCE per action: the sentence's clause and the packet's `near`
+  // (#23) are the same reads, and each of them walks the DOM.
+  function nearFacts(el) {
+    const out = { label: '', row: '', column: '', section: '', heading: '', siblings: '' };
+    if (!el || !el.closest) return out;
+    try {
+      const lbl = labelText(el);
+      out.label = lbl ? trim40(lbl) : '';
+      const row = el.closest(ROW_SEL);
+      out.row = row && row !== el ? (rowTitle(row) || '') : '';
+      out.column = columnTitle(el) || '';
+      out.section = sectionTitle(el) || '';
+      out.heading = headingOf(el);
+      out.siblings = siblingsOf(el);
+    } catch { /* best effort: an empty field is fine, a lost step is not */ }
+    return out;
+  }
+
   // A control a tester cannot name from the control alone borrows its column header —
   // to them that IS its name ("the Bulk checkbox").
-  const nameOf = (el) => elementName(el, columnTitle(el));
+  const nameOf = (el, near) => elementName(el, near.column || null, near);
 
   // The three facts, minus any that only repeat the control's own name.
-  function contextOf(el, name) {
+  function contextOf(el, name, near) {
     if (!el || !el.closest) return null;
+    const n = near || nearFacts(el);
     const same = (t) => !!(t && name && t.toLowerCase() === String(name).toLowerCase());
     const ctx = {};
-    const row = el.closest(ROW_SEL);
-    const rt = row && row !== el ? rowTitle(row) : null;
-    if (rt && !same(rt)) ctx.row = rt;
-    const st = sectionTitle(el);
-    if (st && !same(st)) ctx.section = st;
-    const col = columnTitle(el);
-    if (col) ctx.column = col;
+    if (n.row && !same(n.row)) ctx.row = n.row;
+    if (n.section && !same(n.section)) ctx.section = n.section;
+    if (n.column) ctx.column = n.column;
     return Object.keys(ctx).length ? ctx : null;
   }
 
@@ -209,6 +250,165 @@
   const clauseOf = (ctx) => (!ctx ? ''
     : ctx.row ? ` in the "${ctx.row}" row`
       : ctx.section ? ` in the "${ctx.section}" section` : '');
+
+  // ---- the action packet (#23) -----------------------------------------------
+  // What a reader (a tester, or the AI polish in the editor) needs to recognize the action:
+  // the control, its surroundings, the page, and what the page did next. Never a value the
+  // masking above refused — `ctx.value` carries the masked noun, not the secret.
+  const PACKET_MAX = 1500; // bytes of JSON per entry
+  const AFTER_MS = 400;    // how long the page gets to react before the entry leaves
+
+  // The control's own visible text, badges dropped — the runs its name is built from.
+  const ownText = (el) => trim40(textRuns(el).filter((r) => !r.badge).map((r) => r.text).join(' '));
+
+  // An icon-only control still says what it is: an <img alt>, an <svg><title>, or the
+  // ligature text of a material icon.
+  function iconOf(el) {
+    const alt = firstAttr(el, 'img[alt]', 'alt');
+    if (alt) return trimTo(alt, 24);
+    const t = el.querySelector && el.querySelector('svg title');
+    if (t && (t.textContent || '').trim()) return trimTo(t.textContent, 24);
+    const lig = el.querySelector && el.querySelector('[class*="material-icons"], [class*="material-symbols"], [data-icon]');
+    if (lig) return trimTo(lig.getAttribute('data-icon') || lig.textContent || '', 24);
+    return '';
+  }
+
+  const at = (el, n) => (el.getAttribute && el.getAttribute(n)) || '';
+  const classesOf = (el) => at(el, 'class').trim().split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+
+  const elementFacts = (el) => ({
+    tag: String(el.tagName || '').toLowerCase(),
+    role: at(el, 'role'),
+    type: at(el, 'type'),
+    text: ownText(el),
+    ariaLabel: at(el, 'aria-label'),
+    title: at(el, 'title'),
+    placeholder: at(el, 'placeholder'),
+    name: at(el, 'name'),
+    id: el.id || '',
+    class: classesOf(el),
+    icon: iconOf(el),
+  });
+
+  // `origin + pathname`, the env-meta rule (sidepanel/core/env-info.js): it drops the query,
+  // the fragment and any `user:pass@` the URL carries.
+  function pageUrl() {
+    try { const u = new URL(location.href); return `${u.origin}${u.pathname}`; }
+    catch { return String(location.href).split(/[?#]/)[0]; }
+  }
+  const pageOf = () => ({ title: trimTo(document.title, 80), url: pageUrl() });
+
+  // ---- what the page did next ------------------------------------------------
+  const TOAST_SEL = '[role="status"], [aria-live], [class*="toast"], [class*="notification"], [class*="snackbar"]';
+  const DIALOG_SEL = '[role="dialog"], [role="alertdialog"], dialog, [class*="modal"]';
+  // What the form says went wrong: the refusal a tester reads is as much "what happened next"
+  // as a toast is, and it is the half a failed login has instead of one.
+  const ERROR_SEL = '[class*="alert"], [class*="error"], [class*="invalid-feedback"],'
+    + ' [class*="help-block"], [class*="validation"], [aria-invalid="true"]';
+  const NOTE_SEL = `[role="alert"], ${TOAST_SEL}, ${DIALOG_SEL}, ${ERROR_SEL}`;
+  const noteish = (n) => n.nodeType === 1 && (n.matches ? n.matches(NOTE_SEL) : false);
+  const hits = (n, sel) => !!(n.matches && n.matches(sel));
+  // A toast stays a toast even when it is styled as an alert; everything else that reports a
+  // problem reads as the dialog half of the packet.
+  const noteKind = (n) => (hits(n, TOAST_SEL) ? 'toast'
+    : (n.tagName === 'DIALOG' || hits(n, DIALOG_SEL) || hits(n, ERROR_SEL)) ? 'dialog' : 'toast');
+
+  // An `aria-invalid` control carries no message of its own — the line it points at, or the
+  // one right after it, is the sentence the tester read.
+  function noteText(n) {
+    if (hits(n, '[aria-invalid="true"]') && !hits(n, '[class*="alert"], [class*="error"], [class*="invalid-feedback"], [class*="help-block"], [class*="validation"]')) {
+      const ref = at(n, 'aria-describedby').split(/\s+/)[0];
+      const by = ref && document.getElementById(ref);
+      return trimTo((by && by.textContent) || (n.nextElementSibling && n.nextElementSibling.textContent) || '', 80);
+    }
+    return trimTo(n.textContent || '', 80);
+  }
+
+  // Nodes are KEPT, not read, until the window closes: a toast is routinely appended empty
+  // and filled a tick later.
+  function watchNotes() {
+    const found = [];
+    const take = (n) => {
+      if (found.length >= 5 || !n || n.nodeType !== 1) return;
+      if (noteish(n)) { found.push(n); return; }
+      const inner = n.querySelector && n.querySelector(NOTE_SEL);
+      if (inner) found.push(inner);
+    };
+    let obs = null;
+    try {
+      obs = new MutationObserver((recs) => { for (const r of recs) r.addedNodes.forEach(take); });
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+    } catch { /* no observer — the packet says nothing rather than failing */ }
+    return () => {
+      if (obs) obs.disconnect();
+      const out = { toast: '', dialog: '' };
+      try {
+        for (const n of found) { const k = noteKind(n); if (!out[k]) out[k] = noteText(n); }
+      } catch { /* best effort: an empty field is fine, a lost step is not */ }
+      return out;
+    };
+  }
+
+  const STATE_ATTRS = ['aria-checked', 'aria-pressed', 'aria-expanded', 'aria-selected'];
+  function stateOf(el) {
+    const s = {};
+    if (typeof el.checked === 'boolean') s.checked = String(el.checked);
+    if (typeof el.open === 'boolean') s.open = String(el.open);
+    for (const a of STATE_ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v != null) s[a] = v; }
+    return s;
+  }
+  // Only what actually moved: `aria-checked: false → true`.
+  const stateDiff = (before, after) => Object.keys(after)
+    .filter((k) => before[k] !== after[k])
+    .map((k) => `${k}: ${before[k] == null ? '' : before[k]} → ${after[k]}`).join(', ');
+
+  // The badge nearest the control — inside it, else inside one of its two nearest ancestors.
+  const COUNTER_SEL = '[class*="badge"], [class*="count"], [class*="counter"]';
+  function counterText(el) {
+    for (let n = el, up = 0; n && up < 3; n = n.parentElement, up++) {
+      const hit = n.querySelector && n.querySelector(COUNTER_SEL);
+      if (hit) return trimTo(hit.textContent || '', 24);
+    }
+    return '';
+  }
+
+  // Over the cap the least load-bearing fields go first, then the long strings are cut.
+  function fitPacket(ctx) {
+    const size = () => JSON.stringify(ctx).length;
+    if (size() <= PACKET_MAX) return ctx;
+    ctx.near.siblings = '';
+    if (size() <= PACKET_MAX) return ctx;
+    ctx.element.class = '';
+    for (const [o, k] of [[ctx.element, 'text'], [ctx.after, 'toast'], [ctx.after, 'dialog'],
+      [ctx.element, 'ariaLabel'], [ctx.element, 'title'], [ctx.near, 'heading'],
+      [ctx.near, 'section'], [ctx.near, 'row'], [ctx.page, 'title']]) {
+      if (size() <= PACKET_MAX) break;
+      if (o && o[k]) o[k] = trimTo(o[k], 24);
+    }
+    return ctx;
+  }
+
+  // Everything but `after` is read AT EVENT TIME; `after` is what the page made of it, read
+  // once the window closes. Returns the closure that finishes the entry.
+  function armPacket(el, action, near, value) {
+    const ctx = { action, element: elementFacts(el), near, page: pageOf() };
+    if (value) ctx.value = value;
+    const before = { url: ctx.page.url, title: ctx.page.title, state: stateOf(el), counter: counterText(el) };
+    const notes = watchNotes();
+    return (entry) => {
+      const now = { url: pageUrl(), title: trimTo(document.title, 80), counter: counterText(el) };
+      const seen = notes();
+      ctx.after = {
+        url: now.url === before.url ? 'unchanged' : `${before.url} → ${now.url}`,
+        title: now.title === before.title ? 'unchanged' : `${before.title} → ${now.title}`,
+        toast: seen.toast,
+        dialog: seen.dialog,
+        state: stateDiff(before.state, stateOf(el)),
+        counter: now.counter === before.counter ? '' : `${before.counter} → ${now.counter}`,
+      };
+      entry.ctx = fitPacket(ctx);
+    };
+  }
 
   // ---- send one recorded entry; reflect the returned count/paused ------------
   let recording = true;
@@ -230,6 +430,33 @@
         render();
       })
       .catch(() => { /* worker asleep / gone — the poll recovers */ });
+  }
+
+  // ONE queue, in arrival order: an action's packet needs ~400ms of the page's time before
+  // it can say what changed, and a manual expected must never overtake the step it follows.
+  const outbox = [];
+  const drain = () => { while (outbox.length && outbox[0].ready) send(outbox.shift().entry); };
+  function queueEntry(entry, close) {
+    const item = { entry, ready: !close };
+    outbox.push(item);
+    if (!close) { drain(); return; }
+    item.close = () => {
+      if (item.ready) return;
+      item.ready = true;
+      try { close(entry); } catch { /* a packet is never worth a lost step */ }
+      drain();
+    };
+    setTimeout(item.close, AFTER_MS);
+  }
+  // The window is about to die (a navigation, a Stop): what is queued leaves with the
+  // packet it has rather than with the page.
+  const flushOutbox = () => { for (const it of outbox.slice()) if (it.close) it.close(); };
+
+  // One recorded action: the sentence is already written, the packet is built around it.
+  function record(el, action, near, entry, value) {
+    let close = null;
+    try { close = armPacket(el, action, near, value); } catch { /* no packet, still a step */ }
+    queueEntry(entry, close);
   }
 
   // ---- action recognizers ----------------------------------------------------
@@ -342,22 +569,23 @@
     if (neverValues === null) { flagRead.then(() => flushType(el)); return; }
     const val = el.value == null ? '' : String(el.value);
     if (!val.trim()) return;
-    const name = nameOf(el);
-    const ctx = contextOf(el, name);
+    const near = nearFacts(el);
+    const name = nameOf(el, near);
+    const ctx = contextOf(el, name, near);
     const field = name ? `${name} field` : 'field';
     // Toggle ON: no value, and no heuristic decides anything — see maskedAllAs.
     const noun = neverValues ? maskedAllAs(el) : maskedAs(el);
     if (noun) {
       if (lastTyped.get(el) === MASKED) return;
       lastTyped.set(el, MASKED);
-      send({ kind: 'step', action: 'type', name, context: ctx,
-        text: `Type ${noun} into the ${field}${clauseOf(ctx)}` });
+      record(el, 'type', near, { kind: 'step', action: 'type', name, context: ctx,
+        text: `Type ${noun} into the ${field}${clauseOf(ctx)}` }, { text: noun, masked: true });
       return;
     }
     if (lastTyped.get(el) === val) return;
     lastTyped.set(el, val);
-    send({ kind: 'step', action: 'type', name, context: ctx,
-      text: `Type "${trim40(val)}" into the ${field}${clauseOf(ctx)}` });
+    record(el, 'type', near, { kind: 'step', action: 'type', name, context: ctx,
+      text: `Type "${trim40(val)}" into the ${field}${clauseOf(ctx)}` }, { text: trim40(val), masked: false });
   }
 
   // The indicator's own input is a text field inside the page (#78) — every one of these
@@ -377,29 +605,32 @@
     if (!recording || fromIndicator(e)) return;
     const el = path0(e);
     if (!el || !el.tagName) return;
+    const near = nearFacts(el);
     if (el.tagName === 'SELECT') {
-      const name = nameOf(el);
-      const ctx = contextOf(el, name);
+      const name = nameOf(el, near);
+      const ctx = contextOf(el, name, near);
       const opt = el.selectedOptions && el.selectedOptions[0];
       const val = opt ? (opt.textContent || opt.value || '').trim() : String(el.value || '');
-      send({ kind: 'step', action: 'select', name, context: ctx,
-        text: `Select "${trim40(val)}" in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` });
+      record(el, 'select', near, { kind: 'step', action: 'select', name, context: ctx,
+        text: `Select "${trim40(val)}" in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` },
+      { text: trim40(val), masked: false });
       return;
     }
     if (el.tagName === 'INPUT' && /^checkbox$/i.test(el.type || '')) {
-      const name = nameOf(el);
-      const ctx = contextOf(el, name);
-      send({ kind: 'step', action: el.checked ? 'check' : 'uncheck', name, context: ctx,
+      const name = nameOf(el, near);
+      const ctx = contextOf(el, name, near);
+      record(el, 'check', near, { kind: 'step', action: el.checked ? 'check' : 'uncheck', name, context: ctx,
         text: `${el.checked ? 'Check' : 'Uncheck'} the ${name ? `${name} ` : ''}checkbox${clauseOf(ctx)}` });
       return;
     }
     if (el.tagName === 'INPUT' && /^radio$/i.test(el.type || '')) {
-      const name = nameOf(el);
-      const ctx = contextOf(el, name);
+      const name = nameOf(el, near);
+      const ctx = contextOf(el, name, near);
       const clause = clauseOf(ctx);
+      const entry = { kind: 'step', action: 'choose', name, context: ctx };
       // Nameless AND contextless stays silent: "Choose the option" alone says nothing.
-      if (name) send({ kind: 'step', action: 'choose', name, context: ctx, text: `Choose the "${name}" option${clause}` });
-      else if (clause) send({ kind: 'step', action: 'choose', name, context: ctx, text: `Choose the option${clause}` });
+      if (name) record(el, 'check', near, { ...entry, text: `Choose the "${name}" option${clause}` });
+      else if (clause) record(el, 'check', near, { ...entry, text: `Choose the option${clause}` });
     }
   }
 
@@ -462,9 +693,10 @@
   function onClick(e) {
     const el = clickTarget(e);
     if (!el) return;
-    const name = nameOf(el);
-    const ctx = contextOf(el, name);
-    send({ kind: 'step', action: 'click', name, context: ctx, text: clickPhrase(el, name, ctx) });
+    const near = nearFacts(el);
+    const name = nameOf(el, near);
+    const ctx = contextOf(el, name, near);
+    record(el, 'click', near, { kind: 'step', action: 'click', name, context: ctx, text: clickPhrase(el, name, ctx) });
   }
 
   // A real double-click fires click, click, dblclick — the two clicks are already
@@ -473,9 +705,10 @@
     const el = clickTarget(e);
     if (!el) return;
     const noun = ROLE_NOUN[roleOf(el)] || (el.tagName === 'A' ? 'link' : 'button');
-    const name = nameOf(el);
-    const ctx = contextOf(el, name);
-    send({ kind: 'step', action: 'dblclick', name, context: ctx,
+    const near = nearFacts(el);
+    const name = nameOf(el, near);
+    const ctx = contextOf(el, name, near);
+    record(el, 'dblclick', near, { kind: 'step', action: 'dblclick', name, context: ctx,
       text: (name ? `Double-click the "${name}" ${noun}` : `Double-click the ${noun}`) + clauseOf(ctx),
       replaces: clickPhrase(el, name, ctx) });
   }
@@ -681,7 +914,7 @@
   function commitExpected() {
     const text = expInput ? String(expInput.value || '').replace(/\s+/g, ' ').trim() : '';
     closeExpected();
-    if (text) send({ kind: 'expected', text, manual: true });
+    if (text) queueEntry({ kind: 'expected', text, manual: true });
     render();
   }
 
@@ -738,6 +971,7 @@
 
   function requestStop() {
     recording = false;
+    flushOutbox(); // BEFORE the stop message: the worker still takes entries
     render();
     chrome.runtime.sendMessage({ type: 'STEPREC_STOP_REQUEST' }).catch(() => {});
   }
@@ -749,13 +983,20 @@
   document.addEventListener('change', onChange, opts);
   document.addEventListener('blur', onBlur, opts);
   document.addEventListener('keydown', onKeydown, opts);
+  // The click that navigates is the one a packet window would swallow: both events fire
+  // while the document is still alive, and sendMessage from either still reaches the worker.
+  window.addEventListener('pagehide', flushOutbox);
+  window.addEventListener('beforeunload', flushOutbox);
 
   let torn = false;
   let pollTimer = null;
   function teardown() {
     if (torn) return;
     torn = true;
+    flushOutbox();
     clearInterval(pollTimer);
+    window.removeEventListener('pagehide', flushOutbox);
+    window.removeEventListener('beforeunload', flushOutbox);
     document.removeEventListener('click', onClick, opts);
     document.removeEventListener('dblclick', onDblClick, opts);
     document.removeEventListener('change', onChange, opts);
