@@ -205,6 +205,79 @@ code, pre { font-family: var(--font-mono); }
    never dimmed to say it is secondary. The colour itself is ours (EDITOR_COLORS.syntaxMarker). */
 .tc-edit-pane .overtype-wrapper .overtype-preview .syntax-marker { opacity: 1 !important; }
 
+/* ---- Parameters (#5): the columns a test runs with, one row per run ---- */
+/* Its own band between the text and the footer. `flex: none` is what keeps the markdown pane's
+   height (this shell is a column), and the grid scrolls INSIDE the block — at 360px the block gives
+   way, never the page. */
+.tc-params {
+  /* The ✕ track, sized to the button that lives in it; JS writes the rest of the template. */
+  --tc-params-gutter: var(--control-h-xs);
+  flex: none;
+  padding: var(--space-2) var(--gutter) var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.tc-params[hidden] { display: none; }
+.tc-params-hint { margin: 0 0 var(--space-2); }
+.tc-params-hint code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  font-size: var(--fs-2xs);
+}
+.tc-params-grid {
+  display: grid;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1); /* a band for the scrollbar, off the fields it would sit on */
+}
+/* The TRACK carries the width here; a field's own 100% would fight the minmax() floor. */
+.tc-params-grid .input { min-width: 0; }
+/* A column name is a label over its values, so it is set like one. */
+.tc-params-name { font-weight: var(--weight-semibold); }
+.tc-params-remove { color: var(--muted); }
+.tc-params-remove:hover:not(:disabled) { color: var(--failed-fg); }
+/* The header and the blank row own no ✕ — the placeholder is what keeps their last track. */
+.tc-params-corner { display: block; }
+.tc-params-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+/* The title's validation line, verbatim: one error voice on this page. */
+.tc-params-error {
+  margin-top: var(--space-2);
+  font-size: var(--fs-2xs);
+  line-height: var(--leading-tight);
+  color: var(--failed-fg);
+}
+.tc-params-error[hidden] { display: none; }
+
+/* Read-only: the same columns as a table, under the description and inside its scrolling pane.
+   The cell rule spells `border: 0` out because .markdown th/td boxes every cell in. */
+.tc-params-view {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.tc-params-view h3 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--muted);
+}
+.tc-params-table {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.tc-params-table th,
+.tc-params-table td {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.tc-params-table th { color: var(--muted); font-weight: var(--weight-semibold); }
+.tc-params-table tr:last-child td { border-bottom: 0; }
+
 /* The shared .toast, at THIS page's own depth: the annotator stage and the OverType toolbar both sit
    above the shared --z-toast. */
 .tc-toast { z-index: var(--z-stage-tool); }

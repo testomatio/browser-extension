@@ -471,8 +471,10 @@ Browse and author test cases.
 #### Reading a test
 
 An existing test opens as a plain page: its title, its priority, and its
-description and steps as formatted text. Nothing on it can be changed — tests
-are edited in Testomat itself. **◀** goes back to the suite's list.
+description and steps as formatted text. A parameterised test carries its
+**Parameters** table under the description — the columns it runs with, and one
+row per run. The pencil in the header opens this same test in the editor;
+**◀** goes back to the suite's list.
 
 #### Editor (new tests)
 
@@ -493,9 +495,18 @@ opens an empty body and shows no dropdown. Switch projects in the header and the
 next new test uses that project's templates.
 
 A test needs a title: saving without one outlines the field in red and says so
-right under it (the message clears as soon as you start typing). Save creates the test and the
-page turns into the read-only view of it — from there on, further edits happen
-in Testomat.
+right under it (the message clears as soon as you start typing). Save creates the
+test and the page turns into the read-only view of it.
+
+**Parameters** folds open under the text. It is the same idea as in Testomat: the
+top row names the parameters, every row under it is one set of values, and the
+test runs once per row. Write a parameter into the steps as `${name}` — `Open
+${url} as ${login}` — and each run fills its own values in. Type in the empty row
+at the bottom and it becomes a row, with a fresh empty one under it; **✕** drops
+a row, **+ Column** / **− Column** add and remove parameters, and Enter walks
+down the column you are in. Name every column you use — values under a nameless
+one are refused with a line under the grid. The grid is saved with the test, and
+it is a session feature: in *basic mode* the block is not there at all.
 
 Two evidence tools share that row, next to the template dropdown (all three
 belong to **Edit** — **Preview** just shows the result):

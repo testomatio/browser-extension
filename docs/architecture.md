@@ -1644,7 +1644,10 @@ the **dashboard** runs list (`fetchDashboardPage` + group children/nested/
 subgroups), the **suite tree** (`getSuiteTree` → `GET /suites/tree` — the
 server builds it; the Tests tab and the "New test" picker share that one read),
 the header project switcher (`listProjects`), the project's **New Test
-templates** (`listTemplates`), the reported-result **summary** of an open
+templates** (`listTemplates`), a test's **parameters and example rows**
+(`getTestParams` / `setTestParams` / `createExample` / `updateExample` /
+`deleteExample` — v2 serializes neither, so the editor's grid and the view's
+table hide themselves in basic mode), the reported-result **summary** of an open
 test (it reads the detail `probeSession` prefetched, plus a lazy
 `GET /testruns/{id}/steps` for an automated row), and **every upload**
 (`uploadAttachment` / `uploadTestAttachment` — the v2 attachments route is not
