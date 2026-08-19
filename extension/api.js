@@ -166,6 +166,47 @@ const TestomatAPI = (() => {
     request(`/tests/${encodeURIComponent(id)}`, { method: 'PATCH', body: attrs })
       .then((r) => r?.data);
 
+  // ---- test parameters + examples (#5) — JSON:API only, v2 serves neither ----
+  // A test's `params` are the COLUMN NAMES; each example is one row, `data` positional to them.
+  // The rows ride the test document as `included` resources (verified live on beta).
+  async function getTestParams(uid) {
+    const doc = await jwtRequest(`/tests/${encodeURIComponent(uid)}`);
+    const attrs = doc?.data?.attributes || {};
+    const examples = (doc?.included || [])
+      .filter((n) => n.type === 'example')
+      .map((n) => ({ id: String(n.id), data: (n.attributes && n.attributes.data) || [] }));
+    return { params: Array.isArray(attrs.params) ? attrs.params : [], examples };
+  }
+  // ONLY `params` travels: title and description stay as they are (verified). `[]` clears them.
+  const setTestParams = (uid, params) =>
+    jwtRequest(`/tests/${encodeURIComponent(uid)}`, {
+      method: 'PATCH',
+      body: { data: { id: String(uid), type: 'test', attributes: { params } } },
+    });
+  // One row. Empty cells are KEPT server-side, so a half-filled row cannot slide its values under
+  // the wrong column; an EMPTY `data` array is refused (400 "Data can't be empty"), and each cell
+  // is truncated to 250 chars.
+  async function createExample(uid, data) {
+    const doc = await jwtRequest('/examples', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'example',
+          attributes: { data },
+          relationships: { test: { data: { type: 'test', id: String(uid) } } },
+        },
+      },
+    });
+    return { id: String(doc?.data?.id), data: doc?.data?.attributes?.data || [] };
+  }
+  const updateExample = (id, data) =>
+    jwtRequest(`/examples/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { data: { id: String(id), type: 'example', attributes: { data } } },
+    });
+  const deleteExample = (id) =>
+    jwtRequest(`/examples/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
   // POST-create on first result, PUT afterwards (confirmed in T004 smoke).
   function setStatus({ testrunId, runId, testId, status, message }) {
     const payload = { status, message: message || undefined };
@@ -641,6 +682,7 @@ const TestomatAPI = (() => {
   return {
     configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
     getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
+    getTestParams, setTestParams, createExample, updateExample, deleteExample,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,
     assetUrl, fetchAsset,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,

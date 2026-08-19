@@ -32,7 +32,8 @@ read-only view. New test cases are written in a Markdown editor (with suites and
 folders) — or added straight from a suite's list by title alone, one at a time
 or a whole list at once — and a **step recorder** turns your clicks on the page
 under test into human-readable Markdown steps, masking values it recognises as
-sensitive.
+sensitive. A test's **parameters** are edited there too: name the columns, fill a
+row per run, and write `${name}` in the steps.
 
 **Graceful degradation.** The panel upgrades your API token to a web session
 automatically. When it cannot, it drops to *basic mode*: statuses, comments and
