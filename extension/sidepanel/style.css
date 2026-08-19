@@ -280,7 +280,7 @@ body[data-connect="true"] .header-top { display: none; }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The slug keeps its own line: two teams name projects alike, and the slug is what every API path carries. */
+/* The slug keeps its own line: two teams name projects alike, and the slug is what every API path carries — it is on every row, even when it repeats the title, so the rows stay one height (#30). */
 .project-option-slug {
   color: var(--muted);
   font-size: var(--fs-sm);
