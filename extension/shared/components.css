@@ -1750,6 +1750,9 @@ span.img-fallback { color: var(--muted); }
   border-radius: var(--radius-pill);
 }
 .skeleton.line.sm { --sk-h: var(--fs-sm); }
+/* A bar standing in for text INSIDE a real line of it: the LINE BOX then stays the component's own
+   (`.counts` is 18 tall where the bar is 12), so nothing below moves when the words arrive. */
+.skeleton.inline { display: inline-block; vertical-align: middle; }
 .skeleton.circle {
   width: var(--sk-size, var(--control-icon));
   height: var(--sk-size, var(--control-icon));

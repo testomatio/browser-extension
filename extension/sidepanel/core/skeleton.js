@@ -93,18 +93,67 @@ const Skeleton = (() => {
 
   // Four chips where the runs list draws six: the rest go to the overflow menu at
   // panel widths (fitFilterChips), and the taller guess would move every row under it.
+  // A filter chip is a `.btn.size-sm` on BOTH screens (buildFilterChip in runs-list.js,
+  // renderRunFilterChips in run-view.js) and never the 20px `.chip`, which is what used
+  // to lift every row below this one by 8px when the real row landed.
   function filters() {
     const row = el('div', 'filters');
-    for (const w of ['58px', '70px', '64px', '76px']) row.append(bar('chip', w));
+    for (const w of ['58px', '70px', '64px', '76px']) row.append(bar('control sm', w));
     return row;
+  }
+
+  // The run screen WHOLE — its card and its controls paint empty (every field of the
+  // summary is [hidden] until the read lands, the chip row is built from the records),
+  // so a placeholder over the list alone leaves an empty box above it, which reads as a
+  // screen that failed rather than one loading. `hides` takes the real two away meanwhile.
+  function runScreen() {
+    const box = el('div', 'sk-run');
+
+    const card = el('div', 'card run-summary');
+    // The real row hangs Finish off `margin-left: auto`; a bar has no margin of its own.
+    const stateRow = el('div', 'run-state-row');
+    stateRow.append(bar('chip', '64px'), bar('chip', '72px'), el('span', 'bar-spacer'),
+      bar('control sm', '84px'));
+    // #run-progress is an id on an unstyled div, so this is progressNodes() itself: the
+    // counts LINE (its own line box, which is where the height comes from — hence an
+    // inline bar) over the real 5px track, both keeping the margins their classes give.
+    const progress = el('div');
+    const counts = el('div', 'hint counts');
+    counts.append(bar('line sm inline', '26px'));
+    const track = el('div', 'progress');
+    track.append(bar('fill'));
+    progress.append(counts, track);
+    // Run info drawn OPEN — its fold is remembered, but open is the default and the common
+    // case. Its own three classes, so the foot bleeds and the head bleeds exactly as there.
+    const foot = el('div', 'disclosure card-foot run-info');
+    const head = el('div', 'disclosure-head');
+    head.append(bar('circle'), bar('line', '54px'));
+    // The five rows a live run shows: Status, Tests, Started, Assigned to, Created.
+    const kv = el('dl', 'disclosure-body kv rows');
+    for (const w of ['110px', '24px', '140px', '120px', '140px']) {
+      const dt = el('dt');
+      dt.append(bar('line sm', '52px'));
+      const dd = el('dd');
+      dd.append(bar('line sm', w));
+      kv.append(dt, dd);
+    }
+    foot.append(head, kv);
+    card.append(stateRow, progress, foot);
+
+    // Same blocks in the same order as the screen behind it, in the screen's own classes:
+    // card, search, chips, checklist — so the real paint lands on these pixels.
+    box.append(card, bar('control sm fill'), filters(), listOf(testRow, ROWS));
+    return box;
   }
 
   // ---------- what each view puts up while it loads ----------
   // `anchor` is the element the placeholder is inserted BEFORE — the container the
-  // screen renders into. A view missing from here simply gets no placeholder.
+  // screen renders into. `hides` (optional) are the elements it stands IN FOR: hidden
+  // while it is up, shown again when it comes down, for a block that would otherwise sit
+  // there empty beside the placeholder. A view missing from here gets no placeholder.
   const PLANS = {
     runs: { anchor: 'runs-list', build: () => listOf(runsRow, ROWS) },
-    run: { anchor: 'run-tests', build: () => listOf(testRow, ROWS) },
+    run: { anchor: 'run-header', hides: ['run-header', 'run-controls'], build: runScreen },
     tcstudio: { anchor: 'tc-tree', build: tree },
     promote: { anchor: 'promote-tree', build: tree },
     tclist: { anchor: 'tc-list', build: () => listOf(tcRow, ROWS) },
@@ -140,6 +189,15 @@ const Skeleton = (() => {
     return handle;
   }
 
+  // The blocks the placeholder stands in for. Nothing is remembered on the way in:
+  // what a plan hides is a block the screen shows at every other moment.
+  function setHidden(plan, on) {
+    for (const id of plan?.hides || []) {
+      const node = $(id);
+      if (node) node.hidden = on;
+    }
+  }
+
   // The screen has opened with nothing in it — draw it.
   function mount(handle, plan) {
     const anchor = $(plan.anchor);
@@ -149,13 +207,15 @@ const Skeleton = (() => {
     // Silent to a screen reader: the view's own status line already announces the load.
     handle.node.setAttribute('aria-hidden', 'true');
     anchor.before(handle.node);
+    setHidden(plan, true);
   }
 
   // With a handle: only while it is still the one in hand. Without: take down whatever
-  // is up (a view change invalidates any).
+  // is up (a view change invalidates any). Both paths give the hidden blocks back.
   function hide(handle) {
     if (!pending || (handle && handle !== pending)) return;
     if (pending.node) pending.node.remove();
+    setHidden(PLANS[pending.view], false);
     pending = null;
   }
 

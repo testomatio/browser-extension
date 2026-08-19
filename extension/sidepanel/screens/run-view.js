@@ -185,7 +185,12 @@ async function openRunView(runId, title) {
   } catch (e) {
     handleApiError(e, 'run-status');
   } finally {
-    if (sk) Skeleton.hide(sk);
+    if (sk) {
+      Skeleton.hide(sk);
+      // The card painted while the placeholder held it hidden, and both Run info measures
+      // need layout to read — so they are taken again now that it is back on screen.
+      paintRunInfo();
+    }
   }
 }
 
