@@ -91,19 +91,17 @@ function renderProjectOptions() {
     li.setAttribute('aria-selected', p.id === current ? 'true' : 'false');
     li.dataset.projectId = p.id;
     li.classList.toggle('active', p.id === projectActiveId);
-    // Two lines — title over slug — so neither clips the other (#10); the count rides at the trailing edge.
+    // Two lines — title over slug — so neither clips the other (#10); the slug always renders, even when it equals the title, so no row comes up short (#30). The count rides at the trailing edge.
     const lines = document.createElement('div');
     lines.className = 'project-option-lines';
     const title = document.createElement('span');
     title.className = 'project-option-title';
     title.textContent = p.title || p.id;
     lines.append(title);
-    if (p.title && p.title !== p.id) {
-      const slug = document.createElement('span');
-      slug.className = 'project-option-slug';
-      slug.textContent = p.id;
-      lines.append(slug);
-    }
+    const slug = document.createElement('span');
+    slug.className = 'project-option-slug';
+    slug.textContent = p.id;
+    lines.append(slug);
     li.append(lines);
     // Shared trailing figure (`.row-count`, ROW TAIL in shared/components.css); a real 0 shows, an unknown count draws nothing.
     if (p.testsCount != null && Number.isFinite(Number(p.testsCount))) {
