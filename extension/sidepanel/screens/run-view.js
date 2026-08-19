@@ -19,6 +19,7 @@ const FOLDER_ICON = 'tree_folder'; // rungroups + TC-studio folders (grouping no
 const FILE_ICON = 'tree_suite';    // file/test-file suite nodes — and a run's suite sections
 const CHEVRON_ICON = 'chevron_right'; // rotates 90° when expanded
 const ACCOUNT_ICON = 'person'; // assignee chip: person marker before the name
+const SVG_NS = 'http://www.w3.org/2000/svg'; // icons.js keeps its own copy private
 
 const normStatus = (s) => (s === 'launching' ? 'running' : s || 'unknown');
 
@@ -57,13 +58,36 @@ function kindBadge(kind) {
   return el;
 }
 
-// `data-status` drives the colour. RUNNING comes back as the `.spinner` element,
+// The running mark is a two-colour ring, which no single-path icon can be: an SVG of two
+// circles — the track, and a quarter of it in the head colour — spun whole by CSS. Vector, so
+// the ring stays round and the quarter's ends stay sharp at 1x as at 2x; the gradient ring
+// this replaces drew hard colour stops that rotated as staircases. `pathLength` makes the
+// dash a percentage of the circumference, so the quarter reads "25 75" whatever the radius.
+function spinnerEl() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'spinner');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [cls, dash] of [['spinner-track', null], ['spinner-head', '25 75']]) {
+    const c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('class', cls);
+    c.setAttribute('cx', '8');
+    c.setAttribute('cy', '8');
+    c.setAttribute('r', '5.68');
+    c.setAttribute('pathLength', '100');
+    // The quarter starts at 12 o'clock and runs clockwise, as the conic one did.
+    if (dash) { c.setAttribute('stroke-dasharray', dash); c.setAttribute('transform', 'rotate(-90 8 8)'); }
+    svg.append(c);
+  }
+  return svg;
+}
+
+// `data-status` drives the colour. RUNNING comes back as the ring of its own (`spinnerEl`),
 // not an icon — both forms measure 20px, so a row does not shift when it finishes.
 function statusIcon(status) {
   const s = normStatus(status);
   if (s === 'running') {
-    const spinner = document.createElement('span');
-    spinner.className = 'spinner';
+    const spinner = spinnerEl();
     spinner.dataset.status = s;
     Tooltip.set(spinner, 'running');
     return spinner;

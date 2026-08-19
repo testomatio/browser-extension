@@ -667,23 +667,23 @@ a.icon-btn { text-decoration: none; }
 .status-text .status-icon { width: 14px; height: 14px; }
 .status-text .spinner { width: 14px; height: 14px; }
 
-/* Two colours, so it cannot be an icon: a conic gradient for the quarter, a radial mask for the hole.
-   'linear', not 'steps(4)' — the library's four frames are keyframes of ONE rotation, not four states. */
+/* Two colours, so it cannot be a one-path icon: an SVG of two circles — the track, and a quarter of it
+   in the head colour (spinnerEl, screens/run-view.js) — spun whole. Vector, so the ring stays round and
+   the quarter's ends stay sharp at 1x as at 2x; the gradient ring it replaces drew hard colour stops
+   that rotated as staircases. 'linear', not 'steps(4)' — the library's four frames are keyframes of
+   ONE rotation, not four states. */
 .spinner {
   flex: none;
   box-sizing: content-box;
   width: var(--control-icon);
   height: var(--control-icon);
   padding: 2px;
-  border-radius: var(--radius-pill);
-  background:
-    conic-gradient(var(--spinner-head) 0deg 90deg, var(--spinner-track) 90deg 360deg)
-    content-box;
-  /* 54.5% → 87.5%: the library's own 4.36→7px band, stopping a pixel short of the box. */
-  -webkit-mask: radial-gradient(closest-side, transparent 0 54.5%, #000 54.5% 87.5%, transparent 87.5%) content-box;
-  mask: radial-gradient(closest-side, transparent 0 54.5%, #000 54.5% 87.5%, transparent 87.5%) content-box;
   animation: spin 1s linear infinite;
 }
+/* 4.36→7px of the 16px box — the library's own band — as one stroke: centre 5.68, width 2.64. */
+.spinner circle { fill: none; stroke-width: 2.64; }
+.spinner .spinner-track { stroke: var(--spinner-track); }
+.spinner .spinner-head { stroke: var(--spinner-head); }
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
 }
