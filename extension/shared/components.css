@@ -1766,8 +1766,8 @@ span.img-fallback { color: var(--muted); }
 .sk-lines { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-1) 0; }
 .sk-lines + .sk-lines { margin-top: var(--space-2); }
 
-/* ARMED, not shown: the screen starts a short clock first (DELAY_MS, sidepanel/core/skeleton.js), so
-   content that beats it never flashes grey. */
+/* Drawn AT ONCE by a navigation (sidepanel/core/skeleton.js): a screen that sits empty and fills a
+   moment later reads as a flash of nothing. Only the boot waits out a clock first (DELAY_MS). */
 @keyframes skeleton-in { from { opacity: 0; } }
 .skeleton-enter { animation: skeleton-in var(--dur) var(--ease); }
 

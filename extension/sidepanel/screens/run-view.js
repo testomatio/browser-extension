@@ -102,33 +102,54 @@ function statusIcon(status) {
 async function openRunView(runId, title) {
   // #155: a read-only project is locked whole — gated before any state is touched.
   if (await readonlyGate()) { show('run'); return; }
+  const runChanged = state.runId !== runId;
+  // Back from a test, or the panel-wide Refresh with this run open: it is already
+  // painted and its records are in memory, so nothing here is torn down — the screen
+  // stays as the tester left it and the re-read below lands in place.
+  const quiet = !runChanged && state.records.length > 0;
   // Suite prefs are per run for the session — reset only when a DIFFERENT run opens.
-  if (state.runId !== runId) state.expandedSuites = {};
+  if (runChanged) state.expandedSuites = {};
   state.runId = runId;
   if (title) state.runTitle = title;
-  state.runStatus = null;
-  state.runKind = null;
-  state.substatusCounts = {}; // filled by the JWT probe below (#109)
-  state.runInfo = {};         // #112: v2 detail below, JWT extras on the probe
-  state.currentRecordId = null;
-  state.runFilter = 'all';
-  state.runSearch = '';
-  if ($('run-search')) $('run-search').value = '';
+  state.currentRecordId = null; // no row is open on this screen, by either path
+  if (!quiet) {
+    state.runStatus = null;
+    state.runKind = null;
+    state.substatusCounts = {}; // filled by the JSON:API read below (#109)
+    state.runInfo = {};         // #112: v2 detail below, JSON:API extras over it
+    state.runFilter = 'all';
+    state.runSearch = '';
+    if ($('run-search')) $('run-search').value = '';
+  }
   show('run');
-  const sk = Skeleton.show('run');
-  setStatusLine('run-status', 'Loading tests…');
-  if ($('run-meta-note')) $('run-meta-note').hidden = true;
-  $('run-tests').replaceChildren();
-  $('run-progress').replaceChildren(); // clear progress only — the Finish button is a sibling
-  // Neither pill may describe the PREVIOUS run while the new one loads.
-  if ($('run-kind')) $('run-kind').hidden = true;
-  if ($('run-state')) $('run-state').hidden = true;
+  let sk = null;
+  if (!quiet) {
+    sk = Skeleton.show('run');
+    setStatusLine('run-status', 'Loading tests…');
+    if ($('run-meta-note')) $('run-meta-note').hidden = true;
+    $('run-tests').replaceChildren();
+    $('run-progress').replaceChildren(); // clear progress only — the Finish button is a sibling
+    // Neither pill may describe the PREVIOUS run while the new one loads.
+    if ($('run-kind')) $('run-kind').hidden = true;
+    if ($('run-state')) $('run-state').hidden = true;
+    // Nor may Run info or the status chips: under the new title they read as this
+    // run's own numbers. Only for another run — reloading THIS one keeps them up.
+    if (runChanged) {
+      if ($('run-info')) $('run-info').hidden = true;
+      if ($('run-info-body')) $('run-info-body').replaceChildren();
+      if ($('run-filter')) $('run-filter').replaceChildren();
+    }
+  }
   try {
     // Independent legs: a failed meta fetch must not blank a fetchable checklist.
-    // Only the test-list leg is essential.
-    const [detailRes, recordsRes] = await Promise.allSettled([
+    // Only the test-list leg is essential. The JSON:API read rides along whenever the
+    // session is already proven, so the run paints ONCE with everything it will show
+    // — Started, Duration and Executed by used to insert themselves a paint later.
+    const readInfo = capabilities.jwt === true;
+    const [detailRes, recordsRes, infoRes] = await Promise.allSettled([
       TestomatAPI.getRun(runId),
       TestomatAPI.listTestruns(runId),
+      readInfo ? TestomatAPI.getRunInfo(runId) : null,
     ]);
     if (state.runId !== runId) return;
     if (recordsRes.status === 'rejected') throw recordsRes.reason;
@@ -145,6 +166,10 @@ async function openRunView(runId, title) {
       state.runKind = detail.kind || null;     // v2 run detail carries `kind`
       state.runInfo = runInfoFromDetail(detail);
     }
+    // Merged OVER the v2 base, the order the probe applied these in when it was the
+    // one reading them (#112). null whenever the read was not part of the batch.
+    const info = infoRes.status === 'fulfilled' ? infoRes.value : null;
+    if (info) applyRunInfo(info);
     // show() painted the header off the passed-in title — repaint with the real one.
     refreshContextBar();
     // v2 returns newest-first; run order = creation order = id ASC.
@@ -156,16 +181,18 @@ async function openRunView(runId, title) {
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // run-open is a replay trigger
     loadSuiteEmoji(runId);   // fire-and-forget
     // Kept though fire-and-forget: a row write waits on it for the archived flag (#186).
-    runStateProbe = probeRunSession(runId);
+    runStateProbe = probeRunSession(runId, { infoRead: !!info });
   } catch (e) {
     handleApiError(e, 'run-status');
   } finally {
-    Skeleton.hide(sk);
+    if (sk) Skeleton.hide(sk);
   }
 }
 
-// #186: the archived flag lands one round-trip AFTER the run renders. The paint
-// stays truthful and the WRITE waits for the answer instead.
+// #186: without a proven session the archived flag lands one round-trip AFTER the
+// run renders — openRunView's batch carries it whenever there IS one, but the first
+// run of a panel session still has none. The paint stays truthful either way and the
+// WRITE waits for the answer instead.
 let runStateProbe = null;
 
 // Bounded: nothing here sets a fetch timeout, so a probe that HANGS rather than
@@ -177,7 +204,9 @@ const awaitRunState = () => (runStateProbe
 
 // Best-effort; degrades silently. Resolves as soon as the run detail has landed —
 // assignee names are detached below, because a write must not wait on cosmetics.
-async function probeRunSession(runId) {
+// `infoRead`: the open batch already carried the JSON:API read (a session was known
+// to work), so the run is painted whole and there is nothing here to re-read.
+async function probeRunSession(runId, { infoRead = false } = {}) {
   await loadProjectInfo();
   if (state.runId !== runId) return;
   capabilities.jwt = TestomatAPI.jwtAvailable() === true;
@@ -186,7 +215,7 @@ async function probeRunSession(runId) {
   if (!capabilities.jwt) return;
   // Row badges are JWT-gated, so the first (pre-probe) paint carried none (#109).
   if (state.records.some((r) => r.substatus) && state.view === 'run') renderRunSections();
-  if (await refreshRunInfo(runId)) { paintRunProgress(); renderRunInfo(); applyRunLock(); }
+  if (!infoRead && await refreshRunInfo(runId)) { paintRunProgress(); renderRunInfo(); applyRunLock(); }
   if (state.runId !== runId) return;
   probeRunAssignees(runId); // detached — see above
 }

@@ -243,6 +243,17 @@ function paintCounter(el, text) {
   el.classList.add('settled');
 }
 
+// The flash is ONE-SHOT. A CSS animation replays whenever its element comes back from
+// `display:none`, so a class left sitting there re-fades every counter on screen after
+// each Back — the filter chips, and the tab chips the immersive fold takes away and
+// gives back — a beat behind the rest of the screen. One delegated listener drops it on
+// the way out; paintCounter puts it back for the next value that actually moved.
+function initCounterFade() {
+  document.addEventListener('animationend', (e) => {
+    if (e.animationName === 'counter-in') e.target.classList.remove('settled');
+  });
+}
+
 // The chip IS the count's state — a visible one means a number is known.
 const tabCountKnown = (tab) => { const el = $(`tab-${tab}-count`); return !!el && !el.hidden; };
 

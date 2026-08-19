@@ -29,8 +29,8 @@ const state = {
   runInfo: {},        // open run's "Run info" fields: the v2 detail plus the JSON:API read
   currentRecordId: null, // testrun RECORD id of the open row, never test_id
   stepTicks: {},      // recordId -> { rowOrdinal: true } (v1 local ticks; degraded mode)
-  runFilter: 'all',   // run-view status chip: all|passed|failed|skipped|untested (resets on run open)
-  runSearch: '',      // run-view live search over test + suite titles (resets on run open)
+  runFilter: 'all',   // run-view status chip: all|passed|failed|skipped|untested (resets when another run opens)
+  runSearch: '',      // run-view live search over test + suite titles (resets when another run opens)
   expandedSuites: {}, // suite key -> user toggle; absent = default (collapsed)
   testrunDetail: null,// last JSON:API testrun prefetch (JWT); carries server steps
   testDetailPending: false, // that prefetch is on the wire for the OPEN test
@@ -39,7 +39,7 @@ const state = {
   inlineWrites: 0,    // in-flight run-view inline status writes (finish-run waits on these)
   expandedGroups: [], // rungroup ids expanded inline in the runs list (persisted)
   runsFilter: 'all',  // active status filter chip for the runs list (persisted)
-  runsSearch: '',     // runs-list live search over run + group titles (resets on open)
+  runsSearch: '',     // runs-list live search over run + group titles (outlives the screen; a project switch clears it)
   lastRuns: [],       // countable runs feeding client-side filter/counts (both modes)
   lastGroups: [],     // last-loaded rungroups (folder rows)
   listMode: 'v2',     // 'dashboard' (JWT, web parity) | 'v2' (degraded fallback)
@@ -52,6 +52,7 @@ const state = {
   descendantsPartial: false, // dashboard mode: some nested count legs failed (counts are a lower bound)
   descLoadToken: 0,   // guards a superseding refresh against a stale nested batch
   descInFlight: 0,    // nested-count batches still running (a "Load more" page adds one)
+  runsChipCounts: null, // last SETTLED {counts, partial} the filter chips painted; kept up while a re-read runs
   // ---- list pagination (#110) — "Load more" instead of a silent page-1 cut ----
   listPaging: {},     // top-level cursor {page,total,totalPages,loading} from server meta
   v2RunsPaging: {},   // v2 mode only: the /runs cursor  {page,total,totalPages,perPage}
@@ -184,6 +185,7 @@ function resetProjectScopedState() {
   state.descendantsPartial = false;
   state.descLoadToken += 1; // strands any in-flight nested-count batch
   state.descInFlight = 0;
+  state.runsChipCounts = null; // another project's numbers are not a lower bound for this one
   state.listPaging = {};
   state.v2RunsPaging = {};
   state.v2GroupsPaging = {};

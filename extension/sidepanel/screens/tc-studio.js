@@ -381,8 +381,33 @@ async function loadTestsCount(epoch) {
 }
 
 async function openTcStudioView() {
+  // A tree already read for this project is painted AT ONCE and re-read behind it:
+  // the nodes never left memory, and clearing them to fetch the same ones back is
+  // what made a return to the Tests tab blank the screen first (the piecemeal paint).
+  if (state.tcSuites?.length) {
+    show('tcstudio');
+    syncTcTreeSearchInput(); // read FROM state, as on the fresh path below
+    // Before the paint, not after: the re-read below returns the project's own order,
+    // and a hoist dropped afterwards would reshuffle the tree under the tester.
+    tcJustCreated.length = 0;
+    renderSuiteTree(state.tcSuites);
+    // #155: still gated — a locked project replaces the tree with the blocking panel.
+    if (await readonlyGate()) { applyReadonlyBlock(); return; }
+    const epoch = state.projectEpoch; // a project switch mid-fetch discards this tree
+    try {
+      const suites = await TestomatAPI.getSuiteTree();
+      if (staleProject(epoch)) return;
+      state.tcSuites = suites;
+      rememberSuiteEmoji(state.tcSuites);
+      renderSuiteTree(state.tcSuites);
+      setStatusLine('tcstudio-status', ''); // a read that landed clears the last one's error
+    } catch (e) {
+      handleApiError(e, 'tcstudio-status');
+    }
+    return;
+  }
   show('tcstudio');
-  const sk = Skeleton.show('tcstudio'); // before the read-only probe — it is a round trip too
+  const sk = Skeleton.show('tcstudio'); // drawn at once, and before the read-only probe — a round trip too
   // #155: settle the read-only probe before the tree fetch, so a locked project
   // shows the blocking panel and nothing else.
   if (await readonlyGate()) { Skeleton.hide(sk); applyReadonlyBlock(); return; }
@@ -539,8 +564,9 @@ async function loadTcList(suiteId, { quiet = false } = {}) {
 
 async function openTcListView(suiteId, title) {
   if (capabilities.readonly) { show('tclist'); return; } // #155 — locked project
+  const sameSuite = String(state.tcSuiteId) === String(suiteId);
   // A DIFFERENT suite starts the bar clean; a refresh or a return to this one keeps what is half-typed.
-  if (String(state.tcSuiteId) !== String(suiteId)) resetTcQuickBar();
+  if (!sameSuite) resetTcQuickBar();
   state.tcSuiteId = suiteId;
   state.tcSuiteTitle = title || 'Suite';
   // Read off the tree already in memory — the callers have an id and a title,
@@ -548,6 +574,14 @@ async function openTcListView(suiteId, title) {
   state.tcSuiteEmoji = suiteNodeEmoji(state.tcSuites, suiteId);
   // Search resets on every suite open (in-memory only).
   resetTcSearch();
+  // Coming back to the suite already open — its rows are in memory, so they stay up
+  // and the re-read lands under them, the way a create in the quick bar re-reads.
+  if (sameSuite && state.tcTests?.length) {
+    show('tclist');
+    renderTcList();
+    await loadTcList(suiteId, { quiet: true });
+    return;
+  }
   show('tclist');
   $('tc-list').replaceChildren();
   // The previous suite's number is not this one's — the chip goes for the fetch.
