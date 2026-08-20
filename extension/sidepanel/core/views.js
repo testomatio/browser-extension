@@ -157,8 +157,8 @@ function renderContextOpenLink(view) {
   a.hidden = false;
 }
 
-// The Rec chip is global — it stays up on every view while a session records —
-// so it MOVES between the tabs row and the contextual row instead of living in one.
+// The Rec chip MOVES between the tabs row and the contextual row instead of living in
+// one — its own visibility rule (screens/evidence.js) decides which views show it.
 function homeRecSlot(contextual) {
   const slot = $('rec-slot');
   const host = contextual ? $('context-bar') : $('header-top');

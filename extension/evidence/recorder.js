@@ -15,7 +15,7 @@ const EV_CS_RELAY = 'testomat-evidence-relay';
 const EV_HOOK_FILE = 'evidence/page-hook.js';
 const EV_RELAY_FILE = 'evidence/relay.js';
 
-let evSession = null;                // { tabId, tabTitle, tabUrl, startedAt }
+let evSession = null;                // { tabId, recordId, tabTitle, tabUrl, startedAt }
 let evBuffer = [];                   // [{ ts, kind, ... }] newest last
 const evNetById = new Map();         // webRequest requestId -> network entry
 let evWindowSec = 60;                // settings.evidenceWindowSec (clamped 10-600)
@@ -233,7 +233,7 @@ function evTellHook(tabId, on) {
   catch { /* noop */ }
 }
 
-async function evStart(tabId) {
+async function evStart(tabId, recordId) {
   await evLoadSettings();
   let tab = null;
   try { tab = await chrome.tabs.get(tabId); } catch { /* title may be hidden */ }
@@ -244,6 +244,8 @@ async function evStart(tabId) {
   evHookReady = false;
   evSession = {
     tabId, startedAt: Date.now(),
+    // The testrun that owns this recording — it rides the mirror, so a restart still knows it.
+    recordId: recordId != null ? recordId : null,
     tabTitle: (tab && (tab.title || tab.url)) || `Tab ${tabId}`,
     tabUrl: (tab && tab.url) || '',
   };
@@ -272,6 +274,15 @@ async function evStop(keepBuffer = true) {
   await evMirror(); // awaited so EVIDENCE_WIPE can order its remove() after this write
 }
 
+// The one path for a stop nobody clicked (tab gone, testrun left, panel closed): the same
+// evStop, plus the broadcast that names the reason. A no-op when nothing is recording.
+async function evStopIfRecording(reason) {
+  if (!evSession) return false;
+  await evStop(true);
+  chrome.runtime.sendMessage({ type: 'EVIDENCE_STOPPED', reason }).catch(() => {});
+  return true;
+}
+
 // Sign out's erase (#183). The buffer lives HERE, not in storage — `evidenceMirror` is
 // only a copy — so the panel clearing storage.session gets it back ~2 s later.
 async function evWipe() {
@@ -288,6 +299,8 @@ function evStatus() {
   return {
     recording: !!evSession,
     tabId: evSession ? evSession.tabId : null,
+    // The panel reconciles against this: a recording it does not own any more is stopped.
+    recordId: evSession ? evSession.recordId : null,
     tabTitle: evSession ? evSession.tabTitle : '',
     tabUrl: evSession ? evSession.tabUrl : '',
     windowSec: evWindowSec,
@@ -336,10 +349,7 @@ async function evRestore() {
 
 // A closed recorded tab ends the recording (the hook died with it).
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (evSession && evSession.tabId === tabId) {
-    evStop(true);
-    chrome.runtime.sendMessage({ type: 'EVIDENCE_STOPPED', reason: 'target_closed' }).catch(() => {});
-  }
+  if (evSession && evSession.tabId === tabId) evStopIfRecording('target_closed');
 });
 
 // Unconditional on purpose: the document_start registration covers the START origin only,
@@ -354,7 +364,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.settings) evLoadSettings();
 });
 
-const EVIDENCE_REQUESTS = new Set(['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS', 'EVIDENCE_LIST', 'EVIDENCE_SNAPSHOT', 'EVIDENCE_EVENTS', 'EVIDENCE_WIPE']);
+const EVIDENCE_REQUESTS = new Set(['EVIDENCE_TOGGLE', 'EVIDENCE_STOP', 'EVIDENCE_STATUS', 'EVIDENCE_LIST', 'EVIDENCE_SNAPSHOT', 'EVIDENCE_EVENTS', 'EVIDENCE_WIPE']);
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !EVIDENCE_REQUESTS.has(msg.type)) return undefined; // not ours (incl. the EVIDENCE_STOPPED broadcast)
@@ -370,7 +380,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       if (msg.type === 'EVIDENCE_TOGGLE') {
         if (evSession) { await evStop(true); }
-        else if (msg.tabId != null) { await evStart(msg.tabId); }
+        else if (msg.tabId != null) { await evStart(msg.tabId, msg.recordId); }
+        sendResponse({ ok: true, status: evStatus() });
+      } else if (msg.type === 'EVIDENCE_STOP') {
+        // Idempotent by design: the panel fires it on leaving a testrun, whatever it believes.
+        await evStopIfRecording(msg.reason || 'stopped');
         sendResponse({ ok: true, status: evStatus() });
       } else if (msg.type === 'EVIDENCE_WIPE') {
         await evWipe();

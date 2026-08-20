@@ -1,7 +1,7 @@
 // Service worker: panel surface, screenshot capture, step recorder.
 // The evidence recorder holds NO chrome.debugger session — every debugger call here is a screenshot's.
 
-/* global resolveSiteTab, ViewMode, SiteTab */
+/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording */
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js');
 
@@ -36,8 +36,38 @@ function openSidePanelFor(tab) {
 // A live port registry, not a stored flag: readable before the first await, and a port dies with its document.
 const panelPorts = new Map(); // port -> windowId (null until PANEL_HELLO lands)
 
+// ---- live panel DOCUMENTS, whatever surface hosts them ---------------------
+// Deliberately NOT `panelPorts`, which counts the toolbar-icon surface alone: this registry takes
+// every document hosting the panel — side panel, our own window, a tab — because that, and not the
+// side panel, is what holds the testrun a recording belongs to (rec scoped to its testrun).
+const panelDocPorts = new Set();
+const PANEL_DOC_GRACE_MS = 2000;
+let panelDocGraceTimer = null;
+
+// Switching surfaces and reloading the panel both close one document BEFORE the next one opens, so
+// an empty registry waits out a grace the replacement lands inside; only a real close runs it out.
+function panelDocsChanged() {
+  if (panelDocGraceTimer) { clearTimeout(panelDocGraceTimer); panelDocGraceTimer = null; }
+  if (panelDocPorts.size) return;
+  panelDocGraceTimer = setTimeout(() => {
+    panelDocGraceTimer = null;
+    if (!panelDocPorts.size) evStopIfRecording('panel-closed');
+  }, PANEL_DOC_GRACE_MS);
+}
+
 chrome.runtime.onConnect.addListener((port) => {
-  if (!port || port.name !== 'panel') return;
+  if (!port) return;
+  if (port.name === 'panel-doc') {
+    panelDocPorts.add(port);
+    panelDocsChanged();
+    port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
+      panelDocPorts.delete(port);
+      panelDocsChanged();
+    });
+    return;
+  }
+  if (port.name !== 'panel') return;
   // Panel-vs-tab is decided on the CONNECTING side (panel-link.js, chrome.tabs.getCurrent):
   // `sender.tab` for a side panel is unmeasured here, and a wrong guess would refuse every real panel.
   panelPorts.set(port, null);

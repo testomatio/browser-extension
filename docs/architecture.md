@@ -498,10 +498,11 @@ for 12 and gets 12px of glyph in its 20px square.
   the settings is missing, the same deal `#project-open` and "New run" make.
 - `#rec-slot` is one container holding the Rec chip and the recorded-tab label.
   `renderEvidenceToggle()` (`screens/evidence.js`) hides the slot with the toggle
-  so an absent chip costs the row no width. Because the chip is a *global*
-  recording indicator, `homeRecSlot()` re-parents the container into whichever
-  chrome row is on screen — `#header-top` on a root, `#context-bar` while
-  immersed — so it never leaves with the row it happened to sit in.
+  so an absent chip costs the row no width. `homeRecSlot()` re-parents the
+  container into whichever chrome row is on screen — `#header-top` on a root,
+  `#context-bar` while immersed — so it never leaves with the row it happened to
+  sit in; the chip being scoped to the test view (§3.4) makes that `#context-bar`
+  in practice.
 - The test view no longer prints its own `<h2>` title (it carries `hidden`): the
   header row names the open test, and the h2 stays in the DOM only as the one
   element the title is written into. It rides in `#test-state-row`, the MARKS row
@@ -761,21 +762,24 @@ in on demand through `chrome.scripting.executeScript`:
 
 ### 2.1 Runtime messages
 
-Everything is `chrome.runtime.sendMessage` with a `type` string. There are no
-long-lived ports.
+Everything is `chrome.runtime.sendMessage` with a `type` string, plus two
+long-lived ports dialled by `shared/panel-link.js`: `panel` (a window holds the
+toolbar-icon surface) and `panel-doc` (a panel document is alive on any surface —
+the worker stops an evidence recording ~2 s after the last one is gone).
 
 | Type | From → To | Purpose |
 |---|---|---|
 | `captureTab` `{fullPage}` | panel / editor → worker | Screenshot the active tab. Replies `{ok, dataUrl, tabId}`. `background.js:377-389`. |
 | `VIEW_OPEN_WINDOW` | panel → worker | Open the panel in a window of its own, or focus the one already open. Replies `{ok, windowId}`; the panel then remembers the choice and closes the surface it was pressed in. |
-| `EVIDENCE_TOGGLE` `{tabId}` | panel → worker | Start/stop the console+network recorder. |
-| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, tabTitle, windowSec, entryCount}`. |
+| `EVIDENCE_TOGGLE` `{tabId, recordId}` | panel → worker | Start/stop the console+network recorder. `recordId` is the testrun the session binds to (start only) — §3.4. |
+| `EVIDENCE_STOP` `{reason}` | panel → worker | Stop a recording the tester did not click off — the panel sends it on leaving the bound testrun. Idempotent: not recording is `{ok:true}` and nothing else. |
+| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, recordId, tabTitle, windowSec, entryCount}`. |
 | `EVIDENCE_LIST` `{errorsOnly}` | panel → worker | Entries inside the window, optionally errors only. |
 | `EVIDENCE_SNAPSHOT` | panel → worker | All entries in the window (used to build the `.txt` log). |
 | `EVIDENCE_WIPE` | panel → worker | Sign out and Forget on the ACTIVE instance: cancel the pending mirror, stop the recording DROPPING its buffer, then remove `evidenceMirror` — in that order, awaited, so the panel's `clear()` cannot be undone by a late mirror. |
 | `EVIDENCE_EVENTS` `{events}` | injected relay → worker | One batch from the page hook: `net` / `console` / `log` / `ready` rows. Replies `{off}` — `true` meaning "this document is not being recorded", which is the hook's only stop signal. |
 | `EVIDENCE_HOOK_ON` / `EVIDENCE_HOOK_OFF` | worker → injected relay (`tabs.sendMessage`) | Un-mute / mute the page hook. The mute survives in a document that never navigates, so a NEW recording on the same tab has to un-mute it — a re-inject cannot (double-init guard). |
-| `EVIDENCE_STOPPED` `{reason}` | worker → panel (broadcast) | The recording ended without the tester. There is exactly one such reason: `target_closed`. |
+| `EVIDENCE_STOPPED` `{reason}` | worker → panel (broadcast) | The recording ended without the tester clicking Rec off: `target_closed`, `left-testrun`, `panel-closed`. Sent by `evStopIfRecording()` — the one stop-and-broadcast path — and the single source of the toast. |
 | `STEPREC_START` | editor → worker | Begin recording on the active site tab. |
 | `STEPREC_ADD` `{entry}` | injected script → worker | One recorded step/expected line: `{kind, text, action?, name?, context?:{row,section,column}, ctx?, manual?}`. `text` is the rendered line every consumer reads; the structured fields are additive and stored verbatim, field by field, by `srEntry()`. `ctx` (#23) is the action's **context packet** — `{action, element, near, page, value?, after}` — copied whole rather than field by field, and the only thing the editor's AI polish reads. `manual:true` marks an expected the tester typed on the indicator, as opposed to an auto navigation one. `entry.replaces` (dblclick only) names the single-click text this action supersedes and is a wire instruction — it never lands in the recording. Handled through `srSerial()` — one chain, because the state is a read-modify-write. |
 | `STEPREC_STATUS` | editor → worker | Poll `{recording, count, paused, manualPause, blind, tabId}`. |
@@ -1149,8 +1153,21 @@ Three parties: the worker (`evidence/recorder.js`) owns the buffer and the
 protocol; `evidence/page-hook.js` runs in the page's own MAIN world; and
 `evidence/relay.js` (ISOLATED) is the only one of the two with `chrome.runtime`.
 
+**Scoped to one testrun.** A recording belongs to the testrun it was started in —
+`EVIDENCE_TOGGLE` carries that `recordId`, the worker holds it with the session (mirror
+included) and reports it in every `status`. So the Rec chip lives on the **test view
+only**, and leaving that testrun by any road — Back to the run, another testrun, another
+view — or closing the last panel surface ends the session with a toast and no dialog.
+`onViewShown()` is the panel's half (`EVIDENCE_STOP {reason:'left-testrun'}`, applied
+locally at once so the screen being left cannot keep a live chip); the `panel-doc` registry
+in `background.js` is the worker's — every panel document dials that port, whatever surface
+hosts it, and the last one dying stops the recording (`'panel-closed'`) after a ~2 s grace,
+so switching surfaces or reloading the panel, which close one document before opening the
+next, survive it. Both land on `evStopIfRecording()`, the same stop-and-broadcast path a
+closed recorded tab takes.
+
 ```
-panel  EVIDENCE_TOGGLE {tabId}
+panel  EVIDENCE_TOGGLE {tabId, recordId}
   → evStart: arm the session, then
       executeScript relay (ISOLATED) + page-hook (MAIN) into the current document
       registerContentScripts(<origin>/*, document_start) for every later load
