@@ -1,5 +1,6 @@
-// Evidence panel UI: Record toggle, errors-only section, per-entry Attach and the
-// auto-attach on FAIL. The background recorder is the source of truth.
+// Evidence panel UI: Record toggle, errors-only section, per-entry Attach, the
+// auto-attach on FAIL and the auto-start on entering a testrun. The background
+// recorder is the source of truth.
 
 /* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
    HoverCard, EmptyState, paintCounter, svgIcon, openAttachmentsDisclosure */
@@ -359,23 +360,36 @@ function revealEvidenceSection() {
   if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
+// The whole start half of a Rec click, shared with the auto-start: the tab the session binds
+// to, the body-capture flag the in-page hook reads (#175), then the toggle itself. It only
+// REPORTS — a manual start and an automatic one narrate the same outcomes differently.
+// `unrecordable` carries the copy for a page Chrome keeps extensions off; `stillWanted` is
+// re-asked after every await, for the caller whose test may be gone by then.
+async function evStartRecording(stillWanted = null) {
+  // Anything but `ok` is a page Chrome keeps extensions off — no grant to wait
+  // for. `activate`: the recorder binds ONE tab, so the toast names the right one.
+  const site = await resolveSiteTab({ verb: 'recorded', activate: true });
+  if (site.state !== 'ok') return { ok: false, unrecordable: site.error };
+  if (stillWanted && !stillWanted()) return { ok: false };
+  await mirrorCaptureBodiesForRelay(); // before the hook can ask (#175)
+  if (stillWanted && !stillWanted()) return { ok: false };
+  return await evSend({ type: 'EVIDENCE_TOGGLE', tabId: site.tab.id, recordId: state.currentRecordId });
+}
+
 async function onEvidenceToggle() {
   const btn = $('evidence-toggle');
   if (btn) btn.disabled = true;
   try {
-    let tabId = null;
-    if (!evUi.recording) {
+    let r;
+    if (evUi.recording) {
+      r = await evSend({ type: 'EVIDENCE_TOGGLE', tabId: null, recordId: state.currentRecordId });
+    } else {
       // Defensive: the chip does not exist off the test view, and a session with no testrun
       // to belong to would be the very thing this scoping removes.
       if (state.view !== 'test' || state.currentRecordId == null) { toast('Open a test to record its console & network log'); return; }
-      // Anything but `ok` is a page Chrome keeps extensions off — no grant to wait
-      // for. `activate`: the recorder binds ONE tab, so the toast names the right one.
-      const site = await resolveSiteTab({ verb: 'recorded', activate: true });
-      if (site.state !== 'ok') { toast(site.error); return; }
-      tabId = site.tab.id;
-      await mirrorCaptureBodiesForRelay(); // before the hook can ask (#175)
+      r = await evStartRecording();
+      if (r.unrecordable) { toast(r.unrecordable); return; }
     }
-    const r = await evSend({ type: 'EVIDENCE_TOGGLE', tabId, recordId: state.currentRecordId });
     if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`); await refreshEvidenceStatus(); return; }
     applyEvidenceStatus(r.status);
     // #123: in-page instrumentation, so Chrome shows no "…is debugging this
@@ -622,13 +636,46 @@ async function uploadEvidenceLog(record) {
   }
 }
 
+// ---- auto-start on entering a testrun ------------------------------------
+
+// Absent -> OFF, explicit `true` -> ON — deliberately the inverse of the other evidence
+// toggles' default: a recorder nobody switched on is the surprising direction.
+function evidenceAutoStartEnabled(settings) {
+  return !!(settings && settings.evidenceAutoStart === true);
+}
+
+// Two test-view entries can overlap (Back and straight forward again inside one round trip);
+// only the newest may still start, or the second toggle would STOP the first one's session.
+let evAutoStartSeq = 0;
+
+// The setting's whole job: entering a testrun arms the recorder exactly as a Rec click would,
+// so "Next test →" chains — the old test's session ends on the way out, the new test's begins.
+// ONE attempt per entry, whatever it ends in: a manual stop on the test now open has to stand,
+// because starting is tied to ENTERING the testrun and not to the stopped state.
+async function evAutoStartOnTestView() {
+  if (!evidenceAutoStartEnabled(state.settings)) return;
+  // Never over a live session, whatever it is bound to, and never without a testrun to bind to.
+  if (evUi.recording || state.view !== 'test' || state.currentRecordId == null) return;
+  const recordId = state.currentRecordId;
+  const seq = ++evAutoStartSeq;
+  const stillWanted = () => seq === evAutoStartSeq && state.view === 'test'
+    && String(state.currentRecordId) === String(recordId);
+  const r = await evStartRecording(stillWanted);
+  // SILENT in both outcomes: no toast on a start the pulsing chip and the tab title already
+  // announce (one on every test opened would be noise), and none on a page Chrome keeps
+  // extensions off — the test view's own "Recording is off — start it…" hint says it there.
+  // Applied even if the tester left between the send and this answer: the session exists now,
+  // and it is evLeftBoundTestrun (next poll tick) that ends it.
+  if (r && r.ok) applyEvidenceStatus(r.status);
+}
+
 // ---- wiring --------------------------------------------------------------
 
 // A recording ends without the tester's click when what it belongs to goes away: the
-// recorded tab, the testrun it started in, or the panel holding that screen.
+// recorded tab, the testrun it started in, or the panel holding that screen. Leaving the
+// testrun falls through to the bare message — naming that cause would mean the test title.
 function evStoppedMessage(reason) {
   if (reason === 'target_closed') return 'Recording stopped — the recorded tab was closed';
-  if (reason === 'left-testrun') return 'Recording stopped — you left the test';
   if (reason === 'panel-closed') return 'Recording stopped — the panel was closed';
   return 'Recording stopped';
 }
@@ -654,7 +701,12 @@ async function onViewShown(view) {
   if (evLeftBoundTestrun()) await evStopLeftTestrun();
   renderEvidenceToggle();
   updateEvidenceSection();
-  if (view === 'test') refreshEvidenceStatus();
+  if (view !== 'test') return;
+  // AWAITED, unlike before: the auto-start has to know what the worker is doing first — after
+  // a panel reload it may already be recording this very testrun, and then there is nothing
+  // to start.
+  await refreshEvidenceStatus();
+  await evAutoStartOnTestView();
 }
 
 function initEvidence() {
@@ -666,7 +718,12 @@ function initEvidence() {
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg && msg.type === 'EVIDENCE_STOPPED') {
         applyEvidenceStatus({ recording: false });
-        toast(evStoppedMessage(msg.reason));
+        // In the chain the dot keeps pulsing (the next test's session starts at once), so a
+        // "stopped" toast would contradict the screen; it also stays quiet if that start then
+        // fails — the test view's own hint says recording is off.
+        const chained = msg.reason === 'left-testrun' && evidenceAutoStartEnabled(state.settings)
+          && state.view === 'test' && state.currentRecordId != null;
+        if (!chained) toast(evStoppedMessage(msg.reason));
       }
     });
   }

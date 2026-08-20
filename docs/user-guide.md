@@ -377,6 +377,12 @@ tests you have already graded.
 7. Click **Rec** again to stop recording — or just leave the test, which stops it
    for you: the recording belongs to the test it was started in.
 
+**Rather not remember step 1?** Turn on Settings → **Failure log** → *Auto-start
+console & network recorder when you open a test in a run* (off by default). Every
+test you open then arms **Rec** itself, bound to that test, so **N** chains one
+recording per test: the one you leave stops, the next test's starts. A stop you
+press yourself stays stopped until you open the next test.
+
 #### The annotator
 
 After a capture, the screenshot opens as an overlay **on the page you captured**
@@ -629,6 +635,9 @@ stop the recording.
   either: the panel resolves the projects the token reaches and you switch
   between them from the header.
 - **Failure log**:
+  - *Auto-start console & network recorder when you open a test in a run* — off
+    by default. On, opening a test arms **Rec** for you, bound to that test, and
+    leaving the test stops it as usual.
   - *Attach console & network log to failed tests* — on by default. Off only
     skips the automatic upload; the per-entry **Attach** still works.
   - *Include response bodies of failed requests* — on by default. Off and the

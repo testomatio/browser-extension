@@ -34,6 +34,8 @@ function setSettingsFields(s) {
   $('set-env-full-url').checked = envFullUrlEnabled(s);
   // Blank shows the 60s placeholder default.
   $('set-evidence-window').value = s.evidenceWindowSec != null ? s.evidenceWindowSec : '';
+  // Arm the recorder on opening a testrun: absent -> OFF, like the step recorder's row.
+  $('set-evidence-autostart').checked = evidenceAutoStartEnabled(s);
   // Auto-attach on FAIL: absent -> ON.
   $('set-evidence-autoattach').checked = evidenceAutoAttachEnabled(s);
   // Response-body capture for failed requests (#95): absent -> ON.
@@ -257,6 +259,8 @@ async function saveSettings() {
     envFullUrl: $('set-env-full-url').checked,
     // Blank -> 60, clamp 10-600.
     evidenceWindowSec: evidenceWindowFromField(),
+    // Start the recorder on entering a testrun, bound to it (absent -> OFF).
+    evidenceAutoStart: $('set-evidence-autostart').checked,
     evidenceAutoAttach: $('set-evidence-autoattach').checked,
     // Read response bodies of failed requests (#95).
     evidenceCaptureBodies: $('set-evidence-bodies').checked,
