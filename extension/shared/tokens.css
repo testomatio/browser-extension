@@ -470,10 +470,12 @@
   /* Error-notify icon — lighter than the text beside it (custom-notify.scss:51). */
   --failed-icon: light-dark(var(--c-red-400), var(--c-rose-200));
 
-  /* Priority marks — three colours for five priorities: high, important and critical differ by glyph alone. */
-  --priority-low: light-dark(var(--c-sky-700), var(--c-sky-dark-900));
-  --priority-normal: light-dark(var(--c-neutral-700), var(--c-neutral-300));
-  --priority-high: light-dark(var(--c-red-600), var(--c-red-400));
+  /* Priority marks — three colours for five priorities: high, important and critical differ by glyph
+     alone. Web-exact (priority/icons.hbs, #28): only `normal` differs between the two schemes, so the
+     other two are single values. Tailwind blue-400 and gray-700/300 are not in our palette above. */
+  --priority-low: #60a5fa;                         /* web: text-blue-400 */
+  --priority-normal: light-dark(#374151, #d1d5db); /* web: text-gray-700 / dark:text-gray-300 */
+  --priority-high: var(--c-red-600);               /* web: text-red-600 */
 
   /* Toast — dark in BOTH schemes, which is why its inline action is tinted with white overlays. */
   --toast-bg: light-dark(var(--c-neutral-950), var(--c-neutral-700));
