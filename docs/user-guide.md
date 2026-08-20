@@ -374,7 +374,8 @@ tests you have already graded.
      `Console & network log` meta key (toggleable in Settings),
    - keeps you on the test and opens **Attachments & log** for you.
 6. Optionally **📸 Attach screenshot** → annotate → **Apply**.
-7. Click **Rec** again to stop recording.
+7. Click **Rec** again to stop recording — or just leave the test, which stops it
+   for you: the recording belongs to the test it was started in.
 
 #### The annotator
 
@@ -687,9 +688,9 @@ stop the recording.
   left in the browser window: screenshots, **Rec**, the step recorder and the
   environment info all follow the site under test, not the panel.
 - **Rec** (right end of the tabs row) — the console/network recorder. Visible on
-  the run and test views, and from anywhere while a recording is running, so you
-  can stop it in one click. A red dot pulses while it records; the recorded tab's
-  title sits next to it.
+  the **test view only**: a recording belongs to the test you started it in, and
+  leaving that test — or closing the panel — stops it for you, with a toast. A red
+  dot pulses while it records; the recorded tab's title sits next to it.
 - **Basic mode banner** — a slim strip on the runs/run views naming what is
   disabled, with **Refresh** and a dismiss ×.
 - **N changes pending · Retry** — the offline queue strip.

@@ -6,8 +6,10 @@
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
+// `recordId` is the recorder's copy, not state.currentRecordId: the testrun the session was
+// STARTED in, so a panel reload still knows which screen owns it (rec scoped to its testrun).
 const evUi = {
-  recording: false, tabId: null, tabTitle: '', tabUrl: '', sectionOpen: false, pollTimer: null,
+  recording: false, tabId: null, recordId: null, tabTitle: '', tabUrl: '', sectionOpen: false, pollTimer: null,
   expanded: new Set(), errors: [], card: null,
 };
 
@@ -143,6 +145,7 @@ function applyEvidenceStatus(status) {
   const was = evUi.recording;
   evUi.recording = !!(status && status.recording);
   evUi.tabId = status && status.tabId != null ? status.tabId : null;
+  evUi.recordId = status && status.recordId != null ? status.recordId : null;
   evUi.tabTitle = (status && status.tabTitle) || '';
   // Kept for ONE job: shortening request rows to their path (evShortUrl).
   evUi.tabUrl = (status && status.tabUrl) || '';
@@ -163,10 +166,9 @@ async function refreshEvidenceStatus() {
 function renderEvidenceToggle() {
   const btn = $('evidence-toggle');
   if (!btn) return;
-  const inRun = state.view === 'run' || state.view === 'test';
-  // Visible where recording can START (run/test), and on EVERY view while a session
-  // is active — the rec dot is a global indicator, stop is always one click away.
-  btn.hidden = !inRun && !evUi.recording;
+  // The test view alone, recording or not: a session belongs to the testrun it started in,
+  // and leaving that screen ends it (onViewShown), so it never outlives the chip.
+  btn.hidden = state.view !== 'test';
   // The slot follows the toggle so an absent chip costs the tabs row no width (#127).
   const slot = $('rec-slot');
   if (slot) slot.hidden = btn.hidden;
@@ -363,6 +365,9 @@ async function onEvidenceToggle() {
   try {
     let tabId = null;
     if (!evUi.recording) {
+      // Defensive: the chip does not exist off the test view, and a session with no testrun
+      // to belong to would be the very thing this scoping removes.
+      if (state.view !== 'test' || state.currentRecordId == null) { toast('Open a test to record its console & network log'); return; }
       // Anything but `ok` is a page Chrome keeps extensions off — no grant to wait
       // for. `activate`: the recorder binds ONE tab, so the toast names the right one.
       const site = await resolveSiteTab({ verb: 'recorded', activate: true });
@@ -370,7 +375,7 @@ async function onEvidenceToggle() {
       tabId = site.tab.id;
       await mirrorCaptureBodiesForRelay(); // before the hook can ask (#175)
     }
-    const r = await evSend({ type: 'EVIDENCE_TOGGLE', tabId });
+    const r = await evSend({ type: 'EVIDENCE_TOGGLE', tabId, recordId: state.currentRecordId });
     if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`); await refreshEvidenceStatus(); return; }
     applyEvidenceStatus(r.status);
     // #123: in-page instrumentation, so Chrome shows no "…is debugging this
@@ -429,8 +434,8 @@ function toggleEvidenceHead() {
   if (evUi.sectionOpen) { renderEvidenceList(); pollEvidenceErrors(); }
 }
 
-// One 2 s poll for as long as the recording lasts, on EVERY view: a single
-// EVIDENCE_LIST round trip feeds the chip count, the hover card and the fold.
+// One 2 s poll for as long as the recording lasts: a single EVIDENCE_LIST round
+// trip feeds the chip count, the hover card and the fold.
 function syncEvidencePolling() {
   if (evUi.recording && !evUi.pollTimer) {
     evUi.pollTimer = setInterval(pollEvidenceErrors, 2000);
@@ -446,6 +451,8 @@ function stopEvidencePolling() {
 
 async function pollEvidenceErrors() {
   if (!evUi.recording) { stopEvidencePolling(); return; }
+  // A boot that landed away from the bound testrun: the view change already came and went.
+  if (evLeftBoundTestrun()) { await evStopLeftTestrun(); return; }
   const r = await evSend({ type: 'EVIDENCE_LIST', errorsOnly: true });
   if (!r || !r.ok) return;
   if (r.status && !r.status.recording) { applyEvidenceStatus(r.status); return; } // recorder stopped underneath us
@@ -617,17 +624,37 @@ async function uploadEvidenceLog(record) {
 
 // ---- wiring --------------------------------------------------------------
 
-// Since #123 a recording only ends without the tester when the recorded tab is gone.
+// A recording ends without the tester's click when what it belongs to goes away: the
+// recorded tab, the testrun it started in, or the panel holding that screen.
 function evStoppedMessage(reason) {
   if (reason === 'target_closed') return 'Recording stopped — the recorded tab was closed';
+  if (reason === 'left-testrun') return 'Recording stopped — you left the test';
+  if (reason === 'panel-closed') return 'Recording stopped — the panel was closed';
   return 'Recording stopped';
 }
 
-// Called by show() on every view change (guarded there).
-function onViewShown(view) {
+// The whole rule of the scoping: a live session whose testrun is not the screen on show.
+// Never mid-boot — that restore passes through the run view on its way back to the test,
+// and a recording the worker kept across a panel reload must survive the trip.
+function evLeftBoundTestrun() {
+  if (!evUi.recording || state.booting) return false;
+  return state.view !== 'test' || String(state.currentRecordId) !== String(evUi.recordId);
+}
+
+// Quiet, no dialog: applied here so the screen being left cannot hold a live chip for a
+// round trip, and the toast comes from the worker's one EVIDENCE_STOPPED broadcast.
+async function evStopLeftTestrun() {
+  applyEvidenceStatus({ recording: false });
+  await evSend({ type: 'EVIDENCE_STOP', reason: 'left-testrun' });
+}
+
+// Called by show() on every view change (guarded there) — the one place a recording is
+// checked against the screen it belongs to. The caller does not await it.
+async function onViewShown(view) {
+  if (evLeftBoundTestrun()) await evStopLeftTestrun();
   renderEvidenceToggle();
   updateEvidenceSection();
-  if (view === 'run' || view === 'test') refreshEvidenceStatus();
+  if (view === 'test') refreshEvidenceStatus();
 }
 
 function initEvidence() {
