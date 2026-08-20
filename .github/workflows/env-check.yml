@@ -1,0 +1,53 @@
+name: env-check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/12-*']
+    paths:
+      - 'tests/**'
+      - '.github/workflows/env-check.yml'
+      - 'extension/sidepanel/core/env-info.js'
+
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        browser: [chrome, msedge]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: sample-matrix
+        id: sample-matrix
+        shell: bash
+        run: node tests/env-info-matrix.mjs
+
+      # Runs even when the matrix is red: before the fix it fails by design and the
+      # live probe result is still the evidence we need.
+      - name: install playwright
+        if: always()
+        shell: bash
+        run: |
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund --silent playwright
+
+      - name: live-probe
+        if: always()
+        shell: bash
+        env:
+          BROWSER_CHANNEL: ${{ matrix.browser }}
+          EXPECT_OS: ${{ runner.os == 'Windows' && 'Windows' || runner.os == 'macOS' && 'macOS' || 'Linux' }}
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run -a node tests/env-live-probe.mjs
+          else
+            node tests/env-live-probe.mjs
+          fi
