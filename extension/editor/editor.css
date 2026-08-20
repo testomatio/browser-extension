@@ -263,6 +263,8 @@ code, pre { font-family: var(--font-mono); }
    without it the row gap under the header is the seam the values show through. */
 /* subgrid is what keeps the header cells on the value columns: the tracks are the parent's, which JS
    writes inline on every render, trailing ✕ gutter and all. */
+/* The rule under the row is the other half of reading the names as a heading — the `thead` border the
+   web app draws under the same three words (test-examples-block.hbs). */
 .tc-params-headrow {
   display: grid;
   grid-column: 1 / -1;
@@ -273,9 +275,22 @@ code, pre { font-family: var(--font-mono); }
   z-index: 1;
   background: var(--bg);
   box-shadow: 0 var(--space-1) 0 var(--bg);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
 }
-/* A column name is a label over its values, so it is set like one. */
-.tc-params-name { font-weight: var(--weight-semibold); }
+/* A column name is a label over its values, so it is set like one — and on the web it is not a field
+   at all but a table heading, plain text in the strong colour with the values under it. Weight alone
+   never said that: beside a value in the same box, at the same size, the two read as the same kind of
+   thing. The box is only DORMANT, not gone — the shared field's own hover and focus rules outrank
+   these two declarations, so it draws itself the moment the name is pointed at or being typed in. */
+.tc-params-name {
+  font-weight: var(--weight-semibold);
+  color: var(--fg-strong);
+  background: transparent;
+  border-color: transparent;
+}
+/* Focus takes the fill back as well: the ring alone leaves a lit box with the page showing through it. */
+.tc-params-name:focus { background: var(--input-bg); }
 .tc-params-remove { color: var(--muted); }
 .tc-params-remove:hover:not(:disabled) { color: var(--failed-fg); }
 /* The header and the blank row own no ✕ — the placeholder is what keeps their last track. */
