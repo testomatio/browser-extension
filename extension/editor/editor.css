@@ -88,7 +88,6 @@ code, pre { font-family: var(--font-mono); }
    field rather than a button, so .btn's own hover and focus are switched off explicitly. */
 .tc-priority-wrap { position: relative; flex: none; }
 .tc-priority {
-  text-transform: capitalize;
   font-weight: var(--weight-normal);
   background: var(--input-bg);
   border-color: var(--input-border);
@@ -105,25 +104,27 @@ code, pre { font-family: var(--font-mono); }
   box-shadow: 0 0 0 1px var(--focus);
 }
 .tc-priority svg { flex: none; }
+/* One fixed icon column, so normal's smaller 12px circle centres and every label starts on the same
+   line (#28). */
+.tc-priority-ico { display: inline-flex; justify-content: center; width: 19px; flex: none; }
 /* The caret is chrome, not the value: it keeps the field's neutral colour, never the priority tint. */
 .tc-priority-caret { color: var(--muted); margin-left: auto; }
-/* Closed-state colours (#32) — the button's icon inherits via currentColor. */
-.tc-priority[data-priority="low"] { color: var(--priority-low); }
-.tc-priority[data-priority="high"],
-.tc-priority[data-priority="important"],
-.tc-priority[data-priority="critical"] { color: var(--priority-high); }
+/* Closed-state colours (#32) — the ICON alone carries the tint, the label stays the default fg (#28). */
+.tc-priority[data-priority="low"] .tc-priority-ico { color: var(--priority-low); }
+.tc-priority[data-priority="high"] .tc-priority-ico,
+.tc-priority[data-priority="important"] .tc-priority-ico,
+.tc-priority[data-priority="critical"] .tc-priority-ico { color: var(--priority-high); }
 
 /* The picker is the shared .menu, living in THIS page's stacking order (the annotator stage sits
    above the shared popup level). */
 .tc-priority-menu { right: 0; z-index: var(--z-stage); }
-.tc-priority-menu .menu-option { text-transform: capitalize; }
 .tc-priority-menu .menu-option svg { flex: none; }
-/* Open-list canon colours (priority/icons.hbs). */
-.tc-priority-menu li[data-priority="low"] { color: var(--priority-low); }
-.tc-priority-menu li[data-priority="normal"] { color: var(--priority-normal); }
-.tc-priority-menu li[data-priority="high"],
-.tc-priority-menu li[data-priority="important"],
-.tc-priority-menu li[data-priority="critical"] { color: var(--priority-high); }
+/* Open-list canon colours (priority/icons.hbs) — icon only, as on the web (#28). */
+.tc-priority-menu li[data-priority="low"] .tc-priority-ico { color: var(--priority-low); }
+.tc-priority-menu li[data-priority="normal"] .tc-priority-ico { color: var(--priority-normal); }
+.tc-priority-menu li[data-priority="high"] .tc-priority-ico,
+.tc-priority-menu li[data-priority="important"] .tc-priority-ico,
+.tc-priority-menu li[data-priority="critical"] .tc-priority-ico { color: var(--priority-high); }
 
 /* Read-only test view (#115): the type is the shared .context-title, marks included. Only the width
    is local — the title shares its row with Edit and the way out. */

@@ -502,7 +502,7 @@
       li.id = `tc-priority-opt-${p}`;
       li.setAttribute('role', 'option');
       li.dataset.priority = p;
-      li.innerHTML = `${PriorityIcons.svg(p)}<span class="tc-priority-label">${p}</span>`;
+      li.innerHTML = `<span class="tc-priority-ico">${PriorityIcons.svg(p)}</span><span class="tc-priority-label">${p}</span>`;
       li.addEventListener('click', () => selectPriority(p));
       menu.append(li);
       opts.set(p, li);
@@ -513,7 +513,7 @@
 
     function renderButton() {
       btn.dataset.priority = current;
-      btn.innerHTML = `${PriorityIcons.svg(current, 16)}<span class="tc-priority-label">${current}</span>${Icons.markup('keyboard_arrow_down', 16, { cls: 'tc-priority-caret' })}`;
+      btn.innerHTML = `<span class="tc-priority-ico">${PriorityIcons.svg(current, 16)}</span><span class="tc-priority-label">${current}</span>${Icons.markup('keyboard_arrow_down', 16, { cls: 'tc-priority-caret' })}`;
     }
 
     function setActive(p) {
