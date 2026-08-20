@@ -4,8 +4,8 @@
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType */
 
 // ---------- TC Studio: suite tree + TC list ----------
-// The tree is built SERVER-side and read whole from GET /suites/tree (#114) — here
-// and in the "New test" picker, so both show the same nodes in abs_position order.
+// The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
+// re-sorted by `position` — the web's order — here and in the "New test" picker (#26).
 
 const tcExpanded = (id) => !!state.tcExpanded[String(id)];
 
@@ -101,7 +101,7 @@ function openSuiteInput({ parentId, fileType, mount }) {
       if (made?.id) tcJustCreated.unshift(String(made.id)); // keeps it in the row it was named in
       if (parentId) state.tcExpanded[String(parentId)] = true; // keep parent open
       resetTcTreeSearch(); // a live filter would hide a node whose title misses it
-      state.tcSuites = await TestomatAPI.getSuiteTree(); // server tree, incl. the new node
+      state.tcSuites = await TestomatAPI.getSuiteTreeOrdered(); // the ordered tree, incl. the new node
       rememberSuiteEmoji(state.tcSuites); // the run view's suite marks read the same tree
       renderSuiteTree(state.tcSuites); // re-render replaces the input row
     } catch (e) {
@@ -395,7 +395,7 @@ async function openTcStudioView() {
     if (await readonlyGate()) { applyReadonlyBlock(); return; }
     const epoch = state.projectEpoch; // a project switch mid-fetch discards this tree
     try {
-      const suites = await TestomatAPI.getSuiteTree();
+      const suites = await TestomatAPI.getSuiteTreeOrdered();
       if (staleProject(epoch)) return;
       state.tcSuites = suites;
       rememberSuiteEmoji(state.tcSuites);
@@ -420,7 +420,7 @@ async function openTcStudioView() {
   $('tc-tree').replaceChildren();
   const epoch = state.projectEpoch; // a project switch mid-fetch discards this tree
   try {
-    const suites = await TestomatAPI.getSuiteTree();
+    const suites = await TestomatAPI.getSuiteTreeOrdered();
     if (staleProject(epoch)) return;
     state.tcSuites = suites;
     // One index: a run's suite sections wear these marks without a fetch of
@@ -719,7 +719,7 @@ async function openTestSuitePicker() {
   setStatusLine('promote-status', 'Loading suites…');
   $('promote-tree').replaceChildren();
   try {
-    const roots = await TestomatAPI.getSuiteTree(); // same server tree as the Tests tab
+    const roots = await TestomatAPI.getSuiteTreeOrdered(); // same ordered tree as the Tests tab
     if (state.view !== 'promote') return;
     renderSuiteTreeInto($('promote-tree'), roots, {
       pick: true,
