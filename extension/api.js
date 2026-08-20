@@ -141,6 +141,42 @@ const TestomatAPI = (() => {
     const roots = await jwtRequest('/suites/tree');
     return Array.isArray(roots) ? roots.map(normSuiteNode) : [];
   }
+  // Drains the JSON:API suites index — the ONE read carrying `position`, `data[].id` being the same public
+  // uid as a tree node's. A FIXED 50 rows a page, `per_page` ignored (verified live), so none is sent.
+  async function getSuitePositions() {
+    const positions = new Map();
+    const take = (doc) => {
+      for (const s of Array.isArray(doc?.data) ? doc.data : []) {
+        positions.set(String(s.id), Number(s.attributes?.position)); // NaN is fine — the sorter reads it as 0
+      }
+    };
+    const first = await jwtRequest('/suites?page=1');
+    take(first);
+    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
+    const rest = await Promise.all(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`/suites?page=${i + 2}`)),
+    );
+    rest.forEach(take);
+    return positions;
+  }
+  // Every level in the web's order — `position` ascending, ties and unknown ids as the server sent them (#26).
+  function orderSuiteTree(nodes, positions) {
+    const pos = (n) => {
+      const p = positions.get(String(n.id));
+      return Number.isFinite(p) ? p : 0;
+    };
+    return (nodes || [])
+      .map((n) => ({ ...n, children: orderSuiteTree(n.children, positions) }))
+      .sort((a, b) => pos(a) - pos(b));
+  }
+  // The tree as the Tests tab and the pickers draw it. /suites/tree orders by `abs_position`, which the
+  // web's drag-reorder leaves stale on the shifted siblings, so the rows are re-sorted by `position` —
+  // the web's own key (#26). Both reads go out together, and positions failing leaves the server's order.
+  async function getSuiteTreeOrdered() {
+    const [roots, positions] = await Promise.all([getSuiteTree(), getSuitePositions().catch(() => null)]);
+    return positions ? orderSuiteTree(roots, positions) : roots;
+  }
   // Flat v2 POST; absent fields are omitted — title-only creates a root `file` suite.
   // `fileType` is 'folder' (grouping node) or 'file' (TC container).
   const createSuite = ({ title, parentId, fileType } = {}) => {
@@ -692,7 +728,7 @@ const TestomatAPI = (() => {
 
   return {
     configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
-    getTestrun, getTest, getSuiteTree, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
+    getTestrun, getTest, getSuiteTree, getSuiteTreeOrdered, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
     getTestParams, setTestParams, createExample, updateExample, deleteExample,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,
     assetUrl, fetchAsset,

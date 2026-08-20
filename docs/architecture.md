@@ -1732,7 +1732,9 @@ in (`runPeopleOf`) and simply absent when it names none),
 assignee (`assignTestrun`, `listProjectUsers`), `finishRun`,
 the **dashboard** runs list (`fetchDashboardPage` + group children/nested/
 subgroups), the **suite tree** (`getSuiteTree` → `GET /suites/tree` — the
-server builds it; the Tests tab and the "New test" picker share that one read),
+server builds it in `abs_position` order, and `getSuiteTreeOrdered` re-sorts
+every level by the `position` read off the JSON:API `/suites` pages, the web's
+own key (#26); the Tests tab and the "New test" picker share that ordered read),
 the header project switcher (`listProjects`), the project's **New Test
 templates** (`listTemplates`), a test's **parameters and example rows**
 (`getTestParams` / `setTestParams` / `createExample` / `updateExample` /
