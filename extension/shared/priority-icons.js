@@ -7,19 +7,21 @@
   'use strict';
 
   // Material Symbols names; colour always via CSS currentColor (no inline fills). `high`
-  // is the CONTROL KEY caret, so `high` and `important` read as one arrow and two.
+  // is the CONTROL KEY caret, so `high` and `important` read as one arrow and two; `critical`
+  // is the FILLED label, our own derived key rather than an upstream name (#28).
   const NAMES = {
     low: 'keyboard_arrow_down',
     normal: 'radio_button_unchecked',
     high: 'keyboard_control_key',
     important: 'keyboard_double_arrow_up',
-    critical: 'label_important',
+    critical: 'label_important_fill',
   };
 
   // Canon sizes (priority/icons.hbs): normal is intentionally smaller.
-  const DEFAULT_SIZE = { low: 19, normal: 12, important: 19, high: 19, critical: 19 };
+  const DEFAULT_SIZE = { low: 19, normal: 12, high: 19, important: 19, critical: 19 };
 
-  const ORDER = ['low', 'normal', 'important', 'high', 'critical'];
+  // Web canon order (priority/modal-multiselect.js): `high` sits BEFORE `important` (#28).
+  const ORDER = ['low', 'normal', 'high', 'important', 'critical'];
 
   // Returns an SVG string for a priority (fill=currentColor), or '' if unknown.
   function svg(priority, size) {
