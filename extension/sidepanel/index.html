@@ -32,19 +32,6 @@
         <span id="project-current" class="project-current"></span>
         <span class="md-icon project-caret" data-icon="keyboard_arrow_down"></span>
       </button>
-      <div id="project-menu" class="menu project-menu" hidden>
-        <!-- Type-to-filter (#126): matches title and slug. -->
-        <input id="project-filter" class="input size-sm project-filter" type="text" autocomplete="off"
-               spellcheck="false" placeholder="Filter projects…" aria-label="Filter projects"
-               aria-controls="project-list" />
-        <ul id="project-list" class="menu-list project-list" role="listbox" aria-label="Projects"></ul>
-        <!-- Written out rather than built by EmptyState.build(), because it is markup that exists before any
-             script runs — icons.js hydrates the data-icon slot. -->
-        <div id="project-empty" class="empty compact" hidden>
-          <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
-          <div class="empty-body"><p class="empty-text">No project matches</p></div>
-        </div>
-      </div>
     </div>
     <!-- Panel-wide Refresh, scoped by the project beside it: it re-pulls the WHOLE panel (refreshAll(),
          core/views.js). On a drill-down this row folds away and the button MOVES into row 3, the only
@@ -67,6 +54,21 @@
             data-tip="Open in window" data-tip-side="bottom" aria-label="Open in window">
       <span class="md-icon" data-icon="web_asset" data-icon-size="20"></span>
     </button>
+    <!-- The popup hangs off the BAR, not off the trigger's box: the trigger is only as wide as the project
+         name, so anchored there the list could never reach the panel's left edge (full-width picker). -->
+    <div id="project-menu" class="menu project-menu" hidden>
+      <!-- Type-to-filter (#126): matches title and slug. -->
+      <input id="project-filter" class="input size-sm project-filter" type="text" autocomplete="off"
+             spellcheck="false" placeholder="Filter projects…" aria-label="Filter projects"
+             aria-controls="project-list" />
+      <ul id="project-list" class="menu-list project-list" role="listbox" aria-label="Projects"></ul>
+      <!-- Written out rather than built by EmptyState.build(), because it is markup that exists before any
+           script runs — icons.js hydrates the data-icon slot. -->
+      <div id="project-empty" class="empty compact" hidden>
+        <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
+        <div class="empty-body"><p class="empty-text">No project matches</p></div>
+      </div>
+    </div>
   </div>
 
   <!-- Row 2: the tab bar plus the Rec chip. This is the row that PINS — the project strip above it
