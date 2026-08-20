@@ -1164,7 +1164,10 @@ in `background.js` is the worker's — every panel document dials that port, wha
 hosts it, and the last one dying stops the recording (`'panel-closed'`) after a ~2 s grace,
 so switching surfaces or reloading the panel, which close one document before opening the
 next, survive it. Both land on `evStopIfRecording()`, the same stop-and-broadcast path a
-closed recorded tab takes.
+closed recorded tab takes. With `settings.evidenceAutoStart` on (absent -> OFF)
+`onViewShown()` also **starts** a session on entering a testrun — `evStartRecording()`, the
+same path the Rec click takes, once per entry and silent in both outcomes, under exactly
+these binding rules, so a manual stop stands and leaving still ends it.
 
 ```
 panel  EVIDENCE_TOGGLE {tabId, recordId}
@@ -1591,7 +1594,7 @@ Three areas, plus page-level `sessionStorage`. Nothing is ever written to
 
 | Key | Shape | Written by |
 |---|---|---|
-| `settings` | The **active** instance plus its preferences: `{baseUrl, apiToken, projectId (resolved from the token's project list, never typed), envInfoOnFail, envFullUrl, evidenceWindowSec, evidenceAutoAttach, evidenceCaptureBodies, stepRecNeverValues}` (`screens/settings.js` `saveSettings()`) and `fullPageCapture` (`screens/test-view.js:419`) | `screens/settings.js`, `screens/test-view.js:431` |
+| `settings` | The **active** instance plus its preferences: `{baseUrl, apiToken, projectId (resolved from the token's project list, never typed), envInfoOnFail, envFullUrl, evidenceWindowSec, evidenceAutoStart, evidenceAutoAttach, evidenceCaptureBodies, stepRecNeverValues}` (`screens/settings.js` `saveSettings()`) and `fullPageCapture` (`screens/test-view.js:419`) | `screens/settings.js`, `screens/test-view.js:431` |
 | `evidenceCaptureBodies` | The body-capture boolean ALONE, mirrored from the active `settings` on a save and on a recording start — the in-page relay reads this key, never `settings`, which holds the API token | `screens/settings.js`, `screens/evidence.js` |
 | `stepRecNeverValues` | The recorder's never-record-values boolean ALONE, mirrored from the active `settings` on a save — the injected `content/step-recorder.js` reads this key, never `settings`, for the same reason as the row above. Absent -> OFF, i.e. values are recorded with masking applied | `screens/settings.js` |
 | `polishSteps` | The test editor's **Polish with AI** switch (#23), its OWN top-level boolean — it belongs to this browser, not to the instance's `settings`, and is written the moment the switch moves (a 401/403 from `/prompts` writes `false` and hides it). Absent -> OFF | `editor/editor.js` |
