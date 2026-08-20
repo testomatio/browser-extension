@@ -27,16 +27,18 @@ function uaBrowser(ua) {
   for (const [re, name] of [
     [/\bEdg\/(\d+)/, 'Edge'], [/\bOPR\/(\d+)/, 'Opera'],
     [/\bChrome\/(\d+)/, 'Chrome'], [/\bFirefox\/(\d+)/, 'Firefox'],
-    [/Version\/(\d+)[\d.]*\s+Safari/, 'Safari'],
+    // Mobile Safari interleaves `Mobile/15E148` between the version and `Safari/`.
+    [/Version\/(\d+)[\d.]*.*\bSafari\//, 'Safari'],
   ]) { const m = ua.match(re); if (m) return `${name} ${m[1]}`; }
   return 'Unknown';
 }
 
 function uaOs(ua) {
   if (/Windows NT/.test(ua)) return 'Windows';
+  // iOS before macOS: every iOS UA carries "like Mac OS X".
+  if (/(iPhone|iPad|iPod)/.test(ua)) return 'iOS';
   if (/Mac OS X/.test(ua)) return 'macOS';
   if (/Android/.test(ua)) return 'Android';
-  if (/(iPhone|iPad|iPod)/.test(ua)) return 'iOS';
   if (/CrOS/.test(ua)) return 'Chrome OS';
   if (/Linux/.test(ua)) return 'Linux';
   return 'Unknown';
@@ -59,8 +61,16 @@ function envBrowser() {
 }
 
 // OS name: UA-CH platform ("macOS"/"Windows"/"Linux"/…), else a UA-string parse.
+// A mobile platform hint the UA string does not confirm is the #12 lie — extensions
+// run on desktop only — so the UA parse wins; those builds are Linux when it is Unknown.
 function envOs() {
-  return navigator.userAgentData?.platform || uaOs(navigator.userAgent);
+  const hinted = navigator.userAgentData?.platform;
+  if (!hinted) return uaOs(navigator.userAgent);
+  if (hinted === 'Android' || hinted === 'iOS') {
+    const parsed = uaOs(navigator.userAgent);
+    if (parsed !== hinted) return parsed === 'Unknown' ? 'Linux' : parsed;
+  }
+  return hinted;
 }
 
 // Active tab URL via resolveSiteTab. '' for anything but a readable http(s) tab,
