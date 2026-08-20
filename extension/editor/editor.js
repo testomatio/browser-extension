@@ -398,6 +398,18 @@
   }
   const pickDefaultTemplate = (list) => list.find((t) => t.isDefault) || list[0] || null;
 
+  // ---- project language (#35) ---------------------------------------------
+  // Same best-effort contract as loadTemplates: ANY failure (no session, offline, no
+  // permission) answers '' — an unknown language must not cost a non-BDD project its
+  // templates. Only a BDD project answers 'gherkin'.
+  async function loadProjectLang() {
+    try {
+      const doc = await TestomatAPI.getProjectInfo();
+      const attrs = (doc && doc.data && doc.data.attributes) || {};
+      return String(attrs.lang || '').toLowerCase();
+    } catch { return ''; }
+  }
+
   // Silent to screen readers: the sentence they get is on the heading that holds it (renderView).
   function skBar(cls, w) {
     const b = Sk.bar(cls, w);
@@ -2360,6 +2372,9 @@
     if (cx.test) renderView({ ctx: cx.ctx, uid: cx.test, loading: true });
     // The template seed rides along with the probe — loadTemplates swallows every failure.
     const templatesLoad = cx.suite ? loadTemplates() : null;
+    // Fired here rather than at the create branch so the language read (#35) overlaps the
+    // template read instead of queueing a second round trip behind it.
+    const projectLangLoad = cx.suite ? loadProjectLang() : null;
 
     // #187 — a direct load (restored tab, bookmark) never passed the Tests tab's own gate.
     if (await readonlyGate()) { renderMessage(READONLY_BLOCK, { back: panelCtx }); return; }
@@ -2418,11 +2433,18 @@
     }
 
     // Create mode: the initial markdown is seeded from the project's default test
-    // template (#104; no templates → empty body).
-    const templates = await templatesLoad;
+    // template (#104; no templates → empty body). A BDD project is the exception (#35):
+    // there are no test templates there — the web app's test form hides its Use Template
+    // button behind `project.isGherkin` and seeds a new body from code as `Scenario: `.
+    // The server hands every project a default test template regardless, so without this
+    // the picker would offer one the web never has and the body would open on a literal
+    // `{{ title }}` no web user ever sees. A failed language probe reads as non-gherkin,
+    // which keeps templates on offer instead of stripping them over a flaky round trip.
+    const gherkin = (await projectLangLoad) === 'gherkin';
+    const templates = gherkin ? [] : await templatesLoad;
     const initialTemplate = pickDefaultTemplate(templates);
     let title = '';
-    let markdown = initialTemplate ? initialTemplate.body : '';
+    let markdown = initialTemplate ? initialTemplate.body : (gherkin ? 'Scenario: ' : '');
     let priority = 'normal';
     let params = null;
     let recorded = null;
