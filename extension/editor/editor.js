@@ -409,6 +409,12 @@
       return String(attrs.lang || '').toLowerCase();
     } catch { return ''; }
   }
+  // Shared by the create seed (#35) and both parameter blocks (#32) — one probe per document.
+  let projectLangPromise = null;
+  function projectLangOnce() {
+    if (!projectLangPromise) projectLangPromise = loadProjectLang();
+    return projectLangPromise;
+  }
 
   // Silent to screen readers: the sentence they get is on the heading that holds it (renderView).
   function skBar(cls, w) {
@@ -934,10 +940,11 @@
     };
   }
 
-  // The read-only table under a test's description. Optional by contract: no session, no parameters
-  // or a failed read all draw nothing rather than saying so.
+  // The read-only table under a test's description. Optional by contract: no session, no parameters,
+  // a failed read or a BDD project (#32 — the body's Examples already show this data) draw nothing.
   async function appendParamsTable(pane, uid) {
     if (!uid || TestomatAPI.jwtAvailable() === false) return;
+    if ((await projectLangOnce()) === 'gherkin') return;
     let read = null;
     try { read = await TestomatAPI.getTestParams(uid); } catch (e) { console.debug('parameters unavailable', e); return; }
     const rows = read.examples || [];
@@ -2044,8 +2051,10 @@
     // ---- parameters: what the test already has (#5) --------------------------
     // Session-only, so basic mode drops the block whole rather than offering a grid that could not
     // be saved. Any other failure is said once and leaves an empty grid to write in.
+    // BDD drops it too (#32): the body's Examples own the data — a grid write collides server-side.
     async function loadParams() {
       if (TestomatAPI.jwtAvailable() === false) { paramsCtl.disable(); return; }
+      if ((await projectLangOnce()) === 'gherkin') { paramsCtl.disable(); return; }
       if (!editing) { paramsCtl.ready(); return; }
       try {
         const read = await TestomatAPI.getTestParams(uid);
@@ -2372,9 +2381,8 @@
     if (cx.test) renderView({ ctx: cx.ctx, uid: cx.test, loading: true });
     // The template seed rides along with the probe — loadTemplates swallows every failure.
     const templatesLoad = cx.suite ? loadTemplates() : null;
-    // Fired here rather than at the create branch so the language read (#35) overlaps the
-    // template read instead of queueing a second round trip behind it.
-    const projectLangLoad = cx.suite ? loadProjectLang() : null;
+    // Started at boot so the language read (#35, #32) overlaps the other round trips.
+    const projectLangLoad = (cx.suite || cx.test) ? projectLangOnce() : null;
 
     // #187 — a direct load (restored tab, bookmark) never passed the Tests tab's own gate.
     if (await readonlyGate()) { renderMessage(READONLY_BLOCK, { back: panelCtx }); return; }
