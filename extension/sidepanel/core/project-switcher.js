@@ -159,9 +159,11 @@ function closeProjectMenu({ focus = false } = {}) {
   document.removeEventListener('keydown', onProjectMenuKey, true);
 }
 
+// The menu hangs off the bar, not off the trigger, so BOTH boxes count as inside — otherwise a click on
+// the filter or the list's scrollbar would read as outside and close the popup (full-width picker).
 function onProjectDocClick(e) {
-  const dd = $('project-dropdown');
-  if (dd && !dd.contains(e.target)) closeProjectMenu();
+  const inside = ['project-dropdown', 'project-menu'].some((id) => $(id) && $(id).contains(e.target));
+  if (!inside) closeProjectMenu();
 }
 
 // Handled at document level (capture) so they work wherever focus sits, and so the
