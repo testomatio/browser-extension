@@ -788,12 +788,17 @@
     function render() {
       grid.replaceChildren();
       grid.style.gridTemplateColumns = `repeat(${model.headers.length}, minmax(88px, 1fr)) var(--tc-params-gutter)`;
+      // The names ride in a box of their own so they can stay put while the values scroll under them;
+      // the grid's own tracks reach through it (subgrid, editor.css), so the columns still line up.
+      const headRow = document.createElement('div');
+      headRow.className = 'tc-params-headrow';
       model.headers.forEach((value, col) => {
         const el = input(value, 'input size-sm tc-params-name', 'Parameter', 'head', col);
         el.addEventListener('input', () => { model.headers[col] = el.value; clearError(); onEdited(); });
-        grid.append(el);
+        headRow.append(el);
       });
-      grid.append(corner());
+      headRow.append(corner());
+      grid.append(headRow);
       model.rows.forEach((row, r) => {
         row.cells.forEach((value, col) => {
           const el = input(value, 'input size-sm', 'Value', r, col);

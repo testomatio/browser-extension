@@ -173,7 +173,10 @@ code, pre { font-family: var(--font-mono); }
 /* body: OverType host + preview pane share the remaining height */
 /* isolation is what keeps the vendored editor's depth INSIDE it: OverType stamps z-index 100 !important
    on its toolbar and 10000 on its dropdown, and vendored code is never edited (Constitution II). */
-.tc-body { flex: 1 1 auto; min-height: 0; position: relative; isolation: isolate; }
+/* The floor is ten of the editor's OWN lines: a test with two dozen example rows used to squeeze the
+   text it belongs to down to nothing (#33). The vendored toolbar is drawn inside this box and takes a
+   part of the floor with it, which is what a side panel at its shortest is meant to look like. */
+.tc-body { flex: 1 1 auto; min-height: calc(var(--leading-md-editor) * 10); position: relative; isolation: isolate; }
 .tc-edit-pane { height: 100%; }
 .tc-preview-pane { height: 100%; overflow: auto; padding: var(--space-3) var(--gutter); }
 .tc-preview-pane[hidden], .tc-edit-pane[hidden] { display: none; }
@@ -212,17 +215,25 @@ code, pre { font-family: var(--font-mono); }
 .tc-edit-pane .overtype-wrapper .overtype-preview .syntax-marker { opacity: 1 !important; }
 
 /* ---- Parameters (#5): the columns a test runs with, one row per run ---- */
-/* Its own band between the text and the footer. `flex: none` is what keeps the markdown pane's
-   height (this shell is a column), and the grid scrolls INSIDE the block — at 360px the block gives
-   way, never the page. */
+/* Its own band between the text and the footer. `flex: 0 1 auto` is what makes the band hand its
+   height BACK when there is not enough (this shell is a column): under `flex: none` two dozen example
+   rows took the markdown pane down to nothing and scrolled the whole page, Save and Cancel off the
+   bottom of it (#33). The column here is how that shrink reaches the grid, which scrolls INSIDE the
+   block — at 360px the grid gives way, never the page. */
 .tc-params {
   /* The ✕ track, sized to the button that lives in it; JS writes the rest of the template. */
   --tc-params-gutter: var(--control-h-xs);
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding: var(--space-2) var(--gutter) var(--space-3);
   border-top: 1px solid var(--border);
 }
 .tc-params[hidden] { display: none; }
+/* The fold's own column, so the hint and the actions row keep their height and the grid between them
+   is the one thing the shrink lands on. */
+.tc-params > .disclosure-body { display: flex; flex-direction: column; min-height: 0; }
 .tc-params-hint { margin: 0 0 var(--space-2); }
 .tc-params-hint code {
   padding: 0 var(--space-1);
@@ -230,15 +241,39 @@ code, pre { font-family: var(--font-mono); }
   background: var(--surface-2);
   font-size: var(--fs-2xs);
 }
+/* The cap is what the block gives way at: past ten-odd rows the grid scrolls in itself instead of
+   growing. It carries NO floor on purpose — a floor is a height the grid refuses to give back, and on
+   a panel short enough to ask for it the band would hand the row of Column buttons out under the
+   footer instead. Thinning to a sliver on a panel that short is the honest reading of it; the fold
+   closes if the text is what is wanted there. */
 .tc-params-grid {
   display: grid;
   align-items: center;
   gap: var(--space-1) var(--space-2);
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 360px;
   padding-bottom: var(--space-1); /* a band for the scrollbar, off the fields it would sit on */
 }
 /* The TRACK carries the width here; a field's own 100% would fight the minmax() floor. */
 .tc-params-grid .input { min-width: 0; }
+/* The header stays put while the values scroll under it, as ONE opaque box: with a fill on each input
+   the 4px row gap BETWEEN the name fields is left transparent, and rows read through the seams. The
+   box-shadow is that same fill carried a gap's worth further down, where the sticky box itself ends —
+   without it the row gap under the header is the seam the values show through. */
+/* subgrid is what keeps the header cells on the value columns: the tracks are the parent's, which JS
+   writes inline on every render, trailing ✕ gutter and all. */
+.tc-params-headrow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  box-shadow: 0 var(--space-1) 0 var(--bg);
+}
 /* A column name is a label over its values, so it is set like one. */
 .tc-params-name { font-weight: var(--weight-semibold); }
 .tc-params-remove { color: var(--muted); }
