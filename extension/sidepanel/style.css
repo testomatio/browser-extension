@@ -344,6 +344,21 @@ body[data-connect="true"] .header-top { display: none; }
 
 .load-more-spinner { flex: none; }
 
+/* "Found by id" heading (#57): the row under it came from a direct /runs/{id} read, not
+   from the list — it is a caption, so it drops the row floor, the rule and the hover. */
+.list li.found-by-id {
+  min-height: 0;
+  padding-block: var(--space-2) 0;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  cursor: default;
+}
+.list li.found-by-id::after { content: none; }
+.list li.found-by-id:hover { background: none; }
+
 /* A status pill is Capitalized in CSS only — textContent stays lowercase, which the e2e string
    assertions read. */
 .badge.passed, .badge.failed, .badge.skipped, .badge.untested { text-transform: capitalize; }
