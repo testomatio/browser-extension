@@ -25,6 +25,7 @@ const state = {
   runStatus: null,    // v2 run status: 'running' until finished, then terminal
   runKind: null,      // v2 run kind: manual|automated|mixed — the header pill (#111)
   records: [],        // testrun records of the open run, in run order
+  runExamples: {},    // #52: testrun id -> { values, params } of a parametrized row (JWT); {} in basic mode
   substatusCounts: {},// substatus -> count from the JSON:API run detail; {} in basic mode
   runInfo: {},        // open run's "Run info" fields: the v2 detail plus the JSON:API read
   currentRecordId: null, // testrun RECORD id of the open row, never test_id
@@ -162,6 +163,7 @@ function resetProjectScopedState() {
   state.testTitle = '';
   state.runStatus = null;
   state.records = [];
+  state.runExamples = {};
   state.substatusCounts = {};
   state.runInfo = {};
   state.currentRecordId = null;

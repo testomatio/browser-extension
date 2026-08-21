@@ -616,6 +616,47 @@ const TestomatAPI = (() => {
 
   const getRunInfo = (runId) => jwtRequest(`/runs/${encodeURIComponent(runId)}`).then(runInfoOf);
 
+  // ---- parametrized run rows (#52) — JSON:API only ----
+  // `attributes.example` is the ARRAY of values, positional to `attributes.test.params`. A plain
+  // OBJECT (param → value) is taken defensively, its own keys being the names then. null = not one.
+  function testrunExampleOf(attrs) {
+    const raw = attrs?.example;
+    if (Array.isArray(raw)) {
+      const values = raw.map((v) => String(v ?? '')); // numbers and booleans come through as values
+      if (!values.some((v) => v !== '')) return null;
+      const params = attrs?.test?.params;
+      return { values, params: Array.isArray(params) ? params.map(String) : null };
+    }
+    if (raw && typeof raw === 'object') {
+      const entries = Object.entries(raw).filter(([, v]) => v != null && String(v) !== '');
+      if (!entries.length) return null;
+      return { values: entries.map(([, v]) => String(v)), params: entries.map(([k]) => String(k)) };
+    }
+    return null;
+  }
+
+  // The example values of a run's rows, keyed by testrun id — what tells N same-titled rows of a
+  // parametrized test apart. v2 `/testruns` serializes neither, so this is the only source.
+  async function listTestrunExamples(runId) {
+    const map = {};
+    const take = (doc) => {
+      for (const n of Array.isArray(doc?.data) ? doc.data : []) {
+        const example = testrunExampleOf(n.attributes);
+        if (example) map[String(n.id)] = example;
+      }
+    };
+    const path = `/testruns?run_id=${encodeURIComponent(runId)}`;
+    const first = await jwtRequest(`${path}&page=1`);
+    take(first);
+    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
+    const rest = await Promise.all(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`${path}&page=${i + 2}`)),
+    );
+    rest.forEach(take);
+    return map;
+  }
+
   // The server also auto-writes a `change` audit extra alongside this — expected, not an error.
   function setSubstatus(testrunId, value) {
     return jwtRequest(`/testruns/${encodeURIComponent(testrunId)}/testrun_extras/substatus`, {
@@ -734,7 +775,7 @@ const TestomatAPI = (() => {
     assetUrl, fetchAsset,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,
     fetchDashboardPage, fetchGroupChildren, fetchGroupRunsNested, fetchGroupSubgroups, getRunGroup,
-    setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf,
+    setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf, listTestrunExamples,
     listProjectUsers, listProjects, assignTestrun,
     listTemplates, polishRecordedSteps,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
