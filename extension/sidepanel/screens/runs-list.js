@@ -28,8 +28,14 @@ const runsSearchActive = () => state.runsSearch.trim() !== '';
 const runsFilterActive = () => state.runsFilter !== 'all';
 const anyRunsConstraint = () => runsSearchActive() || runsFilterActive();
 const titleOf = (item) => (item.clean_title || item.title || '').toLowerCase();
-const runMatchesSearch = (run) => !runsSearchActive() || titleOf(run).includes(state.runsSearch.trim().toLowerCase());
-const groupTitleMatchesSearch = (group) => !runsSearchActive() || titleOf(group).includes(state.runsSearch.trim().toLowerCase());
+const searchNeedle = () => state.runsSearch.trim().toLowerCase();
+// #57: a run answers to its id as well as its title — pasted from a URL or a CI log.
+// Folders keep matching by title only; an id belongs to a run.
+const runMatchesSearch = (run) =>
+  !runsSearchActive()
+  || titleOf(run).includes(searchNeedle())
+  || String(run.id || '').toLowerCase().includes(searchNeedle());
+const groupTitleMatchesSearch = (group) => !runsSearchActive() || titleOf(group).includes(searchNeedle());
 const runPasses = (run) => matchesFilter(run.status) && runMatchesSearch(run);
 const groupSelfHit = (group) => matchesFilter(group.status) && groupTitleMatchesSearch(group);
 const runsEmptyMessage = () =>
@@ -580,9 +586,13 @@ const isPasteInput = (e) =>
   e?.inputType === 'insertFromDrop' || String(e?.inputType || '').startsWith('insertFromPaste');
 
 function onRunsSearchKeydown(e) {
-  if (e.key !== 'Enter' || !looksLikeRunUrl($('runs-search').value)) return;
+  if (e.key !== 'Enter') return;
+  const raw = $('runs-search').value;
+  if (looksLikeRunUrl(raw)) { e.preventDefault(); openRunsSearchUrl(); return; }
+  // #57: a bare id opens its run on Enter, exactly as a pasted link does.
+  if (!looksLikeRunId(raw)) return;
   e.preventDefault();
-  openRunsSearchUrl();
+  openRunsSearchId(raw.trim());
 }
 
 function clearRunsSearch() {
@@ -597,7 +607,7 @@ function clearRunsSearch() {
 // that draws the pills, so `env` stays one comparable string everywhere else.
 const envTags = (env) => String(env || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-function runRow(run, { child = false } = {}) {
+function runRow(run, { child = false, showId = false } = {}) {
   const li = document.createElement('li');
   li.className = child ? 'group-child' : 'run';
   li.dataset.runId = run.id;
@@ -629,6 +639,13 @@ function runRow(run, { child = false } = {}) {
       meta.append(pill);
     }
     lines.append(meta);
+  }
+  // #57: nothing else on the row names the id the by-id lookup was asked for.
+  if (showId) {
+    const idLine = document.createElement('div');
+    idLine.className = 'meta';
+    idLine.textContent = run.id;
+    lines.append(idLine);
   }
   head.append(lines);
   li.append(head);
@@ -823,7 +840,14 @@ function renderRuns(runs, groups = []) {
 // a footnote to it ("only page 1 was searched"), not a sibling.
 function finishRunsRender(ul, { loaded, shown, constrained }) {
   if (!loaded) { renderRunsEmptyCta(ul); renderFilterChips(); return; }
-  if (constrained && !shown) ul.append(runsNoMatchEmpty());
+  // #57: nothing loaded answered an id-shaped query — look the run up directly.
+  const probeId = constrained && !shown ? runsSearchRunId() : null;
+  syncRunIdProbe(probeId);
+  if (constrained && !shown) {
+    const probe = probeId ? runIdProbeFor(probeId) : null;
+    if (probe?.run) ul.append(...foundByIdRows(probe.run));
+    else ul.append(runsNoMatchEmpty(!!probe && !probe.pending));
+  }
   renderTopLoadMore(ul);
   renderFilterChips();
   setStatusLine('runs-status', '');
@@ -906,8 +930,8 @@ function renderRunsEmptyCta(ul) {
 }
 
 // Rows exist, none survived the chip + search. Marked `live` — it took over the
-// status line's aria-live job.
-function runsNoMatchEmpty() {
+// status line's aria-live job. `idMiss`: the by-id lookup came back empty too (#57).
+function runsNoMatchEmpty(idMiss = false) {
   const actions = [];
   if (runsSearchActive()) {
     const b = document.createElement('button');
@@ -931,7 +955,9 @@ function runsNoMatchEmpty() {
     icon: runsSearchActive() ? 'search_off' : 'filter_alt_off',
     title: runsEmptyMessage(),
     text: runsSearchActive()
-      ? 'Nothing in the loaded runs matches what you typed.'
+      ? (idMiss
+        ? 'Nothing loaded matches what you typed, and no run in the project has this id.'
+        : 'Nothing in the loaded runs matches what you typed.')
       : 'Nothing loaded so far carries this status.',
     actions,
   });
@@ -1050,4 +1076,80 @@ function highlightGroup(groupId) {
     state.highlightedGroup = null;
     renderedGroupRow(groupId)?.classList.remove('group-highlight');
   }, 2500);
+}
+
+// ---------- find a run by id (#57) ----------
+// The search reaches only the loaded rows, so an id that none of them answers is read
+// straight off /runs/{id} — the run may sit deep in a folder or far down the list.
+
+// Real ids are 8 hex chars; 6–12 tolerates a trimmed or over-copied paste. A bare id
+// can never be URL-shaped, so the two search intents cannot collide.
+const looksLikeRunId = (raw) => /^[0-9a-f]{6,12}$/i.test(String(raw || '').trim());
+const runsSearchRunId = () => (looksLikeRunId(state.runsSearch) ? state.runsSearch.trim() : null);
+
+// Long enough that the read waits for the typing to stop.
+const RUN_ID_PROBE_MS = 500;
+
+// The one probe kept: { query, epoch, pending, run }; a settled `run: null` = no such run.
+// Re-renders repaint it; only a NEW query reads again, and `epoch` voids it on a project switch.
+let runIdProbe = null;
+let runIdProbeTimer = null;
+let runIdProbeToken = 0; // strands a read whose query is no longer the one on screen
+
+const runIdProbeFor = (query) =>
+  (runIdProbe && runIdProbe.query === query && runIdProbe.epoch === state.projectEpoch
+    ? runIdProbe
+    : null);
+
+// Every render passes through here: it arms the read for a fresh id-shaped miss, and
+// strands the pending one the moment the query stops being one.
+function syncRunIdProbe(query) {
+  if (query && runIdProbeFor(query)) return; // settled, or already on the wire
+  clearTimeout(runIdProbeTimer);
+  runIdProbeTimer = null;
+  runIdProbeToken += 1;
+  if (runIdProbe?.pending) runIdProbe = null;
+  if (!query) return;
+  const token = runIdProbeToken;
+  runIdProbeTimer = setTimeout(() => probeRunById(query, token), RUN_ID_PROBE_MS);
+}
+
+async function probeRunById(query, token) {
+  runIdProbeTimer = null;
+  if (token !== runIdProbeToken) return;
+  const epoch = state.projectEpoch;
+  runIdProbe = { query, epoch, pending: true, run: null };
+  let run = null;
+  try {
+    run = await TestomatAPI.getRun(query);
+  } catch (e) {
+    // Quiet on purpose (fires on a keystroke pause): only a definite miss is remembered,
+    // a network or auth blip stays retryable.
+    if (e?.kind !== 'notfound') { if (token === runIdProbeToken) runIdProbe = null; return; }
+  }
+  if (token !== runIdProbeToken || staleProject(epoch) || state.runsSearch.trim() !== query) return;
+  runIdProbe = { query, epoch, pending: false, run };
+  if (state.view === 'runs') renderList();
+}
+
+// Stands in for the empty state: an explicit id ask outranks the status chip, so the
+// row appears even when the filter would have hidden it.
+function foundByIdRows(run) {
+  const label = document.createElement('li');
+  label.className = 'found-by-id';
+  label.textContent = 'Found by id';
+  return [label, runRow(run, { showId: true })];
+}
+
+// Probed first, like the URL path — a bad id leaves the user on the list with a toast.
+async function openRunsSearchId(id) {
+  let detail;
+  try { detail = await TestomatAPI.getRun(id); }
+  catch (e) {
+    if (e?.kind === 'notfound') { toast(RUN_NOT_FOUND, { error: true }); return; }
+    handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
+    return;
+  }
+  resetRunsSearch();
+  openRunView(id, detail?.clean_title || detail?.title);
 }
