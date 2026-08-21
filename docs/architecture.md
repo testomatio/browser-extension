@@ -836,14 +836,16 @@ Clicking a run → `openRunView(runId, title)` (`screens/run-view.js:78-166`):
    panel-wide Refresh) tears nothing down at all: no placeholder, no cleared
    checklist, no hidden pills — the paint stays and the re-read lands in it;
    `show('run')`;
-2. `Promise.allSettled([getRun, listTestruns, getRunInfo?])` — the legs are
-   independent on purpose: a failed *meta* fetch degrades the header to a cached
-   title and a muted note, but the checklist still renders. Only a failed
-   **test-list** leg throws. The JSON:API `getRunInfo` rides in the same batch
-   whenever `capabilities.jwt` is already true, and is applied OVER the v2 base
-   before the first paint — so the run paints **once**, instead of inserting
-   Started / Duration / Executed by a paint later. Without a proven session yet
-   (the first run of a panel session) the old two-phase paint stands;
+2. `Promise.allSettled([getRun, listTestruns, getRunInfo?, listTestrunExamples?])`
+   — the legs are independent on purpose: a failed *meta* fetch degrades the
+   header to a cached title and a muted note, but the checklist still renders.
+   Only a failed **test-list** leg throws. The JSON:API `getRunInfo` and
+   `listTestrunExamples` (`state.runExamples`, the row chips of a parametrized
+   run, #52) ride in the same batch whenever `capabilities.jwt` is already true,
+   and are applied OVER the v2 base before the first paint — so the run paints
+   **once**, instead of inserting Started / Duration / Executed by a paint
+   later. Without a proven session yet (the first run of a panel session) the
+   old two-phase paint stands;
 3. `state.records = <sorted by id ASC>` (v2 returns newest-first; run order is
    creation order);
 4. `renderRunView()` → `startLiveSync()` → `OfflineQueue.replay()` →

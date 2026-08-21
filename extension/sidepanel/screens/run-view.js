@@ -146,10 +146,11 @@ async function openRunView(runId, title) {
     // session is already proven, so the run paints ONCE with everything it will show
     // — Started, Duration and Executed by used to insert themselves a paint later.
     const readInfo = capabilities.jwt === true;
-    const [detailRes, recordsRes, infoRes] = await Promise.allSettled([
+    const [detailRes, recordsRes, infoRes, examplesRes] = await Promise.allSettled([
       TestomatAPI.getRun(runId),
       TestomatAPI.listTestruns(runId),
       readInfo ? TestomatAPI.getRunInfo(runId) : null,
+      readInfo ? TestomatAPI.listTestrunExamples(runId) : null,
     ]);
     if (state.runId !== runId) return;
     if (recordsRes.status === 'rejected') throw recordsRes.reason;
@@ -174,6 +175,8 @@ async function openRunView(runId, title) {
     refreshContextBar();
     // v2 returns newest-first; run order = creation order = id ASC.
     state.records = recordsRes.value.sort((a, b) => (a.id > b.id ? 1 : -1));
+    // #52: best-effort like the info leg — a failed read leaves the parametrized rows bare.
+    state.runExamples = (examplesRes.status === 'fulfilled' && examplesRes.value) || {};
     renderRunView();
     if ($('run-meta-note')) $('run-meta-note').hidden = !metaFailed;
     updateRunActions();      // hidden until the session probe confirms JWT
@@ -218,8 +221,12 @@ async function probeRunSession(runId, { infoRead = false } = {}) {
   applyCapabilities();
   updateRunActions();
   if (!capabilities.jwt) return;
-  // Row badges are JWT-gated, so the first (pre-probe) paint carried none (#109).
-  if (state.records.some((r) => r.substatus) && state.view === 'run') renderRunSections();
+  // #52: the example values are a JWT read too, so a late-proven session still has to make it —
+  // awaited before the paint below, which is the ONE repaint both it and the substatuses get.
+  const gotExamples = infoRead ? false : await refreshRunExamples(runId);
+  if (state.runId !== runId) return;
+  // Row marks are JWT-gated, so the first (pre-probe) paint carried none (#109/#52).
+  if ((gotExamples || state.records.some((r) => r.substatus)) && state.view === 'run') renderRunSections();
   if (!infoRead && await refreshRunInfo(runId)) { paintRunProgress(); renderRunInfo(); applyRunLock(); }
   if (state.runId !== runId) return;
   probeRunAssignees(runId); // detached — see above
@@ -241,6 +248,20 @@ async function refreshRunInfo(runId) {
     if (state.runId !== runId) return false;
     applyRunInfo(info);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+// #52: the example values behind the row chips. Best-effort like the read above; true only when
+// the map came back with something in it — i.e. there is a chip for the caller to paint.
+async function refreshRunExamples(runId) {
+  if (!capabilities.jwt) return false;
+  try {
+    const map = await TestomatAPI.listTestrunExamples(runId);
+    if (state.runId !== runId) return false;
+    state.runExamples = map || {};
+    return Object.keys(state.runExamples).length > 0;
   } catch {
     return false;
   }
@@ -875,11 +896,18 @@ function runStatusCounts() {
 
 const matchesRunFilter = (r) => state.runFilter === 'all' || displayStatus(r) === state.runFilter;
 
-// Case-insensitive substring over test + suite titles.
+// #52: the row's `{ values, params }`, keyed by RECORD id — a v2 record's numeric id indexes the
+// JSON:API map's string keys unchanged. null for a plain test, and for every row in basic mode.
+const exampleOf = (r) => state.runExamples[r.id] || null;
+
+// Case-insensitive substring over test + suite titles — and a parametrized row's example values,
+// which are the only thing separating N rows sharing one title (#52).
 function matchesRunSearch(r) {
   const q = state.runSearch.trim().toLowerCase();
   if (!q) return true;
-  return (r.test_title || '').toLowerCase().includes(q) || (r.suite_title || '').toLowerCase().includes(q);
+  if ((r.test_title || '').toLowerCase().includes(q)) return true;
+  if ((r.suite_title || '').toLowerCase().includes(q)) return true;
+  return (exampleOf(r)?.values || []).some((v) => v.toLowerCase().includes(q));
 }
 
 const rowVisible = (r) => matchesRunFilter(r) && matchesRunSearch(r);
@@ -1083,11 +1111,27 @@ function testRow(r) {
   title.className = 'title';
   title.textContent = rowTitle(r);
   li.append(title);
+  const example = exampleChip(r);
+  if (example) li.append(example);
   // Fixed right cell (flex:none) — a constant column however long the title is.
   li.append(rowStatusButtons(r, li));
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.decorateRow(li, r.id); // «queued» marker on (re)render
   li.addEventListener('click', () => openTestView(r.id));
   return li;
+}
+
+// The values one example row was run with (#52); the names ride the tooltip, positional to them.
+// NOT a `.badge`: flashRowSaved owns that class and would flash this green on every write.
+function exampleChip(r) {
+  const example = exampleOf(r);
+  if (!example?.values?.length) return null;
+  const { values, params } = example;
+  const span = document.createElement('span');
+  span.className = 'example';
+  span.textContent = values.join(', ');
+  const aligned = Array.isArray(params) && params.length === values.length;
+  Tooltip.set(span, aligned ? values.map((v, i) => `${params[i]}: ${v}`).join(' · ') : span.textContent);
+  return span;
 }
 
 // Swapped, not recoloured: starting/finishing swaps the FORM (a glyph for a loader).

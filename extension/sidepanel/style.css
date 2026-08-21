@@ -443,6 +443,22 @@ body[data-connect="true"] .header-top { display: none; }
 /* ---- Checklist row (US6) ---- the marks, the title, then the fixed ✓/✗/– cell. */
 .test-row { display: flex; align-items: center; gap: var(--space-2); }
 .test-row .title { flex: 1 1 auto; min-width: 0; }
+/* The example values of a parametrized row (#52) — a quiet chip, because the row it qualifies is the
+   thing being read. It shrinks with the title and keeps a stub visible rather than vanishing. */
+.test-row .example {
+  flex: 0 1 auto;
+  min-width: var(--space-6);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: var(--leading-relaxed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .row-st { color: var(--muted); }
 /* The icon inherits currentColor (so .busy's transparent trick still hides it). */
 .row-st .md-icon { display: block; fill: currentColor; }
