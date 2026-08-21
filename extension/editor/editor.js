@@ -11,6 +11,9 @@
   // One img-hydrate group: the read-only body and the Preview tab are the same render,
   // and only one of them is ever on screen.
   const PREVIEW_IMG_GROUP = 'editor-preview';
+  // The Markdown tab's thumbnail strip (#51) keeps its OWN blobs: it stands while the Preview
+  // pane is torn down and rebuilt, and it is released on a ref change rather than a keystroke.
+  const STRIP_IMG_GROUP = 'editor-strip';
 
   // Icon names resolved by shared/icons.js (Material Symbols Rounded).
   const ICON_BACK = 'arrow_back';
@@ -149,6 +152,44 @@
     ImgHydrate.release(PREVIEW_IMG_GROUP);
     ImgHydrate.hydrate(PREVIEW_IMG_GROUP, tmp); // detached: the raw src never reaches the document
     box.replaceChildren(...tmp.childNodes);
+  }
+
+  // ---- image strip (#51): the pictures a test references, listed under the Markdown tab --
+  // OverType draws a transparent textarea over a character-aligned mirror, so an inline <img>
+  // would slide every line under it out of place — the thumbnails go in a row of their own.
+  const IMG_REF_RE = /!\[([^\]]*)\]\(([^)\s]+)/g;
+
+  // `{url, alt}` in the order the body names them, first mention wins. Our own regex rather
+  // than OverType's private one.
+  function imageRefs(md) {
+    const seen = new Map();
+    for (const m of String(md || '').matchAll(IMG_REF_RE)) {
+      if (!seen.has(m[2])) seen.set(m[2], m[1] || '');
+    }
+    return [...seen].map(([url, alt]) => ({ url, alt }));
+  }
+
+  // Full size over the editor. Held as a closer, not a flag: whatever revokes the strip's
+  // blobs — a rebuild, a Save handing the page over — has to take the overlay showing one with it.
+  let closeImageLightbox = null;
+  function openImageLightbox(src, alt) {
+    const box = document.createElement('div');
+    box.id = 'tc-lightbox';
+    box.className = 'tc-lightbox';
+    const shot = document.createElement('img');
+    shot.src = src;
+    shot.alt = alt || '';
+    box.append(shot);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    function close() {
+      document.removeEventListener('keydown', onKey);
+      closeImageLightbox = null;
+      box.remove();
+    }
+    box.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.append(box);
+    closeImageLightbox = close;
   }
 
   // A non-empty description can still render to nothing (a lone HTML comment, markup the
@@ -1244,7 +1285,7 @@
       clearTimeout(persistTimer);
       persistTimer = setTimeout(persistDraftNow, 400);
     }
-    function onEdited() { markDirty(); schedulePersist(); }
+    function onEdited() { markDirty(); schedulePersist(); scheduleStripRefresh(); }
 
     const host = rootEl();
     host.replaceChildren();
@@ -1465,6 +1506,24 @@
     body.append(editHost, previewPane);
     wrap.append(body);
 
+    // The referenced pictures (#51), a band under the text like the parameters one below it —
+    // inside .tc-body it would hang off the bottom of a pane that is 100% of that box.
+    const strip = document.createElement('div');
+    strip.id = 'tc-image-strip';
+    strip.className = 'tc-image-strip';
+    strip.hidden = true;
+    const stripLabel = document.createElement('div');
+    stripLabel.className = 'tc-image-strip-label';
+    const stripRow = document.createElement('div');
+    stripRow.className = 'tc-image-strip-row';
+    // Only a thumbnail whose bytes arrived enlarges; a fallback chip stays the link it is.
+    stripRow.addEventListener('click', (e) => {
+      const shot = e.target.closest('img[data-loaded="true"]');
+      if (shot) openImageLightbox(shot.src, shot.alt);
+    });
+    strip.append(stripLabel, stripRow);
+    wrap.append(strip);
+
     // The parameters grid (#5), between the text and the footer: a band of its own, folded until
     // the test has something to run with. A restored draft seeds it — see loadParams below.
     const paramsCtl = buildParamsControl({ seed: params, onEdited });
@@ -1535,6 +1594,7 @@
       previewing = false;
       previewPane.hidden = true;
       editHost.hidden = false;
+      strip.hidden = !stripRow.childElementCount; // the strip belongs to this tab (#51)
       tools.hidden = false;
       setTab(editTab, previewTab);
     }
@@ -1543,11 +1603,44 @@
       renderPreviewInto(previewPane, editor.getValue());
       editHost.hidden = true;
       previewPane.hidden = false;
+      strip.hidden = true;
       tools.hidden = true;
       setTab(previewTab, editTab);
     }
     editTab.addEventListener('click', showEdit);
     previewTab.addEventListener('click', showPreview);
+
+    // ---- image strip (#51) ----
+    // Rebuilding refetches every picture, so it happens only when the ORDERED set of refs
+    // moved — not on the keystrokes between.
+    let stripKey = null;
+    let stripTimer = null;
+    function refreshStrip() {
+      const refs = imageRefs(editor.getValue());
+      const key = refs.map((r) => r.url).join('\n');
+      if (key === stripKey) return;
+      stripKey = key;
+      if (closeImageLightbox) closeImageLightbox();
+      ImgHydrate.release(STRIP_IMG_GROUP);
+      if (!refs.length) { stripRow.replaceChildren(); strip.hidden = true; return; }
+      const built = document.createElement('div');
+      for (const r of refs) {
+        const shot = document.createElement('img');
+        shot.setAttribute('src', r.url);
+        shot.alt = r.alt;
+        shot.title = r.alt || r.url;
+        built.append(shot);
+      }
+      ImgHydrate.hydrate(STRIP_IMG_GROUP, built); // detached: the raw src never reaches the document
+      stripRow.replaceChildren(...built.childNodes);
+      stripLabel.textContent = `Images in this test · ${refs.length}`;
+      strip.hidden = previewing;
+    }
+    function scheduleStripRefresh() {
+      clearTimeout(stripTimer);
+      stripTimer = setTimeout(refreshStrip, 400);
+    }
+    refreshStrip(); // the body the mount just laid in
 
     // ---- template picker behaviour (#104) ----
     // "Unauthored" = blank, or byte-equal to some template we offer (the seed, or an
@@ -2076,6 +2169,9 @@
     function handOverToView(id, saved) {
       done = true;
       clearInterval(recPollTimer);
+      clearTimeout(stripTimer);
+      if (closeImageLightbox) closeImageLightbox();
+      ImgHydrate.release(STRIP_IMG_GROUP); // the view that takes over draws its own images (#51)
       document.removeEventListener('keydown', onEditorKey);
       const p = new URLSearchParams(location.search);
       p.delete('suite');

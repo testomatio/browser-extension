@@ -214,6 +214,61 @@ code, pre { font-family: var(--font-mono); }
    never dimmed to say it is secondary. The colour itself is ours (EDITOR_COLORS.syntaxMarker). */
 .tc-edit-pane .overtype-wrapper .overtype-preview .syntax-marker { opacity: 1 !important; }
 
+/* ---- Image strip (#51): the pictures the text references, under the Markdown tab ---- */
+/* A band of its own beside the parameters one, and for the same reason: OverType's mirror is aligned
+   character by character, so an <img> drawn inline would push every line under it off its own text.
+   `flex: none` — this is one row of thumbnails, never the band the shrink lands on. */
+.tc-image-strip {
+  flex: none;
+  padding: var(--space-2) var(--gutter);
+  border-top: 1px solid var(--border);
+}
+.tc-image-strip[hidden] { display: none; }
+.tc-image-strip-label {
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+/* ONE row that scrolls rather than a wrapping one: a dozen attachments would otherwise grow the band
+   and take the height off the text they belong to. */
+.tc-image-strip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-1); /* a band for the scrollbar, off the pictures it would sit on */
+}
+.tc-image-strip-row > img {
+  flex: none;
+  display: block;
+  height: 56px;
+  width: auto;
+  max-width: 160px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+/* Between the render and the bytes the element has no src at all (shared/img-hydrate.js), and `width:
+   auto` on a picture that is not there is nothing at all — the waiting box carries its own width. */
+.tc-image-strip-row > img[data-img="loading"] { width: 96px; border-style: dashed; }
+.tc-image-strip-row > img[data-loaded="true"] { cursor: zoom-in; }
+/* An off-instance or empty ref became a link chip, which is text and must not be stretched by the row. */
+.tc-image-strip-row > .img-fallback { flex: none; }
+
+/* Full size over the editor: the guard's own overlay, holding a picture instead of a dialog. */
+.tc-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-stage-top);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--scrim-strong);
+  cursor: zoom-out;
+}
+.tc-lightbox img { max-width: 90vw; max-height: 90vh; }
+
 /* ---- Parameters (#5): the columns a test runs with, one row per run ---- */
 /* Its own band between the text and the footer. `flex: 0 1 auto` is what makes the band hand its
    height BACK when there is not enough (this shell is a column): under `flex: none` two dozen example
