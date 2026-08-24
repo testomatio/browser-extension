@@ -597,32 +597,50 @@ body[data-connect="true"] .header-top { display: none; }
 /* The step circles and the comment box have no disabled style of their own (buttons inherit one). */
 .step-state:disabled { opacity: 0.5; cursor: default; }
 #test-actions textarea:disabled { opacity: 0.6; cursor: default; }
-/* #107: one link per row, the name ellipsised — an S3 filename is long and the panel is narrow. */
+/* #107 file lists (#21: tiles, not rows). auto-fill down to 88px, because a side panel is ~400px
+   and a fixed 3-up would spill the moment the tester drags it narrower. */
 .attachment-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
-.attachment-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; min-width: 0; }
-.attachment-row::before {
-  content: '';
-  flex: none;
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  mask: var(--icon-attach-file) center / contain no-repeat;
-  color: var(--muted);
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: var(--space-2);
 }
-.attachment-link {
-  min-width: 0;
+.file-grid > li { min-width: 0; }
+/* The empty state is a list item too, and a grid cell would leave it in the first column. */
+.file-grid > .attachment-empty { grid-column: 1 / -1; }
+.file-tile {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  text-align: left;
+}
+.file-tile:hover { border-color: var(--border-control); background: var(--row-hover); }
+.file-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.file-tile[data-kind="image"] { cursor: zoom-in; }
+.file-tile-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 64px;
+  background: var(--surface-2);
+  color: var(--muted);
+  overflow: hidden;
+}
+/* Cover-cropped: the tiles are one grid, and letterboxed previews would break the row's rhythm. */
+.file-tile-preview img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.file-tile-badge { font-size: var(--fs-3xs); font-weight: var(--weight-bold); letter-spacing: 0.04em; }
+.file-tile-name {
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-2xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-sm);
-  color: var(--muted);
 }
-a.attachment-link { color: var(--accent); }
-a.attachment-link:hover { text-decoration: underline; }
-/* #205: an image on the list is SHOWN, and the thumbnail is the row's mark, so the paperclip steps
-   aside. A fetch that fails drops 'is-image' and the paperclip is back. */
-.attachment-row.is-image::before { display: none; }
-.attachment-row.is-image .attachment-thumb img { max-width: 72px; max-height: 40px; }
 .prearm-hint { margin: 0 0 var(--space-2); line-height: var(--leading-snug); }
 .fullpage-row { margin: var(--space-1) 0; font-size: var(--fs-sm); color: var(--muted); }
 
@@ -654,6 +672,10 @@ a.attachment-link:hover { text-decoration: underline; }
 .summary-message.markdown { margin-bottom: 0; }
 .summary-message.markdown > :first-child { margin-top: 0; }
 .summary-message.markdown > :last-child { margin-bottom: 0; }
+
+/* .attachment-list's top margin spaces it off the manual buttons above it; inside an accordion body
+   that already pads, it only makes this section sit lower than Failure and Meta. */
+#summary-artifacts-body { margin: 0; }
 
 /* Reported steps (#202, front nested-steps.hbs). The nesting indent lives on .summary-step-kids — the
    container the toggle hides — so one level still costs exactly one --space-3. */
@@ -713,8 +735,7 @@ a.attachment-link:hover { text-decoration: underline; }
 .summary-step-log.is-failed { border-left-color: var(--failed); }
 .summary-step-log a { overflow-wrap: anywhere; }
 .summary-step-atts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-/* One thumbnail, two homes (#205): the same frame, and only the cap differs — a step block against a
-   one-line row. */
+/* The step tree's own screenshot frame (#205) — the file GRIDS use .file-tile instead. */
 .attachment-thumb {
   padding: 0;
   border: 1px solid var(--border);
@@ -726,6 +747,15 @@ a.attachment-link:hover { text-decoration: underline; }
 }
 .attachment-thumb img { display: block; max-width: 120px; max-height: 80px; }
 .summary-step-att-link { font-size: var(--fs-2xs); overflow-wrap: anywhere; }
+/* #21: a step's video is a button (it opens the viewer), so it has to borrow the link look. */
+button.summary-step-att-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
+}
+button.summary-step-att-link:hover { text-decoration: underline; }
+button.summary-step-att-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* A two-column GRID: the head keeps its own full-width click target, the tools take the other column
    and the count parks between. The buttons stay OUTSIDE the head, because the head is a <button>. */
 #summary-steps {
@@ -747,22 +777,6 @@ a.attachment-link:hover { text-decoration: underline; }
 #summary-steps:has(> .disclosure-head:hover:not(:disabled)) > .summary-steps-tools {
   background: var(--hover-overlay);
 }
-
-/* Screenshot lightbox (#202): .dialog carries the frame, the scrim and the shadow; this only lifts
-   its 320px cap, which is a form's width and not an image's. */
-#shot-modal.lightbox {
-  max-width: 96vw;
-  max-height: 92vh;
-  padding: var(--space-2);
-}
-#shot-modal img { display: block; max-width: 100%; max-height: 80vh; margin: 0 auto; }
-#shot-modal-name {
-  margin: var(--space-2) 0 0;
-  font-size: var(--fs-2xs);
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-.shot-close { float: right; margin: 0 0 var(--space-1) var(--space-1); }
 
 /* Substatus dropdown: a custom listbox, so the word above it is a <span> the trigger names itself by
    (aria-labelledby) — a <label for> cannot point at a button. */

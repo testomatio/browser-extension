@@ -5,11 +5,12 @@
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
    ImgHydrate */
 
-// Object-URL groups (shared/img-hydrate.js) — three, because each is repainted
+// Object-URL groups (shared/img-hydrate.js) — four, because each is repainted
 // and released on its own occasion.
 const IMG_GROUP_DESC = 'test-description';
 const IMG_GROUP_SHOTS = 'summary-shots';
 const IMG_GROUP_ATTS = 'result-attachments';
+const IMG_GROUP_ARTIFACTS = 'summary-artifacts';
 
 // ---------- test view ----------
 
@@ -373,7 +374,7 @@ function renderSubstatusMark(record) {
 // serialized only for a manual testrun — an automated one uses the lazy GET.
 
 // Remembered for the panel session (module-level), like the Attachments one.
-const summaryOpen = { failure: true, meta: false, steps: false };
+const summaryOpen = { failure: true, artifacts: true, meta: false, steps: false };
 
 const STATUS_LABEL = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped' };
 // Mirrors the run header's RUN_STATE_TINT; anything else is neutral.
@@ -437,13 +438,13 @@ function hideResultSummary() {
   paintSummaryEmpty('unreported');
   paintSectionMark('');
   if ($('summary-message')) $('summary-message').replaceChildren();
+  if ($('summary-artifacts-body')) $('summary-artifacts-body').replaceChildren();
   if ($('summary-meta-body')) $('summary-meta-body').replaceChildren();
   if ($('summary-steps-body')) $('summary-steps-body').replaceChildren();
   summarySteps = null;
   summaryStepsFetch = null;
-  // #202: close the lightbox BEFORE the blob URLs it may be showing are revoked.
-  closeShotModal();
   ImgHydrate.release(IMG_GROUP_SHOTS);
+  ImgHydrate.release(IMG_GROUP_ARTIFACTS);
   syncSummaryStepsTools();
 }
 
@@ -481,10 +482,11 @@ function renderResultSummary() {
   const dur = humanDuration(attrs['run-time']);
   $('summary-duration').textContent = dur ? `· ${dur}` : '';
   renderSummaryFailure(attrs);
+  renderSummaryArtifacts(attrs);
   renderSummaryMeta(attrs);
   renderSummaryStepsSection(attrs);
-  // All three hidden = an empty accordion, which a bare manual pass reaches often.
-  const filled = ['summary-failure', 'summary-meta', 'summary-steps']
+  // All four hidden = an empty accordion, which a bare manual pass reaches often.
+  const filled = ['summary-failure', 'summary-artifacts', 'summary-meta', 'summary-steps']
     .some((id) => $(id) && !$(id).hidden);
   box.hidden = !filled;
   paintSummaryEmpty(filled ? '' : 'bare');
@@ -524,6 +526,53 @@ function renderSummaryFailure(attrs) {
     out.append(...tmp.childNodes);
   }
   paintSummaryDisclosure('failure');
+}
+
+// #21: on a private bucket the server presigns only the first artifacts of a result
+// and flags the tail — signed once per URL here ('' remembers a refusal).
+const artifactPresigned = new Map();
+
+async function artifactSigned(a) {
+  if (!a?.needs_presign || !a.url) return a;
+  if (!artifactPresigned.has(a.url)) {
+    let signed = '';
+    try { signed = await TestomatAPI.presignArtifact(a.url); } catch { /* stays raw */ }
+    artifactPresigned.set(a.url, signed);
+  }
+  const url = artifactPresigned.get(a.url);
+  // A refusal keeps the raw URL: the link still opens, and a thumbnail that fails on
+  // it drops back to that same link rather than a broken box.
+  return url ? { ...a, url, display_url: url } : a;
+}
+
+// Runner artifacts (#21) ride the SAME `attachments` array as the manual uploads,
+// told apart by the `artifact` flag; attachments.js drops them from its own list.
+function renderSummaryArtifacts(attrs) {
+  const wrap = $('summary-artifacts');
+  const body = $('summary-artifacts-body');
+  if (!wrap || !body) return;
+  const rows = (Array.isArray(attrs.attachments) ? attrs.attachments : [])
+    .filter((a) => a && a.artifact === true);
+  wrap.hidden = rows.length === 0;
+  if (!rows.length) {
+    ImgHydrate.release(IMG_GROUP_ARTIFACTS); // the thumbnails about to be dropped own these
+    body.replaceChildren();
+    return;
+  }
+  $('summary-artifacts-count').textContent = String(rows.length);
+  paintSummaryDisclosure('artifacts');
+  paintSummaryArtifacts(rows);
+}
+
+// Async because of the presign: a tile is built only once its URL is final, so the
+// preview, the viewer and the way out never start on one that is about to change.
+async function paintSummaryArtifacts(rows) {
+  const recordId = state.currentRecordId;
+  const resolved = await Promise.all(rows.map((a) => artifactSigned(a)));
+  const body = $('summary-artifacts-body');
+  if (!body || String(state.currentRecordId) !== String(recordId)) return; // moved on
+  ImgHydrate.release(IMG_GROUP_ARTIFACTS);
+  body.replaceChildren(...resolved.map((a) => fileTileItem(a, IMG_GROUP_ARTIFACTS, attachmentHref(a))));
 }
 
 // Meta = the testrun's non-system `extras` (web `metafields`); the system entries
@@ -649,6 +698,19 @@ function isImageAttachment(a) {
   return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(String(a?.name || a?.url || ''));
 }
 
+// #21: EITHER tell, not MIME-first like the image test — a bucket serves a screencast as
+// `application/octet-stream` often enough that the extension has to be able to answer alone.
+function isVideoAttachment(a) {
+  if (String(a?.type || '').startsWith('video/')) return true;
+  return /\.(webm|mp4|mov|m4v|ogv)(?:$|[?#])/i.test(String(a?.name || a?.url || ''));
+}
+
+// The tile badge: what the file IS, in the few letters an 88px card fits.
+function fileExt(a) {
+  const m = String(a?.name || a?.url || '').match(/\.([a-z0-9]{1,5})(?:$|[?#])/i);
+  return m ? m[1].toUpperCase() : '';
+}
+
 // e2e-only hook: real artifact URLs are presigned bucket links the harness cannot
 // mint, so `stepShotHook` swaps only the HOST and the whole fetch path still runs.
 async function shotHookBase() {
@@ -663,6 +725,10 @@ async function attachmentSrc(att) {
   if (base) return new URL(att?.name || '', base).toString();
   return att?.display_url || att?.url || '';
 }
+
+// `display_url` is the inline form of an IMAGE; for any other type the server answers a
+// file-type icon there, so the file itself only ever comes from `url`.
+const attachmentHref = (att) => (isImageAttachment(att) ? att?.display_url || att?.url : att?.url) || '';
 
 function attachmentLink(att) {
   const el = document.createElement(att?.url ? 'a' : 'span');
@@ -683,7 +749,7 @@ function attachmentThumb(group, att, onFail) {
   const img = document.createElement('img');
   img.alt = att?.name || 'screenshot';
   btn.append(img);
-  btn.addEventListener('click', () => openShotModal(img.src, att?.name || '', btn));
+  btn.addEventListener('click', () => openFileViewer(att));
   attachmentSrc(att)
     .then((src) => ImgHydrate.load(group, src, img))
     .then((ok) => { if (!ok) onFail(btn); })
@@ -691,9 +757,77 @@ function attachmentThumb(group, att, onFail) {
   return btn;
 }
 
+// A step's video keeps the tree's one-line density (no tile), but its click opens the
+// same viewer the tiles use instead of handing the tester a new tab.
+function attachmentPlay(att) {
+  const url = attachmentHref(att);
+  if (!url) return attachmentLink(att);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'summary-step-att-link is-play';
+  btn.title = att?.name || 'attachment';
+  btn.append(svgIcon('play_arrow', 12), document.createTextNode(att?.name || 'attachment'));
+  btn.addEventListener('click', () => openFileViewer(att, url));
+  return btn;
+}
+
 function summaryAttachment(att) {
-  if (!isImageAttachment(att)) return attachmentLink(att);
-  return attachmentThumb(IMG_GROUP_SHOTS, att, (el) => el.replaceWith(attachmentLink(att)));
+  if (isImageAttachment(att)) {
+    return attachmentThumb(IMG_GROUP_SHOTS, att, (el) => el.replaceWith(attachmentLink(att)));
+  }
+  return isVideoAttachment(att) ? attachmentPlay(att) : attachmentLink(att);
+}
+
+// ---- file tiles (#21) ----
+// One shape everywhere the panel LISTS files: an image shows itself, a video and any other
+// file show a card. Which one a tile is lives in `data-kind`, and the click reads it back —
+// an image whose bytes never arrive becomes a 'file' card and opens in a tab like one.
+
+function paintTilePreview(host, kind, att) {
+  host.replaceChildren();
+  if (kind === 'image') {
+    const img = document.createElement('img');
+    img.alt = att?.name || 'screenshot';
+    host.append(img);
+    return;
+  }
+  const badge = document.createElement('span');
+  badge.className = 'file-tile-badge';
+  badge.textContent = fileExt(att) || 'FILE';
+  host.append(svgIcon(kind === 'video' ? 'play_arrow' : 'description', 24), badge);
+}
+
+function fileTile(att, group, resolvedUrl) {
+  const url = resolvedUrl || attachmentHref(att);
+  const name = att?.name || 'attachment';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'file-tile';
+  btn.dataset.kind = isImageAttachment(att) ? 'image' : (isVideoAttachment(att) ? 'video' : 'file');
+  Tooltip.set(btn, name);
+  const preview = document.createElement('span');
+  preview.className = 'file-tile-preview';
+  paintTilePreview(preview, btn.dataset.kind, att);
+  const label = document.createElement('span');
+  label.className = 'file-tile-name';
+  label.textContent = name;
+  btn.append(preview, label);
+  if (btn.dataset.kind === 'image') {
+    const fail = () => { btn.dataset.kind = 'file'; paintTilePreview(preview, 'file', att); };
+    attachmentSrc(att)
+      .then((src) => ImgHydrate.load(group, src, preview.querySelector('img')))
+      .then((ok) => { if (!ok) fail(); })
+      .catch(fail);
+  }
+  btn.addEventListener('click', () => openFileViewer(att, url));
+  return btn;
+}
+
+// Both file grids are <ul>s, so the tile travels inside an <li>.
+function fileTileItem(att, group, resolvedUrl) {
+  const li = document.createElement('li');
+  li.append(fileTile(att, group, resolvedUrl));
+  return li;
 }
 
 // The web's `file-image-outline` marker, in the panel's own icon set.
@@ -828,45 +962,19 @@ function paintSummarySteps() {
   syncSummaryStepsTools();
 }
 
-// ---- screenshot lightbox (#202) ----
-// Native <dialog>: Esc comes free (the `cancel` event) and the backdrop is a
-// click on the dialog element itself.
-let shotModalWired = false;
-let shotModalOpener = null;
+// ---- file viewer (#21) ----
+// Out of the panel entirely (at ~400px a video is a postage stamp), but not into a window of
+// its own either: on macOS a popup cannot float over a fullscreen browser. The worker draws
+// the viewer INTO the page under test instead (background.js openFileOverlay).
 
-function wireShotModal(dlg) {
-  if (shotModalWired) return;
-  shotModalWired = true;
-  dlg.addEventListener('close', () => {
-    const opener = shotModalOpener;
-    shotModalOpener = null;
-    // Deferred: <dialog>'s own focus fixup runs around the close event, so
-    // focusing inside it loses the race and lands the caret on <body>.
-    if (opener && opener.isConnected) setTimeout(() => opener.focus(), 0);
-  });
-  dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); }); // backdrop
-  const close = $('shot-modal-close');
-  if (close) close.addEventListener('click', () => dlg.close());
-}
-
-function openShotModal(src, name, opener) {
-  const dlg = $('shot-modal');
-  const img = $('shot-modal-img');
-  if (!dlg || !img || !src) return;
-  wireShotModal(dlg);
-  img.src = src;
-  img.alt = name || 'screenshot';
-  const cap = $('shot-modal-name');
-  if (cap) cap.textContent = name || '';
-  shotModalOpener = opener || null;
-  dlg.showModal();
-}
-
-function closeShotModal() {
-  const dlg = $('shot-modal');
-  if (dlg && dlg.open) dlg.close();
-  const img = $('shot-modal-img');
-  if (img) img.removeAttribute('src'); // never point at a revoked blob
+function openFileViewer(att, resolvedUrl) {
+  const url = resolvedUrl || attachmentHref(att);
+  if (!url) return;
+  if (!hasChrome || !chrome.runtime?.sendMessage) { window.open(url, '_blank', 'noopener'); return; }
+  chrome.runtime
+    // `mime`, not `type`: the message's own `type` is what the worker routes on.
+    .sendMessage({ type: 'OPEN_FILE_OVERLAY', url, name: att?.name || '', mime: att?.type || '' })
+    .catch(() => { window.open(url, '_blank', 'noopener'); });
 }
 
 // JWT-only, and only once the row has a real status AND the project defines
@@ -1268,8 +1376,9 @@ function updateTestActionsState() {
 }
 
 // ---- Attachments & log disclosure ----
-// The expanded state is remembered in memory for the panel session only.
-let attachmentsOpen = false;
+// Open by default: the files on a result are what the tester came for, and a collapsed
+// section reads as "nothing attached". Closing it is remembered for the panel session.
+let attachmentsOpen = true;
 
 function applyAttachmentsDisclosure() {
   const head = $('attachments-head');

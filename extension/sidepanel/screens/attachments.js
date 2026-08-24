@@ -2,8 +2,7 @@
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
-   updateTestActionsState, Tooltip, EmptyState, ImgHydrate, isImageAttachment,
-   attachmentThumb, IMG_GROUP_ATTS */
+   updateTestActionsState, EmptyState, ImgHydrate, fileTileItem, IMG_GROUP_ATTS */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -13,9 +12,10 @@ const attUploaded = new Map();
 
 // Uploads surface on the JSON:API detail's `attachments`; the v2 `artifacts` field
 // stays empty for them. probeSession prefetched it, so this costs no request.
+// #21: runner artifacts share that array — they render in the summary's own section.
 function attServerList() {
   const list = state.testrunDetail?.data?.attributes?.attachments;
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.filter((a) => !(a && a.artifact === true)) : [];
 }
 
 function attRemember(recordId, entry) {
@@ -43,43 +43,17 @@ function attRows() {
   return rows;
 }
 
-// A url-less row (an upload whose response carried none) still shows — the file
-// DID land — just not clickable.
-function attNameLink(a) {
-  const el = document.createElement(a.url ? 'a' : 'span');
-  el.className = 'attachment-link';
-  if (a.url) { el.href = a.url; el.target = '_blank'; el.rel = 'noopener noreferrer'; }
-  el.textContent = a.name;
-  Tooltip.set(el, a.name);
-  return el;
-}
-
-// #205: an image row gets the same thumbnail and lightbox a step screenshot does
-// (test-view.js owns both); one whose bytes never arrive drops back to a name row.
-function attRow(a) {
-  const li = document.createElement('li');
-  li.className = 'attachment-row';
-  if (isImageAttachment(a)) {
-    li.classList.add('is-image');
-    li.append(attachmentThumb(IMG_GROUP_ATTS, a, (el) => {
-      el.remove();
-      li.classList.remove('is-image');
-    }));
-  }
-  li.append(attNameLink(a));
-  return li;
-}
-
 // An empty list says so in one compact line rather than collapsing — a list that
 // disappears leaves "did that upload land?" unanswered.
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
-  ImgHydrate.release(IMG_GROUP_ATTS); // the thumbnails about to be dropped own these
+  ImgHydrate.release(IMG_GROUP_ATTS); // the previews about to be dropped own these
   const onTest = state.view === 'test';
   const rows = onTest ? attRows() : [];
   ul.replaceChildren(...(rows.length
-    ? rows.map(attRow)
+    // #21: the same tile the Artifacts grid draws — one file shape across the panel.
+    ? rows.map((a) => fileTileItem(a, IMG_GROUP_ATTS))
     : [EmptyState.build({
       tag: 'li',
       compact: true,

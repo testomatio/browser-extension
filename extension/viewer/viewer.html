@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>File</title>
+    <link rel="stylesheet" href="../shared/tokens.css" />
+    <!-- Same head script as the panel: the saved colour scheme is pinned before the first paint. -->
+    <script src="../shared/theme.js"></script>
+    <!-- This page's whole chrome is a title bar and a stage, so its CSS lives here rather than in a
+         fourth stylesheet; every value below comes from tokens.css. -->
+    <style>
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font-sans);
+        font-size: var(--fs-base);
+        line-height: var(--leading-normal);
+      }
+      .viewer-bar {
+        display: flex;
+        align-items: baseline;
+        gap: var(--space-4);
+        flex: none;
+        padding: var(--space-2) var(--space-4);
+        border-bottom: 1px solid var(--border);
+      }
+      .viewer-bar h1 {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--fs-title);
+        font-weight: var(--weight-semibold);
+      }
+      .viewer-open {
+        flex: none;
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--accent);
+        white-space: nowrap;
+      }
+      .viewer-open:hover { text-decoration: underline; }
+      .viewer-stage {
+        display: flex;
+        flex: 1;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        padding: var(--space-4);
+      }
+      .viewer-stage :is(img, video) { max-width: 100%; max-height: 100%; }
+      .viewer-stage video { width: 100%; background: var(--surface-2); }
+      /* Text fills the window instead of centering: a log is read from its first line down. */
+      .viewer-stage pre {
+        align-self: stretch;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: var(--space-3);
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--surface-2);
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .viewer-note { margin: 0; color: var(--muted); text-align: center; }
+    </style>
+  </head>
+  <body>
+    <!-- ONE file, named by the query string (?url&name&type) and built by viewer.js. No inline
+         scripts (MV3 extension-page CSP), extension files only. -->
+    <div class="viewer-bar">
+      <h1 id="viewer-name"></h1>
+      <a id="viewer-open" class="viewer-open" target="_blank" rel="noopener noreferrer" hidden>Open in a new tab</a>
+    </div>
+    <div id="viewer-stage" class="viewer-stage"></div>
+    <script src="../api.js"></script>
+    <script src="./viewer.js"></script>
+  </body>
+</html>
