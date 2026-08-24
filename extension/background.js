@@ -145,6 +145,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async response
 });
 
+// "Run in Extension" (#14): the surface opens FIRST and synchronously — the click's gesture dies at
+// the first await. No rememberTab() either: the sender is the web app, never the site under test.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'OPEN_RUN') return undefined;
+  if (viewModeCache === 'sidepanel') openSidePanelFor(sender?.tab);
+  else openPreferredSurface(sender?.tab);
+  chrome.storage.session.set({ openRunIntent: { url: String(msg.url || ''), at: Date.now() } })
+    .then(() => sendResponse({ ok: true }))
+    .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true; // async response
+});
+
 // storage.session defaults to TRUSTED_CONTEXTS only; the annotator content script reads the
 // same handoff key, so it must be opened to untrusted contexts.
 try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }); } catch { /* older Chrome */ }
@@ -768,4 +780,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String(e?.message || e), needsGrant: !!e?.needsGrant }));
     return true; // async response
   }
+});
+
+// =========================== Presence marker (#14) ==========================
+// The manifest declares app.testomat.io; a self-hosted instance is known only once Settings saves it.
+
+const PRESENCE_ID = 'presence-configured';
+const PRESENCE_FILE = 'content/presence.js';
+const PRESENCE_STATIC_ORIGIN = 'https://app.testomat.io'; // static already — a second one marks twice
+
+function presenceMatch(baseUrl) {
+  let url;
+  try { url = new URL(baseUrl); } catch { return null; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.origin === PRESENCE_STATIC_ORIGIN) return null;
+  return `${url.origin}/*`;
+}
+
+// The registration outlives the worker, so it can still name a host the user has replaced since.
+async function syncPresenceScript() {
+  try {
+    const { settings } = await chrome.storage.local.get('settings');
+    const match = presenceMatch(settings && settings.baseUrl);
+    const [registered] = await chrome.scripting.getRegisteredContentScripts({ ids: [PRESENCE_ID] });
+    if (!match) {
+      if (registered) await chrome.scripting.unregisterContentScripts({ ids: [PRESENCE_ID] });
+      return;
+    }
+    // persistAcrossSessions: a new session loads its first page before anything wakes this worker.
+    const script = { id: PRESENCE_ID, js: [PRESENCE_FILE], matches: [match],
+      runAt: 'document_start', persistAcrossSessions: true };
+    if (registered) await chrome.scripting.updateContentScripts([script]);
+    else await chrome.scripting.registerContentScripts([script]);
+  } catch { /* a refused origin or a registry mid-write is never worth taking the worker down */ }
+}
+syncPresenceScript();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.settings) syncPresenceScript();
 });
