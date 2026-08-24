@@ -716,10 +716,13 @@ It reuses the panel's globals via its own `<script>` list
 no `document`/`window` references — because `importScripts` and `<script src>`
 must both work.
 
-### 1.5 Injected code (content scripts, but not declared ones)
+### 1.5 Injected code (mostly not declared)
 
-There are **no** `content_scripts` in `manifest.json`. Both injected scripts go
-in on demand through `chrome.scripting.executeScript`:
+The only declared `content_scripts` entry is `content/presence.js`, the marker
+the web app reads to tell the extension is installed — statically on
+`app.testomat.io`, and registered at runtime (`syncPresenceScript()`) for the
+instance saved in Settings. The rest go in on demand through
+`chrome.scripting.executeScript`:
 
 - `content/step-recorder.js` — injected by the worker (`srInject()`,
   `background.js:124-127`) on start and on every `complete` navigation of the
