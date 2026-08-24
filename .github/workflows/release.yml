@@ -30,7 +30,7 @@ jobs:
             echo "tag=$TAG"
             echo "version=${VERSION%%-*}"
             echo "version_name=$VERSION"
-            echo "zip=testomat-run-panel-$VERSION.zip"
+            echo "zip=testomat-io-$VERSION.zip"
             [[ "$VERSION" == *-* ]] && echo "prerelease=true" || echo "prerelease=false"
           } >> "$GITHUB_OUTPUT"
 
