@@ -107,6 +107,7 @@ async function init() {
   // Before any run renders, so restored rows show their «queued» markers immediately.
   if (typeof OfflineQueue !== 'undefined') await OfflineQueue.init();
   if (!state.settings) {
+    dropOpenRunIntent(); // landing on Settings anyway; a stale intent must not fire on a later connect
     fillSettingsForm();
     show('settings');
     state.booting = false; // a later Save may now persist its session
@@ -131,6 +132,21 @@ async function init() {
   }
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // panel open is a replay trigger
 
+  const session = stored.session;
+  // Sessions are keyed by record id; a session that predates that degrades to the run list
+  // (nothing resolves) rather than restoring a stale test.
+  state.stepTicks = session?.stepTicks || {};
+  state.expandedGroups = Array.isArray(session?.expandedGroups) ? session.expandedGroups : [];
+  state.runsFilter = FILTER_KEYS.has(session?.runsFilter) ? session.runsFilter : 'all';
+  // Open unless this user closed it — no key (old session, fresh profile) means the default, open.
+  runInfoOpen = session?.runInfoOpen !== false;
+  state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
+
+  const openedIntent = await consumeOpenRunIntent();
+  initOpenRunIntent(); // …and a panel left open answers the next click without a reload
+  // The clicked run outranks both the editor breadcrumb and the restored session below.
+  if (openedIntent) { state.booting = false; return; }
+
   // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list, and is
   // consumed once so a later plain reload does not hijack the runs view.
   let tcReturn = null;
@@ -141,16 +157,6 @@ async function init() {
     state.booting = false;
     return;
   }
-
-  const session = stored.session;
-  // Sessions are keyed by record id; a session that predates that degrades to the run list
-  // (nothing resolves) rather than restoring a stale test.
-  state.stepTicks = session?.stepTicks || {};
-  state.expandedGroups = Array.isArray(session?.expandedGroups) ? session.expandedGroups : [];
-  state.runsFilter = FILTER_KEYS.has(session?.runsFilter) ? session.runsFilter : 'all';
-  // Open unless this user closed it — no key (old session, fresh profile) means the default, open.
-  runInfoOpen = session?.runInfoOpen !== false;
-  state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
 
   // Old sessions (no activeTab) infer 'runs' from a persisted run/test view, so an in-flight run restores.
   const activeTab = session?.activeTab
@@ -171,6 +177,37 @@ async function init() {
   }
   // Boot restore is done — later view changes may persist the session again.
   state.booting = false;
+}
+
+// ---------- "Run in Extension" intent (#14) ----------
+
+const OPEN_RUN_INTENT_KEY = 'openRunIntent';
+const OPEN_RUN_INTENT_MAX_AGE_MS = 60000; // the panel it woke may be slow; a click older than this is not this one
+
+function dropOpenRunIntent() {
+  try { chrome.storage.session?.remove(OPEN_RUN_INTENT_KEY)?.catch(() => {}); } catch { /* no session storage */ }
+}
+
+// The key is removed BEFORE it is acted on, so boot and the live listener cannot both run it.
+async function consumeOpenRunIntent() {
+  let intent;
+  try {
+    if (!chrome.storage?.session) return false;
+    intent = (await chrome.storage.session.get(OPEN_RUN_INTENT_KEY))[OPEN_RUN_INTENT_KEY];
+    if (!intent) return false;
+    await chrome.storage.session.remove(OPEN_RUN_INTENT_KEY);
+  } catch { return false; }
+  if (!intent.url || Date.now() - Number(intent.at || 0) > OPEN_RUN_INTENT_MAX_AGE_MS) return false;
+  await openRunFromUrl(intent.url);
+  return true;
+}
+
+function initOpenRunIntent() {
+  try {
+    chrome.storage.session.onChanged.addListener((c) => {
+      if (c[OPEN_RUN_INTENT_KEY]?.newValue) consumeOpenRunIntent();
+    });
+  } catch { /* older Chrome — no session onChanged */ }
 }
 
 // The floor under show(): a boot that throws before reaching a view must not leave the placeholder up.

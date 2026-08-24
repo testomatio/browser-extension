@@ -975,29 +975,36 @@ function looksLikeRunUrl(raw) {
   return /^https?:\/\//i.test(v) || /\/projects\/[^/]+\/runs\//.test(v);
 }
 
-// Resolved against the configured host + project; null for anything else.
-function parseRunsUrl(raw) {
+// What the link itself says — no settings read, so a foreign host or project is the
+// caller's to judge. null for anything that is not a run/group link.
+function parseRunUrlParts(raw) {
   const v = String(raw || '').trim();
   let u;
   try { u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`); } catch { return null; }
-  let cfgHost;
-  try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { return null; }
-  if (u.hostname !== cfgHost) return null;
   // Group shape first — the run pattern would capture the literal "groups" as an id.
   const gm = u.pathname.match(/\/projects\/([^/]+)\/runs\/groups\/([^/]+)/);
-  if (gm) return gm[1] === state.settings.projectId ? { kind: 'group', id: gm[2] } : null;
+  if (gm) return { host: u.hostname, projectId: gm[1], kind: 'group', id: gm[2] };
   // The web's "Copy url" slugs the run segment (`<uid>-<kebab-title>`) and its
   // route reads back only `id.split('-')[0]` — mirror it or every copied link 404s.
   const rm = u.pathname.match(/\/projects\/([^/]+)\/runs\/([^/]+)/);
-  if (rm) return rm[1] === state.settings.projectId ? { kind: 'run', id: rm[2].split('-')[0] } : null;
+  if (rm) return { host: u.hostname, projectId: rm[1], kind: 'run', id: rm[2].split('-')[0] };
   return null;
+}
+
+// Resolved against the configured host + project; null for anything else.
+function parseRunsUrl(raw) {
+  const parts = parseRunUrlParts(raw);
+  if (!parts) return null;
+  let cfgHost;
+  try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { return null; }
+  if (parts.host !== cfgHost) return null;
+  if (parts.projectId !== state.settings.projectId) return null;
+  return { kind: parts.kind, id: parts.id };
 }
 
 // The run is probed first, so a bad id or a no-access run leaves the user on the
 // list with a toast instead of in a half-rendered run view.
-async function openRunsSearchUrl() {
-  const target = parseRunsUrl($('runs-search').value);
-  if (!target) { toast(RUN_NOT_FOUND, { error: true }); return; }
+async function openParsedRunTarget(target) {
   if (target.kind === 'group') { openGroupFromUrl(target.id); return; }
   let detail;
   try { detail = await TestomatAPI.getRun(target.id); }
@@ -1008,6 +1015,39 @@ async function openRunsSearchUrl() {
   }
   resetRunsSearch();
   openRunView(target.id, detail?.clean_title || detail?.title);
+}
+
+async function openRunsSearchUrl() {
+  const target = parseRunsUrl($('runs-search').value);
+  if (!target) { toast(RUN_NOT_FOUND, { error: true }); return; }
+  await openParsedRunTarget(target);
+}
+
+// "Run in Extension" from the web app (#14). Whatever the panel is showing is replaced —
+// the tester asked for this run by clicking.
+async function openRunFromUrl(url) {
+  const parts = parseRunUrlParts(url);
+  if (!parts) { toast(RUN_NOT_FOUND, { error: true }); return; }
+  let cfgHost = null;
+  try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { /* not connected yet */ }
+  if (!cfgHost || parts.host !== cfgHost) {
+    fillSettingsForm();
+    show('settings');
+    setStatusLine('settings-status', cfgHost
+      ? `This panel is connected to ${cfgHost}, and that run lives on ${parts.host} — connect to it to open the run here`
+      : `Connect this panel to ${parts.host} to open that run here`, 'error');
+    return;
+  }
+  if (parts.projectId !== state.settings.projectId) {
+    // The boot refresh runs in the background, so an empty list is "not loaded yet", not "no projects".
+    const known = state.projects.length ? state.projects : await refreshProjects();
+    if (!known.some((p) => p.id === parts.projectId)) {
+      toast(`No access to project ${parts.projectId}`, { error: true });
+      return;
+    }
+    await switchProject(parts.projectId);
+  }
+  await openParsedRunTarget(parts);
 }
 
 // URL intent wins over any active filter/search: both reset, then the group is

@@ -9,4 +9,12 @@
     document.documentElement.setAttribute('data-testomat-extension', chrome.runtime.getManifest().version);
     window.dispatchEvent(new Event('testomat-extension:ready'));
   } catch { /* no context, no marker */ }
+
+  // "Run in Extension": a page cannot open the panel itself, so the click is relayed to the worker.
+  window.addEventListener('testomat-extension:open-run', (event) => {
+    let url = '';
+    try { url = String(event?.detail?.url || ''); } catch { /* a hostile detail getter */ }
+    try { chrome.runtime.sendMessage({ type: 'OPEN_RUN', url: url || location.href })?.catch(() => {}); }
+    catch { /* no context, no relay */ }
+  });
 })();

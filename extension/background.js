@@ -145,6 +145,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async response
 });
 
+// "Run in Extension" (#14): the surface opens FIRST and synchronously — the click's gesture dies at
+// the first await. No rememberTab() either: the sender is the web app, never the site under test.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'OPEN_RUN') return undefined;
+  if (viewModeCache === 'sidepanel') openSidePanelFor(sender?.tab);
+  else openPreferredSurface(sender?.tab);
+  chrome.storage.session.set({ openRunIntent: { url: String(msg.url || ''), at: Date.now() } })
+    .then(() => sendResponse({ ok: true }))
+    .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true; // async response
+});
+
 // storage.session defaults to TRUSTED_CONTEXTS only; the annotator content script reads the
 // same handoff key, so it must be opened to untrusted contexts.
 try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }); } catch { /* older Chrome */ }
