@@ -587,6 +587,22 @@ async function srStopRequest() {
   return { ok: true };
 }
 
+// A `type` is written only when the field blurs, so the field the caret sits in is still unrecorded
+// when Stop arrives (#62) — the tab is asked for it first. A closed, asleep or un-injected tab never
+// answers, and Stop must proceed exactly as it does today, hence the timeout around the ask.
+const SR_FLUSH_MS = 700;
+async function srFlush() {
+  const st = await srGet();
+  if (!st || !st.recording || st.blind) return { ok: true };
+  try {
+    await Promise.race([
+      chrome.tabs.sendMessage(st.tabId, { type: 'STEPREC_FLUSH_NOW' }),
+      new Promise((resolve) => setTimeout(resolve, SR_FLUSH_MS)),
+    ]);
+  } catch { /* no recorder listening there — the recording is whatever the worker already holds */ }
+  return { ok: true };
+}
+
 async function srContinue() {
   const st = await srGet();
   if (!st) return { ok: false };
@@ -727,6 +743,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'STEPREC_TITLE': srTitle(msg.title).then(sendResponse); return true;
     // Test seam (no production sender): e2e reads the raw entries mid-recording.
     case 'STEPREC_PEEK': srGet().then((st) => sendResponse({ entries: (st && st.entries) || [] })); return true;
+    // NOT on the chain: the ADD this flush waits for needs that slot, so serializing here would
+    // deadlock the pair until the timeout fires.
+    case 'STEPREC_FLUSH': srFlush().then(sendResponse); return true;
     // On the chain too: it reads `sent` a pull may be writing in the same tick.
     case 'STEPREC_STOP': srSerial(srStop).then(sendResponse); return true;
     case 'STEPREC_STOP_REQUEST': srStopRequest().then(sendResponse); return true;

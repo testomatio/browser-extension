@@ -416,11 +416,15 @@
   let manualPause = false; // the tester's own Pause (Resume clears it, no +cap)
   let count = 0;
 
+  // A Stop flush has to know its entry REACHED the worker, not merely that it was handed to
+  // sendMessage — the editor reads and clears the state the moment the flush resolves (#62).
+  const inflight = new Set();
+
   // `replaces` (dblclick only) is a wire instruction: the exact single-click text this
   // action supersedes — the worker pops those trailing twins before appending.
   function send(entry) {
     if (!entry || !entry.text) return;
-    chrome.runtime.sendMessage({ type: 'STEPREC_ADD', entry })
+    const p = chrome.runtime.sendMessage({ type: 'STEPREC_ADD', entry })
       .then((r) => {
         if (!r) return;
         if (r.recording === false) { recording = false; render(); return; }
@@ -430,6 +434,8 @@
         render();
       })
       .catch(() => { /* worker asleep / gone — the poll recovers */ });
+    inflight.add(p);
+    p.finally(() => inflight.delete(p));
   }
 
   // ONE queue, in arrival order: an action's packet needs ~400ms of the page's time before
@@ -586,6 +592,31 @@
     lastTyped.set(el, val);
     record(el, 'type', near, { kind: 'step', action: 'type', name, context: ctx,
       text: `Type "${trim40(val)}" into the ${field}${clauseOf(ctx)}` }, { text: trim40(val), masked: false });
+  }
+
+  // `document.activeElement` stops at a shadow host, so the caret inside a web component is
+  // found by descending. The indicator IS such a host (#78) — its Expected input is not a step.
+  function deepActive() {
+    let el = document.activeElement;
+    while (el) {
+      if (el === host) return null;
+      const inner = el.shadowRoot && el.shadowRoot.activeElement;
+      if (!inner) return el;
+      el = inner;
+    }
+    return null;
+  }
+
+  // Stop is the one moment a field that never blurred still has to become a step (#62). Reuses
+  // the ordinary path, so masking, the dedupe and the cap apply exactly as on a blur.
+  async function flushPending() {
+    try {
+      await flagRead; // flushType drops the step while the never-values toggle is unread
+      const el = deepActive();
+      if (el) flushType(el);
+      flushOutbox();
+      await Promise.allSettled([...inflight]);
+    } catch { /* a stop is never held up by its flush */ }
   }
 
   // The indicator's own input is a text field inside the page (#78) — every one of these
@@ -969,10 +1000,12 @@
       .catch(() => { /* worker asleep — the poll re-syncs */ });
   }
 
-  function requestStop() {
+  async function requestStop() {
+    const flushed = flushPending(); // clicking the pill never blurs the field the caret is in
     recording = false;
     flushOutbox(); // BEFORE the stop message: the worker still takes entries
-    render();
+    render();      // the pill answers the click now, not when the flush lands
+    await flushed; // the editor's follow-up stop clears the state — lose that race and the step is gone
     chrome.runtime.sendMessage({ type: 'STEPREC_STOP_REQUEST' }).catch(() => {});
   }
 
@@ -987,6 +1020,15 @@
   // while the document is still alive, and sendMessage from either still reaches the worker.
   window.addEventListener('pagehide', flushOutbox);
   window.addEventListener('beforeunload', flushOutbox);
+  // The editor's Stop asks here before it reads the entries; a torn-down recorder has nothing
+  // left to write, and answering at once is what keeps that Stop from waiting out its timeout.
+  function onFlushMsg(msg, _sender, sendResponse) {
+    if (!msg || msg.type !== 'STEPREC_FLUSH_NOW') return undefined;
+    if (torn) { sendResponse({ ok: true }); return undefined; }
+    flushPending().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  chrome.runtime.onMessage.addListener(onFlushMsg);
 
   let torn = false;
   let pollTimer = null;
@@ -1002,6 +1044,7 @@
     document.removeEventListener('change', onChange, opts);
     document.removeEventListener('blur', onBlur, opts);
     document.removeEventListener('keydown', onKeydown, opts);
+    chrome.runtime.onMessage.removeListener(onFlushMsg);
     if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.removeListener(onFlagChanged);
     dragTeardown();
     host.remove();

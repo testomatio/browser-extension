@@ -2038,6 +2038,9 @@
       recBlind = false;
       recManualPause = false;
       updateRecUi(0, false, false, false);
+      // Stopping from here blurs nothing on the page, so the field still under the caret has yet to
+      // become a step — it is asked for before the stop below reads the entries and clears them (#62).
+      if (canRecord) await chrome.runtime.sendMessage({ type: 'STEPREC_FLUSH' }).catch(() => {});
       const resp = canRecord ? await chrome.runtime.sendMessage({ type: 'STEPREC_STOP' }).catch(() => null) : null;
       const inserted = insertEntries((resp && resp.entries) || []);
       if (toastMsg) showToast(toastMsg);
