@@ -1,4 +1,4 @@
-# Testomat Run Panel — user guide
+# Testomat.io Chrome extension user guide
 
 A Chrome side panel for running Testomat.io **manual runs** next to the site
 under test. You read the steps, tick them off, set passed/failed/skipped, add a
@@ -37,7 +37,7 @@ as an unpacked extension.
 4. Click **Load unpacked** and select the **`extension/`** folder inside the
    clone — not the repo root.
 5. Pin the panel: click the puzzle-piece (Extensions) icon in the toolbar and
-   pin **Testomat Run Panel**.
+   pin **Testomat.io**.
 
 Chrome asks for the extension's permissions once, at load: it works on **all
 websites**, because the site you test is different every session (see
@@ -46,7 +46,7 @@ grant per site afterwards.
 
 ### Connect it to your project
 
-1. Click the **Testomat Run Panel** icon in the toolbar. The panel opens on the
+1. Click the **Testomat.io** icon in the toolbar. The panel opens on the
    right.
 2. You land on **Settings** — the other tabs stay disabled until the connection
    is saved.
@@ -92,8 +92,8 @@ a token from one instance means nothing on another.
 ### Update
 
 1. `git pull` in the clone.
-2. Open `chrome://extensions` and click the **reload** (↻) icon on the Testomat
-   Run Panel card.
+2. Open `chrome://extensions` and click the **reload** (↻) icon on the
+   **Testomat.io** card.
 3. Reopen the panel.
 
 Your settings and the offline queue survive the reload.
@@ -105,7 +105,7 @@ Your settings and the offline queue survive the reload.
 Zero to a first passed test, shortest real path:
 
 1. Open the site you are testing in a normal tab.
-2. Click the **Testomat Run Panel** toolbar icon to open the panel. Keep the tab
+2. Click the **Testomat.io** toolbar icon to open the panel. Keep the tab
    under test focused when you capture or record — a `chrome://` page is off
    limits to every extension.
 3. **Runs** tab → click your run. (No run in the list? Create it in the web app,
@@ -756,7 +756,7 @@ What that does and does not mean:
   from us entirely, and the panel says so: *"Chrome doesn't allow extensions on
   this page… switch to the site under test."* No click fixes that — switch to a
   normal `http(s)` tab.
-- **You can narrow it.** `chrome://extensions` → **Testomat Run Panel** →
+- **You can narrow it.** `chrome://extensions` → **Testomat.io** →
   **Details** → **Site access** offers *On all sites* / *On specific sites* /
   *On click*. Restrict it there if your policy requires it; the panel keeps
   working and simply reports the pages it cannot touch.

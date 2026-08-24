@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Testomat Run Panel",
+  "name": "Testomat.io",
   "version": "0.1.0",
   "description": "Execute Testomat.io manual runs next to the site under test: steps, statuses, comments, screenshots.",
   "minimum_chrome_version": "123",
@@ -11,7 +11,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Testomat Run Panel",
+    "default_title": "Testomat.io",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
