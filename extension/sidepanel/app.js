@@ -86,7 +86,7 @@ async function init() {
   initSubstatusDropdown();
   initAssigneeDropdown();
   $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure);
-  for (const key of ['failure', 'meta', 'steps']) {
+  for (const key of ['failure', 'artifacts', 'meta', 'steps']) {
     $(`summary-${key}-head`).addEventListener('click', () => toggleSummaryDisclosure(key));
   }
   initEvidence();

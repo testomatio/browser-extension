@@ -738,6 +738,13 @@ const TestomatAPI = (() => {
   const uploadAttachment = (testrunId, blob, filename) => uploadTo('testruns', testrunId, blob, filename);
   const uploadTestAttachment = (testId, blob, filename) => uploadTo('tests', testId, blob, filename);
 
+  // #21: on a private bucket the server presigns only the first artifacts of a result and flags the
+  // rest `needs_presign` — this mints the signed URL for one of those, on demand.
+  async function presignArtifact(url) {
+    const doc = await jwtRequest('/artifacts/presign', { method: 'POST', body: { url } });
+    return (doc && doc.url) || '';
+  }
+
   // ---- product assets (description images, result attachments) -------------
   // #205: content URLs come both absolute (`<instance>/attachments/{uid}.png`) and ROOT-RELATIVE
   // (`/rails/active_storage/…`) — a relative one resolves against the INSTANCE, never the document.
@@ -772,7 +779,7 @@ const TestomatAPI = (() => {
     getTestrun, getTest, getSuiteTree, getSuiteTreeOrdered, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
     getTestParams, setTestParams, createExample, updateExample, deleteExample,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,
-    assetUrl, fetchAsset,
+    assetUrl, fetchAsset, presignArtifact,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,
     fetchDashboardPage, fetchGroupChildren, fetchGroupRunsNested, fetchGroupSubgroups, getRunGroup,
     setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf, listTestrunExamples,
