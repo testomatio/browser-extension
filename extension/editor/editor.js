@@ -317,17 +317,17 @@
     return a !== -1 && b > a ? raw.slice(a + POLISH_START.length, b) : raw;
   }
 
-  const asExpected = (s) => `Expected: ${String(s).replace(/^expected\s*:?\s*/i, '').trim()}`;
+  const asExpected = (s) => `Expected: ${String(s).replace(/^[\s*_-]*expected[*_\s]*:?[*_\s]*/i, '').trim()}`;
 
-  // `N. sentence`, each with any number of `- Expected: …` sub-lines under it (a `*` bullet
-  // and a bare `Expected:` count as well — the wording is the model's, the shape is ours).
+  // `N. sentence`, each with any number of `Expected: …` sub-lines under it, bulleted or not and
+  // emphasised or not — the prompt asks the model for `*Expected*:` (#65), a tester writes `- `.
   function parsePolishedItems(section) {
     const items = [];
     for (const line of String(section || '').split('\n')) {
       const num = line.match(/^\s*\d+[.)]\s+(.*\S.*)$/);
       if (num) { items.push({ text: num[1].trim(), subs: [] }); continue; }
       if (!items.length) continue;
-      const sub = line.match(/^\s*(?:[-*]\s+)?(Expected\b.*)$/i);
+      const sub = line.match(/^\s*(?:[-*+]\s+)?[*_]{0,2}(Expected\b.*)$/i);
       if (sub) items[items.length - 1].subs.push(asExpected(sub[1]));
     }
     return items;
