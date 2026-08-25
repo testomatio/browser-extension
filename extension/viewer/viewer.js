@@ -1,7 +1,7 @@
 // File viewer (#21): the ONE artifact or attachment the panel handed over, framed over the page
 // by content/file-overlay.js (or alone in a tab) — a ~400px side panel is no size for a screencast.
 
-/* global TestomatAPI */
+/* global TestomatAPI, Handoff */
 (() => {
   'use strict';
 
@@ -34,8 +34,9 @@
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
     let settings = null;
     try { ({ settings } = await chrome.storage.local.get('settings')); } catch { return; }
-    if (!settings || !settings.baseUrl || !settings.apiToken) return;
-    TestomatAPI.configure(settings);
+    if (!Handoff.credentialed(settings)) return;
+    await Handoff.ready(); // a handed-off config keeps its session token in the host's file
+    Handoff.configure(settings);
     base = String(settings.baseUrl).replace(/\/+$/, '');
   }
 

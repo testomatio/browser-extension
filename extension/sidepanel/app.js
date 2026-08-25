@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global TestomatAPI, Icons, Skeleton, askForProject */
+/* global Handoff, Icons, Skeleton, askForProject */
 
 // ---------- init ----------
 
@@ -106,6 +106,9 @@ async function init() {
   await dropOnboardingState(); // …and the removed welcome checklist no progress slice
   // Before any run renders, so restored rows show their «queued» markers immediately.
   if (typeof OfflineQueue !== 'undefined') await OfflineQueue.init();
+  // A host app's offer outranks whatever is stored: it is this session's own connection, and it
+  // is what a tester who opened the panel FROM that app is expecting to see.
+  if (await Handoff.ready()) await Handoff.connect();
   if (!state.settings) {
     dropOpenRunIntent(); // landing on Settings anyway; a stale intent must not fire on a later connect
     fillSettingsForm();
@@ -113,7 +116,7 @@ async function init() {
     state.booting = false; // a later Save may now persist its session
     return;
   }
-  TestomatAPI.configure(state.settings);
+  Handoff.configure(state.settings);
   // Paints the saved project at once, refreshes the list in the background, and resolves one for a
   // config that has none — or leaves that pick to the tester (#11). Failing all, there is nothing to
   // run against — land on Settings.
@@ -142,9 +145,10 @@ async function init() {
   runInfoOpen = session?.runInfoOpen !== false;
   state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
 
-  const openedIntent = await consumeOpenRunIntent();
+  // The host's run, then a "Run in Extension" click — both outrank the editor breadcrumb and the
+  // restored session below, and both need the project switcher settled above.
+  const openedIntent = (await Handoff.openRun()) || (await consumeOpenRunIntent());
   initOpenRunIntent(); // …and a panel left open answers the next click without a reload
-  // The clicked run outranks both the editor breadcrumb and the restored session below.
   if (openedIntent) { state.booting = false; return; }
 
   // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list, and is
@@ -198,8 +202,7 @@ async function consumeOpenRunIntent() {
     await chrome.storage.session.remove(OPEN_RUN_INTENT_KEY);
   } catch { return false; }
   if (!intent.url || Date.now() - Number(intent.at || 0) > OPEN_RUN_INTENT_MAX_AGE_MS) return false;
-  await openRunFromUrl(intent.url);
-  return true;
+  return openRunFromUrl(intent.url);
 }
 
 function initOpenRunIntent() {

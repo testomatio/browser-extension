@@ -1,6 +1,6 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
-/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode, askForProject */
+/* global TestomatAPI, Handoff, Tooltip, EmptyState, Theme, ViewMode, askForProject */
 
 // ---------- settings ----------
 
@@ -164,9 +164,23 @@ let connectMode = null; // last applied — entering the screen focuses the fiel
 function renderConnection() {
   const card = $('connection-card');
   if (!card) return;
-  const on = !!state.settings && !!state.settings.apiToken;
+  const on = Handoff.credentialed(state.settings);
   card.hidden = !on;
   if (on) $('connection-host').textContent = hostOf(state.settings.baseUrl) || state.settings.baseUrl;
+  renderConnectionSource(on);
+}
+
+// A handed-over connection: whose it is, and what leaving it costs. Testers who never pasted a
+// token here would otherwise read the card as their own sign-in.
+function renderConnectionSource(on) {
+  const line = $('connection-source');
+  if (!line) return;
+  const handoff = on && !!state.settings.handoff;
+  line.hidden = !handoff;
+  if (!handoff) return;
+  const app = (Handoff.offer() || {}).app || 'the app that opened this browser';
+  line.textContent = `Signed in by ${app}. Disconnect stops it signing you in again — `
+    + 'open the run from there to come back.';
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor
@@ -301,7 +315,7 @@ async function saveSettings() {
   setStatusLine('settings-status', 'Validating…');
   // Two-step validation (#103). The token's own project list first — that route
   // carries no slug, so it IS the token check an "invalid token" must report.
-  TestomatAPI.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });
+  Handoff.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });
   let projects = null;
   try {
     projects = await TestomatAPI.listProjects();
@@ -335,7 +349,7 @@ async function saveSettings() {
     return;
   }
   // Then the project-scoped v2 call the panel actually runs on.
-  TestomatAPI.configure(settings);
+  Handoff.configure(settings);
   try {
     await TestomatAPI.validate();
   } catch (e) {
@@ -452,6 +466,9 @@ async function forgetInstance(opts = {}) {
       if (active) {
         await chrome.storage.local.remove(HOST_SCOPED_KEYS);
         if (chrome.storage.session) await chrome.storage.session.clear();
+        // A host's offer is a file we cannot delete, and the reload below would take it straight
+        // back — so leaving one is what makes Disconnect stick.
+        if (state.settings && state.settings.handoff) await Handoff.decline();
       }
     }
   } catch (e) { eraseFailed(`forgetting ${host}`, e, statusId); return; }

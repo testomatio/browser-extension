@@ -196,6 +196,9 @@
             <p id="connection-host" class="connection-host"></p>
             <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
           </div>
+          <!-- Says who signed this panel in when it was not the tester: there is no token of theirs
+               in the box above, and Disconnect means something different for such a connection. -->
+          <p id="connection-source" class="hint settings-help" hidden></p>
           <!-- Disconnect erases the active instance and reloads into the connect screen, so this line only
                ever speaks for a failure. -->
           <p id="connection-status" class="status-line" role="status"></p>
@@ -770,6 +773,8 @@
        click grants access without re-opening this panel. -->
   <script src="../shared/panel-link.js"></script>
   <script src="../shared/site-access.js"></script>
+  <!-- A host app's handoff file, read by this panel, the editor and the viewer alike. -->
+  <script src="../shared/handoff.js"></script>
   <script src="../shared/capture-annotate.js"></script>
   <script src="core/state.js"></script>
   <!-- Before every screen: they raise their loading placeholder on entry. -->

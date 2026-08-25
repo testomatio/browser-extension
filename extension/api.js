@@ -1,9 +1,16 @@
 // Testomat API client: Public API v2 (raw token as Bearer, flat snake_case) plus the Web-UI JSON:API
 // (JWT from POST /api/login) for what v2 lacks — the v2 attachments route 404s on prod.
+//
+// A handed-off config (core/handoff.js) brings both surfaces their own credential instead: a
+// project token for v2, and a session token its host already holds, so there is nothing to log in
+// with. Everything below reads `projectToken || apiToken` for that reason.
 
 const TestomatAPI = (() => {
-  let cfg = null; // { baseUrl, apiToken, projectId }
+  let cfg = null; // { baseUrl, apiToken, projectId } — or a handoff's { projectToken, projectId }
   let jwt = null; // memory-only (never chrome.storage); JSON:API + uploads
+  // A host app's session token. Memory-only like `jwt`, but it outlives configure(): it belongs to
+  // the host that launched this browser, not to whichever project the panel is pointed at.
+  let handedJwt = null;
   let jwtUid = null; // the JWT's own `user_id` claim — memory-only like the JWT
   // 'unknown' until the first login attempt, then true (session) | false (degraded).
   let jwtAvailable = 'unknown';
@@ -28,6 +35,18 @@ const TestomatAPI = (() => {
     readonly = 'unknown'; // re-probed against the new instance/project
   }
 
+  // The host's session token, adopted by login() instead of POST /api/login. Kept apart from
+  // configure() so a project switch does not drop it.
+  function useHandoffSession(token) {
+    handedJwt = token || null;
+    jwt = null;
+    jwtUid = null;
+    jwtAvailable = 'unknown';
+  }
+
+  // The v2 credential: a handoff's project token, else the account's General token.
+  const v2Token = () => cfg?.projectToken || cfg?.apiToken;
+
   async function rawFetch(url, opts) {
     try {
       return await fetch(url, opts);
@@ -37,15 +56,16 @@ const TestomatAPI = (() => {
   }
 
   function guardConfigured() {
-    if (!cfg?.baseUrl || !cfg?.apiToken || !cfg?.projectId) {
+    if (!cfg?.baseUrl || !v2Token() || !cfg?.projectId) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
   }
 
-  // login + api-root routes carry no slug, so they need only the base URL + token
-  // (the project picker runs before any slug is known).
+  // login + api-root routes carry no slug, so they need only the base URL and something to open a
+  // session with — the account token, or the one a host handed us (the project picker runs
+  // before any slug is known).
   function guardSession() {
-    if (!cfg?.baseUrl || !cfg?.apiToken) {
+    if (!cfg?.baseUrl || !(cfg?.apiToken || handedJwt)) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
   }
@@ -74,7 +94,7 @@ const TestomatAPI = (() => {
     const res = await rawFetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${cfg.apiToken}`,
+        Authorization: `Bearer ${v2Token()}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -256,9 +276,21 @@ const TestomatAPI = (() => {
     }).then((r) => r?.data);
   }
 
+  // A host's session token is adopted, never exchanged — there is no account token to exchange.
+  // Once, though: jwtSend re-enters login() on a 401/403, and handing back the same dead token
+  // would both fail again and re-arm `jwtAvailable`, so nothing would ever degrade.
+  const HANDOFF_EXPIRED = 'The session Testeiya handed over has expired — reconnect from there';
+
   // Lazy token→session upgrade; any failure marks the session unavailable so callers can degrade.
   async function login() {
     guardSession();
+    if (handedJwt) {
+      if (jwt === handedJwt) { jwtAvailable = false; throw new ApiError('auth', 401, HANDOFF_EXPIRED); }
+      jwt = handedJwt;
+      jwtUid = decodeJwtUserId(jwt);
+      jwtAvailable = true;
+      return jwt;
+    }
     let res;
     try {
       res = await rawFetch(`${cfg.baseUrl}/api/login`, {
@@ -775,7 +807,7 @@ const TestomatAPI = (() => {
   }
 
   return {
-    configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
+    configure, useHandoffSession, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
     getTestrun, getTest, getSuiteTree, getSuiteTreeOrdered, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
     getTestParams, setTestParams, createExample, updateExample, deleteExample,
     setStatus, setStep, uploadAttachment, uploadTestAttachment,

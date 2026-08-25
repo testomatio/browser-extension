@@ -1,7 +1,7 @@
 // Core views: the view switcher (show), tab navigation, the contextual header
 // row, in-tab back navigation, toasts and status lines.
 
-/* global TestomatAPI, Icons, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
+/* global TestomatAPI, Handoff, Icons, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
    PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker */
 
@@ -553,7 +553,7 @@ function refreshFromDegradedBanner() { return refreshAll(); }
 function switchTab(tab) {
   if (!isConfigured() && tab !== 'settings') return;
   if (state.activeTab === 'settings' && tab !== 'settings' && state.settings) {
-    TestomatAPI.configure(state.settings);
+    Handoff.configure(state.settings);
   }
   if (tab === state.activeTab) return; // already here — keep the current view
   openTabView(tab);

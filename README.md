@@ -73,6 +73,50 @@ Chrome 123 or newer. To update: unpack a newer zip over the same folder, or
 There is no build step: `extension/` runs exactly as it is checked in. No npm
 install, no bundler, no compiler.
 
+## Signed in by another app
+
+An app that launches Chrome with this extension loaded — Testeiya, for one — can
+sign the panel in itself, so the tester never pastes a token. It writes
+`handoff.json` into the extension folder and opens the panel:
+
+```json
+{
+  "app": "Testeiya",
+  "baseUrl": "https://app.testomat.io",
+  "projectId": "my-project",
+  "jwt": "eyJ…",
+  "projectToken": "tstmt_…",
+  "runUrl": "https://app.testomat.io/projects/my-project/runs/abcd1234",
+  "at": 1756160000000
+}
+```
+
+Two credentials, because the panel talks to two APIs: `projectToken` is what
+`/api/v2` takes, `jwt` is a web session for the routes v2 lacks. `runUrl` is
+optional; with one, the panel opens that run. `at` is milliseconds since the
+epoch and has to grow on every push.
+
+A file rather than a command line: `--load-extension` argv is readable by every
+process on the machine, and these are credentials. Rules the panel follows:
+
+- Only `projectToken` and the project are stored; the `jwt` is held in memory and
+  re-read from the file, exactly like the one `POST /api/login` returns.
+- The file has to stay for as long as the connection should work. Whoever wrote
+  it deletes it — closing the browser it launched is the usual moment.
+- The project is pinned: one project token was handed over, so the switcher shows
+  the project rather than offering others.
+- **Disconnect** marks that `at` as answered instead of deleting a file it does
+  not own. Push a newer `at` to offer the connection again.
+- A run is opened once per `at`, so reloading the panel keeps the tester's place.
+
+A panel that is already open takes a new push through
+`window.TestomatHandoff.apply()`, which answers
+`{ok, projectId, run}` — or `{ok: false, reason: "no-offer"}`. A build without
+that global predates this contract and needs updating.
+
+With no host involved the panel logs one `ERR_FILE_NOT_FOUND` for `handoff.json`
+at boot. That is the check for the file, not a fault.
+
 ## Permissions, and why each is needed
 
 These are the permissions declared in `extension/manifest.json`. Chrome
