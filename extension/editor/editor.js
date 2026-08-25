@@ -1468,7 +1468,13 @@
     polishInput.type = 'checkbox';
     polishInput.className = 'switch';
     polishInput.setAttribute('role', 'switch');
-    polishLabel.append(polishInput, document.createTextNode('Polish with AI'));
+    // The words in a SPAN, not a bare text node: the short row hides them (fitTools), and the
+    // switch keeps the same name on the input either way.
+    const polishText = document.createElement('span');
+    polishText.className = 'tc-polish-text';
+    polishText.textContent = 'Polish with AI';
+    polishInput.setAttribute('aria-label', 'Polish with AI');
+    polishLabel.append(polishInput, polishText);
     Tooltip.set(polishLabel, 'Rewrite the recorded steps with Testomat AI when you stop recording');
     // The same one button both ways: it polishes a recording that was not, and undoes one
     // that was. It exists only while this editor still holds a recording.
@@ -1489,10 +1495,36 @@
     shotPreview.className = 'thumb-row tc-shot-preview';
     shotPreview.setAttribute('aria-label', 'Screenshots to attach on Save');
     shotPreview.hidden = true;
-    // The template sits at the far end of the row (`margin-inline-start: auto`, editor.css),
-    // off the two buttons that get used over and over.
-    tools.append(recBtn, recContinue, polishLabel, polishBtn, attachBtn, tmplField, shotPreview);
+    // The buttons that get used over and over hold the HEAD of the row; the AI switch and the
+    // template, both settings for what those buttons do, sit at its tail — one auto margin moves
+    // the pair together (editor.css).
+    tools.append(recBtn, recContinue, polishBtn, attachBtn, polishLabel, tmplField, shotPreview);
     wrap.append(tools);
+
+    // The row wears its words only while they FIT: dragged narrower, the labels go and the
+    // controls stand as icons rather than wrapping onto a second line. Measured, not a
+    // breakpoint — how much width the row needs depends on which controls are showing.
+    let toolsFitWidth = 0; // the width it was last fitted at, the observer's guard
+    const fitTools = () => {
+      if (!tools.clientWidth) return; // hidden on the Preview tab, and nothing to measure
+      // Words back on FIRST, or a panel dragged wider would keep the short row.
+      tools.classList.remove('is-short');
+      const line = [recBtn, recContinue, polishBtn, attachBtn, polishLabel, tmplField]
+        .filter((el) => !el.hidden && el.offsetParent);
+      // Their CENTRES, not their tops: the row centres what it holds, so the switch — shorter
+      // than the buttons — starts lower than they do while sitting on the same line. Reading
+      // the geometry is also what forces the layout the line above just asked for.
+      const mid = (el) => el.offsetTop + el.offsetHeight / 2;
+      if (line.length && line.some((el) => Math.abs(mid(el) - mid(line[0])) > 1)) {
+        tools.classList.add('is-short');
+      }
+      toolsFitWidth = tools.clientWidth;
+    };
+    // The observer also fires for the width the fit itself settled at, hence the guard — the
+    // same shape the side panel's own rows use (sidepanel/core/views.js).
+    new ResizeObserver(() => {
+      if (tools.clientWidth && tools.clientWidth !== toolsFitWidth) fitTools();
+    }).observe(tools);
 
     const body = document.createElement('div');
     body.className = 'tc-body';
@@ -1732,6 +1764,9 @@
       const span = document.createElement('span');
       span.textContent = label;
       recBtn.append(span);
+      // The short row hides the span, so the name has to live somewhere the icon can carry it.
+      recBtn.setAttribute('aria-label', label);
+      fitTools(); // `Stop recording (12)` is a good deal wider than `Record steps`
     };
 
     const REC_TIP_OFF = 'Record what you do on the page as numbered steps';
@@ -1951,11 +1986,13 @@
     function updatePolishBtn() {
       const show = !recording && !recPolishing && !done && polishOn && !polishLabel.hidden && hasRecording();
       polishBtn.hidden = !show;
-      if (!show) return;
-      polishBtn.textContent = recPolished ? POLISH_UNDO : POLISH_DO;
-      Tooltip.set(polishBtn, recPolished
-        ? 'Put the recorded steps back the way they were recorded'
-        : 'Rewrite the steps you recorded with your Testomat.io AI');
+      if (show) {
+        polishBtn.textContent = recPolished ? POLISH_UNDO : POLISH_DO;
+        Tooltip.set(polishBtn, recPolished
+          ? 'Put the recorded steps back the way they were recorded'
+          : 'Rewrite the steps you recorded with your Testomat.io AI');
+      }
+      fitTools(); // one control more or less on the row is a different fit
     }
     polishBtn.addEventListener('click', () => {
       if (recPolished) { undoPolish(); return; }
