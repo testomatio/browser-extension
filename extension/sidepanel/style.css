@@ -153,14 +153,27 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
   padding: var(--space-3);
   margin-bottom: var(--space-2);
 }
-.connection-icon { color: var(--passed); }
-.connection-host {
+.connection-icon { flex: none; color: var(--passed); }
+.connection-card[data-state="pending"] .connection-icon { color: var(--muted); }
+/* Host on line one, the Connected pill under it — the column takes the slack so the
+   Disconnect button stays pinned right however long the host is. */
+.connection-main {
+  display: flex;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.connection-host {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   overflow-wrap: anywhere;
   font-weight: var(--weight-medium);
 }
+.connection-state { flex: none; }
+.connection-card > .btn { flex: none; }
 #connection-status:empty { display: none; }
 
 /* ---- First-run connect screen (screens/settings.js applyConnectMode) ---- */
@@ -219,6 +232,55 @@ body[data-connect="true"] .header-top { display: none; }
 .connect-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
 .connect-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
 
+/* ---- Choose a project (screens/project-pick.js) ---- */
+/* Step two of the first run, and the only screen between a saved token and a scoped panel — so it
+   takes the panel whole, the way the connect screen before it does: nothing above it is scoped by a
+   project yet, and the tabs would offer two disabled ones. */
+body[data-view="pick"] #project-bar,
+body[data-view="pick"] #header-top { display: none; }
+/* A column, so the LIST is what gives its height and the footer lands on the panel's bottom edge —
+   the #view-tclist deal, and the same full-bleed row. Unlike that view the column is CAPPED at the
+   viewport and the scrolling moves inside the list: the title, the search and the Disconnect footer
+   are the screen's fixed frame, and scrolling a hundred projects must not carry the search box off
+   the top or the footer out of reach. Only this view pins the body — every other one still scrolls
+   the document. */
+body[data-view="pick"] { height: 100vh; overflow: hidden; }
+body[data-view="pick"] main { min-height: 0; overflow: hidden; }
+#view-pick:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The frame: these keep their measured height while the list absorbs whatever is left. */
+.pick-head, .pick-field, #pick-status, .pick-footer { flex: 0 0 auto; }
+.pick-head { margin: 0 0 var(--space-4); }
+.pick-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
+.pick-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
+.pick-field { margin-bottom: var(--space-2); }
+/* The rows are the popup's (projectRowEl, core/project-switcher.js), which brings its own two lines
+   and its trailing count but not the box around them — in the popup that is .menu-option's job, and
+   here it is .list's, which is what gives the screen its rules, its hover and its 32px floor. */
+.pick-list > li { display: flex; align-items: center; gap: var(--space-2); }
+.pick-list > li.active { background: var(--row-hover); }
+/* Filtered down to nothing, the LIST stops taking the height and the empty state takes it instead —
+   otherwise "No project matches" is pushed to the panel's bottom edge, right onto the footer. */
+#pick-list:empty { flex: none; }
+#pick-empty:not([hidden]) { flex: 1 1 auto; }
+#pick-status:empty { display: none; }
+/* Past main's bottom padding, so the row sits ON the edge instead of a gutter above it (.tc-quick-bar
+   says the same). The host is what Disconnect acts on, hence its name beside the button. */
+.pick-footer {
+  z-index: var(--z-sticky);
+  margin: var(--space-3) calc(-1 * var(--gutter)) calc(-1 * var(--gutter));
+}
+.pick-footer-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.pick-host { color: var(--fg); font-weight: var(--weight-medium); }
+
 /* ---- Project switcher (#103) ---- */
 /* The menu anchors to the ROW, not to the trigger, so the bar is the positioned box (full-width picker).
    position: relative ONLY — a z-index here would trap the popup, which has to compete in the ROOT
@@ -265,8 +327,18 @@ body[data-connect="true"] .header-top { display: none; }
 #btn-refresh.spinning .md-icon { animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { #btn-refresh.spinning .md-icon { animation: none; } }
 
-/* Pinned to both gutters of the bar, so the list is as wide as the row whatever the trigger measures. */
-.project-menu { left: 0; right: 0; }
+/* The dim under the open list: a fixed sheet one layer below the popup, so everything the pick is not
+   reads as out of play. Fixed works from inside the bar because nothing on the way up opens a stacking
+   context — the same rake .project-bar's comment guards. */
+.project-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-popup) - 1);
+  background: var(--scrim);
+}
+/* Nearly as wide as the row, less a hair at each end: hard against the panel's edge the list reads as
+   part of the frame, and the scrim behind it needs a sliver to show through to say it is over the page. */
+.project-menu { left: var(--space-2); right: var(--space-2); }
 .project-filter { margin: 0; }
 /* The shared .menu-list 240px cap is sized for small popups — this list may take most of a short panel (full-width picker). */
 .project-list { max-height: min(60vh, 480px); }

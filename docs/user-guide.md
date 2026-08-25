@@ -55,8 +55,9 @@ grant per site afterwards.
      *"Find it in Account → Access Tokens"* under the field opens the
      access-tokens page of the instance you are pointed at.
 4. Click **Save & validate**. The panel makes a live call, loads every project
-   that token reaches and picks one; on success the status line reads
-   `Connected ✓` and you land on the **Runs** tab.
+   that token reaches and picks one; on success you land on the **Runs** tab, and
+   the **Connection** card in Settings shows the host with a green `Connected`
+   pill under it.
 5. Working on a different project? Use the **Project** row at the very top of the
    panel — see [switching projects](#switching-projects).
 

@@ -4,7 +4,7 @@
 /* global TestomatAPI */
 
 const $ = (id) => document.getElementById(id);
-const views = ['settings', 'runs', 'tcstudio', 'tclist', 'promote', 'run', 'test'];
+const views = ['settings', 'pick', 'runs', 'tcstudio', 'tclist', 'promote', 'run', 'test'];
 const hasChrome = typeof chrome !== 'undefined' && !!chrome.storage?.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

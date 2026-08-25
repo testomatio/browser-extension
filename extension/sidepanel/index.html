@@ -54,6 +54,11 @@
             data-tip="Open in window" data-tip-side="bottom" aria-label="Open in window">
       <span class="md-icon" data-icon="web_asset" data-icon-size="20"></span>
     </button>
+    <!-- The dim behind the open list: while the pick is on, the panel under it is out of play. It is a
+         plain sheet, not a <dialog> — the popup is anchored to this bar and must keep hanging off it —
+         and it doubles as the click target that closes the menu, which onProjectDocClick already reads
+         as outside. -->
+    <div id="project-scrim" class="project-scrim" hidden></div>
     <!-- The popup hangs off the BAR, not off the trigger's box: the trigger is only as wide as the project
          name, so anchored there the list could never reach the panel's left edge (full-width picker). -->
     <div id="project-menu" class="menu project-menu" hidden>
@@ -193,7 +198,12 @@
         <div id="settings-connection-body" class="disclosure-body">
           <div id="connection-card" class="card connection-card" hidden>
             <span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
-            <p id="connection-host" class="connection-host"></p>
+            <!-- Host over state: the card IS the answer to "am I connected, and to what?", so the
+                 verdict sits with the host instead of on a status line under the Save button. -->
+            <div class="connection-main">
+              <p id="connection-host" class="connection-host"></p>
+              <span id="connection-state" class="badge passed connection-state">Connected</span>
+            </div>
             <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
           </div>
           <!-- Disconnect erases the active instance and reloads into the connect screen, so this line only
@@ -371,6 +381,43 @@
            the instance in one press, and standing outside every collapse is what says so. -->
       <button id="btn-save-settings" class="btn primary">Save &amp; validate</button>
       <p id="settings-status" class="status-line" role="status"></p>
+    </section>
+
+    <!-- Step two of the first run: the token is in, the project is not. The header switcher's popup
+         cannot make THIS pick — it opens over a panel with nothing behind it — so the same rows and the
+         same filter take the whole screen, and the way back out sits in the footer under them.
+         screens/project-pick.js. -->
+    <section id="view-pick" hidden>
+      <div class="pick-head">
+        <h2 class="pick-title">Choose a project</h2>
+        <p class="pick-sub">Pick the project this panel runs against. You can switch it any time
+          from the header.</p>
+      </div>
+      <!-- role=combobox on the INPUT, not on a wrapper: it owns focus for the whole screen, so it is
+           what carries aria-activedescendant while the arrows walk the list. -->
+      <div class="field pick-field">
+        <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+        <input id="pick-filter" class="input size-sm" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Search projects…" aria-label="Search projects"
+               role="combobox" aria-expanded="true" aria-controls="pick-list" aria-autocomplete="list" />
+        <button id="pick-filter-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+          <span class="md-icon" data-icon="close" data-icon-size="18"></span>
+        </button>
+      </div>
+      <ul id="pick-list" class="list pick-list" role="listbox" aria-label="Projects"></ul>
+      <!-- Written out rather than built by EmptyState.build(), for the reason the popup's twin is. The
+           BLOCK shape, not the popup's .compact: here the missing rows are the whole screen. -->
+      <div id="pick-empty" class="empty" hidden>
+        <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
+        <div class="empty-body"><p class="empty-text">No project matches</p></div>
+      </div>
+      <p id="pick-status" class="status-line" role="status"></p>
+      <!-- The footer is the screen's OTHER answer: this panel is connected, and nothing here is worth
+           doing. Tertiary, and behind a rule, because leaving is not what the screen is for. -->
+      <div class="bar footer pick-footer">
+        <span class="pick-footer-host">Connected to <span id="pick-host" class="pick-host"></span></span>
+        <button id="pick-disconnect" class="btn tertiary size-sm" type="button">Disconnect</button>
+      </div>
     </section>
 
     <section id="view-runs" hidden>
@@ -785,6 +832,9 @@
   <!-- The header's surface switch — after core/views.js, whose toast it uses. -->
   <script src="core/view-switch.js"></script>
   <script src="screens/onboarding.js"></script>
+  <!-- The choose-a-project screen — after core/project-switcher.js, whose row builder and filter it
+       shares with the header popup, and before settings.js, which sends the first run to it. -->
+  <script src="screens/project-pick.js"></script>
   <script src="screens/settings.js"></script>
   <script src="screens/runs-list.js"></script>
   <script src="screens/run-view.js"></script>

@@ -166,7 +166,17 @@ function renderConnection() {
   if (!card) return;
   const on = !!state.settings && !!state.settings.apiToken;
   card.hidden = !on;
-  if (on) $('connection-host').textContent = hostOf(state.settings.baseUrl) || state.settings.baseUrl;
+  if (!on) return;
+  $('connection-host').textContent = hostOf(state.settings.baseUrl) || state.settings.baseUrl;
+  // Connected but no project yet is a half-done first run (#11) — the pill says which,
+  // and the card's tick goes grey with it rather than calling the run done.
+  const ready = !!state.settings.projectId;
+  card.dataset.state = ready ? 'ready' : 'pending';
+  const pill = $('connection-state');
+  if (pill) {
+    pill.textContent = ready ? 'Connected' : 'Project not picked';
+    pill.className = `badge ${ready ? 'passed' : 'neutral'} connection-state`;
+  }
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor
@@ -348,7 +358,10 @@ async function saveSettings() {
   }
   await commitSettings(settings, host);
   renderProjectBar(); // the header switcher now carries this host's project list
-  setStatusLine('settings-status', 'Connected ✓', 'ok');
+  // The verdict belongs to the Connection card (#connection-state), not to a line
+  // under Save — clear whatever this save put there on its way through.
+  setStatusLine('settings-status', '');
+  renderConnection();
   openRunsView(); // a first save lands on a fresh runs view (and enables the tabs)
 }
 
@@ -406,9 +419,11 @@ function eraseFailed(what, e, statusId = 'settings-forget-status') {
 
 // Forgets the instance the panel is ON, whatever the Instance field is showing;
 // it ends on the connect screen, since nothing is left to run.
-function disconnectInstance() {
+// `statusId` is the caller's: the choose-a-project screen (screens/project-pick.js) offers the
+// same Disconnect, and the Connection card's own line is on a page nobody can reach from there.
+function disconnectInstance({ statusId = 'connection-status' } = {}) {
   const host = (state.settings && hostOf(state.settings.baseUrl)) || settingsFormHost();
-  return forgetInstance({ host, verb: 'Disconnect', statusId: 'connection-status' });
+  return forgetInstance({ host, verb: 'Disconnect', statusId });
 }
 
 // `opts.host` targets an instance explicitly (Disconnect); with none, the host

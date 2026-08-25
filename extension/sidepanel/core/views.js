@@ -10,11 +10,13 @@
 const TAB_OF_VIEW = {
   tcstudio: 'tests', tclist: 'tests', promote: 'tests',
   runs: 'runs', run: 'runs', test: 'runs',
-  settings: 'settings',
+  // `pick` is the choose-a-project screen: it stands BEFORE the tabs (nothing is scoped yet)
+  // and hides them, but it is the Settings tab it belongs to — the one tab reachable unconfigured.
+  settings: 'settings', pick: 'settings',
 };
 const TABS = ['tests', 'runs', 'settings'];
 // A tab's landing view: the contextual row (Back + title) is hidden there.
-const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings']);
+const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings', 'pick']);
 
 // ---------- view switching ----------
 

@@ -379,8 +379,8 @@ the same 20px square the glyph would have used (`.tree-icon.emoji`,
 field, not a glyph chosen here.
 
 Deliberately NOT icons, and left as text: the keyboard names in the hotkey legend
-(`⌘ ⏎ ↑ ↓ ← →`) and the `✓` that ends a status line ("Connected ✓") — the e2e
-reads that one.
+(`⌘ ⏎ ↑ ↓ ← →`) and the `✓` that ends a status line ("Screenshot attached ✓") —
+the e2e reads that one.
 
 The vendored markdown toolbar is drawn from this set too. OverType ships an SVG
 per button, which is a second icon set inside a product that has one — but the
@@ -542,8 +542,29 @@ puts it there. Keyed on `state.settings`, not `isConfigured()`: a saved config
 whose project failed to resolve gets the full form, where Disconnect / Forget
 instance / Sign out live.
 
+**Choose-a-project screen (`pick`).** Step two of the first run: the token is
+saved, but the token's project list has more than one entry, so nothing is scoped
+yet. `askForProject()` (`core/project-switcher.js`) — called from `init()` when
+`initProjectSwitcher()` answers `'choose'`, and from `saveSettings()` when a fresh
+token resolved no project — opens `#view-pick` (`screens/project-pick.js`): the
+search field, the list, and a footer holding the connected host and a tertiary
+**Disconnect**. It takes the panel whole, the way the connect screen before it
+does — `body[data-view="pick"]` folds away the project strip and the tab row,
+which are scoped by a project that does not exist yet — and it is a ROOT view, so
+there is no Back either; the footer is the way out. The rows are the header
+popup's, built by the same `projectRowEl()` and filtered by the same
+`matchProjects()`, so the two surfaces cannot drift apart: only the row's SKIN
+differs (`.menu-option` in the popup, the shared `.list` row on the screen). The
+arrows and Enter walk the list from the search field, which owns focus and
+carries `aria-activedescendant`. Picking a row is the ordinary `switchProject()`,
+whose "first pick" branch lands on a fresh runs view. This screen replaced
+opening that popup over an empty Settings page, which put the one thing there was
+to do on it inside a menu.
+
 **The full form has no token field.** Connected, the Connection section is a card
-(`#connection-card`): the instance host, and **Disconnect** —
+(`#connection-card`): the instance host with the connection verdict under it
+(`#connection-state`, the green `Connected` pill — `Project not picked` while a
+first run is still half-done), and **Disconnect** —
 `disconnectInstance()`, which is `forgetInstance()` aimed at the host in
 `state.settings` whatever the Instance field in Advanced is showing, and which
 therefore ends on the connect screen. `#set-token` stays in the DOM (one form,
@@ -560,7 +581,7 @@ Advanced) and `#signout-status`.
 | `core/state.js` | The single `state` object; `$()`; `recordFor()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
 | `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` — the only writers of the `session` key. |
 | `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
-| `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). |
+| `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). Two of its parts are shared with the choose-a-project screen rather than copied into it: `matchProjects(rows, filter)` (title AND slug) and `projectRowEl()`, the one project row — two lines plus the trailing count, and the `dataset.projectId` the e2e reads. `askForProject()` is what sends a connection with no project to that screen. |
 | `core/view-switch.js` | The header's surface switch: `initViewSwitch()` asks `ViewMode` which surface this document is in, `renderViewSwitch()` names and marks it for the one the press would land on ("Open in window" / "Dock to side panel"), and the click opens the other one and closes this. The two directions are not symmetric: the window is the worker's (`VIEW_OPEN_WINDOW`), while docking calls `chrome.sidePanel.open()` **before its first await** — the gesture lives only that long — on the normal-window id kept fresh from the worker's focus tracking, because a popup cannot host a side panel. |
 | `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta**. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
 | `core/skeleton.js` | `Skeleton` — the loading placeholders. A **navigation draws its own at once**: the screen it left is already gone, so waiting out a clock only buys an empty view that fills 150 ms later, which reads as a flash of nothing rather than as speed; it fades in (`.skeleton-enter`). The **boot** is the one that still waits — `paintBoot()` starts a 250 ms clock (`DELAY_MS`) so a fast open lands on the real panel having drawn none, and fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` mounts a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` removes it only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. The **run** placeholder covers its whole screen — the summary card, the controls and the checklist — because a plan may also name blocks to `hide` while it is up, and those two paint empty (an empty bordered card over an empty chip row reads as a screen that failed rather than one loading); `hide()` gives them back on either path. A screen that already **holds its rows in memory puts up no placeholder at all**: it paints them and re-reads behind them (see 3.1). Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
@@ -573,7 +594,8 @@ reported-result summary, the status write), `tc-studio.js` (suite tree + TC list
 + the `.txt` log), `attachments.js` (the Attach file picker, its upload
 loop and the result's attachment list),
 `hotkeys.js` (web-runner hotkeys + `attachScreenshotAnnotated`),
-`livesync.js` (20 s poll), `offline-queue.js`, `onboarding.js`, `settings.js`.
+`livesync.js` (20 s poll), `offline-queue.js`, `onboarding.js`,
+`project-pick.js` (the choose-a-project screen), `settings.js`.
 
 `app.js` is loaded **last** and is the only bootstrap: it wires every listener,
 restores settings + session, and picks the opening view.

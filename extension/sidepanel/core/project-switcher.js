@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
-   prefetchTabCounts, Tooltip, setStatusLine */
+   prefetchTabCounts, Tooltip, setStatusLine, openProjectPickView */
 
 // Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
@@ -21,13 +21,15 @@ function projectRows() {
   return list.some((p) => p.id === current) ? list : [{ id: current, title: '' }, ...list];
 }
 
-// Matched on title AND slug — either is what a tester remembers about a project.
-function filteredProjectRows() {
-  const q = projectFilter.trim().toLowerCase();
-  const rows = projectRows();
+// Matched on title AND slug — either is what a tester remembers about a project. Shared with the
+// choose-a-project screen (screens/project-pick.js), so both surfaces filter the same way.
+function matchProjects(rows, filter) {
+  const q = String(filter || '').trim().toLowerCase();
   if (!q) return rows;
   return rows.filter((p) => `${p.title || ''} ${p.id}`.toLowerCase().includes(q));
 }
+
+function filteredProjectRows() { return matchProjects(projectRows(), projectFilter); }
 
 // The trigger carries the active project: label + `dataset.projectId`, which is
 // what the panel's own e2e reads.
@@ -76,6 +78,42 @@ function renderProjectOpenLink() {
 // A native <select> is unusable here: Chrome renders its popup at OS level, which in
 // a narrow side panel lands as a huge misplaced menu. Custom listbox instead (#34).
 
+// ONE project row, for either surface — the popup's `.menu-option` here, the whole-screen picker's
+// list row there (screens/project-pick.js). Only the SKIN differs: same two lines, same trailing
+// count, same `dataset.projectId` the panel's own e2e reads.
+function projectRowEl(p, { current, activeId, idPrefix, className, onPick }) {
+  const li = document.createElement('li');
+  li.id = `${idPrefix}${p.id}`;
+  li.className = className;
+  li.setAttribute('role', 'option');
+  li.setAttribute('aria-selected', p.id === current ? 'true' : 'false');
+  li.dataset.projectId = p.id;
+  li.classList.toggle('active', p.id === activeId);
+  // Two lines — title over slug — so neither clips the other (#10); the slug always renders, even when it equals the title, so no row comes up short (#30). The count rides at the trailing edge.
+  const lines = document.createElement('div');
+  lines.className = 'project-option-lines';
+  const title = document.createElement('span');
+  title.className = 'project-option-title';
+  title.textContent = p.title || p.id;
+  lines.append(title);
+  const slug = document.createElement('span');
+  slug.className = 'project-option-slug';
+  slug.textContent = p.id;
+  lines.append(slug);
+  li.append(lines);
+  // Shared trailing figure (`.row-count`, ROW TAIL in shared/components.css); a real 0 shows, an unknown count draws nothing.
+  if (p.testsCount != null && Number.isFinite(Number(p.testsCount))) {
+    const count = document.createElement('span');
+    count.className = 'row-count';
+    count.textContent = Number(p.testsCount).toLocaleString('en-US').replace(/,/g, ' ');
+    Tooltip.set(count, `${Number(p.testsCount)} tests`);
+    li.append(count);
+  }
+  li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the filter
+  li.addEventListener('click', () => onPick(p.id));
+  return li;
+}
+
 // The active row is the keyboard cursor; the current project is the selected one.
 function renderProjectOptions() {
   const list = $('project-list');
@@ -83,38 +121,13 @@ function renderProjectOptions() {
   const current = state.settings && state.settings.projectId;
   const rows = filteredProjectRows();
   if (!rows.some((p) => p.id === projectActiveId)) projectActiveId = rows.length ? rows[0].id : null;
-  list.replaceChildren(...rows.map((p) => {
-    const li = document.createElement('li');
-    li.id = `project-opt-${p.id}`;
-    li.className = 'menu-option project-option';
-    li.setAttribute('role', 'option');
-    li.setAttribute('aria-selected', p.id === current ? 'true' : 'false');
-    li.dataset.projectId = p.id;
-    li.classList.toggle('active', p.id === projectActiveId);
-    // Two lines — title over slug — so neither clips the other (#10); the slug always renders, even when it equals the title, so no row comes up short (#30). The count rides at the trailing edge.
-    const lines = document.createElement('div');
-    lines.className = 'project-option-lines';
-    const title = document.createElement('span');
-    title.className = 'project-option-title';
-    title.textContent = p.title || p.id;
-    lines.append(title);
-    const slug = document.createElement('span');
-    slug.className = 'project-option-slug';
-    slug.textContent = p.id;
-    lines.append(slug);
-    li.append(lines);
-    // Shared trailing figure (`.row-count`, ROW TAIL in shared/components.css); a real 0 shows, an unknown count draws nothing.
-    if (p.testsCount != null && Number.isFinite(Number(p.testsCount))) {
-      const count = document.createElement('span');
-      count.className = 'row-count';
-      count.textContent = Number(p.testsCount).toLocaleString('en-US').replace(/,/g, ' ');
-      Tooltip.set(count, `${Number(p.testsCount)} tests`);
-      li.append(count);
-    }
-    li.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the filter
-    li.addEventListener('click', () => pickProject(p.id));
-    return li;
-  }));
+  list.replaceChildren(...rows.map((p) => projectRowEl(p, {
+    current,
+    activeId: projectActiveId,
+    idPrefix: 'project-opt-',
+    className: 'menu-option project-option',
+    onPick: pickProject,
+  })));
   const empty = $('project-empty');
   if (empty) empty.hidden = rows.length > 0;
   syncProjectActiveOption();
@@ -139,6 +152,7 @@ function openProjectMenu() {
   const input = $('project-filter');
   if (input) input.value = '';
   menu.hidden = false;
+  if ($('project-scrim')) $('project-scrim').hidden = false;
   trigger.setAttribute('aria-expanded', 'true');
   renderProjectOptions();
   if (input) input.focus(); // typing filters straight away
@@ -150,6 +164,7 @@ function closeProjectMenu({ focus = false } = {}) {
   const menu = $('project-menu');
   if (!menu || menu.hidden) return;
   menu.hidden = true;
+  if ($('project-scrim')) $('project-scrim').hidden = true;
   const trigger = $('project-trigger');
   if (trigger) {
     trigger.setAttribute('aria-expanded', 'false');
@@ -273,7 +288,9 @@ async function switchProject(projectId) {
   await persistActiveSettings(settings);
   renderProjectBar();
   // Stay on the tab the tester is on, but at its root: the open run/test is gone.
-  if (first) { setStatusLine('settings-status', 'Connected ✓', 'ok'); await openRunsView(); }
+  // The connect verdict lives in the Connection card now (renderConnection), so the
+  // first pick only clears the line the save left behind.
+  if (first) { setStatusLine('settings-status', ''); await openRunsView(); }
   else if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
   else if (state.activeTab === 'tests') await openTcStudioView();
   else await openRunsView();
@@ -284,14 +301,11 @@ async function switchProject(projectId) {
   toast(`${first ? 'Connected to' : 'Switched to'} ${p ? (p.title || p.id) : projectId}`);
 }
 
-// Token in, project not: the full Settings form (the connect card has done its job), the status line
-// saying so, and the header switcher — which IS the picker — open (#11).
+// Token in, project not: its own screen (screens/project-pick.js). The header popup used to stand in
+// for it, which put the one thing there is to do on that screen inside a menu, over an empty panel.
 function askForProject() {
-  fillSettingsForm();
-  show('settings');
-  renderProjectBar();
-  setStatusLine('settings-status', 'Connected ✓ — choose a project', 'ok');
-  openProjectMenu();
+  fillSettingsForm(); // the full form is what a Disconnect from there leaves behind
+  openProjectPickView();
 }
 
 // Boot: paint the saved project, then fill the list in the background. A config without a project
