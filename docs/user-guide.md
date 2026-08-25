@@ -1,4 +1,4 @@
-# Testomat Run Panel — user guide
+# Testomat.io Chrome extension user guide
 
 A Chrome side panel for running Testomat.io **manual runs** next to the site
 under test. You read the steps, tick them off, set passed/failed/skipped, add a
@@ -37,7 +37,7 @@ as an unpacked extension.
 4. Click **Load unpacked** and select the **`extension/`** folder inside the
    clone — not the repo root.
 5. Pin the panel: click the puzzle-piece (Extensions) icon in the toolbar and
-   pin **Testomat Run Panel**.
+   pin **Testomat.io**.
 
 Chrome asks for the extension's permissions once, at load: it works on **all
 websites**, because the site you test is different every session (see
@@ -46,7 +46,7 @@ grant per site afterwards.
 
 ### Connect it to your project
 
-1. Click the **Testomat Run Panel** icon in the toolbar. The panel opens on the
+1. Click the **Testomat.io** icon in the toolbar. The panel opens on the
    right.
 2. You land on **Settings** — the other tabs stay disabled until the connection
    is saved.
@@ -93,8 +93,8 @@ a token from one instance means nothing on another.
 ### Update
 
 1. `git pull` in the clone.
-2. Open `chrome://extensions` and click the **reload** (↻) icon on the Testomat
-   Run Panel card.
+2. Open `chrome://extensions` and click the **reload** (↻) icon on the
+   **Testomat.io** card.
 3. Reopen the panel.
 
 Your settings and the offline queue survive the reload.
@@ -106,7 +106,7 @@ Your settings and the offline queue survive the reload.
 Zero to a first passed test, shortest real path:
 
 1. Open the site you are testing in a normal tab.
-2. Click the **Testomat Run Panel** toolbar icon to open the panel. Keep the tab
+2. Click the **Testomat.io** toolbar icon to open the panel. Keep the tab
    under test focused when you capture or record — a `chrome://` page is off
    limits to every extension.
 3. **Runs** tab → click your run. (No run in the list? Create it in the web app,
@@ -310,22 +310,25 @@ of the result, says the test already has one.
   holds the live errors-only list for the window it keeps — click a row for
   details, **Attach** to drop that one entry into the comment. While it is idle it
   says so, and tells you to click **Rec** in the panel header to start one.
-- **Attachments & log** — a collapsed section that opens itself the moment you
-  mark the test failed (it never closes itself), counting what the result already
-  carries on its head and holding:
+- **Attachments & log** — a section that is open by default, so the files on a
+  result are visible without digging (closing it is remembered for the session;
+  marking the test failed opens it again). Its head counts what the result already
+  carries. It holds:
   - **📸 Attach screenshot** — capture → annotate → upload,
   - **Full page** — the checkbox under that button: capture the whole scrollable
     page instead of the viewport (remembered),
   - **📎 Attach file** — pick one or more files from your machine (a spec, an
     export, a video…) and upload them onto this result,
-  - the list of everything already attached to the result — screenshots, the
-    console/network log, your own files, all in **one list**. Each is a card: a
-    thumbnail (or a file glyph), the name — a link that opens it in a new tab —
-    over what the file is, and a **🗑** that deletes it from the result for
-    everyone (it asks first). Click an image's thumbnail to see it full size over
-    the panel (Esc, the ✕ or a click outside closes it). The bin is greyed out,
-    with the reason on hover, when that file cannot be deleted from here — a
-    finished run, no web login, or a file the server gave the panel no id for.
+  - the grid of everything already attached to the result — screenshots, the
+    console/network log, your own files — as the same file tiles the **Artifacts**
+    section uses: an image shows itself, anything else shows its kind and
+    extension, and a click opens it over the page under test. Hover a tile for the
+    **🗑** that deletes that file from the result for everyone (it asks first). The
+    bin is greyed out, with the reason on hover, when that file cannot be deleted
+    from here — a finished run, no web login, or a file the server gave the panel
+    no id for.
+  - nothing attached yet? The grid is a **drop target**: drag a file onto it, or
+    click it to open the same picker the button does.
 - Status line at the bottom — `Saving passed…` while the write is in flight, the
   offline-queued notice, and the errors. A write that *lands* says nothing there:
   the chip in the card, the filled button and the dot on **Summary** are already
@@ -764,7 +767,7 @@ What that does and does not mean:
   from us entirely, and the panel says so: *"Chrome doesn't allow extensions on
   this page… switch to the site under test."* No click fixes that — switch to a
   normal `http(s)` tab.
-- **You can narrow it.** `chrome://extensions` → **Testomat Run Panel** →
+- **You can narrow it.** `chrome://extensions` → **Testomat.io** →
   **Details** → **Site access** offers *On all sites* / *On specific sites* /
   *On click*. Restrict it there if your policy requires it; the panel keeps
   working and simply reports the pages it cannot touch.

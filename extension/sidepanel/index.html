@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Testomat Run Panel</title>
+  <title>Testomat.io</title>
   <!-- tokens (values) → components (the shared controls) → this screen's own stylesheet. Later wins. -->
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/components.css" />
@@ -686,17 +686,17 @@
               <ul id="evidence-list" class="list framed evidence-list"></ul>
             </div>
           </div>
-          <!-- The capture controls fold into one disclosure (collapsed by default, state remembered
-               for the session), so the hot path stays the status buttons plus the comment. -->
+          <!-- The capture controls fold into one disclosure, open by default so the files on a
+               result are visible without digging; closing it is remembered for the session. -->
           <div id="attachments-disclosure" class="disclosure accordion-item">
             <button id="attachments-head" type="button" class="disclosure-head"
-                    aria-expanded="false" aria-controls="attachments-body">
+                    aria-expanded="true" aria-controls="attachments-body">
               <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
                       class="md-icon head-icon" data-icon="attach_file"></span>Attachments &amp; log
               <!-- What the result already carries, counted beside the name like every other fold. -->
               <span id="attachments-count" class="counter" hidden></span>
             </button>
-            <div id="attachments-body" class="disclosure-body" hidden>
+            <div id="attachments-body" class="disclosure-body">
               <!-- The two capture buttons and the Full-page option share ONE row — stacking them spent three
                    lines of a section that is already a disclosure. Buttons left, option right; the row
                    wraps, so a narrow panel drops a control to the next line rather than squeezing labels. -->
@@ -731,7 +731,7 @@
                       data-tip="The upload was refused, but your annotated screenshot is still here — save it to your computer"><span
                       class="md-icon" data-icon="upload_file"></span><span>Save the annotated screenshot</span></button>
               <!-- Everything uploaded onto THIS result: server truth on open, plus whatever this session sent. -->
-              <ul id="attachment-list" class="attachment-list" hidden></ul>
+              <ul id="attachment-list" class="attachment-list file-grid" hidden></ul>
             </div>
           </div>
         </div>
@@ -753,6 +753,17 @@
               <div id="summary-failure-body" class="disclosure-body">
                 <div id="summary-message" class="summary-message"></div>
               </div>
+            </div>
+            <!-- #21: what the RUNNER attached (screencast, screenshot, log). Its own section, open by
+                 default — on an automated result nobody opens the manual "Attachments & log" controls. -->
+            <div id="summary-artifacts" class="disclosure accordion-item" hidden>
+              <button id="summary-artifacts-head" type="button" class="disclosure-head"
+                      aria-expanded="true" aria-controls="summary-artifacts-body">
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                        class="md-icon head-icon" data-icon="folder"></span>Artifacts
+                <span id="summary-artifacts-count" class="counter"></span>
+              </button>
+              <ul id="summary-artifacts-body" class="disclosure-body attachment-list file-grid"></ul>
             </div>
             <div id="summary-meta" class="disclosure accordion-item" hidden>
               <button id="summary-meta-head" type="button" class="disclosure-head"
@@ -788,16 +799,6 @@
       <button id="confirm-cancel" class="btn">Cancel</button>
       <button id="confirm-ok" class="btn primary">Finish run</button>
     </div>
-  </dialog>
-
-  <!-- Per-step screenshot lightbox (#202): the image is a blob URL the step row already fetched; Esc,
-       the backdrop and ✕ all close it. Wired lazily by test-view.js. -->
-  <dialog id="shot-modal" class="dialog lightbox">
-    <button id="shot-modal-close" type="button" class="btn icon size-xs shot-close" aria-label="Close">
-      <span class="md-icon" data-icon="close"></span>
-    </button>
-    <img id="shot-modal-img" alt="" />
-    <p id="shot-modal-name" class="muted"></p>
   </dialog>
 
   <script src="../vendor/showdown.min.js"></script>

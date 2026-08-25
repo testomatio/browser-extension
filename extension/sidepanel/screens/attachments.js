@@ -2,8 +2,8 @@
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
-   updateTestActionsState, Tooltip, ImgHydrate, isImageAttachment,
-   attachmentThumb, IMG_GROUP_ATTS, svgIcon, confirmDialog, baseUrlHost, paintCounter */
+   updateTestActionsState, Tooltip, ImgHydrate, fileTileItem, IMG_GROUP_ATTS,
+   svgIcon, confirmDialog, baseUrlHost, paintCounter */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -13,9 +13,10 @@ const attUploaded = new Map();
 
 // Uploads surface on the JSON:API detail's `attachments`; the v2 `artifacts` field
 // stays empty for them. probeSession prefetched it, so this costs no request.
+// #21: runner artifacts share that array — they render in the summary's own section.
 function attServerList() {
   const list = state.testrunDetail?.data?.attributes?.attachments;
-  return Array.isArray(list) ? list : [];
+  return Array.isArray(list) ? list.filter((a) => !(a && a.artifact === true)) : [];
 }
 
 function attRemember(recordId, entry) {
@@ -59,71 +60,26 @@ function attRows() {
   return rows;
 }
 
-// The card's second line. The panel's OWN uploads are named by it, so they can be called what
-// they are instead of `JPG`; anything else is the tester's file and gets its extension alone.
-function attMeta(a) {
-  const name = String(a.name || '');
-  const ext = (/\.([a-z0-9]+)$/i.exec(name) || [, ''])[1].toUpperCase();
-  if (/^panel-annotated-/.test(name)) return ext ? `${ext} · screenshot` : 'Screenshot';
-  if (/^evidence-/.test(name)) return ext ? `${ext} · console & network log` : 'Console & network log';
-  return ext || (a.type || 'file');
-}
-
-// A url-less row (an upload whose response carried none) still shows — the file
-// DID land — just not clickable.
-function attNameLink(a) {
-  const el = document.createElement(a.url ? 'a' : 'span');
-  el.className = 'attachment-link';
-  if (a.url) { el.href = a.url; el.target = '_blank'; el.rel = 'noopener noreferrer'; }
-  el.textContent = a.name;
-  Tooltip.set(el, a.name);
-  return el;
-}
-
-// The paperclip an image row does not need: a file with no picture still gets a MARK, so the
-// two kinds of card line up on the same left column instead of one starting at its name.
-function attGlyph(a) {
-  const span = document.createElement('span');
-  span.className = 'attachment-glyph';
-  span.append(svgIcon(/^evidence-/.test(String(a.name || '')) ? 'description' : 'attach_file', 16));
-  return span;
-}
-
-// #205: an image row gets the same thumbnail and lightbox a step screenshot does
-// (test-view.js owns both); one whose bytes never arrive drops back to the file glyph.
-function attRow(a) {
-  const li = document.createElement('li');
-  li.className = 'attachment-row';
-  const glyph = attGlyph(a);
-  if (isImageAttachment(a)) {
-    li.classList.add('is-image');
-    li.append(attachmentThumb(IMG_GROUP_ATTS, a, (el) => {
-      el.replaceWith(glyph);
-      li.classList.remove('is-image');
-    }));
-  } else {
-    li.append(glyph);
-  }
-  const body = document.createElement('div');
-  body.className = 'attachment-body';
-  const meta = document.createElement('span');
-  meta.className = 'attachment-meta';
-  meta.textContent = attMeta(a);
-  body.append(attNameLink(a), meta);
-  li.append(body, attDeleteBtn(a));
+// #21 draws every file the panel lists as the same tile, so an attachment is that tile plus
+// the one thing a MANUAL upload has that a runner artifact does not: it can be taken off the
+// result. The bin is a SIBLING of the tile, never a child — .file-tile is itself a <button>.
+function attTileItem(a) {
+  const li = fileTileItem(a, IMG_GROUP_ATTS);
+  li.className = 'file-tile-item';
+  li.append(attDeleteBtn(a));
   return li;
 }
 
 // ---- removing one ---------------------------------------------------------
 
-// The bin on a card. Present on every row, so the tester never hunts for it, and disabled with
-// the reason in its place when this particular row cannot be deleted — a lock, or a row the
-// server gave no id to (a delete has nothing to name then).
+// The bin in a tile's corner. Present on every tile, so the tester never hunts for it, and
+// disabled with the reason in its place when this particular file cannot be deleted — a lock,
+// or a row the server gave no id to (a delete has nothing to name then).
 function attDeleteBtn(a) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn icon size-sm attachment-del';
-  btn.append(svgIcon('delete', 16));
+  btn.className = 'btn icon size-xs attachment-del';
+  btn.append(svgIcon('delete', 14));
   const lock = attDeleteLock(a);
   btn.disabled = !!lock;
   btn.setAttribute('aria-label', `Delete ${a.name}`);
@@ -264,17 +220,17 @@ function attDropzone() {
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
-  ImgHydrate.release(IMG_GROUP_ATTS); // the thumbnails about to be dropped own these
+  ImgHydrate.release(IMG_GROUP_ATTS); // the previews about to be dropped own these
   const onTest = state.view === 'test';
   const rows = onTest ? attRows() : [];
   // Off the test screen the list is hidden anyway — no dropzone is built for it.
-  ul.replaceChildren(...(rows.length ? rows.map(attRow) : onTest ? [attDropzone()] : []));
+  ul.replaceChildren(...(rows.length ? rows.map(attTileItem) : onTest ? [attDropzone()] : []));
   ul.hidden = !onTest;
   paintAttachmentCount(rows.length);
 }
 
-// The fold is collapsed by default, so the figure on its head is the only thing that says
-// anything landed. Zero shows NOTHING — an empty result has no count to report.
+// Beside the fold's name, the way every other head counts what it holds. Zero shows NOTHING —
+// an empty result has no count to report, and the dropzone below already says so.
 function paintAttachmentCount(n) {
   const chip = $('attachments-count');
   if (!chip) return;

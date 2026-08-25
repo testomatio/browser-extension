@@ -1174,13 +1174,16 @@ ends `N of M` when some failed.
 `attributes.attachments` of the JSON:API testrun detail `probeSession()` already
 prefetched into `state.testrunDetail`, merged (de-duplicated by URL) with what
 this panel session uploaded onto that record. Screenshots and the auto-attached
-log therefore appear in it too — ONE list for all three, which is why a row is a
-CARD: a mark (the image's own thumbnail, else a file glyph in the same 56×40
-column), the name over what the file is (`panel-annotated-*` reads *screenshot*,
-`evidence-*` reads *console & network log*, anything else its extension), and a
-bin. The bin is on every card and disabled with the reason in its tooltip when
-that row cannot go — no result record, a run lock, a degraded (no-JWT) session,
-or a row the server gave no id to. `TestomatAPI.deleteAttachment()` asks v2 first
+log therefore appear in it too — ONE grid for all three, drawn with the same
+`fileTileItem()` the **Artifacts** section uses (#21), so the panel has one file
+shape rather than a list here and a grid there. `attTileItem()` is that tile plus
+the one thing a manual upload has that a runner artifact does not: a **bin**, a
+sibling of the tile (`.file-tile` is itself a `<button>`, which cannot nest one)
+in its corner, revealed on hover or focus-within. It is on every tile and
+disabled with the reason in its tooltip when that file cannot go — no result
+record, a run lock, a degraded (no-JWT) session, or a row the server gave no id
+to (`attId()` reads one off an `<instance>/attachments/<uid>.ext` url when the
+response carried none). `TestomatAPI.deleteAttachment()` asks v2 first
 (`DELETE /api/v2/{project}/attachments/{id}?testrun_id=…`, the route the Testomat
 MCP server calls) and falls back to the Web-UI JSON:API on 403/404/405, the same
 split the upload lives with. The confirm dialog is interactive, so the lock is
@@ -1188,6 +1191,16 @@ re-asked after it (#187); the row is dropped from *both* merge sources only once
 the server has said yes. The gate lives with the screenshot's in
 `updateTestActionsState()`: no result record, or — uploads being JWT-only — a
 proven-degraded session.
+
+An **empty** grid does not collapse and does not settle for a sentence: it is the
+one place the tester is already looking for *where does the file go*, so it draws
+a dashed **dropzone** spanning the grid. Clicking it opens the same picker the
+button does, a drop rides the same upload path, and it is gated on exactly the
+three reasons the Attach file button is (`attUploadLock()`) — a dropzone must
+never invite a drop the upload would then refuse. The gate is re-read at drop
+time, since a drag outlives the render that drew the zone, and
+`updateTestActionsState()` repaints the zone when the gate moves — but only while
+it *is* the zone, since rebuilding real tiles would drop their previews.
 
 ### 3.4 The evidence (console + network) recorder
 

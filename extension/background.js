@@ -157,9 +157,51 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // async response
 });
 
-// storage.session defaults to TRUSTED_CONTEXTS only; the annotator content script reads the
-// same handoff key, so it must be opened to untrusted contexts.
+// storage.session defaults to TRUSTED_CONTEXTS only; the annotator and file-overlay content
+// scripts read their handoff keys there, so it must be opened to untrusted contexts.
 try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }); } catch { /* older Chrome */ }
+
+// ============================ File overlay (#21) ===========================
+// The panel's tiles open a file OVER the page under test: a popup window cannot float above a
+// fullscreen browser, and an extension frame keeps the session the file behind the login needs.
+
+const FILE_OVERLAY_KEY = 'fileOverlay';
+
+function viewerPageUrl(file) {
+  const q = new URLSearchParams({ url: file.url, name: file.name, type: file.type });
+  return chrome.runtime.getURL(`viewer/viewer.html?${q}`);
+}
+
+// `activate`: an overlay on a background tab is an overlay nobody sees. A page no extension may
+// script (chrome://, the Web Store, the PDF viewer) throws at the inject and gets a tab instead.
+async function openFileOverlay(msg) {
+  const file = {
+    url: String((msg && msg.url) || ''),
+    name: String((msg && msg.name) || ''),
+    type: String((msg && msg.mime) || ''),
+    at: Date.now(),
+  };
+  if (!file.url) return { ok: false, error: 'no file' };
+  await chrome.storage.session.set({ [FILE_OVERLAY_KEY]: file });
+  const site = await resolveSiteTab({ verb: 'shown', activate: true });
+  const tabId = site.tab && site.tab.id != null ? site.tab.id : null;
+  if (tabId != null) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content/file-overlay.js'] });
+      return { ok: true, overlay: true, tabId };
+    } catch { /* restricted page — fall through to a tab of its own */ }
+  }
+  const tab = await chrome.tabs.create({ url: viewerPageUrl(file) });
+  return { ok: true, overlay: false, tabId: tab && tab.id != null ? tab.id : null };
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type !== 'OPEN_FILE_OVERLAY') return undefined;
+  openFileOverlay(msg)
+    .then(sendResponse)
+    .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true; // async response
+});
 
 // ============================ Screenshot capture ===========================
 // A VIEWPORT shot is chrome.tabs.captureVisibleTab (no debugger banner); FULL PAGE needs the

@@ -1,11 +1,11 @@
-# Privacy Policy — Testomat Run Panel
+# Privacy Policy for the Testomat.io Chrome extension
 
 **Last updated: 2026-08-14. Applies to extension version 0.1.0.**
 
-Testomat Run Panel is a Chrome extension for executing Testomat.io manual test
-runs beside the site under test. This policy describes every piece of data the
-extension reads, keeps or transmits. It was written against the source in this
-repository and cross-checked line by line with `extension/manifest.json`.
+This extension executes Testomat.io manual test runs beside the site under
+test. This policy describes every piece of data the extension reads, keeps or
+transmits. It was written against the source in this repository and
+cross-checked line by line with `extension/manifest.json`.
 
 ## Summary
 
@@ -140,7 +140,7 @@ else is requested.
 | `scripting` | On your click, inject the screenshot annotator, the step recorder and the console/network instrumentation into the tab you are testing | Nothing is registered to run automatically except for the origin currently being recorded, and it is unregistered when the recording stops |
 | `webRequest` | List the page's own network traffic (method, URL, status, timing) in the console & network log | **Observational only.** The four listeners are registered with no `extraInfoSpec`: the extension never asks for request or response **headers**, never uses the **blocking** form, and cannot modify, redirect or cancel any request. Events for any tab other than the one being recorded are discarded on arrival and kept nowhere, not even in memory |
 | `debugger` | One capability only: a **full-page** screenshot (`Page.captureScreenshot` with `captureBeyondViewport` over the Chrome DevTools Protocol), which is the only way to capture a whole scrollable document | Attached for the duration of that one shot and detached immediately in the same `finally`. No other feature uses it. A plain viewport screenshot uses `chrome.tabs.captureVisibleTab` and attaches nothing. Chrome's *"…is debugging this browser"* bar appearing for that moment is this, and only this |
-| `host_permissions: <all_urls>` | The extension acts on whatever site you are testing, and that site is different for every user and every session — including internal hosts no developer could enumerate in advance. The three things the product exists for all need to read that page: a screenshot of it, its console and network log, and a recording of your steps on it | Nothing runs on a page without an explicit click, and no page content is sent anywhere except your own Testomat.io instance. You can narrow the grant at any time in Chrome's own UI — **chrome://extensions → Testomat Run Panel → Details → Site access** — to *On specific sites* or *On click*; the panel is built to say plainly when it cannot touch a page rather than fail silently |
+| `host_permissions: <all_urls>` | The extension acts on whatever site you are testing, and that site is different for every user and every session — including internal hosts no developer could enumerate in advance. The three things the product exists for all need to read that page: a screenshot of it, its console and network log, and a recording of your steps on it | Nothing runs on a page without an explicit click, and no page content is sent anywhere except your own Testomat.io instance. You can narrow the grant at any time in Chrome's own UI — **chrome://extensions → Testomat.io → Details → Site access** — to *On specific sites* or *On click*; the panel is built to say plainly when it cannot touch a page rather than fail silently |
 
 Chrome summarises `<all_urls>` at install as *"Read and change all your data on
 websites you visit"*. That is an accurate description of what a tool that

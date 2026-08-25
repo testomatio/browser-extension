@@ -1,4 +1,4 @@
-# Testomat Run Panel
+# Testomat.io Chrome extension
 
 A Chrome side-panel extension for executing [Testomat.io](https://testomat.io)
 **manual test runs** next to the site being tested. You read a test's steps,
@@ -60,7 +60,7 @@ Take a release if you just want to run it, and the clone if you intend to follow
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the folder you unpacked the zip into, or —
    from a clone — the **`extension/`** folder inside it, not the repository root.
-4. Pin **Testomat Run Panel** from the toolbar's extensions menu.
+4. Pin **Testomat.io** from the toolbar's extensions menu.
 5. Click the toolbar icon. The panel opens on Settings; paste a **General
    token** from *Testomat.io → Account → Access Tokens* and click **Save &
    validate**. Self-hosted? Put your own `https://` URL into **Instance** under
