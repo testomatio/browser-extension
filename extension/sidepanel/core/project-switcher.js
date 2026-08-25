@@ -152,7 +152,6 @@ function openProjectMenu() {
   const input = $('project-filter');
   if (input) input.value = '';
   menu.hidden = false;
-  if ($('project-scrim')) $('project-scrim').hidden = false;
   trigger.setAttribute('aria-expanded', 'true');
   renderProjectOptions();
   if (input) input.focus(); // typing filters straight away
@@ -164,7 +163,6 @@ function closeProjectMenu({ focus = false } = {}) {
   const menu = $('project-menu');
   if (!menu || menu.hidden) return;
   menu.hidden = true;
-  if ($('project-scrim')) $('project-scrim').hidden = true;
   const trigger = $('project-trigger');
   if (trigger) {
     trigger.setAttribute('aria-expanded', 'false');

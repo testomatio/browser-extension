@@ -54,11 +54,6 @@
             data-tip="Open in window" data-tip-side="bottom" aria-label="Open in window">
       <span class="md-icon" data-icon="web_asset" data-icon-size="20"></span>
     </button>
-    <!-- The dim behind the open list: while the pick is on, the panel under it is out of play. It is a
-         plain sheet, not a <dialog> — the popup is anchored to this bar and must keep hanging off it —
-         and it doubles as the click target that closes the menu, which onProjectDocClick already reads
-         as outside. -->
-    <div id="project-scrim" class="project-scrim" hidden></div>
     <!-- The popup hangs off the BAR, not off the trigger's box: the trigger is only as wide as the project
          name, so anchored there the list could never reach the panel's left edge (full-width picker). -->
     <div id="project-menu" class="menu project-menu" hidden>

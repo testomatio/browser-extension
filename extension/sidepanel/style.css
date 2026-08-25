@@ -327,17 +327,8 @@ body[data-view="pick"] main { min-height: 0; overflow: hidden; }
 #btn-refresh.spinning .md-icon { animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { #btn-refresh.spinning .md-icon { animation: none; } }
 
-/* The dim under the open list: a fixed sheet one layer below the popup, so everything the pick is not
-   reads as out of play. Fixed works from inside the bar because nothing on the way up opens a stacking
-   context — the same rake .project-bar's comment guards. */
-.project-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: calc(var(--z-popup) - 1);
-  background: var(--scrim);
-}
-/* Nearly as wide as the row, less a hair at each end: hard against the panel's edge the list reads as
-   part of the frame, and the scrim behind it needs a sliver to show through to say it is over the page. */
+/* Nearly as wide as the row, less a hair at each end: hard against the panel's edge the list would read
+   as part of the frame rather than as a popup over it. */
 .project-menu { left: var(--space-2); right: var(--space-2); }
 .project-filter { margin: 0; }
 /* The shared .menu-list 240px cap is sized for small popups — this list may take most of a short panel (full-width picker). */
