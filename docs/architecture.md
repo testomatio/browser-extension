@@ -582,11 +582,23 @@ Advanced) and `#signout-status`.
 |---|---|
 | `core/state.js` | The single `state` object; `$()`; `recordFor()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
 | `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` — the only writers of the `session` key. |
-| `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
+| `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()` / `progressToast()` / `hideToast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
 | `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). Two of its parts are shared with the choose-a-project screen rather than copied into it: `matchProjects(rows, filter)` (title AND slug) and `projectRowEl()`, the one project row — two lines plus the trailing count, and the `dataset.projectId` the e2e reads. `askForProject()` is what sends a connection with no project to that screen. |
 | `core/view-switch.js` | The header's surface switch: `initViewSwitch()` asks `ViewMode` which surface this document is in, `renderViewSwitch()` names and marks it for the one the press would land on ("Open in window" / "Dock to side panel"), and the click opens the other one and closes this. The two directions are not symmetric: the window is the worker's (`VIEW_OPEN_WINDOW`), while docking calls `chrome.sidePanel.open()` **before its first await** — the gesture lives only that long — on the normal-window id kept fresh from the worker's focus tracking, because a popup cannot host a side panel. |
 | `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta**. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
 | `core/skeleton.js` | `Skeleton` — the loading placeholders. A **navigation draws its own at once**: the screen it left is already gone, so waiting out a clock only buys an empty view that fills 150 ms later, which reads as a flash of nothing rather than as speed; it fades in (`.skeleton-enter`). The **boot** is the one that still waits — `paintBoot()` starts a 250 ms clock (`DELAY_MS`) so a fast open lands on the real panel having drawn none, and fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` mounts a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` removes it only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. The **run** placeholder covers its whole screen — the summary card, the controls and the checklist — because a plan may also name blocks to `hide` while it is up, and those two paint empty (an empty bordered card over an empty chip row reads as a screen that failed rather than one loading); `hide()` gives them back on either path. A screen that already **holds its rows in memory puts up no placeholder at all**: it paints them and re-reads behind them (see 3.1). Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
+
+**What is RUNNING is a toast, not a line.** Progress — `Capturing tab…`,
+`Uploading <file>…`, `Saving passed…`, `Deleting <name>…`, `Finishing run…`,
+`Validating…` — goes to the bottom plaque via `progressToast()`: a spinner, no
+auto-hide, one slot. An inline status line is where a screen prints its ANSWER,
+and it sits under the fold on a long screen, which is how a job that died left
+`Capturing tab…` standing under the status buttons forever. The plaque comes down
+on one rule rather than at every call site: `setStatusLine()` hides it — a screen
+printing its own line IS the answer — and a flow that ends printing nothing (the
+annotator's Discard, a save whose tester moved on) calls `hideToast()` itself. The
+`Loading …` lines of the list screens stay lines: they pair with a skeleton, and a
+toast per navigation is noise, not information.
 
 **`screens/`** — one file per surface, all plain top-level functions:
 `runs-list.js` (703 lines, dashboard + v2 modes, groups, filters, search, URL
@@ -1129,7 +1141,14 @@ separately.
 1. `resolveSiteTab({verb:'captured'})`. Not `ok` ⇒ the reason is toasted and the
    flow ends. **Nothing prompts here** — the only "no" is a restricted page.
 2. `sendMessage({type:'captureTab', fullPage})` → the worker's `captureShot()` →
-   JPEG q80 data URL + the captured `tabId`.
+   JPEG q80 data URL + the captured `tabId`. **Two floors under it**, because a
+   capture that never answers used to leave the panel saying "Capturing tab…"
+   with the button disabled and no way back: the panel races the round trip
+   against `CAPTURE_TIMEOUT_MS` (30 s, `captureTab()` in `screens/hotkeys.js`),
+   and the worker races `captureVisibleTab` against
+   `CAPTURE_VISIBLE_TIMEOUT_MS` (8 s) — on an occluded or minimised window
+   Chrome can leave that callback uncalled, and the timeout drops the flow to
+   the debugger path instead of hanging.
 4. `CaptureAnnotate.annotateImage(dataUrl, tabId, {toast})`:
    - writes `{dataUrl}` to `chrome.storage.session` under a random
      `annotate-<uuid>` key;

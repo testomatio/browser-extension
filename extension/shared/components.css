@@ -1216,9 +1216,11 @@ body::after {
 }
 
 /* ---- TOAST — the transient message ---- */
+/* One inset on all three sides: at 12 the plaque sat closer to the panel's bottom edge than to its
+   sides, which reads as a row that slipped rather than one that is floating over the screen. */
 .toast {
   position: fixed;
-  bottom: var(--space-3);
+  bottom: var(--gutter);
   left: var(--gutter);
   right: var(--gutter);
   display: flex;
@@ -1250,6 +1252,9 @@ body::after {
 .toast .toast-action:hover { background: var(--toast-action-bg-hover); box-shadow: none; }
 .toast.error .toast-action { background: transparent; border-color: var(--failed-ring); }
 .toast.error .toast-action:hover { background: var(--toast-action-bg-error-hover); box-shadow: none; }
+/* The running-job plaque: the mark is the text's own colour (the error red belongs to an error), and
+   the row keeps standing until the job answers. */
+.toast.progress .toast-icon { color: inherit; opacity: 0.85; }
 .toast .toast-dismiss { color: inherit; }
 .toast .toast-dismiss:hover { background: var(--toast-action-bg); color: inherit; }
 

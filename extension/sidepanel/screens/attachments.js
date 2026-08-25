@@ -1,7 +1,7 @@
 // Local-file attachments on a test result (#107). A picked File IS a Blob, so it
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
-/* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
+/* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
    updateTestActionsState, Tooltip, ImgHydrate, fileTileItem, IMG_GROUP_ATTS,
    svgIcon, confirmDialog, baseUrlHost, paintCounter */
 
@@ -122,7 +122,7 @@ async function onDeleteAttachment(a) {
   if (!ok) return;
   const again = attDeleteLock(a); // the dialog outlived the gate
   if (again) { setStatusLine('test-status', again, 'error'); return; }
-  setStatusLine('test-status', `Deleting ${a.name}…`);
+  progressToast(`Deleting ${a.name}…`);
   try {
     await TestomatAPI.deleteAttachment(record.id, a.id);
     attForget(record.id, a);
@@ -272,7 +272,7 @@ async function attUploadFiles(files) {
       stopped = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
       if (stopped) break; // at a file boundary — never half-way through an upload
       const f = files[i];
-      setStatusLine('test-status', files.length === 1
+      progressToast(files.length === 1
         ? `Uploading ${f.name}…`
         : `Uploading ${f.name} (${i + 1}/${files.length})…`);
       try {

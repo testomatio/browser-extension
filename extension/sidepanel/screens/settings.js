@@ -1,6 +1,6 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
-/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode, askForProject */
+/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode, askForProject, progressToast */
 
 // ---------- settings ----------
 
@@ -308,7 +308,7 @@ async function saveSettings() {
   const previousProject = (prior && prior.projectId) || '';
   // #198: `<all_urls>` covers whatever instance the tester types, so there is no
   // host grant left to ask for before the network validate.
-  setStatusLine('settings-status', 'Validating…');
+  progressToast('Validating…');
   // Two-step validation (#103). The token's own project list first — that route
   // carries no slug, so it IS the token check an "invalid token" must report.
   TestomatAPI.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });

@@ -249,7 +249,18 @@ function dbgDetach(tabId) {
 
 // captureVisibleTab shoots whatever tab is ACTIVE in the window (hence the guard) and refuses on
 // an inactive tab or the per-second quota — reported as a value, never thrown, so callers can fall back.
+// The timeout is not paranoia: on an occluded or minimised window Chrome can leave the callback
+// UNCALLED, and without a floor under it the panel sits on "Capturing tab…" for good.
+const CAPTURE_VISIBLE_TIMEOUT_MS = 8000;
+
 function captureVisible(tab) {
+  return Promise.race([
+    captureVisibleNow(tab),
+    new Promise((resolve) => setTimeout(() => resolve({ error: 'the tab did not answer the capture' }), CAPTURE_VISIBLE_TIMEOUT_MS)),
+  ]);
+}
+
+function captureVisibleNow(tab) {
   return new Promise((resolve) => {
     if (!chrome.tabs.captureVisibleTab) { resolve({ error: 'captureVisibleTab unavailable' }); return; }
     if (!tab || !tab.active || tab.windowId == null) { resolve({ error: 'the tab is not the visible one' }); return; }

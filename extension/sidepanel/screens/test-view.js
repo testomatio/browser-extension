@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons,
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
-   ImgHydrate */
+   ImgHydrate, progressToast, hideToast */
 
 // Object-URL groups (shared/img-hydrate.js) — four, because each is repainted
 // and released on its own occasion.
@@ -1524,14 +1524,14 @@ async function clickStatus(status) {
   const stillHere = () => String(state.currentRecordId) === String(record?.id);
 
   state.saving = true; // guard re-entrancy across the async env-info read below
-  setStatusLine('test-status', `Saving ${status}…`);
+  progressToast(`Saving ${status}…`);
   setWriteState('saving');
   try {
     const res = await writeStatus(record, status, typed, renderTestProgress);
     const queued = !!(res && res.queued);
     delete state.stepTicks[record?.id]; // leaving the test resets ticks
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.updateTestMarker();
-    if (!stillHere()) return; // tester already moved on — nothing left to paint here
+    if (!stillHere()) { hideToast(); return; } // tester already moved on — nothing left to paint here
     // Landed: the line says NOTHING (the verdict is already on three surfaces).
     setStatusLine('test-status', queued ? `${status} — queued offline, will sync when back online` : '', queued ? 'ok' : '');
     setWriteState(queued ? 'queued' : 'saved');
