@@ -701,25 +701,38 @@ function imageMarker() {
   return svgIcon('photo_camera', 13, 'summary-step-marker');
 }
 
+// A step block is a TREE NODE, drawn with the library's own tree parts: a chevron
+// slot, then a glyph slot, then the title — the shape the runs list and TC studio
+// already wear, so the three lists rule at the same columns.
 // An Attachments group node renders NO step row — the web skips it the same way
 // (`{{#unless node.model.attachments}}`) and shows only the files.
 function summaryStepNode(node) {
   const group = document.createElement('div');
-  group.className = 'summary-step-group';
+  group.className = 'summary-step-group tree-node';
+  // The row rule hangs off `.summary-step-self`, so a step's own log stays ABOVE
+  // the line that closes it and its children start below.
+  const self = document.createElement('div');
+  self.className = 'summary-step-self';
+  group.append(self);
   if (node?.attachments) {
-    group.classList.add('summary-step-atts');
-    for (const att of node.attachments) group.append(summaryAttachment(att));
+    // The files hang off the block the way a log does, so the rule that closes the
+    // block still starts at the same column as every other row's.
+    const atts = document.createElement('div');
+    atts.className = 'summary-step-atts';
+    for (const att of node.attachments) atts.append(summaryAttachment(att));
+    self.append(atts);
     return group;
   }
   const row = document.createElement('div');
-  row.className = 'summary-step';
+  row.className = 'summary-step tree-row has-chevron';
   const kids = node?.children?.length ? document.createElement('div') : null;
   if (kids) {
-    // CSS rotates the shared chevron 90° on aria-expanded.
+    // A bare chevron in the tree's 20px slot — still a real button, so it keeps its
+    // place in the tab order. CSS rotates it 90° on aria-expanded.
     const toggle = document.createElement('button');
     toggle.type = 'button';
-    toggle.className = 'btn icon size-xs summary-step-toggle';
-    toggle.append(svgIcon(CHEVRON_ICON, 14));
+    toggle.className = 'tree-icon chevron summary-step-toggle';
+    toggle.append(svgIcon(CHEVRON_ICON, 16));
     const paint = (open) => {
       kids.hidden = !open;
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -728,16 +741,18 @@ function summaryStepNode(node) {
     paint(summaryStepsExpanded);
     toggle.addEventListener('click', () => paint(kids.hidden));
     row.append(toggle);
+  } else {
+    row.append(treeSlot()); // a leaf still pays for the chevron column, or the marks below it stagger
   }
   const dot = document.createElement('span');
-  dot.className = 'summary-step-dot';
+  dot.className = 'tree-icon summary-step-dot';
   dot.dataset.status = node?.status || '';
-  paintStepMark(dot, node?.status, 14, 'radio_button_unchecked');
+  paintStepMark(dot, node?.status, 16, 'radio_button_unchecked');
   const title = document.createElement('span');
   title.className = 'summary-step-title';
   title.textContent = node?.name || '(untitled step)';
   row.append(dot, title);
-  if (node?.isImage) title.append(' ', imageMarker());
+  if (node?.isImage) title.append('\u00a0', imageMarker()); // NBSP: the mark rides the last word instead of wrapping alone
   if (node?.status) {
     const word = document.createElement('span');
     word.className = 'summary-step-status';
@@ -752,22 +767,25 @@ function summaryStepNode(node) {
     d.textContent = dur;
     row.append(d);
   }
-  group.append(row);
+  self.append(row);
   if (node?.error) {
     const err = document.createElement('div');
     err.className = 'summary-step-error';
     err.textContent = String(node.error);
-    group.append(err);
+    self.append(err);
   }
   // The log hangs off the step, not its children — readable while sub-steps are collapsed.
   if (node?.log) {
     const log = document.createElement('div');
     log.className = `summary-step-log${node.error ? ' is-failed' : ''}`;
     linkifyInto(log, String(node.log).trim());
-    group.append(log);
+    self.append(log);
   }
   if (kids) {
-    kids.className = 'summary-step-kids';
+    // A `.tree-children` and nothing more: the open subtree is the library's own
+    // container, so it drops the same guide a folder does in the runs list and
+    // takes the same 28px step in — and folding it away takes the line with it.
+    kids.className = 'summary-step-kids tree-children';
     kids.hidden = !summaryStepsExpanded;
     for (const child of node.children) kids.append(summaryStepNode(child));
     group.append(kids);

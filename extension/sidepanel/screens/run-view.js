@@ -41,6 +41,10 @@ function treeIcon(name, cls, emoji) {
   return span;
 }
 
+// A row with nothing to unfold keeps the slot anyway: its glyph and title line up
+// with an unfoldable sibling's (TC studio, reported steps).
+const treeSlot = () => Object.assign(document.createElement('span'), { className: 'tree-icon' });
+
 // manual | automated | mixed are the three the product gives a run; a RUNGROUP's
 // own `kind` (multienv) is not one of them and draws nothing.
 const RUN_KINDS = new Set(['manual', 'automated', 'mixed']);

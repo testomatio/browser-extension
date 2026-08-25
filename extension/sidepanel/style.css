@@ -827,32 +827,76 @@ a.attachment-link:is(:hover, :focus-visible) { text-decoration: underline; text-
 }
 .summary-message.is-failed { background: var(--failed-bg); color: var(--failed-fg); }
 .summary-message.is-ok { background: var(--passed-bg); color: var(--passed-fg); }
-/* A reporter message is printed verbatim and also wears '.code', so the status tint here has to win
-   over the code well's own grey. */
-.summary-message.is-raw { background: none; }
+/* A reporter message is printed verbatim and also wears '.code': it keeps the mono face and the
+   pre-wrap, but the status tint above wins over the code well's own grey, so assertion output reads
+   as the same red banner the web app shows — not as a bare block of grey text. */
+.summary-message.is-raw { border: 1px solid transparent; }
+.summary-message.is-raw.is-failed { border-color: var(--failed-ring); }
+.summary-message.is-raw.is-ok { border-color: var(--passed-ring); }
 .summary-message.markdown { margin-bottom: 0; }
 .summary-message.markdown > :first-child { margin-top: 0; }
 .summary-message.markdown > :last-child { margin-bottom: 0; }
 
-/* Reported steps (#202, front nested-steps.hbs). The nesting indent lives on .summary-step-kids — the
-   container the toggle hides — so one level still costs exactly one --space-3. */
-.summary-step-kids { padding-left: var(--space-3); }
-#summary-steps-body > .summary-step-group { padding: var(--space-1) 0; }
-#summary-steps-body > .summary-step-group + .summary-step-group { border-top: 1px solid var(--row-border); }
+/* Reported steps (#202, front nested-steps.hbs), drawn as the panel's TREE (shared/components.css TREE):
+   a 20px chevron slot, a 20px status slot, then the title — three columns every row pays for, leaf or
+   not, so the marks line up down the whole list.
+   --row-px: 0px — the accordion body already holds the side padding, so the tree measures from its own
+   edge and the guide below lands on the chevron's centre. It carries the UNIT: --tree-guide's
+   `calc(var(--row-px) + …)` is invalid with a bare 0 and the line falls back to its static spot. */
+#summary-steps-body {
+  --row-px: 0px;
+  /* The figure .tree-row.has-chevron computes for itself — the chevron slot and the gap after it. The
+     rule below reads it off the BODY because it is drawn by the row's parent, which the row's own
+     custom property cannot reach. */
+  --row-rule-inset: calc(var(--row-px) + var(--space-5) + var(--space-2));
+}
+/* THE GUIDE — the same line an open folder drops in the runs tree, and drawn the same way: by the
+   CONTAINER of what was opened, never by the row. `.summary-step-kids` IS a `.tree-children`
+   (shared/components.css), so it brings the 28px step and the guide with it — the line starts exactly
+   where the parent row ends and stops with the last thing inside it. Two things fall out of that: a
+   step folded shut draws no line at all, because the container it would come from is hidden; and a
+   title that wraps to a second line never has the guide running up beside its own text, which a spine
+   measured from the group's top could not avoid. */
+.summary-step-group { position: relative; }
+
+/* One step's OWN block: the row plus what hangs under it. The rule closes it — children come after,
+   below the line and one 28px step in. It starts at the STATUS column, never under the chevron: the
+   chevron is the control that opens the row, not part of the line of text the rule underscores. Every
+   row pays for that column, chevron or not, so the whole list is ruled from one x. */
+.summary-step-self { position: relative; padding: var(--space-1) 0; }
+.summary-step-self::after {
+  content: "";
+  position: absolute;
+  left: var(--row-rule-inset);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--row-border);
+  pointer-events: none;
+}
+/* Direct children only — same call as the list's (.list > li:last-child): a nested last row still rules,
+   or the block it ends would run into the next top-level step with nothing between them. */
+#summary-steps-body > .summary-step-group:last-child > .summary-step-self::after { content: none; }
 .summary-step {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: var(--space-2);
-  padding: 1px 0;
+  min-height: var(--space-5);
   font-size: var(--fs-sm);
+  /* 20 — one line box, exactly the height of the glyph slots beside it, so a wrapping title keeps its
+     first line on the marks' centre line. */
+  line-height: var(--space-5);
 }
-.summary-step-toggle { flex: none; color: var(--muted); }
-.summary-step-toggle > .md-icon, .summary-step-toggle > svg {
-  transition: transform var(--dur-fast) var(--ease);
-}
-.summary-step-toggle[aria-expanded="true"] > .md-icon,
+/* The tree's own chevron, not a control: .tree-icon gives it the slot, the reset gives it no chrome.
+   The hover plate is the only thing that says it is pressable. */
+.summary-step-toggle { border-radius: var(--radius-sm); }
+.summary-step-toggle:hover { background: var(--hover-overlay); color: var(--fg); }
+.summary-step-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.summary-step-toggle > svg { transition: transform var(--dur) var(--ease); }
 .summary-step-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
-.summary-step-dot { flex: none; color: var(--muted); }
+/* The unset ring is a WHOLE circle where a tick or a cross is a mark inside its box — at one size it
+   reads heavier than either. Only the glyph shrinks: the 20px slot stays, so the title column does too. */
+.summary-step-dot[data-status=""] > svg { width: 13px; height: 13px; }
 .summary-step-dot[data-status="passed"] { color: var(--passed); }
 .summary-step-dot[data-status="failed"] { color: var(--failed); }
 .summary-step-dot[data-status="skipped"] { color: var(--skipped); }
@@ -869,27 +913,53 @@ a.attachment-link:is(:hover, :focus-visible) { text-decoration: underline; text-
 .summary-step-status[data-status="failed"] { color: var(--failed); }
 .summary-step-status[data-status="skipped"] { color: var(--skipped); }
 .summary-step-duration { flex: none; color: var(--muted); font-size: var(--fs-2xs); }
+/* What hangs off a step — its error, its log — is nested content like its children are, so it is drawn
+   to the same two numbers the open subtree is: one 28px step in, and the guide down the chevron's
+   centre. Each block draws its own, top to bottom, so the line bounds exactly what it holds instead of
+   running on past it — the way an open folder's guide bounds its children in the runs tree. */
 .summary-step-error {
-  padding: 0 0 var(--space-1) var(--space-5);
+  position: relative;
+  padding: 0 0 var(--space-1) var(--space-7);
   color: var(--failed);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   overflow-wrap: anywhere;
 }
-.summary-step-log,
-.summary-step-atts {
-  margin: var(--space-1) 0 var(--space-2) var(--space-4);
-  padding-left: var(--space-2);
-  border-left: 2px solid var(--border);
+.summary-step-error::before,
+.summary-step-log::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--tree-guide, calc(var(--row-px, var(--space-2)) + var(--space-5) / 2));
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
 }
+/* Red is for errors, and nothing else in this list is red: over an error, and over the length of a
+   FAILED log, the guide is repainted in the failure colour — same line, same 1px, same axis. */
+.summary-step-error::before,
+.summary-step-log.is-failed::before { background: var(--failed); }
+/* An error and the log that explains it are ONE red column, not two segments with a gap between them:
+   whichever of the pair runs on closes up against the next. */
+.summary-step-error:has(+ .summary-step-log) { padding-bottom: 0; }
+.summary-step-error + .summary-step-log { margin-top: 0; }
 .summary-step-log {
+  position: relative;
+  margin: var(--space-1) 0;
+  padding-left: var(--space-7);
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.summary-step-log.is-failed { border-left-color: var(--failed); }
+/* The files of an Attachments node, which is a CHILD row: its parent's guide already runs past it, so
+   it takes only the step in. */
+.summary-step-atts {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-7);
+}
 .summary-step-log a { overflow-wrap: anywhere; }
 .summary-step-atts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 /* One thumbnail, two homes (#205): the same frame, and only the cap differs — a step block against a
