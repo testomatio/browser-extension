@@ -726,8 +726,16 @@ a.icon-btn { text-decoration: none; }
 /* 'overflow: hidden' above clips a 2px OUTSET ring at the item's own corners. */
 .accordion-item > .disclosure-head:focus-visible,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:focus-visible { outline-offset: -2px; }
-.accordion-item > .disclosure-head .counter,
-.accordion-item > :is(h2, h3, h4) > .disclosure-head .counter { margin-left: auto; }
+/* The count belongs to the WORD it counts, not to the far edge of the item: it sits straight after the
+   label and takes the small counter size, so a head reads as one line — "Steps 25" — instead of a label
+   and a figure at opposite ends of a wide row. */
+.accordion-item > .disclosure-head > .counter,
+.accordion-item > :is(h2, h3, h4) > .disclosure-head > .counter {
+  --cnt-h: var(--counter-h-sm);
+  --cnt-px: var(--counter-px-sm);
+  --cnt-fs: var(--counter-fs-sm);
+  margin-left: 0;
+}
 .accordion-item > .disclosure-body { padding: var(--space-2) var(--space-3); }
 
 .accordion-item.nested { border: none; border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--space-1) var(--space-2); }
