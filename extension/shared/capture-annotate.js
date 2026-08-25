@@ -62,6 +62,22 @@ const CaptureAnnotate = (() => {
     } catch { /* restricted page → fallback */ return false; }
   }
 
+  // Did the overlay actually put its host on the page? executeScript resolving only says the
+  // FILES ran — an overlay that bailed after that (no key, no stylesheet, a throw in the core)
+  // leaves the panel waiting on a channel nobody will write to. Asked once, before giving up.
+  const OVERLAY_HOST_ID = '__testomat_annotator_overlay';
+  async function overlayIsUp(targetTabId) {
+    if (targetTabId == null || !chrome.scripting?.executeScript) return false;
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: targetTabId },
+        func: (id) => !!document.getElementById(id),
+        args: [OVERLAY_HOST_ID],
+      });
+      return !!(res && res.result);
+    } catch { return false; }
+  }
+
   // Resolves with a dataURL on Apply/Keep original, null on Discard. The on-page overlay is
   // the primary path; a page that cannot host it falls back to the editor tab.
   function annotateImage(dataUrl, tabId, opts = {}) {
@@ -72,9 +88,14 @@ const CaptureAnnotate = (() => {
     }
     const forceTab = !!opts.forceTab;
     const key = `annotate-${crypto.randomUUID()}`;
+    // The overlay says READY the moment its host is on the page; nothing else can distinguish a
+    // live annotator from one that died on injection. Waited on for this long before the editor
+    // tab takes over — the signal comes after one storage read, not after the picture decodes.
+    const READY_MS = 3000;
     return new Promise((resolve) => {
       let settled = false;
       let fallbackTabId = null; // set only when we open the editor tab
+      let onReady = null;       // armed while the injected overlay is being waited on
       const finish = (result) => {
         if (settled) return;
         settled = true;
@@ -90,6 +111,11 @@ const CaptureAnnotate = (() => {
         if (!v) return;
         if (v.resultDataUrl) finish(v.resultDataUrl);
         else if (v.cancelled) finish(null);
+        // The overlay's own verdict on itself: it came up, or it could not. Either way the
+        // watchdog below stops waiting — 'ok' keeps the overlay, anything else hands the shot
+        // to the editor tab rather than dropping it.
+        else if (v.ready) { if (onReady) onReady('ok'); }
+        else if (v.error) { toast(v.error); if (onReady) onReady('failed'); }
       };
       // A raw close of the editor tab (no storage write) maps to Keep original, not Discard.
       const onRemoved = (id) => { if (fallbackTabId != null && id === fallbackTabId) finish(dataUrl); };
@@ -104,8 +130,25 @@ const CaptureAnnotate = (() => {
               const site = await resolveSiteTab();
               targetTabId = site.tab && site.tab.id; // inject still decides reachability
             }
-            if (await tryInjectOverlay(targetTabId, key)) return; // overlay drives the handoff
-            toast("This page can't host the annotator — opened it in a tab.");
+            if (await tryInjectOverlay(targetTabId, key)) {
+              // WAITED ON, not assumed: an overlay that never reports is not an annotator the
+              // tester can see, and the panel would sit on "Annotating…" until the panel is closed.
+              const verdict = await new Promise((done) => {
+                onReady = (r) => { onReady = null; done(r); };
+                setTimeout(() => { if (onReady) { onReady = null; done('timeout'); } }, READY_MS);
+              });
+              if (settled) return;                      // Apply/Discard already came back
+              if (verdict === 'ok') return;             // the overlay drives the handoff from here
+              // Slow page, fast watchdog: the host IS there, so it is still the annotator in front
+              // of the tester — a second one in a tab would be the wrong answer.
+              if (verdict === 'timeout' && await overlayIsUp(targetTabId)) return;
+              if (settled) return;
+              // The dataUrl the fallback tab reads is still under the key: only 'ok' overwrites it.
+              await chrome.storage.session.set({ [key]: { dataUrl } });
+              if (verdict === 'timeout') toast("The annotator didn't come up on that page — opened it in a tab.");
+            } else {
+              toast("This page can't host the annotator — opened it in a tab.");
+            }
           }
           // Editor-tab annotator: the forced neutral surface, or the injection fallback.
           if (!chrome.tabs?.create) { finish(null); return; }

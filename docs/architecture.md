@@ -1109,10 +1109,17 @@ separately.
 4. `CaptureAnnotate.annotateImage(dataUrl, tabId, {toast})`:
    - writes `{dataUrl}` to `chrome.storage.session` under a random
      `annotate-<uuid>` key;
-   - **primary**: injects the overlay into that same tab;
+   - **primary**: injects the overlay into that same tab, then WAITS for it to
+     report on the same key: `{ready:true}` the moment its host is on the page,
+     `{error}` for a bail (no stylesheet, no core, a throw in `AnnotateCore`).
+     `executeScript` resolving only says the files *ran*; before this handshake
+     an overlay that bailed after that left the panel on `Annotating…` for good,
+     with the button disabled and nothing on screen. No report in 3 s and no
+     overlay host on the page ⇒ the fallback below;
    - **fallback**: opens `editor.html?annotate=<key>` in a new tab and toasts
-     that the page cannot host the annotator;
-   - the annotator writes back to the *same key* — `{resultDataUrl}` for Apply
+     why — the page cannot host the annotator, the overlay's own `{error}`, or
+     that it never came up;
+   - the annotator writes back to the *same key* — `{resultDataUrl}` for Save
      and for *Keep original*, `{cancelled:true}` for Discard — and the panel
      resolves off `storage.session.onChanged`. Closing the fallback tab with no
      write means *Keep original*.
@@ -1684,7 +1691,7 @@ unconfigured.
 | `evidenceMirror` | `evidence/recorder.js` `evMirror()` | `{session, buffer, windowSec}` — the recorder's throttled mirror so an SW restart recovers. A COPY of the worker's buffer, so removing the key is not enough on its own: `EVIDENCE_WIPE` stops the recording first (§3.4). |
 | `viewPanelWindowId` | `shared/view-mode.js`, written by `background.js` | The panel's own popup window. One panel, not a stack: the next icon click focuses it. Removed when the window closes. |
 | `viewNormalWindowId` | `shared/view-mode.js`, written by `background.js` `windows.onFocusChanged` | The last focused NORMAL window — where the site under test is. What `activeTab()` resolves against in window mode (§4.1); `windows.getAll()` is the fallback when it is missing or stale. |
-| `annotate-<uuid>` | `shared/capture-annotate.js:75,102` | The screenshot handoff; the annotator overwrites the same key with `{resultDataUrl}` or `{cancelled:true}` (`overlay/annotate-overlay.js:145,149,154`, `editor/annotate.js:50`). |
+| `annotate-<uuid>` | `shared/capture-annotate.js:90,124` | The screenshot handoff; the annotator overwrites the same key — `{ready:true}`/`{error}` while it starts, then `{resultDataUrl}` or `{cancelled:true}` (`overlay/annotate-overlay.js`, `editor/annotate.js:50`). |
 | `editorDraft:suite:<id>` | `editor/editor.js` `editorDraftKey()` / `persistDraftNow()` | `{title, markdown, priority, suite, ts, params?, recording?}` — an unsaved NEW test in panel context. `recording` (#23) is `{entries, start, count, polished, rawItems, polishedItems}` — the recording the editor was holding, so a reopened panel can still polish it (or put it back) even though the steps are already in the body. Creation-only: an existing test is read-only, so it can never be dirty. |
 
 ⚠️ The worker calls

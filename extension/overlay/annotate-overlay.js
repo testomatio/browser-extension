@@ -19,7 +19,16 @@
   const libCss = window.__testomatAnnotateCss || '';
   window.__testomatAnnotateCss = null;
 
-  if (!key || !libCss || !chrome?.storage?.session || typeof AnnotateCore === 'undefined') return;
+  // Every exit writes to the handoff key. A silent `return` here used to leave the panel on
+  // "Annotating…" for good: it awaits this key and there is nothing else to tell it the
+  // overlay never came up.
+  const signal = (v) => { try { chrome.storage.session.set({ [key]: v }); } catch { /* noop */ } };
+
+  if (!key || !chrome?.storage?.session) return; // no key, no channel — the panel's watchdog covers it
+  if (!libCss || typeof AnnotateCore === 'undefined') {
+    signal({ error: 'The annotator could not load on this page' });
+    return;
+  }
 
   // `.annot-root` carries a concrete `color-scheme`: a media query cannot see the panel's
   // Appearance setting, and every token in tokens.css is a `light-dark()` pair on it.
@@ -116,9 +125,14 @@
 
   (async () => {
     let payload = null;
-    try { payload = (await chrome.storage.session.get(key))[key]; } catch { /* no access */ }
+    let readErr = '';
+    try { payload = (await chrome.storage.session.get(key))[key]; }
+    catch (e) { readErr = (e && e.message) || String(e); }
     const dataUrl = payload && payload.dataUrl;
-    if (!dataUrl) return;
+    if (!dataUrl) {
+      signal({ error: readErr ? `The annotator could not read the shot: ${readErr}` : 'The shot did not reach the annotator' });
+      return;
+    }
 
     // A stale overlay (re-annotate on the same tab) is torn down first.
     document.getElementById(HOST_ID)?.remove();
@@ -139,6 +153,9 @@
     mount.dataset.scheme = scheme; // the panel's Appearance setting, resolved
     shadow.append(lib, style, mount);
     (document.body || document.documentElement).append(host);
+    // The frame IS up — said before the picture is decoded, which is the slow half. It is what
+    // ends the panel's watchdog, so nothing after this point can be mistaken for a dead overlay.
+    signal({ ready: true });
     // The tooltip is drawn INSIDE this root: from the document, a hit test only ever
     // finds the shadow host.
     if (typeof Tooltip !== 'undefined') Tooltip.mount(shadow);
@@ -173,15 +190,22 @@
     const onPageHide = () => { try { chrome.storage.session.set({ [key]: { resultDataUrl: dataUrl } }); } catch { /* noop */ } };
     window.addEventListener('pagehide', onPageHide);
 
-    handle = AnnotateCore.create({
-      mount,
-      doc: document,
-      dataUrl,
-      onApply,
-      onCancel,
-      confirmDiscard: () => window.confirm('Discard the screenshot and its annotations?'),
-      onReady: (hooks) => { window.__annot = hooks; },
-    });
-    window.__annot = handle.hooks; // exposed in the isolated world for e2e
+    // A throw in here would otherwise be an unhandled rejection in the page's world — invisible
+    // from the panel, which would sit on a mounted-but-empty overlay.
+    try {
+      handle = AnnotateCore.create({
+        mount,
+        doc: document,
+        dataUrl,
+        onApply,
+        onCancel,
+        confirmDiscard: () => window.confirm('Discard the screenshot and its annotations?'),
+        onReady: (hooks) => { window.__annot = hooks; },
+      });
+      window.__annot = handle.hooks; // exposed in the isolated world for e2e
+    } catch (e) {
+      teardown();
+      signal({ error: `The annotator failed on this page: ${(e && e.message) || e}` });
+    }
   })();
 })();
