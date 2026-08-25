@@ -12,7 +12,7 @@
 // Loaded by the panel, the editor and the viewer — all three configure the API for themselves.
 
 /* global TestomatAPI, state, hostOf, commitSettings, openRunFromUrl, openRunsView,
-   fillSettingsForm, renderProjectBar */
+   parseRunUrlParts, fillSettingsForm, renderProjectBar */
 
 const Handoff = (() => {
   const FILE = 'handoff.json';
@@ -131,11 +131,21 @@ const Handoff = (() => {
     await connect();
     fillSettingsForm();
     renderProjectBar();
-    const run = await openRun();
+    // A panel the host has only just opened consumed the push at boot, so openRun() answers false
+    // for the very run it is showing. The host asked whether its run is up — answer that.
+    const run = (await openRun()) || showingRun(h);
     // The connect screen has no tabs to leave by, so a panel that was never signed in has to be
     // moved off it — where a Save lands, when the host named no run.
     if (!run && state.view === 'settings') openRunsView();
     return { ok: true, projectId: h.projectId, run };
+  }
+
+  // Is the panel already on the run this offer names — opened by its own boot, or still open from
+  // an earlier push the tester never left.
+  function showingRun(h) {
+    if (!h.runUrl || (state.view !== 'run' && state.view !== 'test')) return false;
+    const parts = parseRunUrlParts(h.runUrl);
+    return !!parts && parts.kind === 'run' && String(state.runId) === String(parts.id);
   }
 
   // Disconnect, for a connection the panel did not choose: the file is the host's to delete, so
