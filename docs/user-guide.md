@@ -373,7 +373,7 @@ tests you have already graded.
    - uploads the console+network log as a readable `.txt` and adds it as a
      `Console & network log` meta key (toggleable in Settings),
    - keeps you on the test and opens **Attachments & log** for you.
-6. Optionally **📸 Attach screenshot** → annotate → **Apply**.
+6. Optionally **📸 Attach screenshot** → annotate → **Save**.
 7. Click **Rec** again to stop recording — or just leave the test, which stops it
    for you: the recording belongs to the test it was started in.
 
@@ -432,7 +432,7 @@ step of Undo.
 
 Then:
 
-- **Apply** (⌘/Ctrl ⏎) — upload the flattened, annotated image.
+- **Save** (⌘/Ctrl ⏎) — upload the flattened, annotated image.
 - **Keep original** — upload the raw screenshot, annotations and crop dropped
   (also what Esc and closing the tab do).
 - **Discard** — upload nothing.
