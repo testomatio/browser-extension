@@ -305,20 +305,27 @@ of the result, says the test already has one.
   the status you just set. What you pick here is what the run list and the run
   header show once you go back (see [Run view](#run-view)).
 - **Comment (optional)** — free text; Markdown.
+- **Console & network log** — its own collapsed section, right above
+  **Attachments & log**, always there on a test. While the recorder is running it
+  holds the live errors-only list for the window it keeps — click a row for
+  details, **Attach** to drop that one entry into the comment. While it is idle it
+  says so, and tells you to click **Rec** in the panel header to start one.
 - **Attachments & log** — a collapsed section that opens itself the moment you
-  mark the test failed (it never closes itself), holding:
-  - a reminder that the recorder is off and what window it would keep,
-  - **Full page** — capture the whole scrollable page instead of the viewport
-    (remembered),
-  - **Console & network log** — the live errors-only list while recording;
-    click a row for details, **Attach** to drop that one entry into the comment,
+  mark the test failed (it never closes itself), counting what the result already
+  carries on its head and holding:
   - **📸 Attach screenshot** — capture → annotate → upload,
+  - **Full page** — the checkbox under that button: capture the whole scrollable
+    page instead of the viewport (remembered),
   - **📎 Attach file** — pick one or more files from your machine (a spec, an
     export, a video…) and upload them onto this result,
   - the list of everything already attached to the result — screenshots, the
-    console/network log, your own files — each a link that opens in a new tab.
-    An **image** on that list is shown as a thumbnail; click it to see it full
-    size over the panel (Esc, the ✕ or a click outside closes it).
+    console/network log, your own files, all in **one list**. Each is a card: a
+    thumbnail (or a file glyph), the name — a link that opens it in a new tab —
+    over what the file is, and a **🗑** that deletes it from the result for
+    everyone (it asks first). Click an image's thumbnail to see it full size over
+    the panel (Esc, the ✕ or a click outside closes it). The bin is greyed out,
+    with the reason on hover, when that file cannot be deleted from here — a
+    finished run, no web login, or a file the server gave the panel no id for.
 - Status line at the bottom — `Saving passed…` while the write is in flight, the
   offline-queued notice, and the errors. A write that *lands* says nothing there:
   the chip in the card, the filled button and the dot on **Summary** are already
@@ -363,8 +370,8 @@ tests you have already graded.
    no *"…is debugging this browser"* bar, and you can keep DevTools open. The
    recorder keeps only the last N seconds (60 by default), so arm it first.
 2. Reproduce the bug in the tab.
-3. Open **Attachments & log** → **Console & network log** to see the errors and
-   failed requests as they arrive. **Attach** copies a single entry into the
+3. Open **Console & network log** to see the errors and failed requests as they
+   arrive. **Attach** copies a single entry into the
    comment.
 4. Type what you saw in the comment.
 5. Click **✗ Failed**. The panel then:
@@ -892,8 +899,9 @@ Worth knowing before you plan a session around it:
 - **No editing of existing tests.** The panel creates test cases and shows them;
   changing one — its title, steps, priority, suite — happens in the web app.
 - **No move-to-suite.** The panel cannot move a test to another suite, rename a
-  suite, or delete anything (tests, suites, folders, runs, attachments). All of
-  that stays in the web app.
+  suite, or delete tests, suites, folders or runs. All of that stays in the web
+  app. (Attachments are the exception: a result's own files can be deleted from
+  its attachment list.)
 - **No screen recording.** Screenshots (viewport or full page) and console/
   network logs only — no video, no GIF.
 - **Not in the Chrome Web Store.** Install from a release zip or the repo; update

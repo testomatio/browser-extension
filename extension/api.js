@@ -738,6 +738,25 @@ const TestomatAPI = (() => {
   const uploadAttachment = (testrunId, blob, filename) => uploadTo('testruns', testrunId, blob, filename);
   const uploadTestAttachment = (testId, blob, filename) => uploadTo('tests', testId, blob, filename);
 
+  // Removing one attachment from a result. TWO routes, because the two halves of this API
+  // disagree about where attachments live: v2 documents
+  // `DELETE /api/v2/{project}/attachments/{id}?testrun_id=…` (it is what the Testomat MCP server
+  // calls), while the UPLOAD above had to fall back to the Web-UI route because v2's POST 404s on
+  // prod. So v2 is asked first and a "route is not here" answer — 403 (a read-only v2 token answers
+  // that to everything, #155), 404, 405 — hands over to the JSON:API the panel already writes with.
+  // Only the SECOND failure reaches the caller: a delete that no route accepts must not read as done.
+  async function deleteAttachment(testrunId, attachmentId) {
+    guardConfigured();
+    const id = encodeURIComponent(String(attachmentId));
+    try {
+      return await request(`/attachments/${id}`, { method: 'DELETE', query: { testrun_id: testrunId } });
+    } catch (e) {
+      const st = e && e.status;
+      if (st !== 403 && st !== 404 && st !== 405) throw e;
+    }
+    return jwtRequest(`/attachments/${id}`, { method: 'DELETE' });
+  }
+
   // ---- product assets (description images, result attachments) -------------
   // #205: content URLs come both absolute (`<instance>/attachments/{uid}.png`) and ROOT-RELATIVE
   // (`/rails/active_storage/…`) — a relative one resolves against the INSTANCE, never the document.
@@ -771,7 +790,7 @@ const TestomatAPI = (() => {
     configure, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
     getTestrun, getTest, getSuiteTree, getSuiteTreeOrdered, createSuite, getTestsBySuite, createTest, bulkCreateTests, updateTest,
     getTestParams, setTestParams, createExample, updateExample, deleteExample,
-    setStatus, setStep, uploadAttachment, uploadTestAttachment,
+    setStatus, setStep, uploadAttachment, uploadTestAttachment, deleteAttachment,
     assetUrl, fetchAsset,
     jwtRequest, jwtRequestRoot, getProjectInfo, finishRun,
     fetchDashboardPage, fetchGroupChildren, fetchGroupRunsNested, fetchGroupSubgroups, getRunGroup,

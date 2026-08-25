@@ -197,9 +197,11 @@ on its side (36 wide, so a 16 knob travels exactly its own width) and the
 checkbox and radio its 16, which is also `--control-icon`, because a tick is an
 icon. Markup makes one decision, and it is about WHEN the answer takes effect:
 `.checkbox` is a value in a form that nothing acts on until it is submitted
-(the settings rows, committed by Save & validate), `.switch` is a setting that
-applies the moment it is flipped and has no Save to belong to (Full page, which
-writes itself on change). `.radio` is one of N and never fills — ring plus dot,
+(the settings rows, committed by Save & validate) — and also an option a nearby
+button reads when it fires (Full page, under **Attach screenshot**: it writes
+itself on change, but what it reads as is a setting of the next shot). `.switch`
+is a MODE that changes the screen the moment it is flipped (Bulk, in the TC
+Studio quick bar). `.radio` is one of N and never fills — ring plus dot,
 so a column of radios cannot be misread as a column of checkboxes. The component
 is really the `<label>`: `.choice` is what is clicked, what is read out and what
 the hit area is, and it lines the control up with the FIRST line of a label that
@@ -1172,7 +1174,18 @@ ends `N of M` when some failed.
 `attributes.attachments` of the JSON:API testrun detail `probeSession()` already
 prefetched into `state.testrunDetail`, merged (de-duplicated by URL) with what
 this panel session uploaded onto that record. Screenshots and the auto-attached
-log therefore appear in it too. The gate lives with the screenshot's in
+log therefore appear in it too — ONE list for all three, which is why a row is a
+CARD: a mark (the image's own thumbnail, else a file glyph in the same 56×40
+column), the name over what the file is (`panel-annotated-*` reads *screenshot*,
+`evidence-*` reads *console & network log*, anything else its extension), and a
+bin. The bin is on every card and disabled with the reason in its tooltip when
+that row cannot go — no result record, a run lock, a degraded (no-JWT) session,
+or a row the server gave no id to. `TestomatAPI.deleteAttachment()` asks v2 first
+(`DELETE /api/v2/{project}/attachments/{id}?testrun_id=…`, the route the Testomat
+MCP server calls) and falls back to the Web-UI JSON:API on 403/404/405, the same
+split the upload lives with. The confirm dialog is interactive, so the lock is
+re-asked after it (#187); the row is dropped from *both* merge sources only once
+the server has said yes. The gate lives with the screenshot's in
 `updateTestActionsState()`: no result record, or — uploads being JWT-only — a
 proven-degraded session.
 

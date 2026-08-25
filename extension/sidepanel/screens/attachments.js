@@ -2,8 +2,8 @@
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
-   updateTestActionsState, Tooltip, EmptyState, ImgHydrate, isImageAttachment,
-   attachmentThumb, IMG_GROUP_ATTS */
+   updateTestActionsState, Tooltip, ImgHydrate, isImageAttachment,
+   attachmentThumb, IMG_GROUP_ATTS, svgIcon, confirmDialog, baseUrlHost, paintCounter */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -25,6 +25,16 @@ function attRemember(recordId, entry) {
   attUploaded.set(key, list);
 }
 
+// What a DELETE has to address. The server row carries an id; a session upload's response is
+// `{url}` alone, so the instance-hosted form of that url (`<instance>/attachments/<uid>.ext`)
+// is read for one. No id ⇒ the row is not addressable and its bin says so rather than lying.
+function attId(a) {
+  const raw = a && (a.id != null ? a.id : a.attachment_id);
+  if (raw != null && raw !== '') return String(raw);
+  const m = /\/attachments\/([^/?#]+?)(?:\.[a-z0-9]+)?(?:[?#]|$)/i.exec(String((a && a.url) || ''));
+  return m ? m[1] : '';
+}
+
 // Server rows first (canonical name/url), de-duplicated by url. A session upload's
 // response is `{url}` alone, so its name's extension decides the type (#205).
 function attRows() {
@@ -36,11 +46,27 @@ function attRows() {
     const key = url || `name:${name}`;
     if (seen.has(key)) return;
     seen.add(key);
-    rows.push({ name, url, type: (a && a.type) || '', display_url: (a && a.display_url) || '' });
+    rows.push({
+      name,
+      url,
+      id: attId(a),
+      type: (a && a.type) || '',
+      display_url: (a && a.display_url) || '',
+    });
   };
   for (const a of attServerList()) push(a);
   for (const a of attUploaded.get(String(state.currentRecordId)) || []) push(a);
   return rows;
+}
+
+// The card's second line. The panel's OWN uploads are named by it, so they can be called what
+// they are instead of `JPG`; anything else is the tester's file and gets its extension alone.
+function attMeta(a) {
+  const name = String(a.name || '');
+  const ext = (/\.([a-z0-9]+)$/i.exec(name) || [, ''])[1].toUpperCase();
+  if (/^panel-annotated-/.test(name)) return ext ? `${ext} · screenshot` : 'Screenshot';
+  if (/^evidence-/.test(name)) return ext ? `${ext} · console & network log` : 'Console & network log';
+  return ext || (a.type || 'file');
 }
 
 // A url-less row (an upload whose response carried none) still shows — the file
@@ -54,40 +80,207 @@ function attNameLink(a) {
   return el;
 }
 
+// The paperclip an image row does not need: a file with no picture still gets a MARK, so the
+// two kinds of card line up on the same left column instead of one starting at its name.
+function attGlyph(a) {
+  const span = document.createElement('span');
+  span.className = 'attachment-glyph';
+  span.append(svgIcon(/^evidence-/.test(String(a.name || '')) ? 'description' : 'attach_file', 16));
+  return span;
+}
+
 // #205: an image row gets the same thumbnail and lightbox a step screenshot does
-// (test-view.js owns both); one whose bytes never arrive drops back to a name row.
+// (test-view.js owns both); one whose bytes never arrive drops back to the file glyph.
 function attRow(a) {
   const li = document.createElement('li');
   li.className = 'attachment-row';
+  const glyph = attGlyph(a);
   if (isImageAttachment(a)) {
     li.classList.add('is-image');
     li.append(attachmentThumb(IMG_GROUP_ATTS, a, (el) => {
-      el.remove();
+      el.replaceWith(glyph);
       li.classList.remove('is-image');
     }));
+  } else {
+    li.append(glyph);
   }
-  li.append(attNameLink(a));
+  const body = document.createElement('div');
+  body.className = 'attachment-body';
+  const meta = document.createElement('span');
+  meta.className = 'attachment-meta';
+  meta.textContent = attMeta(a);
+  body.append(attNameLink(a), meta);
+  li.append(body, attDeleteBtn(a));
   return li;
 }
 
-// An empty list says so in one compact line rather than collapsing — a list that
-// disappears leaves "did that upload land?" unanswered.
+// ---- removing one ---------------------------------------------------------
+
+// The bin on a card. Present on every row, so the tester never hunts for it, and disabled with
+// the reason in its place when this particular row cannot be deleted — a lock, or a row the
+// server gave no id to (a delete has nothing to name then).
+function attDeleteBtn(a) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn icon size-sm attachment-del';
+  btn.append(svgIcon('delete', 16));
+  const lock = attDeleteLock(a);
+  btn.disabled = !!lock;
+  btn.setAttribute('aria-label', `Delete ${a.name}`);
+  Tooltip.set(btn, lock || `Delete ${a.name}`);
+  if (!lock) btn.addEventListener('click', () => onDeleteAttachment(a));
+  return btn;
+}
+
+// One place both the button and the click re-ask: the second time is what counts, because the
+// confirm dialog is interactive and the run can finish under it (#187, the upload's rule).
+function attDeleteLock(a) {
+  const record = recordFor(state.currentRecordId);
+  if (!record || !record.id) return 'No saved result yet';
+  const lock = recordWriteLock(record);
+  if (lock) return lock;
+  if (TestomatAPI.jwtAvailable() === false) return `Deleting needs an active ${baseUrlHost()} web login — sign in there, then Refresh`;
+  if (!a.id) return 'This file carries no id here — remove it in the web app';
+  return '';
+}
+
+// Dropped from BOTH sources the list merges, or the next repaint brings it straight back.
+function attForget(recordId, a) {
+  const key = String(recordId);
+  const same = (x) => (a.url ? (x && x.url) === a.url : (x && x.name) === a.name);
+  const mine = attUploaded.get(key);
+  if (mine) attUploaded.set(key, mine.filter((x) => !same(x)));
+  const server = state.testrunDetail?.data?.attributes?.attachments;
+  if (Array.isArray(server)) {
+    state.testrunDetail.data.attributes.attachments = server.filter((x) => !same(x));
+  }
+}
+
+// Server-side and for everyone — hence the confirm. The row stays put on a refusal: the panel
+// only forgets what the server said it dropped.
+async function onDeleteAttachment(a) {
+  const record = recordFor(state.currentRecordId);
+  const lock = attDeleteLock(a);
+  if (lock) { toast(lock); return; }
+  const ok = await confirmDialog(`Delete ${a.name}? It is removed from this result for everyone.`, 'Delete');
+  if (!ok) return;
+  const again = attDeleteLock(a); // the dialog outlived the gate
+  if (again) { setStatusLine('test-status', again, 'error'); return; }
+  setStatusLine('test-status', `Deleting ${a.name}…`);
+  try {
+    await TestomatAPI.deleteAttachment(record.id, a.id);
+    attForget(record.id, a);
+    renderAttachmentList();
+    setStatusLine('test-status', 'Attachment deleted ✓', 'ok');
+  } catch (e) {
+    setStatusLine('test-status', `${a.name}: delete failed — ${e.message}`, 'error');
+  }
+}
+
+// ---- the empty state: a drop target ---------------------------------------
+
+// '' = a file can be attached right now, else why not. The SAME three reasons the
+// Attach file button is gated on (test-view.js owns that copy) — the dropzone must
+// never invite a drop the upload would then refuse.
+function attUploadLock() {
+  const record = recordFor(state.currentRecordId);
+  if (!record?.id) return 'No saved result yet — files attach to a test result';
+  const lock = recordWriteLock(record);
+  if (lock) return lock;
+  // 'unknown' is still probing and must never gate (#107).
+  if (TestomatAPI.jwtAvailable() === false) {
+    return `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`;
+  }
+  return '';
+}
+
+// An empty list is the ONE place the tester is already looking for "where does the file
+// go", so it answers with somewhere to put it rather than a sentence. Click opens the
+// same native picker the button does; a drop rides the same upload path.
+function attDropzone() {
+  const li = document.createElement('li');
+  li.className = 'attachment-empty';
+  const lock = attUploadLock();
+
+  // A <button> when it acts (keyboard + focus ring for free), a plain <div> when the
+  // gate holds — a focusable control that refuses itself is a trap.
+  const zone = document.createElement(lock ? 'div' : 'button');
+  zone.className = `attachment-dropzone${lock ? ' is-locked' : ''}`;
+  if (!lock) zone.type = 'button';
+
+  const mark = document.createElement('span');
+  mark.className = 'dropzone-mark';
+  mark.append(svgIcon('upload_file', 20));
+
+  const body = document.createElement('div');
+  body.className = 'dropzone-body';
+  const title = document.createElement('p');
+  title.className = 'dropzone-title';
+  title.textContent = lock ? 'No files attached to this result yet.' : 'Drop a file here';
+  const hint = document.createElement('p');
+  hint.className = 'dropzone-hint';
+  hint.textContent = lock || 'or click to browse — screenshots, logs, anything';
+  body.append(title, hint);
+  zone.append(mark, body);
+  li.append(zone);
+  if (lock) return li;
+
+  zone.addEventListener('click', onAttachFileClick);
+
+  // dragleave fires on every CHILD the pointer crosses, so the highlight is counted in
+  // and out rather than toggled — otherwise it flickers off over the icon and the text.
+  let depth = 0;
+  const paint = (on) => zone.classList.toggle('is-over', on);
+  zone.addEventListener('dragenter', (ev) => {
+    ev.preventDefault();
+    depth += 1;
+    paint(true);
+  });
+  zone.addEventListener('dragover', (ev) => {
+    ev.preventDefault(); // without this the drop never fires
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+  });
+  zone.addEventListener('dragleave', () => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) paint(false);
+  });
+  zone.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    depth = 0;
+    paint(false);
+    const files = Array.from(ev.dataTransfer?.files || []);
+    // Dragged TEXT or a link carries no files: say so instead of failing silently.
+    if (!files.length) { setStatusLine('test-status', 'That drop carried no file', 'error'); return; }
+    // Re-checked at drop time: the drag outlives the render that drew this zone (#187).
+    const stopped = attUploadLock();
+    if (stopped) { setStatusLine('test-status', stopped, 'error'); return; }
+    attUploadFiles(files);
+  });
+  return li;
+}
+
+// An empty list never collapses — a list that disappears leaves "did that upload
+// land?" unanswered — and while it is empty it doubles as the drop target.
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
   ImgHydrate.release(IMG_GROUP_ATTS); // the thumbnails about to be dropped own these
   const onTest = state.view === 'test';
   const rows = onTest ? attRows() : [];
-  ul.replaceChildren(...(rows.length
-    ? rows.map(attRow)
-    : [EmptyState.build({
-      tag: 'li',
-      compact: true,
-      className: 'attachment-empty',
-      icon: 'upload_file',
-      text: 'No files attached to this result yet.',
-    })]));
+  // Off the test screen the list is hidden anyway — no dropzone is built for it.
+  ul.replaceChildren(...(rows.length ? rows.map(attRow) : onTest ? [attDropzone()] : []));
   ul.hidden = !onTest;
+  paintAttachmentCount(rows.length);
+}
+
+// The fold is collapsed by default, so the figure on its head is the only thing that says
+// anything landed. Zero shows NOTHING — an empty result has no count to report.
+function paintAttachmentCount(n) {
+  const chip = $('attachments-count');
+  if (!chip) return;
+  chip.hidden = !n;
+  if (n) paintCounter(chip, n);
+  else chip.textContent = '';
 }
 
 // ---- picking + uploading -------------------------------------------------

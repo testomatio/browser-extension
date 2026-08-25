@@ -662,41 +662,148 @@ body[data-view="pick"] main { min-height: 0; overflow: hidden; }
    and this file loads AFTER the library, so a margin: 0 here would quietly cancel the bleed. */
 .next-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 #test-actions textarea { margin: var(--space-2) 0; }
-#btn-attach-file { margin-top: var(--space-2); }
 /* Gate reason for a disabled control, shown inline (touch has no hover). */
 .inline-reason { margin: var(--space-1) 0 0; }
 .status-lock-reason { margin: 0 0 var(--space-3); }
 /* The step circles and the comment box have no disabled style of their own (buttons inherit one). */
 .step-state:disabled { opacity: 0.5; cursor: default; }
 #test-actions textarea:disabled { opacity: 0.6; cursor: default; }
-/* #107: one link per row, the name ellipsised — an S3 filename is long and the panel is narrow. */
-.attachment-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
-.attachment-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; min-width: 0; }
-.attachment-row::before {
-  content: '';
+/* #107: one CARD per attached file — a mark (thumbnail or glyph), the name over what the file is,
+   and the bin. A bare row of links could not hold the second line or the action, and a screenshot
+   read as a link with a picture stuck to it. */
+.attachment-list { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; }
+/* The empty list is a DROP TARGET, not a sentence — a dashed frame is the shape a tester already
+   reads as "put it here". Small on purpose: it sits inside a disclosure that is one of three
+   sections, so it announces itself without taking the section over. */
+.attachment-empty { list-style: none; }
+.attachment-dropzone {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  text-align: left;
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.attachment-dropzone:hover { border-color: var(--accent); background: var(--hover-overlay); }
+/* The drag state is the SAME accent as hover, one step louder: the pointer is already over it,
+   so only the fill can carry "let go now". */
+.attachment-dropzone.is-over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--row-active);
+}
+/* Gated (no result yet, a locked run, no web login): it keeps the frame so the section does not
+   change shape, and drops every affordance — no pointer, no hover, no focus. */
+.attachment-dropzone.is-locked { cursor: default; border-style: dashed; opacity: 0.75; }
+.dropzone-mark {
   flex: none;
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  mask: var(--icon-attach-file) center / contain no-repeat;
+  display: grid;
+  place-items: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
   color: var(--muted);
 }
+.dropzone-body { min-width: 0; }
+.dropzone-title { margin: 0; color: var(--fg); font-size: var(--fs-sm); font-weight: var(--weight-medium); }
+.dropzone-hint { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-2xs); line-height: var(--leading-normal); }
+/* The whole zone is the target — a child under the pointer must not steal the dragleave. */
+.attachment-dropzone * { pointer-events: none; }
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Unfilled: the card is drawn by its outline alone, so a list of them reads as a light frame over
+     the panel instead of a stack of dark slabs. The wash is kept for the hover state, where it means
+     something — "this is the card the pointer is on". */
+  background: none;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.attachment-row:is(:hover, :focus-within) { border-color: var(--border-control); background: var(--hover-overlay); }
+/* The mark's column is one width for both kinds, so a list of mixed files still rules at one x. */
+.attachment-glyph,
+.attachment-row .attachment-thumb {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 40px;
+}
+.attachment-glyph { color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+/* The name over the kind: one flex column that OWNS the ellipsis — an S3 filename is long and the
+   panel is narrow, and `min-width: 0` is what lets it shrink instead of pushing the bin out. */
+.attachment-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .attachment-link {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--fs-sm);
-  color: var(--muted);
+  color: var(--fg);
 }
-a.attachment-link { color: var(--accent); }
-a.attachment-link:hover { text-decoration: underline; }
-/* #205: an image on the list is SHOWN, and the thumbnail is the row's mark, so the paperclip steps
-   aside. A fetch that fails drops 'is-image' and the paperclip is back. */
-.attachment-row.is-image::before { display: none; }
-.attachment-row.is-image .attachment-thumb img { max-width: 72px; max-height: 40px; }
-.prearm-hint { margin: 0 0 var(--space-2); line-height: var(--leading-snug); }
-.fullpage-row { margin: var(--space-1) 0; font-size: var(--fs-sm); color: var(--muted); }
+/* The name is the card's TITLE first and a link second: it takes the body colour and no rule, and the
+   underline is what the hover hands back — the whole card is the hover target, so it lights up whether
+   the pointer is on the text, the thumbnail, or the gap between them. */
+a.attachment-link { color: var(--fg); text-decoration: none; }
+.attachment-row:hover a.attachment-link,
+a.attachment-link:is(:hover, :focus-visible) { text-decoration: underline; text-underline-offset: 2px; }
+.attachment-meta { color: var(--muted); font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: 0.02em; }
+/* Out of sight until the card is hovered (or something inside it is focused, so the keyboard never
+   loses it). It keeps its slot while invisible — `visibility`, not `display` — so revealing it moves
+   nothing. RED only under the pointer itself: it is destructive. */
+.attachment-del {
+  flex: none;
+  color: var(--muted);
+  border-color: transparent;
+  background: none;
+  visibility: hidden;
+  opacity: 0;
+  /* .btn's own transition list, plus opacity — a bare `transition: opacity` here would replace it and
+     the colour change on hover would snap. */
+  transition: background-color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              opacity var(--dur-fast) var(--ease);
+}
+.attachment-row:is(:hover, :focus-within) .attachment-del { visibility: visible; opacity: 1; }
+.attachment-row:hover .attachment-del:not(:disabled) { color: var(--fg); }
+.attachment-del:hover:not(:disabled) { color: var(--failed); border-color: var(--failed); background: var(--failed-bg); }
+/* Scoped to the revealed state, or the reveal above would out-specify it and a locked bin would come
+   back at full strength. */
+.attachment-row:is(:hover, :focus-within) .attachment-del:disabled { opacity: 0.4; }
+/* No pointer, no hover: a touch panel can never reveal it, so there it simply stays. */
+@media (hover: none) {
+  .attachment-del { visibility: visible; opacity: 1; }
+}
+/* #205: an image on the list is SHOWN — the thumbnail IS the card's mark, so the glyph steps aside.
+   A fetch that fails puts the glyph back in its place. */
+.attachment-row .attachment-thumb { overflow: hidden; }
+.attachment-row .attachment-thumb img { max-width: 100%; max-height: 100%; object-fit: cover; }
+.fullpage-row { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+/* One line: the two capture buttons packed at the left, the Full-page option pushed to the far right by
+   the auto margin. Two acts and one setting — the gap between them is what says which is which.
+   It still wraps, and on the second line the option keeps to the right edge. */
+.attach-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* The label centres on the buttons here: its default top-nudge is for a label that wraps under its own
+   control, and in a row it reads as a misalignment. */
+.attach-actions .fullpage-row { margin-left: auto; align-items: center; line-height: var(--leading-none); }
+.attach-actions .fullpage-row > input[type="checkbox"] { margin-top: 0; }
 
 /* A plain border-bottom, NOT the header bar's inset pseudo-element trick: that bar is full-bleed and
    has to claw its inset back, while this row already lives inside main's own gutter padding. */
@@ -975,9 +1082,9 @@ a.attachment-link:hover { text-decoration: underline; }
   height: calc(var(--fs-sm) * var(--leading-snug));
 }
 
-.evidence-section { margin: var(--space-2) 0 var(--space-1); }
-
-.evidence-list { margin: var(--space-1) 0 0; max-height: 190px; }
+/* Its own accordion item now (a sibling of Attachments), so the fold's own padding carries the
+   inset — the list adds none of its own. */
+.evidence-list { margin: 0; max-height: 190px; }
 .evidence-row { padding: 0; }
 .evidence-row:hover { background: none; }
 .ev-row-head {

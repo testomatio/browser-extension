@@ -1,6 +1,7 @@
 // Test-view hotkeys (web-runner parity) and the tab-screenshot capture helpers.
 
-/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip */
+/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, attRemember,
+   renderAttachmentList */
 
 // ---------- hotkeys (US5) ----------
 // Cmd/Ctrl+Enter/U/I mark passed/failed/skipped through the SAME clickStatus the
@@ -187,7 +188,13 @@ async function attachScreenshotAnnotated() {
     if (lock) { keepRefusedAnnotation(annotated, record.id); setStatusLine('test-status', lock, 'error'); return; }
     const blob = await (await fetch(annotated)).blob();
     setStatusLine('test-status', 'Uploading screenshot…');
-    await TestomatAPI.uploadAttachment(record.id, blob, `panel-annotated-${record.id}-${Date.now()}.jpg`);
+    const name = `panel-annotated-${record.id}-${Date.now()}.jpg`;
+    const res = await TestomatAPI.uploadAttachment(record.id, blob, name);
+    // The server list is re-read only on reopen, so the shot would sit invisible on a
+    // screen the tester is already looking at — the same remember+repaint the file
+    // picker does (attachments.js), keyed by record id so a navigation away is safe.
+    attRemember(record.id, { name, url: (res && res.url) || '' });
+    renderAttachmentList();
     setStatusLine('test-status', 'Screenshot attached ✓', 'ok');
   } catch (e) {
     setStatusLine('test-status', '', '');

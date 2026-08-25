@@ -1206,14 +1206,15 @@ async function setFullPageCapture(on) {
 
 // A hover-only tooltip is invisible on touch, so the reason shows inline too. The
 // button's own tooltip is remembered once and restored when the gate lifts.
-function applyActionGate(btnId, reasonId, msg) {
+function applyActionGate(btnId, reasonId, msg, { inline = true } = {}) {
   const btn = $(btnId);
   if (!btn) return;
   if (btn.dataset.baseTip === undefined) btn.dataset.baseTip = Tooltip.get(btn);
   btn.disabled = !!msg;
   Tooltip.set(btn, msg || btn.dataset.baseTip);
   const reason = $(reasonId);
-  if (reason) { reason.textContent = msg || ''; reason.hidden = !msg; }
+  const show = !!msg && inline;
+  if (reason) { reason.textContent = show ? msg : ''; reason.hidden = !show; }
 }
 
 // The buttons double as the result display: the matching one takes the `.solid` fill.
@@ -1255,16 +1256,25 @@ function updateTestActionsState() {
   // #107: uploads are JWT-only, so a PROVEN degraded session disables them —
   // 'unknown' is still probing and must never gate.
   const degraded = TestomatAPI.jwtAvailable() === false;
+  // The lock still DISABLES both buttons, but its reason is not repeated inline: the
+  // group note above already says it once, and two more copies read as a stutter.
+  // `inline: false` keeps the reason on the tooltip only.
   applyActionGate('btn-screenshot-annotate', 'screenshot-reason',
     lock ? lock
       : noResult ? 'No saved result yet — screenshots attach to a test result'
         : degraded ? `Attaching screenshots needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '');
+          : '', { inline: !lock });
   applyActionGate('btn-attach-file', 'attach-file-reason',
     lock ? lock
       : noResult ? 'No saved result yet — files attach to a test result'
         : degraded ? `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '');
+          : '', { inline: !lock });
+  // The empty-list dropzone repeats this gate in its own copy, so it repaints when the gate
+  // moves. ONLY while it IS the dropzone: rebuilding real rows would drop their thumbnails.
+  const attList = $('attachment-list');
+  if (typeof renderAttachmentList === 'function' && attList && !attList.querySelector('.attachment-row')) {
+    renderAttachmentList();
+  }
 }
 
 // ---- Attachments & log disclosure ----

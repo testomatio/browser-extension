@@ -672,46 +672,64 @@
             <span id="substatus-label" class="substatus-label">Custom status</span>
             <div id="substatus-mount"></div>
           </div>
-          <textarea id="test-comment" class="textarea" rows="2" placeholder="Comment (optional)"></textarea>
-          <!-- The capture/evidence controls fold into one disclosure (collapsed by default, state remembered
+          <textarea id="test-comment" class="textarea" rows="4" placeholder="Comment (optional)"></textarea>
+          <!-- Evidence (M2 PR-1): errors-only list for the current window. Its OWN accordion, ABOVE
+               Attachments — reading the log comes before attaching. Hidden unless recording. -->
+          <div id="evidence-section" class="disclosure accordion-item" hidden>
+            <button id="evidence-head" type="button" class="disclosure-head evidence-head"
+                    aria-expanded="false" aria-controls="evidence-body">
+              <span class="md-icon ev-caret" data-icon="chevron_right"></span><span
+                      class="md-icon head-icon" data-icon="terminal"></span>Console &amp; network log
+              <span id="evidence-count" class="counter" hidden></span>
+            </button>
+            <div id="evidence-body" class="disclosure-body" hidden>
+              <ul id="evidence-list" class="list framed evidence-list"></ul>
+            </div>
+          </div>
+          <!-- The capture controls fold into one disclosure (collapsed by default, state remembered
                for the session), so the hot path stays the status buttons plus the comment. -->
           <div id="attachments-disclosure" class="disclosure accordion-item">
             <button id="attachments-head" type="button" class="disclosure-head"
                     aria-expanded="false" aria-controls="attachments-body">
-              <span class="md-icon disc-caret" data-icon="chevron_right"></span> Attachments &amp; log
+              <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                      class="md-icon head-icon" data-icon="attach_file"></span>Attachments &amp; log
+              <!-- What the result already carries, counted beside the name like every other fold. -->
+              <span id="attachments-count" class="counter" hidden></span>
             </button>
             <div id="attachments-body" class="disclosure-body" hidden>
-              <!-- Shown while NOT recording, so the tester arms the recorder BEFORE reproducing (it keeps the
-                   last N seconds). -->
-              <p id="prearm-hint" class="hint inline-reason prearm-hint" hidden></p>
-              <!-- Full-page capture (M2 PR-3): a SWITCH, not a checkbox — it writes itself on change and the next
-                   shot is already different, so there is no Save for it to belong to. -->
-              <label class="choice fullpage-row">
-                <input id="fullpage-test" class="switch" type="checkbox" role="switch" /> Full page
-              </label>
-              <!-- Evidence section (M2 PR-1): errors-only list for the current window; hidden unless a session
-                   is recording. -->
-              <div id="evidence-section" class="evidence-section accordion-item nested" hidden>
-                <button id="evidence-head" type="button" class="disclosure-head evidence-head" aria-expanded="false">
-                  <span class="md-icon ev-caret" data-icon="chevron_right"></span> Console &amp; network log <span id="evidence-count" class="counter"></span>
-                </button>
-                <ul id="evidence-list" class="list framed evidence-list" hidden></ul>
+              <!-- The two capture buttons and the Full-page option share ONE row — stacking them spent three
+                   lines of a section that is already a disclosure. Buttons left, option right; the row
+                   wraps, so a narrow panel drops a control to the next line rather than squeezing labels. -->
+              <div class="attach-actions">
+                <!-- capture → annotator tab → Apply uploads the merged JPEG (even with zero annotations); Cancel
+                     uploads nothing. -->
+                <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
+                <!-- #107: the native picker, uploaded through the SAME JWT attachment path as the screenshot. The
+                     input is hidden and the button clicks it, so the panel keeps one button style. -->
+                <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
+                <input id="attach-file-input" type="file" multiple hidden />
+                <!-- Full-page capture (M2 PR-3): a setting of the next shot, not an act — so it stands apart
+                     from the two buttons, at the far end of the row, rather than breaking them up. (A
+                     checkbox is what a setting reads as; it writes itself on change, with no Save to belong
+                     to.) It comes LAST in the markup so the reading order matches what the eye sees. -->
+                <label class="choice fullpage-row">
+                  <input id="fullpage-test" type="checkbox" />
+                  <span class="choice-text">Full page<button type="button" class="info-tip"
+                    data-tip="Captures the WHOLE scrollable page, not just what you can see. It needs the debugger, so a page that blocks it (the Chrome Web Store, chrome:// pages) falls back to the viewport and says so."
+                    aria-label="Captures the whole scrollable page, not just what you can see. It needs the debugger, so a page that blocks it falls back to the viewport and says so."><span
+                    class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+                </label>
               </div>
-              <!-- capture → annotator tab → Apply uploads the merged JPEG (even with zero annotations); Cancel
-                   uploads nothing. -->
-              <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
-              <!-- Gate reason shown inline (a hover-only tooltip is invisible on touch). -->
+              <!-- Gate reasons shown inline (a hover-only tooltip is invisible on touch). They stay UNDER the
+                   row — a sentence has no business inside it. -->
               <p id="screenshot-reason" class="hint inline-reason" hidden></p>
+              <p id="attach-file-reason" class="hint inline-reason" hidden></p>
               <!-- #192: an annotation the upload re-check refuses is KEPT, not lost — this saves it to disk.
-                   Never gated by the run lock: it writes nowhere but the tester's own machine. -->
+                   Never gated by the run lock: it writes nowhere but the tester's own machine. Its own line:
+                   it is a rare recovery step with a long label, not a peer of the two capture buttons. -->
               <button id="btn-save-annotation" class="btn size-sm" hidden
                       data-tip="The upload was refused, but your annotated screenshot is still here — save it to your computer"><span
                       class="md-icon" data-icon="upload_file"></span><span>Save the annotated screenshot</span></button>
-              <!-- #107: the native picker, uploaded through the SAME JWT attachment path as the screenshot. The
-                   input is hidden and the button clicks it, so the panel keeps one button style. -->
-              <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
-              <input id="attach-file-input" type="file" multiple hidden />
-              <p id="attach-file-reason" class="hint inline-reason" hidden></p>
               <!-- Everything uploaded onto THIS result: server truth on open, plus whatever this session sent. -->
               <ul id="attachment-list" class="attachment-list" hidden></ul>
             </div>
