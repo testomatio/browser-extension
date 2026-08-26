@@ -865,7 +865,6 @@ const TestomatAPI = (() => {
     setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf, listTestrunExamples,
     listProjectUsers, listProjects, assignTestrun,
     listTemplates, polishRecordedSteps,
-    isSessionToken,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
     readonlyAccess: () => readonly, ApiError,
   };
