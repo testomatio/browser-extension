@@ -5,6 +5,9 @@
 // line: `--load-extension` argv is readable by every process on the machine, and these are
 // credentials. `chrome.runtime.getURL()` reads it back from any of our own documents.
 //
+// One credential does it: the session opens the JSON:API and reads each project's v2 key itself.
+// A host holding a project key may send it too, which only saves the first round trip.
+//
 // The file STAYS. `jwt` is memory-only in api.js, so a panel reload has nothing left to read
 // unless the host's copy is still there; the host clears it when its browser closes. Disconnect
 // cannot delete a file it does not own, so it leaves a tombstone and a newer push wins.
@@ -45,7 +48,9 @@ const Handoff = (() => {
     } catch {
       return null; // no host, no file — the ordinary case
     }
-    if (!doc?.baseUrl || !doc.projectId || !doc.jwt || !doc.projectToken) return null;
+    // `projectToken` is optional: the session can read a project's key itself, so a host that
+    // holds one only saves the panel a round trip.
+    if (!doc?.baseUrl || !doc.projectId || !doc.jwt) return null;
     return { ...doc, app: String(doc.app || '').trim(), at: Number(doc.at) || 0 };
   }
 
@@ -99,10 +104,11 @@ const Handoff = (() => {
       ...prior,
       baseUrl: h.baseUrl,
       projectId: h.projectId,
+      // Optional, and only ever a shortcut past the first key read. Named with its project so a
+      // switch elsewhere mints that project's key instead of sending this one where it means
+      // nothing — and so it still opens this project once the session is gone.
       projectToken: h.projectToken,
-      // The project token opens ONE project. Named here so a switch to any other falls back to
-      // the account token instead of sending this one where it means nothing.
-      projectTokenFor: h.projectId,
+      projectTokenFor: h.projectToken ? h.projectId : undefined,
       handoff: true,
       // Kept because the card outlives the file: a host that has closed its browser is exactly
       // when the tester most needs to be told whose session just ended.

@@ -17,9 +17,17 @@ function tokenHelpBase() {
   }
   return DEFAULT_BASE_URL;
 }
+// The app name rides along so the tester can see, on Testomat.io's own page, what they are
+// authorizing — and so the grant is revocable by name later.
+const AUTH_APP_NAME = 'Testomat.io Extension';
+
 function updateTokenHelpLink() {
   const a = $('token-help-link');
   if (a) a.href = `${tokenHelpBase()}/account/access_tokens`;
+  const auth = $('token-authorize-link');
+  if (auth) {
+    auth.href = `${tokenHelpBase()}/app-auth?app_name=${encodeURIComponent(AUTH_APP_NAME)}`;
+  }
 }
 
 // Does NOT touch the host dropdown or the header project switcher (#103).
@@ -188,8 +196,8 @@ function renderConnectionSource(on) {
   // THIS project; every other one needs a token of the tester's own.
   const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session. This project still opens`;
   line.textContent = state.settings.apiToken
-    ? `${ended}, and everything else uses your own token.`
-    : `${ended}. Sign in with a General token to reach the others.`;
+    ? `${ended}, and everything else uses your own sign-in.`
+    : `${ended}. Authorize above to reach the others.`;
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor
@@ -294,7 +302,7 @@ async function saveSettings() {
     // #146: only an empty INSTANCE is an Advanced problem — a missing token is
     // in Connection, and unfolding Advanced for it would point at the wrong row.
     if (!settings.baseUrl) openSettingsAdvanced();
-    setStatusLine('settings-status', 'Instance and General token are required', 'error');
+    setStatusLine('settings-status', 'Instance and access token are required', 'error');
     return;
   }
   let host;
@@ -331,7 +339,7 @@ async function saveSettings() {
   } catch (e) {
     if (e.kind === 'auth') {
       setStatusLine('settings-status',
-        `Token rejected by ${host} — create a new General token there and save again`, 'error');
+        `Token rejected by ${host} — authorize there again and save the new token`, 'error');
       return;
     }
     projects = null; // network / server hiccup: the remembered project can still carry us

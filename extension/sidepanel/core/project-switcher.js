@@ -8,10 +8,14 @@
 // Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
 
-// A handed-over connection carries ONE project's token. With no account token beside it there is
-// nothing to reach a second project with, so the switcher shows the project and does not open;
-// a tester who has pasted their own token keeps the run of the place.
-const projectPinned = () => !!(state.settings && state.settings.handoff && !state.settings.apiToken);
+// Any session reaches every project the tester can see — it reads their keys as it goes. Only a
+// connection left with nothing but ONE project's stored token is pinned, which is a handoff whose
+// host has closed its browser and taken the session with it.
+function projectPinned() {
+  const s = state.settings;
+  if (!s || !s.handoff || s.apiToken) return false;
+  return !Handoff.offer();
+}
 
 // Popup-only state; the list itself is always `state.projects`.
 let projectFilter = '';

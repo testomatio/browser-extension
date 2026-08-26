@@ -1,14 +1,19 @@
 // Testomat API client: Public API v2 (raw token as Bearer, flat snake_case) plus the Web-UI JSON:API
 // (JWT from POST /api/login) for what v2 lacks — the v2 attachments route 404s on prod.
 //
-// A handed-off config (shared/handoff.js) brings both surfaces their own credential instead: a
-// project token for v2, and a session token its host already holds, so there is nothing to log in
-// with. It OVERLAYS the account token rather than replacing it — either may be the credential at
-// any moment, hence v2Token() and login() below.
+// One credential covers both: an account session (a JWT from `/app-auth`, or one exchanged from a
+// General token) opens the JSON:API directly AND can read any project's own v2 key on demand. So
+// the tester signs in once and v2 keys are minted, never typed. A handed-off config
+// (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
-  let jwt = null; // memory-only (never chrome.storage); JSON:API + uploads
+  // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
+  // the project's own credential, and nothing here needs them to outlive the panel.
+  const v2Keys = new Map();
+  // The live session. Memory-only: it is either adopted from the tester's stored credential or
+  // exchanged from their General token, and neither is worth a second copy on disk.
+  let jwt = null;
   // A host app's session token. Memory-only like `jwt`, but it outlives configure(): it belongs to
   // the host that launched this browser, not to whichever project the panel is pointed at.
   let handedJwt = null;
@@ -29,7 +34,11 @@ const TestomatAPI = (() => {
   }
 
   function configure(c) {
-    cfg = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
+    const next = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
+    // A minted key belongs to the account that minted it, so another instance or another
+    // credential invalidates the lot. A project switch does not — this runs on every tab change.
+    if (!next || next.baseUrl !== cfg?.baseUrl || next.apiToken !== cfg?.apiToken) v2Keys.clear();
+    cfg = next;
     jwt = null;
     jwtUid = null;
     jwtAvailable = 'unknown';
@@ -39,17 +48,44 @@ const TestomatAPI = (() => {
   // The host's session token, adopted by login() instead of POST /api/login. Kept apart from
   // configure() so a project switch does not drop it.
   function useHandoffSession(token) {
+    if (token !== handedJwt) v2Keys.clear();
     handedJwt = token || null;
     jwt = null;
     jwtUid = null;
     jwtAvailable = 'unknown';
   }
 
-  // The v2 credential: a handoff's project token while the panel is on the project it was issued
-  // for, else the account's General token, which reaches every project the tester can see.
-  function v2Token() {
+  // A session token, not a v2 credential: `eyJ` is a JWT, whoever it came from.
+  const isSessionToken = (t) => typeof t === 'string' && t.startsWith('eyJ');
+
+  const NO_PROJECT_KEY = 'This project has no API key for your role — ask an owner, or pick '
+    + 'another project';
+
+  /** Whether there is anything at all to authenticate with. */
+  const hasCredential = () => !!(cfg?.apiToken || cfg?.projectToken || handedJwt);
+
+  // A v2 credential already in hand: the handoff's project token while the panel is on the project
+  // it was issued for, one minted earlier, or a General token, which reaches every project.
+  function v2TokenInHand() {
     if (cfg?.projectToken && cfg.projectTokenFor === cfg.projectId) return cfg.projectToken;
-    return cfg?.apiToken || cfg?.projectToken;
+    const minted = v2Keys.get(cfg?.projectId);
+    if (minted) return minted;
+    if (cfg?.apiToken && !isSessionToken(cfg.apiToken)) return cfg.apiToken;
+    return null;
+  }
+
+  // …and if there is none, the session reads the project's own key. That is what lets a tester who
+  // has only signed in — no General token anywhere — use v2 at all.
+  async function v2Token() {
+    const inHand = v2TokenInHand();
+    if (inHand) return inHand;
+    const doc = await jwtRequestRoot(`/projects/${encodeURIComponent(cfg.projectId)}`);
+    const attrs = doc?.data?.attributes || {};
+    const key = attrs['api-key'] || attrs.api_key;
+    // A role without API access answers the project fine and simply carries no key.
+    if (!key) throw new ApiError('auth', 403, NO_PROJECT_KEY);
+    v2Keys.set(cfg.projectId, key);
+    return key;
   }
 
   async function rawFetch(url, opts) {
@@ -61,14 +97,14 @@ const TestomatAPI = (() => {
   }
 
   function guardConfigured() {
-    if (!cfg?.baseUrl || !v2Token() || !cfg?.projectId) {
+    if (!cfg?.baseUrl || !hasCredential() || !cfg?.projectId) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
   }
 
   // login + api-root routes carry no slug, so they need only the base URL and something to open a
-  // session with — the account token, or the one a host handed us (the project picker runs
-  // before any slug is known).
+  // session with — the tester's own credential (a session token, or a General token to exchange),
+  // or the one a host handed us (the project picker runs before any slug is known).
   function guardSession() {
     if (!cfg?.baseUrl || !(cfg?.apiToken || handedJwt)) {
       throw new ApiError('unconfigured', 0, 'Not configured');
@@ -99,7 +135,7 @@ const TestomatAPI = (() => {
     const res = await rawFetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${v2Token()}`,
+        Authorization: `Bearer ${await v2Token()}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -281,17 +317,24 @@ const TestomatAPI = (() => {
     }).then((r) => r?.data);
   }
 
-  // A host's session token is adopted, never exchanged — there is no account token to exchange.
-  // Once, though: jwtSend re-enters login() on a 401/403, and handing back the same dead token
-  // would both fail again and re-arm `jwtAvailable`, so nothing would ever degrade.
-  const HANDOFF_EXPIRED = 'The session Testeiya handed over has expired — reconnect from there';
+  // A session token is adopted, never exchanged — there is nothing to exchange it for. Once,
+  // though: jwtSend re-enters login() on a 401/403, and handing back the same dead token would
+  // both fail again and re-arm `jwtAvailable`, so nothing would ever degrade.
+  const HANDED_EXPIRED = 'The session handed to this panel has expired — reconnect from the app '
+    + 'that opened it';
+  const OWN_EXPIRED = 'Your session has expired — authorize again in Settings';
 
   // Lazy token→session upgrade; any failure marks the session unavailable so callers can degrade.
   async function login() {
     guardSession();
-    if (handedJwt) {
-      if (jwt === handedJwt) { jwtAvailable = false; throw new ApiError('auth', 401, HANDOFF_EXPIRED); }
-      jwt = handedJwt;
+    // A host's session outranks a stored one: it is what THIS browser was opened for.
+    const session = handedJwt || (isSessionToken(cfg.apiToken) ? cfg.apiToken : null);
+    if (session) {
+      if (jwt === session) {
+        jwtAvailable = false;
+        throw new ApiError('auth', 401, handedJwt ? HANDED_EXPIRED : OWN_EXPIRED);
+      }
+      jwt = session;
       jwtUid = decodeJwtUserId(jwt);
       jwtAvailable = true;
       return jwt;
@@ -822,6 +865,7 @@ const TestomatAPI = (() => {
     setSubstatus, clearSubstatus, setTestrunMeta, getRunInfo, runInfoOf, listTestrunExamples,
     listProjectUsers, listProjects, assignTestrun,
     listTemplates, polishRecordedSteps,
+    isSessionToken,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
     readonlyAccess: () => readonly, ApiError,
   };
