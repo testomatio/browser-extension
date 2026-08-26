@@ -1,12 +1,13 @@
 // Testomat API client: Public API v2 (raw token as Bearer, flat snake_case) plus the Web-UI JSON:API
 // (JWT from POST /api/login) for what v2 lacks — the v2 attachments route 404s on prod.
 //
-// A handed-off config (core/handoff.js) brings both surfaces their own credential instead: a
+// A handed-off config (shared/handoff.js) brings both surfaces their own credential instead: a
 // project token for v2, and a session token its host already holds, so there is nothing to log in
-// with. Everything below reads `projectToken || apiToken` for that reason.
+// with. It OVERLAYS the account token rather than replacing it — either may be the credential at
+// any moment, hence v2Token() and login() below.
 
 const TestomatAPI = (() => {
-  let cfg = null; // { baseUrl, apiToken, projectId } — or a handoff's { projectToken, projectId }
+  let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
   let jwt = null; // memory-only (never chrome.storage); JSON:API + uploads
   // A host app's session token. Memory-only like `jwt`, but it outlives configure(): it belongs to
   // the host that launched this browser, not to whichever project the panel is pointed at.
@@ -44,8 +45,12 @@ const TestomatAPI = (() => {
     jwtAvailable = 'unknown';
   }
 
-  // The v2 credential: a handoff's project token, else the account's General token.
-  const v2Token = () => cfg?.projectToken || cfg?.apiToken;
+  // The v2 credential: a handoff's project token while the panel is on the project it was issued
+  // for, else the account's General token, which reaches every project the tester can see.
+  function v2Token() {
+    if (cfg?.projectToken && cfg.projectTokenFor === cfg.projectId) return cfg.projectToken;
+    return cfg?.apiToken || cfg?.projectToken;
+  }
 
   async function rawFetch(url, opts) {
     try {

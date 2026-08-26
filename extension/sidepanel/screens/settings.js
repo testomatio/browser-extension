@@ -175,12 +175,21 @@ function renderConnection() {
 function renderConnectionSource(on) {
   const line = $('connection-source');
   if (!line) return;
-  const handoff = on && !!state.settings.handoff;
-  line.hidden = !handoff;
-  if (!handoff) return;
-  const app = (Handoff.offer() || {}).app || 'the app that opened this browser';
-  line.textContent = `Signed in by ${app}. Disconnect stops it signing you in again — `
-    + 'open the run from there to come back.';
+  if (!on || !state.settings.handoff) { line.hidden = true; return; }
+  line.hidden = false;
+  const app = state.settings.handoffApp || (Handoff.offer() || {}).app
+    || 'the app that opened this browser';
+  if (Handoff.offer()) {
+    line.textContent = `Signed in by ${app}. Disconnect stops it signing you in again — `
+      + 'open the run from there to come back.';
+    return;
+  }
+  // The file is gone, so that browser was closed. Its project token was saved and still opens
+  // THIS project; every other one needs a token of the tester's own.
+  const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session. This project still opens`;
+  line.textContent = state.settings.apiToken
+    ? `${ended}, and everything else uses your own token.`
+    : `${ended}. Sign in with a General token to reach the others.`;
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor

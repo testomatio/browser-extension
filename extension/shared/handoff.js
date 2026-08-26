@@ -91,18 +91,23 @@ const Handoff = (() => {
     if (!h) return null;
     const host = hostOf(h.baseUrl);
     if (!host) return null;
-    // Per-host preferences (evidence window, full-page capture…) are the tester's, not the host's.
+    // Everything of this host's the tester owns is kept — their preferences, and their own
+    // General token. An offer is an overlay: when the host closes its browser and takes the file
+    // with it, the panel falls back to the token they pasted rather than to nothing.
     const prior = state.hostSettings[host] || {};
     const settings = {
       ...prior,
       baseUrl: h.baseUrl,
       projectId: h.projectId,
       projectToken: h.projectToken,
+      // The project token opens ONE project. Named here so a switch to any other falls back to
+      // the account token instead of sending this one where it means nothing.
+      projectTokenFor: h.projectId,
       handoff: true,
+      // Kept because the card outlives the file: a host that has closed its browser is exactly
+      // when the tester most needs to be told whose session just ended.
+      handoffApp: h.app,
     };
-    // An account token left beside a handoff would outlive the host's own session and silently
-    // become the credential again.
-    delete settings.apiToken;
     await commitSettings(settings, host);
     configure(settings);
     return h;

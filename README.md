@@ -103,11 +103,29 @@ process on the machine, and these are credentials. Rules the panel follows:
   re-read from the file, exactly like the one `POST /api/login` returns.
 - The file has to stay for as long as the connection should work. Whoever wrote
   it deletes it — closing the browser it launched is the usual moment.
-- The project is pinned: one project token was handed over, so the switcher shows
-  the project rather than offering others.
 - **Disconnect** marks that `at` as answered instead of deleting a file it does
   not own. Push a newer `at` to offer the connection again.
 - A run is opened once per `at`, so reloading the panel keeps the tester's place.
+
+### Beside a token the tester pasted
+
+An offer is an overlay on the ordinary sign-in, never a replacement. A tester who
+had already connected that instance keeps their General token and their
+preferences; the two live side by side and each request uses whichever fits:
+
+| Request | Credential |
+|---|---|
+| `/api/v2` on the handed project | `projectToken` |
+| `/api/v2` on any other project | the tester's General token |
+| Web JSON:API (`/api/…`) | the handed `jwt`, else a session from their token |
+
+So the project switcher stays open for a tester who has their own token, and is
+pinned for one who does not — there would be nothing to reach a second project
+with. When the host closes its browser and the file goes, the panel keeps working
+on their own token, and Settings says whose session ended.
+
+Saving a General token over a handed-off connection replaces it outright, session
+token included.
 
 A panel that is already open takes a new push through
 `window.TestomatHandoff.apply()`, which answers
