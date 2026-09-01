@@ -37,7 +37,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["viewer/viewer.html"],
+      "resources": ["viewer/viewer.html", "screenrec/review.html"],
       "matches": ["<all_urls>"]
     }
   ],

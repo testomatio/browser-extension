@@ -27,10 +27,15 @@ function srecPaint(st) {
   const btn = $('btn-screen-rec');
   if (!btn) return;
   const on = !!(st && st.recording);
+  // A stopped take waiting in the review (#68): the button leads back there, never to a new one.
+  const waiting = !on && !!(st && st.file && !st.file.reviewed);
   const label = $('screen-rec-label');
-  if (label) label.textContent = on ? `Stop recording ${srecClock(st.ms)}` : 'Attach screen recording';
+  if (label) {
+    label.textContent = on ? `Stop recording ${srecClock(st.ms)}`
+      : waiting ? 'Review recording…' : 'Attach screen recording';
+  }
   btn.classList.toggle('recording', on);
-  if (on) btn.disabled = false; // stopping is never gated: the file is the tester's either way
+  if (on || waiting) btn.disabled = false; // stopping/reviewing is never gated: the file is the tester's
   if (on && !srecTimer) srecTimer = setInterval(srecRefresh, 1000);
   if (!on && srecTimer) { clearInterval(srecTimer); srecTimer = null; }
 }
@@ -76,6 +81,10 @@ async function onScreenRecClick() {
     await srecRefresh();
     return;
   }
+  if (st && st.file && !st.file.reviewed) {
+    await srecSend({ type: 'SCREENREC_OPEN_REVIEW' });
+    return;
+  }
   const record = recordFor(state.currentRecordId);
   if (!record || !record.id) return; // the gate should have caught this; never record blind
   srecReason('');
@@ -85,10 +94,11 @@ async function onScreenRecClick() {
   srecRefresh();
 }
 
-// The blob: URL belongs to the offscreen document, and this panel shares its origin, so the
-// bytes come back with a plain fetch. A failed upload KEEPS the file parked for the next try.
+// The blob: URL — the original's or the trimmed swap's — belongs to the offscreen document,
+// and this panel shares its origin, so the bytes come back with a plain fetch. A failed
+// upload KEEPS the file parked for the next try.
 async function srecAttach(file) {
-  if (srecBusy || !file || !file.url) return;
+  if (srecBusy || !file || !file.url || !file.reviewed) return;
   const record = recordFor(state.currentRecordId);
   if (!record || !record.id) { srecReason('Open a test result and the recording attaches to it.'); return; }
   const lock = recordWriteLock(record);
@@ -121,7 +131,8 @@ async function srecOnTestOpen() {
   await srecSend({ type: 'SCREENREC_TARGET', recordId: (record && record.id) || null });
   await srecRefresh();
   const parked = await srecSend({ type: 'SCREENREC_TAKE' });
-  if (parked && parked.url) srecAttach(parked);
+  // Unreviewed stays parked — the button reads «Review recording…» and leads back to it.
+  if (parked && parked.reviewed) srecAttach(parked);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {

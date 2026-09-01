@@ -138,9 +138,33 @@ function pause(on) {
   else if (!on && pausedAt) { pausedMs += Date.now() - pausedAt; pausedAt = 0; if (rec && rec.state === 'paused') rec.resume(); }
 }
 
+// The trimmed take (#68 review), streamed here in chunks: this document is the byte holder —
+// blob: URLs die with their maker, and the review overlay is gone long before the upload.
+let trimParts = [];
+
+// 'trim-swap' replaces the parked ORIGINAL with the trimmed take: the old URL is revoked,
+// so the untrimmed picture is unreachable from that moment on.
+function trimSwap(oldUrl) {
+  const blob = new Blob(trimParts, { type: 'video/webm' });
+  trimParts = [];
+  if (oldUrl) { try { URL.revokeObjectURL(oldUrl); } catch { /* not ours */ } }
+  return { ok: true, url: URL.createObjectURL(blob), size: blob.size };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || msg.type !== 'SCREENREC_OFF') return undefined;
   switch (msg.cmd) {
+    case 'trim-begin':
+      trimParts = [];
+      sendResponse({ ok: true });
+      return false;
+    case 'trim-chunk':
+      trimParts.push(Uint8Array.from(atob(msg.b64), (c) => c.charCodeAt(0)));
+      sendResponse({ ok: true });
+      return false;
+    case 'trim-swap':
+      sendResponse(trimSwap(msg.oldUrl));
+      return false;
     case 'start':
       start(msg.streamId).then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
       return true;

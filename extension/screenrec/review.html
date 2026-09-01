@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Review recording</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column;
+      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #d7dbe0; background: #16191f; }
+    header { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+      border-bottom: 1px solid #242a34; flex: none; }
+    header .title { font-weight: 600; }
+    header .meta { color: #8b93a1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stage { flex: 1; min-height: 0; background: #000; display: flex;
+      align-items: center; justify-content: center; }
+    .stage video { max-width: 100%; max-height: 100%; }
+    .controls { flex: none; padding: 10px 16px 14px; display: grid; gap: 8px; }
+    .row { display: flex; align-items: center; gap: 10px; }
+    .btn { background: #232936; border: 1px solid #313947; color: #d7dbe0;
+      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+    .btn:disabled { opacity: .5; cursor: default; }
+    .btn.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; font-weight: 600; }
+    .btn.danger { background: transparent; border-color: #4a3038; color: #e08791; }
+    .time { color: #8b93a1; font-variant-numeric: tabular-nums; }
+    .time b { color: #d7dbe0; font-weight: 600; }
+    .hint { color: #79818f; }
+    .spacer { flex: 1; }
+    /* timeline */
+    .tl { position: relative; height: 48px; background: #0d1014;
+      border: 1px solid #2a303a; border-radius: 8px; cursor: crosshair;
+      touch-action: none; user-select: none; }
+    .tl .film { position: absolute; inset: 7px; border-radius: 4px;
+      background: repeating-linear-gradient(90deg, #2b3442 0 46px, #222a36 46px 92px); }
+    .tl .cut { position: absolute; top: 0; bottom: 0; background: rgba(224, 80, 92, .28);
+      border-inline: 2px solid #e0505c; border-radius: 3px; cursor: default; }
+    .tl .cut .h { position: absolute; top: 50%; width: 8px; height: 20px; background: #e0505c;
+      border-radius: 3px; transform: translateY(-50%); cursor: ew-resize; }
+    .tl .cut .h.l { left: -5px; } .tl .cut .h.r { right: -5px; }
+    .tl .playhead { position: absolute; top: -3px; bottom: -3px; width: 2px;
+      background: #f5f7fa; pointer-events: none; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; min-height: 0; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; background: #1d232d;
+      border: 1px solid #313947; border-radius: 999px; padding: 3px 10px;
+      font-variant-numeric: tabular-nums; }
+    .chip button { all: unset; color: #8b93a1; cursor: pointer; padding: 0 2px; }
+    .chip button:hover { color: #e08791; }
+    /* export overlay */
+    #export-veil { position: fixed; inset: 0; background: rgba(10, 12, 16, .82);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; }
+    #export-veil[hidden] { display: none; }
+    .bar { width: min(70%, 420px); height: 6px; background: #232936; border-radius: 3px; overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 0; background: #2f6fed; }
+    #review-status { color: #e08791; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="title">Review recording</span>
+    <span id="file-meta" class="meta"></span>
+  </header>
+
+  <div class="stage"><video id="player" playsinline></video></div>
+
+  <div class="controls">
+    <div class="row">
+      <button id="btn-play" class="btn" type="button">▶ Play</button>
+      <span class="time"><b id="t-cur">0:00</b> / <span id="t-total">0:00</span></span>
+      <span class="hint">Play skips the cuts — what you see is exactly what uploads.</span>
+    </div>
+
+    <div id="timeline" class="tl">
+      <div class="film"></div>
+      <div id="playhead" class="playhead" style="left:0"></div>
+    </div>
+    <p class="hint" style="margin:0">Drag on the timeline to cut a range; drag a red handle to adjust it. As many cuts as you need.</p>
+
+    <div id="chips" class="chips"></div>
+
+    <div class="row">
+      <span class="time" id="after-label"></span>
+      <span class="spacer"></span>
+      <span id="review-status" role="status"></span>
+      <button id="btn-discard" class="btn danger" type="button">Discard</button>
+      <button id="btn-attach" class="btn primary" type="button">Attach to the result</button>
+    </div>
+  </div>
+
+  <div id="export-veil" hidden>
+    <span>Saving the trimmed recording — it replays the kept parts once…</span>
+    <div class="bar"><i id="export-bar"></i></div>
+  </div>
+
+  <script src="./review.js"></script>
+</body>
+</html>

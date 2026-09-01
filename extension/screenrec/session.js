@@ -50,7 +50,8 @@ async function srecEnsureDoc() {
   srecCreating = null;
 }
 
-// Never while a file is parked: the blob: URL dies with the document that made it.
+// Never while a file is parked: the blob: URL — the original's or the trimmed swap's — dies
+// with the document that made it.
 async function srecCloseDoc() {
   if (await srecParked()) return;
   try { await chrome.offscreen.closeDocument(); } catch { /* none open */ }
@@ -195,7 +196,9 @@ async function srecStop(reason) {
   return { ok: true };
 }
 
-// Everything that ends a recording funnels through here: state cleared, file parked, panel told.
+// Everything that ends a recording funnels through here: state cleared, file parked — and the
+// REVIEW opened over the page (#68 preview+trim). Nothing is attached until the tester says so
+// there; the panel only hears 'file' once the review answers.
 async function srecFinish(file, st, reason) {
   await srecClear();
   if (!file || !file.size) {
@@ -210,9 +213,31 @@ async function srecFinish(file, st, reason) {
     reason: file.reason || reason || 'user',
     name: srecName(),
     recordId: (st && st.recordId) || null,
+    reviewed: false,
   };
   await chrome.storage.session.set({ [SREC_FILE_KEY]: parked });
-  srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: parked });
+  srecTell({ type: 'SCREENREC_EVENT', event: 'review', file: parked });
+  await srecOpenReview((st && st.tabId) != null ? st.tabId : null);
+}
+
+// The review overlay, over the recorded tab when it still lives, over the site tab otherwise,
+// in a tab of its own when Chrome keeps extensions off both.
+async function srecOpenReview(tabId) {
+  const inject = async (id) => {
+    if (id == null) return false;
+    try {
+      await chrome.tabs.update(id, { active: true });
+      await chrome.scripting.executeScript({ target: { tabId: id }, files: ['content/review-overlay.js'] });
+      return true;
+    } catch { return false; }
+  };
+  if (await inject(tabId)) return { ok: true };
+  const site = await resolveSiteTab({ verb: 'reviewed', activate: true });
+  if (site.state === 'ok' && await inject(site.tab.id)) return { ok: true };
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('screenrec/review.html') });
+    return { ok: true };
+  } catch (e) { return { ok: false, reason: String((e && e.message) || e) }; }
 }
 
 async function srecPause(on) {
@@ -325,6 +350,39 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'SCREENREC_TAKE': srecParked().then((f) => sendResponse(f || null)); return true;
     case 'SCREENREC_DONE':
       chrome.storage.session.remove(SREC_FILE_KEY).then(srecCloseDoc).then(() => sendResponse({ ok: true }));
+      return true;
+    // The review approved the file AS RECORDED — only now may the panel attach it.
+    case 'SCREENREC_REVIEWED':
+      srecParked().then(async (parked) => {
+        if (!parked) return sendResponse({ ok: false });
+        const reviewed = { ...parked, reviewed: true };
+        await chrome.storage.session.set({ [SREC_FILE_KEY]: reviewed });
+        srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: reviewed });
+        return sendResponse({ ok: true });
+      });
+      return true;
+    // The review cut it: the offscreen page has already swapped the trimmed bytes in and
+    // revoked the original's URL — only the cut version exists from here on.
+    case 'SCREENREC_TRIMMED':
+      srecParked().then(async (parked) => {
+        if (!parked || !msg.url) return sendResponse({ ok: false });
+        const trimmed = {
+          url: msg.url,
+          size: msg.size || 0,
+          ms: msg.ms || 0,
+          reason: parked.reason,
+          name: parked.name,
+          recordId: parked.recordId,
+          reviewed: true,
+        };
+        await chrome.storage.session.set({ [SREC_FILE_KEY]: trimmed });
+        srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: trimmed });
+        return sendResponse({ ok: true });
+      });
+      return true;
+    // The panel's button while an unreviewed file waits: back to the review, never a new take.
+    case 'SCREENREC_OPEN_REVIEW':
+      srecOpenReview(null).then(sendResponse);
       return true;
     case 'SCREENREC_TARGET':
       chrome.storage.session.set({ [SREC_TARGET_KEY]: msg.recordId != null ? msg.recordId : null })
