@@ -2,7 +2,7 @@
 // upload of the file the worker parks when it stops. The worker owns the capture, this owns the JWT.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
-   updateTestActionsState, attRemember, renderAttachmentList */
+   updateTestActionsState, attRemember, renderAttachmentList, progressToast, hideToast */
 
 const SREC_COMMAND = 'toggle-screen-recording';
 
@@ -72,7 +72,7 @@ async function onScreenRecClick() {
   srecReason('');
   const res = await srecSend({ type: 'SCREENREC_START', recordId: record.id });
   if (!res || !res.ok) { srecReason(await srecStartHint(res)); return; }
-  setStatusLine('test-status', 'Recording this tab…');
+  progressToast('Recording this tab…');
   srecRefresh();
 }
 
@@ -88,7 +88,7 @@ async function srecAttach(file) {
   const btn = $('btn-screen-rec');
   if (btn) btn.disabled = true;
   try {
-    setStatusLine('test-status', `Uploading ${file.name}…`);
+    progressToast(`Uploading ${file.name}…`);
     const blob = await fetch(file.url).then((r) => r.blob());
     const res = await TestomatAPI.uploadAttachment(record.id, blob, file.name);
     attRemember(record.id, { name: file.name, url: (res && res.url) || '' });
@@ -97,8 +97,7 @@ async function srecAttach(file) {
     srecReason('');
     setStatusLine('test-status', 'Recording attached ✓', 'ok');
   } catch (e) {
-    toast(`${file.name}: upload failed, ${e.message}`, { error: true });
-    setStatusLine('test-status', '', '');
+    toast(`${file.name}: upload failed, ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
     srecBusy = false;
     updateTestActionsState();
@@ -121,7 +120,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.event === 'file' && msg.file) srecAttach(msg.file);
   else {
     // An empty end (stopped at once, tab gone before a frame) leaves no file to speak of.
-    if (msg.event === 'ended' && msg.empty) setStatusLine('test-status', '', '');
+    if (msg.event === 'ended' && msg.empty) hideToast();
     srecRefresh();
   }
   return undefined;
