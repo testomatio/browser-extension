@@ -1005,16 +1005,18 @@ function parseRunsUrl(raw) {
 // The run is probed first, so a bad id or a no-access run leaves the user on the
 // list with a toast instead of in a half-rendered run view.
 async function openParsedRunTarget(target) {
-  if (target.kind === 'group') { openGroupFromUrl(target.id); return; }
+  // The group path shows the runs list before anything can fail, so it always lands.
+  if (target.kind === 'group') { await openGroupFromUrl(target.id); return true; }
   let detail;
   try { detail = await TestomatAPI.getRun(target.id); }
   catch (e) {
-    if (e?.kind === 'notfound') { toast(RUN_NOT_FOUND, { error: true }); return; }
+    if (e?.kind === 'notfound') { toast(RUN_NOT_FOUND, { error: true }); return false; }
     handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
-    return;
+    return false;
   }
   resetRunsSearch();
   openRunView(target.id, detail?.clean_title || detail?.title);
+  return true;
 }
 
 async function openRunsSearchUrl() {
@@ -1025,9 +1027,11 @@ async function openRunsSearchUrl() {
 
 // "Run in Extension" from the web app (#14). Whatever the panel is showing is replaced —
 // the tester asked for this run by clicking.
+// True when it LANDED the panel on a view — boot falls back to the restored session when a URL
+// dies on the way (a run that 404s used to leave the panel on nothing at all).
 async function openRunFromUrl(url) {
   const parts = parseRunUrlParts(url);
-  if (!parts) { toast(RUN_NOT_FOUND, { error: true }); return; }
+  if (!parts) { toast(RUN_NOT_FOUND, { error: true }); return false; }
   let cfgHost = null;
   try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { /* not connected yet */ }
   if (!cfgHost || parts.host !== cfgHost) {
@@ -1036,18 +1040,18 @@ async function openRunFromUrl(url) {
     setStatusLine('settings-status', cfgHost
       ? `This panel is connected to ${cfgHost}, and that run lives on ${parts.host} — connect to it to open the run here`
       : `Connect this panel to ${parts.host} to open that run here`, 'error');
-    return;
+    return true;
   }
   if (parts.projectId !== state.settings.projectId) {
     // The boot refresh runs in the background, so an empty list is "not loaded yet", not "no projects".
     const known = state.projects.length ? state.projects : await refreshProjects();
     if (!known.some((p) => p.id === parts.projectId)) {
       toast(`No access to project ${parts.projectId}`, { error: true });
-      return;
+      return false;
     }
     await switchProject(parts.projectId);
   }
-  await openParsedRunTarget(parts);
+  return openParsedRunTarget(parts);
 }
 
 // URL intent wins over any active filter/search: both reset, then the group is

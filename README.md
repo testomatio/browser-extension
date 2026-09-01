@@ -61,10 +61,15 @@ Take a release if you just want to run it, and the clone if you intend to follow
 3. Click **Load unpacked** and select the folder you unpacked the zip into, or —
    from a clone — the **`extension/`** folder inside it, not the repository root.
 4. Pin **Testomat.io** from the toolbar's extensions menu.
-5. Click the toolbar icon. The panel opens on Settings; paste a **General
-   token** from *Testomat.io → Account → Access Tokens* and click **Save &
+5. Click the toolbar icon. The panel opens on Settings; click **Open
+   Testomat.io & authorize**, paste the token it gives you, and click **Save &
    validate**. Self-hosted? Put your own `https://` URL into **Instance** under
    **Advanced** before saving.
+
+One token is all it needs. Authorizing hands back a session that reads your
+projects *and* each project's own API key, so the per-project keys are fetched
+rather than pasted. A **General token** from *Account → Access Tokens* is still
+accepted, and existing ones keep working.
 
 Chrome 123 or newer. To update: unpack a newer zip over the same folder, or
 `git pull`, then press the reload (↻) icon on the extension's card in
@@ -72,6 +77,70 @@ Chrome 123 or newer. To update: unpack a newer zip over the same folder, or
 
 There is no build step: `extension/` runs exactly as it is checked in. No npm
 install, no bundler, no compiler.
+
+## Signed in by another app
+
+An app that launches Chrome with this extension loaded — Testeiya, for one — can
+sign the panel in itself, so the tester never pastes a token. It writes
+`handoff.json` into the extension folder and opens the panel:
+
+```json
+{
+  "app": "Testeiya",
+  "baseUrl": "https://app.testomat.io",
+  "projectId": "my-project",
+  "jwt": "eyJ…",
+  "projectToken": "tstmt_…",
+  "runUrl": "https://app.testomat.io/projects/my-project/runs/abcd1234",
+  "at": 1756160000000
+}
+```
+
+Two credentials, because the panel talks to two APIs: `projectToken` is what
+`/api/v2` takes, `jwt` is a web session for the routes v2 lacks. `runUrl` is
+optional; with one, the panel opens that run. `at` is milliseconds since the
+epoch and has to grow on every push.
+
+A file rather than a command line: `--load-extension` argv is readable by every
+process on the machine, and these are credentials. Rules the panel follows:
+
+- Only `projectToken` and the project are stored; the `jwt` is held in memory and
+  re-read from the file, exactly like the one `POST /api/login` returns.
+- The file has to stay for as long as the connection should work. Whoever wrote
+  it deletes it — closing the browser it launched is the usual moment.
+- **Disconnect** marks that `at` as answered instead of deleting a file it does
+  not own. Push a newer `at` to offer the connection again.
+- A run is opened once per `at`, so reloading the panel keeps the tester's place.
+
+### Beside a token the tester pasted
+
+An offer is an overlay on the ordinary sign-in, never a replacement. A tester who
+had already connected that instance keeps their own credential and their
+preferences; the two live side by side and each request uses whichever fits:
+
+| Request | Credential |
+|---|---|
+| Web JSON:API (`/api/…`) | the handed `jwt`, else the tester's own session |
+| `/api/v2` on the handed project | `projectToken` when one was sent |
+| `/api/v2` anywhere else | that project's key, read with whichever session is live |
+
+`projectToken` is therefore optional — a host that already holds one saves the
+panel a round trip, and nothing more. `jwt` is what the offer is really made of.
+
+Because a session reaches every project, the switcher stays open. It closes in one
+case: the host has closed its browser, taking the session with it, and the tester
+never signed in themselves — then the stored `projectToken` still opens that one
+project and Settings says so.
+
+Signing in over a handed-off connection replaces it outright, session included.
+
+A panel that is already open takes a new push through
+`window.TestomatHandoff.apply()`, which answers
+`{ok, projectId, run}` — or `{ok: false, reason: "no-offer"}`. A build without
+that global predates this contract and needs updating.
+
+With no host involved the panel logs one `ERR_FILE_NOT_FOUND` for `handoff.json`
+at boot. That is the check for the file, not a fault.
 
 ## Permissions, and why each is needed
 

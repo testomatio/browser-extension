@@ -1,6 +1,6 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
-/* global TestomatAPI, Tooltip, EmptyState, Theme, ViewMode, askForProject, progressToast */
+/* global TestomatAPI, Handoff, Tooltip, EmptyState, Theme, ViewMode, askForProject, progressToast */
 
 // ---------- settings ----------
 
@@ -17,9 +17,17 @@ function tokenHelpBase() {
   }
   return DEFAULT_BASE_URL;
 }
+// The app name rides along so the tester can see, on Testomat.io's own page, what they are
+// authorizing — and so the grant is revocable by name later.
+const AUTH_APP_NAME = 'Testomat.io Extension';
+
 function updateTokenHelpLink() {
   const a = $('token-help-link');
   if (a) a.href = `${tokenHelpBase()}/account/access_tokens`;
+  const auth = $('token-authorize-link');
+  if (auth) {
+    auth.href = `${tokenHelpBase()}/app-auth?app_name=${encodeURIComponent(AUTH_APP_NAME)}`;
+  }
 }
 
 // Does NOT touch the host dropdown or the header project switcher (#103).
@@ -164,8 +172,9 @@ let connectMode = null; // last applied — entering the screen focuses the fiel
 function renderConnection() {
   const card = $('connection-card');
   if (!card) return;
-  const on = !!state.settings && !!state.settings.apiToken;
+  const on = Handoff.credentialed(state.settings);
   card.hidden = !on;
+  renderConnectionSource(on);
   if (!on) return;
   $('connection-host').textContent = hostOf(state.settings.baseUrl) || state.settings.baseUrl;
   // Connected but no project yet is a half-done first run (#11) — the pill says which,
@@ -177,6 +186,28 @@ function renderConnection() {
     pill.textContent = ready ? 'Connected' : 'Project not picked';
     pill.className = `badge ${ready ? 'passed' : 'neutral'} connection-state`;
   }
+}
+
+// A handed-over connection: whose it is, and what leaving it costs. Testers who never pasted a
+// token here would otherwise read the card as their own sign-in.
+function renderConnectionSource(on) {
+  const line = $('connection-source');
+  if (!line) return;
+  if (!on || !state.settings.handoff) { line.hidden = true; return; }
+  line.hidden = false;
+  const app = state.settings.handoffApp || (Handoff.offer() || {}).app
+    || 'the app that opened this browser';
+  if (Handoff.offer()) {
+    line.textContent = `Signed in by ${app}. Disconnect stops it signing you in again — `
+      + 'open the run from there to come back.';
+    return;
+  }
+  // The file is gone, so that browser was closed. Its project token was saved and still opens
+  // THIS project; every other one needs a token of the tester's own.
+  const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session. This project still opens`;
+  line.textContent = state.settings.apiToken
+    ? `${ended}, and everything else uses your own sign-in.`
+    : `${ended}. Authorize above to reach the others.`;
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor
@@ -281,7 +312,7 @@ async function saveSettings() {
     // #146: only an empty INSTANCE is an Advanced problem — a missing token is
     // in Connection, and unfolding Advanced for it would point at the wrong row.
     if (!settings.baseUrl) openSettingsAdvanced();
-    setStatusLine('settings-status', 'Instance and General token are required', 'error');
+    setStatusLine('settings-status', 'Instance and access token are required', 'error');
     return;
   }
   let host;
@@ -311,14 +342,14 @@ async function saveSettings() {
   progressToast('Validating…');
   // Two-step validation (#103). The token's own project list first — that route
   // carries no slug, so it IS the token check an "invalid token" must report.
-  TestomatAPI.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });
+  Handoff.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });
   let projects = null;
   try {
     projects = await TestomatAPI.listProjects();
   } catch (e) {
     if (e.kind === 'auth') {
       setStatusLine('settings-status',
-        `Token rejected by ${host} — create a new General token there and save again`, 'error');
+        `Token rejected by ${host} — authorize there again and save the new token`, 'error');
       return;
     }
     projects = null; // network / server hiccup: the remembered project can still carry us
@@ -345,7 +376,7 @@ async function saveSettings() {
     return;
   }
   // Then the project-scoped v2 call the panel actually runs on.
-  TestomatAPI.configure(settings);
+  Handoff.configure(settings);
   try {
     await TestomatAPI.validate();
   } catch (e) {
@@ -467,6 +498,9 @@ async function forgetInstance(opts = {}) {
       if (active) {
         await chrome.storage.local.remove(HOST_SCOPED_KEYS);
         if (chrome.storage.session) await chrome.storage.session.clear();
+        // A host's offer is a file we cannot delete, and the reload below would take it straight
+        // back — so leaving one is what makes Disconnect stick.
+        if (state.settings && state.settings.handoff) await Handoff.decline();
       }
     }
   } catch (e) { eraseFailed(`forgetting ${host}`, e, statusId); return; }
