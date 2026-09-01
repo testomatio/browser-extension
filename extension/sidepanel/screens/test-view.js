@@ -46,6 +46,7 @@ async function openTestView(recordId) {
   updateTestActionsState();
   renderAttachmentList(); // #107: never let the previous test's attachments linger
   renderPendingAnnotation(); // #192: a kept annotation is offered on its own record only
+  srecOnTestOpen(); // #68: bind a page-started recording to this result, and take a parked file
   applyAttachmentsDisclosure();
   syncFullPageToggles();
   const sk = Skeleton.show('test');
@@ -1394,6 +1395,11 @@ function updateTestActionsState() {
     lock ? lock
       : noResult ? 'No saved result yet — files attach to a test result'
         : degraded ? `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
+          : '', { inline: !lock });
+  applyActionGate('btn-screen-rec', 'screen-rec-reason',
+    lock ? lock
+      : noResult ? 'No saved result yet, a recording attaches to a test result'
+        : degraded ? `Attaching a recording needs an active ${baseUrlHost()} web login, sign in there, then Refresh`
           : '', { inline: !lock });
   // The empty-list dropzone repeats this gate in its own copy, so it repaints when the gate
   // moves. ONLY while it IS the dropzone: rebuilding real rows would drop their thumbnails.

@@ -25,7 +25,14 @@ view, and setting a test to Failed uploads a readable `.txt` log and links it on
 the result. **Attach screenshot** captures the tab — viewport or full page —
 and opens an annotator over the page itself: arrow, box, pixelate and text,
 each selectable afterwards to move or delete. The pixelate tool is a real
-mosaic, and the un-pixelated original is dropped on Apply.
+mosaic, and the un-pixelated original is dropped on Apply. **Attach screen
+recording** records the tab itself into a `.webm` and puts it on the result; the
+timer, Pause and Stop sit on the page, where you are looking, and the recording
+stops itself at five minutes or 50 MB. Chrome's fast capture route wants the
+extension invoked on the tab first; without that grant the panel records over
+the DevTools protocol instead, same file, with Chrome's "…is debugging this
+browser" bar shown while it runs. A right-click item and `Alt+Shift+R` also
+start a recording, straight from the page.
 
 **Tests.** Browse suites and test cases; an existing test opens as a rendered
 read-only view. New test cases are written in a Markdown editor (with suites and

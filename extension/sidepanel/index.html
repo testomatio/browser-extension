@@ -713,6 +713,9 @@
                      input is hidden and the button clicks it, so the panel keeps one button style. -->
                 <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
                 <input id="attach-file-input" type="file" multiple hidden />
+                <!-- #68: the tab's own picture. The controls sit ON THE PAGE while it records (content/rec-bar.js);
+                     this button starts it and, at the stop, uploads what came back. -->
+                <button id="btn-screen-rec" class="btn size-sm"><span class="md-icon" data-icon="videocam"></span><span id="screen-rec-label">Attach screen recording</span></button>
                 <!-- Full-page capture (M2 PR-3): a setting of the next shot, not an act — so it stands apart
                      from the two buttons, at the far end of the row, rather than breaking them up. (A
                      checkbox is what a setting reads as; it writes itself on change, with no Save to belong
@@ -729,6 +732,7 @@
                    row — a sentence has no business inside it. -->
               <p id="screenshot-reason" class="hint inline-reason" hidden></p>
               <p id="attach-file-reason" class="hint inline-reason" hidden></p>
+              <p id="screen-rec-reason" class="hint inline-reason" hidden></p>
               <!-- #192: an annotation the upload re-check refuses is KEPT, not lost — this saves it to disk.
                    Never gated by the run lock: it writes nowhere but the tester's own machine. Its own line:
                    it is a rare recovery step with a long label, not a peer of the two capture buttons. -->
@@ -869,6 +873,7 @@
   <script src="screens/offline-queue.js"></script>
   <script src="screens/evidence.js"></script>
   <script src="screens/attachments.js"></script>
+  <script src="screens/screen-rec.js"></script>
   <script src="screens/hotkeys.js"></script>
   <script src="screens/tc-studio.js"></script>
   <script src="app.js"></script>

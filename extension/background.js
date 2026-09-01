@@ -1,9 +1,10 @@
-// Service worker: panel surface, screenshot capture, step recorder.
-// The evidence recorder holds NO chrome.debugger session — every debugger call here is a screenshot's.
+// Service worker: panel surface, screenshot capture, step recorder, screen recording.
+// The evidence recorder holds NO chrome.debugger session; a debugger call here is a screenshot's,
+// or the screen recording fallback's (screenrec/session.js), which holds one while it records.
 
 /* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording */
 
-importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js');
+importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
@@ -326,13 +327,15 @@ async function trimToDocument(dataUrl, clip) {
 async function shootViaDebugger(tabId, beyondViewport) {
   let clip = null;
   let res;
-  await dbgAttach(tabId);
+  // A cast recording already holds the attach on this tab: share it, and leave it standing.
+  const shared = typeof srecCastOwns === 'function' && srecCastOwns(tabId);
+  if (!shared) await dbgAttach(tabId);
   try {
     if (beyondViewport) clip = await fullPageClip(tabId);
     const shotParams = { format: 'jpeg', quality: 80, captureBeyondViewport: !!beyondViewport };
     if (clip) shotParams.clip = clip;
     res = await dbgSendCmd(tabId, 'Page.captureScreenshot', shotParams);
-  } finally { await dbgDetach(tabId); }
+  } finally { if (!shared) await dbgDetach(tabId); }
   return { res, clip };
 }
 

@@ -68,7 +68,7 @@
        not there when there is nothing to say. */
     .annot-flash { font-size: var(--fs-sm); color: var(--muted); }
     /* The ink: one swatch that opens the eight over it. The popover IS the
-       library's `.menu` (position, depth, padding and shadow come from there);
+       library's .menu (position, depth, padding and shadow come from there);
        what is said here is only where it hangs and that a row of swatches needs
        no minimum width. */
     .annot-ink { position: relative; display: inline-flex; }
