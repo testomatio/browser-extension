@@ -33,15 +33,22 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'none'; script-src 'self'; object-src 'self'; img-src 'self' data: blob:; media-src https: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https: data:; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    "extension_pages": "default-src 'none'; script-src 'self'; object-src 'self'; img-src 'self' data: blob:; media-src https: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https: data: blob:; frame-src 'none'; base-uri 'none'; form-action 'none'"
   },
   "web_accessible_resources": [
     {
-      "resources": ["viewer/viewer.html"],
+      "resources": ["viewer/viewer.html", "screenrec/review.html"],
       "matches": ["<all_urls>"]
     }
   ],
-  "permissions": ["storage", "sidePanel", "debugger", "scripting", "webRequest"],
+  "commands": {
+    "toggle-screen-recording": {
+      "suggested_key": { "default": "Alt+Shift+R" },
+      "description": "Start or stop the screen recording on this tab"
+    }
+  },
+  "permissions": ["storage", "sidePanel", "debugger", "scripting", "webRequest",
+    "tabCapture", "offscreen", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoqlLbtaIjeOwOUDDkGbTb05aCcYnS5CMqNqCW1WBQrB61jzlqzG3wY9y1MAoXCS77kZKSgkCW/VF8WSx23UA5EWzNKph4ZrxdOxvUPMD5ScUKoCNWZkPTvP163wm17w+mCeT6UItKze09WeVzuotbj/7PgNBWGKgzYk1VLMDu+0ZHfEH/yjP1E5hYkxGkB+5f8rLc0bB/MM4iG+8gWTkFlHXlFQp3xEkRui05kO03Z8M5+VMrBeWL6VHIZioOAecTj/+xYLNFb73Y+fl0TrkdwtPFXng7viad8l9HtBovv2KQz5ckKp1yY/mJZdr17bmhZhlOuVSyUewnOqfzkgJtQIDAQAB"
 }

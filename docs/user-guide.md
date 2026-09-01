@@ -317,6 +317,13 @@ of the result, says the test already has one.
   - **📸 Attach screenshot** — capture → annotate → upload,
   - **Full page** — the checkbox under that button: capture the whole scrollable
     page instead of the viewport (remembered),
+  - **🎥 Attach screen recording**, which records the tab itself; the timer,
+    Pause and Stop sit in a small bar on the page. Stop opens a **review** over
+    the page: watch the take, drag on the timeline to cut any ranges (as many as
+    you need — Play skips them, so you see exactly what uploads), then
+    **Attach** puts it on the result as a `.webm`, or **Discard** drops it.
+    Nothing is uploaded until you attach
+    (see [Screen recording](#recorder-limits) for the caps),
   - **📎 Attach file** — pick one or more files from your machine (a spec, an
     export, a video…) and upload them onto this result,
   - the grid of everything already attached to the result — screenshots, the
@@ -774,14 +781,16 @@ What that does and does not mean:
 - **Clicking the toolbar icon** opens the panel, nothing more. Close the panel
   with Chrome's own side-panel close button.
 
-### The "…is debugging this browser" bar
+### The "…is debugging this browser" bar (full-page shots and recordings)
 
-A **Full page** screenshot uses the DevTools protocol, so Chrome flashes its
-infobar over the tab while that shot is taken and drops it straight after. That
-is expected, and it is now the only thing that raises the bar: a plain viewport
-screenshot uses Chrome's own capture and raises nothing, and **recording does
-not** either — it never touches that protocol. Recording also survives DevTools
-being open on the tab.
+Two features raise it, and only these. A **Full page** screenshot uses the
+DevTools protocol, so Chrome flashes the infobar while that one shot is taken
+and drops it straight after. A **screen recording** that had to take the
+DevTools-protocol route (see above) keeps the bar up for the whole recording;
+**Cancel** on the bar stops the recording and keeps the file. A plain viewport
+screenshot uses Chrome's own capture and raises nothing, and the **console &
+network Rec** never touches that protocol at all and survives DevTools being
+open on the tab.
 
 ### Another extension on the page can block a full-page screenshot
 
@@ -841,6 +850,37 @@ Step recorder:
   a card whose whole text is one long paragraph gets no clause rather than a
   truncated one.
 - Recording state is lost on a browser restart (not on a panel reload).
+
+Screen recording:
+
+- **The tab, not the screen.** No system picker appears and nothing outside the
+  tab is recorded. The recording follows the tab it started on, so you can work
+  in another tab meanwhile and it keeps recording that one.
+- **Two capture routes, one file.** Chrome's fast route (`tabCapture`) works
+  only on a tab where the extension was invoked: the toolbar icon clicked on
+  it, the right-click item, or `Alt+Shift+R`. Without that grant the panel
+  records over the DevTools protocol instead: the button simply works, and the
+  one visible difference is Chrome's *"…is debugging this browser"* bar for the
+  duration of the recording. **Cancel** on that bar stops the recording and
+  keeps what was captured. The right-click item and the shortcut also start a
+  recording straight from the page.
+- **If both routes are blocked** (DevTools open on that tab holds the debugger
+  route) the panel says so; close DevTools or use the right-click item.
+- **Caps.** Five minutes or 50 MB, whichever comes first. The bar on the page
+  says which one stopped it, and what was recorded up to then is kept.
+- **Review & trim.** Every Stop opens a review over the page. Drag on its
+  timeline to cut a range — as many cuts as you need, each adjustable by its
+  red handles — and Play skips them, so what you watch is exactly what uploads.
+  Saving a trimmed take replays the kept parts once, so it takes about as long
+  as the footage you keep; the cut ranges and the untrimmed original never
+  leave your machine — the original is destroyed the moment the trim is saved.
+  Closing the review keeps the take waiting: the panel's button reads **Review
+  recording…** until you attach or discard it. It does not survive a browser
+  restart.
+- **Silent.** No sound is recorded, neither the tab's nor a microphone's.
+- **Navigation is fine.** Loading another page in that tab does not end the
+  recording, and the bar comes back with the new page.
+- Like the other recorders, a browser restart ends it.
 
 Console/network recorder:
 

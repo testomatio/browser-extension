@@ -46,6 +46,7 @@ async function openTestView(recordId) {
   updateTestActionsState();
   renderAttachmentList(); // #107: never let the previous test's attachments linger
   renderPendingAnnotation(); // #192: a kept annotation is offered on its own record only
+  srecOnTestOpen(); // #68: bind a page-started recording to this result, and take a parked file
   applyAttachmentsDisclosure();
   syncFullPageToggles();
   const sk = Skeleton.show('test');
@@ -545,14 +546,15 @@ async function artifactSigned(a) {
   return url ? { ...a, url, display_url: url } : a;
 }
 
-// Runner artifacts (#21) ride the SAME `attachments` array as the manual uploads,
-// told apart by the `artifact` flag; attachments.js drops them from its own list.
+// Web parity: the web's Summary lists EVERY file on the result — runner artifacts and manual
+// uploads alike (one `attachments` array, told apart by the `artifact` flag) — so this fold
+// does too. attachments.js still keeps its own fold to the manual ones.
 function renderSummaryArtifacts(attrs) {
   const wrap = $('summary-artifacts');
   const body = $('summary-artifacts-body');
   if (!wrap || !body) return;
   const rows = (Array.isArray(attrs.attachments) ? attrs.attachments : [])
-    .filter((a) => a && a.artifact === true);
+    .filter((a) => a && (a.url || a.name));
   wrap.hidden = rows.length === 0;
   if (!rows.length) {
     ImgHydrate.release(IMG_GROUP_ARTIFACTS); // the thumbnails about to be dropped own these
@@ -1394,6 +1396,11 @@ function updateTestActionsState() {
     lock ? lock
       : noResult ? 'No saved result yet — files attach to a test result'
         : degraded ? `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
+          : '', { inline: !lock });
+  applyActionGate('btn-screen-rec', 'screen-rec-reason',
+    lock ? lock
+      : noResult ? 'No saved result yet, a recording attaches to a test result'
+        : degraded ? `Attaching a recording needs an active ${baseUrlHost()} web login, sign in there, then Refresh`
           : '', { inline: !lock });
   // The empty-list dropzone repeats this gate in its own copy, so it repaints when the gate
   // moves. ONLY while it IS the dropzone: rebuilding real rows would drop their thumbnails.

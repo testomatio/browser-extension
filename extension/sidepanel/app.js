@@ -93,6 +93,7 @@ async function init() {
   }
   initEvidence();
   initAttachments(); // #107: the Attach file button + its hidden native picker
+  initScreenRec(); // #68: the screen recording button and the upload of what it produced
   // While this panel is open the worker must not re-open it on a toolbar click, or the tester
   // loses the page they are on (shared/panel-link.js).
   PanelLink.init();
