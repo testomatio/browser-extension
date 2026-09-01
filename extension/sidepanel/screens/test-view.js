@@ -1410,7 +1410,7 @@ function updateTestActionsState() {
   }
 }
 
-// ---- Attachments & log disclosure ----
+// ---- Attachments disclosure ----
 // Open by default: the files on a result are what the tester came for, and a collapsed
 // section reads as "nothing attached". Closing it is remembered for the panel session.
 let attachmentsOpen = true;
