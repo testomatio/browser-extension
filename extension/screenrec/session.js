@@ -6,7 +6,7 @@
 // Where that grant is missing the recording falls back to CDP screencast over chrome.debugger,
 // which needs no gesture at all, at the price of Chrome's "…is debugging" bar for its duration.
 
-/* global resolveSiteTab */
+/* global resolveSiteTab, SiteTab */
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
@@ -97,6 +97,12 @@ chrome.debugger.onDetach.addListener(async (source) => {
 });
 
 async function srecStartCast(target, recordId) {
+  // The debugger cannot touch chrome://, the Web Store or another extension's pages, and a tab
+  // whose url the worker cannot even read is one of those — say what every capture path says
+  // instead of aiming the attach at it and relaying Chrome's cryptic refusal.
+  if (!SiteTab.originOf(target.url)) {
+    return { ok: false, reason: SiteTab.restrictedCopy('recorded') };
+  }
   try {
     await castAttach(target.id);
   } catch (e) {
@@ -130,7 +136,10 @@ function srecName() {
 async function srecStart({ recordId = null, tab = null } = {}) {
   const live = await srecGet();
   if (live && live.recording) return { ok: false, reason: 'A screen recording is already running' };
-  let target = tab && tab.id != null ? tab : null;
+  // A hotkey or the menu hands the tab it fired on, which can be a page no extension may
+  // touch (chrome://, another extension's page) — those fall through to the resolver, which
+  // knows how to stand the bound site tab in instead.
+  let target = tab && tab.id != null && SiteTab.originOf(tab.url) ? tab : null;
   if (!target) {
     const site = await resolveSiteTab({ verb: 'recorded', activate: true });
     if (site.state !== 'ok') return { ok: false, reason: site.error };
