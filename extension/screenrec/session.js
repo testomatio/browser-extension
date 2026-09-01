@@ -6,7 +6,7 @@
 // Where that grant is missing the recording falls back to CDP screencast over chrome.debugger,
 // which needs no gesture at all, at the price of Chrome's "…is debugging" bar for its duration.
 
-/* global resolveSiteTab, SiteTab */
+/* global resolveSiteTab, SiteTab, dbgIsForeignFrame, foreignFramesOut, foreignFramesBack */
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
@@ -92,6 +92,7 @@ chrome.debugger.onDetach.addListener(async (source) => {
   castTab = null;
   const st = await srecGet();
   if (!st || !st.recording || st.mode !== 'cast') return;
+  if (st.framesOut) await foreignFramesBack(source.tabId);
   const res = await srecOff({ cmd: 'stop', reason: 'user' });
   await srecFinish((res && res.file) || null, st, 'user');
 });
@@ -103,21 +104,35 @@ async function srecStartCast(target, recordId) {
   if (!SiteTab.originOf(target.url)) {
     return { ok: false, reason: SiteTab.restrictedCopy('recorded') };
   }
+  // #101's disease strikes here too: a chrome-extension:// frame in the page — typically a DEAD
+  // one left by a disabled or updated extension — makes Chrome refuse the attach. Same cure as
+  // the full-page shot: frames out, one more try, and back where they were when the recording ends.
+  let framesOut = false;
   try {
     await castAttach(target.id);
   } catch (e) {
-    // Usually DevTools (or another extension's debugger) holding the tab.
-    return { ok: false, reason: 'cast-attach', error: String((e && e.message) || e) };
+    const msg = String((e && e.message) || e);
+    // Without a foreign frame in play this is usually DevTools (or another debugger) holding the tab.
+    if (!dbgIsForeignFrame(msg)) return { ok: false, reason: 'cast-attach', error: msg };
+    await foreignFramesOut(target.id);
+    framesOut = true;
+    try {
+      await castAttach(target.id);
+    } catch (e2) {
+      await foreignFramesBack(target.id);
+      return { ok: false, reason: 'cast-attach-frame', error: String((e2 && e2.message) || e2) };
+    }
   }
   await srecEnsureDoc();
   const started = await srecOff({ cmd: 'cast-start' });
   if (!started || !started.ok) {
     await castDetach(target.id);
+    if (framesOut) await foreignFramesBack(target.id);
     await srecCloseDoc();
     return { ok: false, reason: 'Chrome refused the capture' };
   }
   castTab = target.id;
-  await srecSet({ recording: true, paused: false, tabId: target.id, recordId, mode: 'cast', startedAt: Date.now() });
+  await srecSet({ recording: true, paused: false, tabId: target.id, recordId, mode: 'cast', framesOut, startedAt: Date.now() });
   await castSend(target.id, 'Page.startScreencast', CAST_PARAMS).catch(() => {});
   await srecInjectBar(target.id);
   srecTell({ type: 'SCREENREC_EVENT', event: 'started', tabId: target.id });
@@ -172,6 +187,8 @@ async function srecStop(reason) {
     castTab = null; // silence onDetach, this stop already owns the finish
     await castSend(tabId, 'Page.stopScreencast').catch(() => {});
     await castDetach(tabId);
+    // A closed tab throws inside the restore's own try — calling is safe either way.
+    if (st.framesOut) await foreignFramesBack(tabId);
   }
   const res = await srecOff({ cmd: 'stop', reason });
   await srecFinish((res && res.file) || null, st, reason);

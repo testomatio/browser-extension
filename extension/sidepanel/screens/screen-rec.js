@@ -49,6 +49,13 @@ async function srecShortcut() {
 }
 
 async function srecStartHint(res) {
+  if (res && res.reason === 'cast-attach-frame') {
+    // The frames-out rescue ran and Chrome still refused — reloading the page is what clears it.
+    const key = await srecShortcut();
+    return 'Another extension left a frame on this page and Chrome blocks the recording — '
+      + `reload the page${key ? `, or press ${key} on the tab` : ''}.`
+      + (res.error ? ` Chrome says: ${res.error}` : '');
+  }
   if (!res || res.reason !== 'cast-attach') return (res && res.reason) || 'Chrome refused the capture';
   // Both routes are taken: the debugger fallback is held by DevTools (or another debugger),
   // and only a real gesture on the tab unlocks the tabCapture route.
