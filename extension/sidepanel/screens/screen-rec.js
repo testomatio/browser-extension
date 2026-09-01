@@ -55,7 +55,9 @@ async function srecStartHint(res) {
   const key = await srecShortcut();
   return 'Another debugger holds that tab (DevTools open?). Close it, '
     + (key ? `or press ${key} on the tab, ` : '')
-    + 'or right-click the page and choose "Record this tab for Testomat.io".';
+    + 'or right-click the page and choose "Record this tab for Testomat.io".'
+    // The raw refusal names the holder when Chrome knows it — worth more than our guess.
+    + (res.error ? ` Chrome says: ${res.error}` : '');
 }
 
 async function onScreenRecClick() {
