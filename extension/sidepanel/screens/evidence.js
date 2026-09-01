@@ -3,7 +3,7 @@
 // recorder is the source of truth.
 
 /* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
-   HoverCard, EmptyState, paintCounter, svgIcon, openAttachmentsDisclosure */
+   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection */
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
@@ -288,7 +288,7 @@ function evCardFoot() {
     const open = document.createElement('button');
     open.type = 'button';
     open.className = 'link-btn';
-    open.textContent = 'Open in Attachments & log';
+    open.textContent = 'Open the console & network log';
     open.addEventListener('click', () => { revealEvidenceSection(); if (evUi.card) evUi.card.close(); });
     const stop = document.createElement('span');
     stop.className = 'hovercard-meta rec-card-stop';
@@ -351,11 +351,15 @@ function evAge(ts) {
   return m < 60 ? `${m}m` : `${Math.round(m / 60)}h`;
 }
 
-// Lands on the rows themselves, expanded — not merely on the screen holding them.
+// Lands on the rows themselves, expanded — not merely on the screen holding them. The fold
+// lives in the Status tab, which a test does NOT open on, so the tab is switched FIRST: the
+// unfold alone would have happened behind a hidden pane, and the click would read as dead.
+// An empty log opens all the same — "nothing captured yet" is the answer the tester came for.
 function revealEvidenceSection() {
   if (state.view !== 'test') return;
-  if (typeof openAttachmentsDisclosure === 'function') openAttachmentsDisclosure();
+  showTestSection('status');
   if (!evUi.sectionOpen) toggleEvidenceHead();
+  else renderEvidenceList(); // already open: repaint, the pane may have been hidden since
   const sec = $('evidence-section');
   if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
@@ -412,37 +416,27 @@ function evWindowSeconds() {
   return Math.min(600, Math.max(10, Math.round(n)));
 }
 
-// Shown only while NOT recording — the live errors list takes its place once a
-// recording starts.
-function updatePrearmHint() {
-  const el = $('prearm-hint');
-  if (!el) return;
-  const show = state.view === 'test' && !evUi.recording;
-  el.hidden = !show;
-  if (show) {
-    el.textContent = `Recording is off — start it (Rec in the header) BEFORE reproducing: `
-      + `it captures the last ${evWindowSeconds()}s.`;
-  }
-}
-
 function updateEvidenceSection() {
-  updatePrearmHint();
   const sec = $('evidence-section');
   if (!sec) return;
-  const show = state.view === 'test' && evUi.recording;
-  sec.hidden = !show;
+  // The fold belongs to the TEST view, not to the recording: idle it is the one place that
+  // answers "where do the logs come from?" — a section that only exists once you already
+  // found Rec teaches nobody. Only leaving the test takes it away.
+  const onTest = state.view === 'test';
+  sec.hidden = !onTest;
   // The expanded-row keys retire with the list — a later recording must not
   // reopen rows the tester opened in a previous one (#150).
-  if (!show) { evUi.expanded.clear(); return; }
+  if (!onTest || !evUi.recording) evUi.expanded.clear();
+  if (!onTest) return;
   renderEvidenceList();
 }
 
 function toggleEvidenceHead() {
   evUi.sectionOpen = !evUi.sectionOpen;
   const head = $('evidence-head');
-  const list = $('evidence-list');
+  const body = $('evidence-body');
   if (head) head.setAttribute('aria-expanded', evUi.sectionOpen ? 'true' : 'false');
-  if (list) list.hidden = !evUi.sectionOpen;
+  if (body) body.hidden = !evUi.sectionOpen;
   // The poll belongs to the RECORDING, not to this fold — the rows only have to
   // be painted from what it last brought back.
   if (evUi.sectionOpen) { renderEvidenceList(); pollEvidenceErrors(); }
@@ -476,16 +470,38 @@ async function pollEvidenceErrors() {
   if (evUi.card) evUi.card.update(); // a card the pointer is resting in gains the new row
 }
 
+// The idle body: how to GET a log, in one line. It names Rec because the chip is right
+// there in the header on this view (renderEvidenceToggle) — and says what the recorder
+// keeps, since arming it after the bug is arming it too late.
+function evIdleHint() {
+  const rec = document.createElement('strong');
+  rec.textContent = 'Rec';
+  return EmptyState.build({
+    tag: 'li',
+    compact: true,
+    className: 'evidence-empty',
+    icon: 'fiber_manual_record',
+    text: ['Not recording. Click ', rec, ' at the top of the panel to capture this tab\u2019s console '
+      + `and failed requests \u2014 the last ${evWindowSeconds()}s are kept, and marking the test Failed attaches them.`],
+  });
+}
+
 // Paints from `evUi.errors` (the poll's copy) — never fetches on its own.
 function renderEvidenceList() {
   const ul = $('evidence-list');
   const count = $('evidence-count');
-  if (!ul) return;
-  if (!evUi.recording || state.view !== 'test') return;
-  const entries = evUi.errors;
-  if (count) count.textContent = String(entries.length);
+  if (!ul || state.view !== 'test') return;
+  const entries = evUi.recording ? evUi.errors : [];
+  // Idle carries NO figure: a "0" beside the name would read as "recorded, and the page
+  // was clean", which is the opposite of "nothing has been recorded".
+  if (count) {
+    count.hidden = !evUi.recording;
+    if (evUi.recording) paintCounter(count, entries.length);
+    else count.textContent = '';
+  }
   if (!evUi.sectionOpen) return; // folded away: nothing to paint until it opens
   ul.replaceChildren();
+  if (!evUi.recording) { ul.append(evIdleHint()); return; }
   if (!entries.length) {
     // A TICK, not a shrug — an empty errors-only log means the page behaved.
     ul.append(EmptyState.build({

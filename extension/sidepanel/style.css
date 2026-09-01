@@ -153,14 +153,27 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
   padding: var(--space-3);
   margin-bottom: var(--space-2);
 }
-.connection-icon { color: var(--passed); }
-.connection-host {
+.connection-icon { flex: none; color: var(--passed); }
+.connection-card[data-state="pending"] .connection-icon { color: var(--muted); }
+/* Host on line one, the Connected pill under it — the column takes the slack so the
+   Disconnect button stays pinned right however long the host is. */
+.connection-main {
+  display: flex;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.connection-host {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   overflow-wrap: anywhere;
   font-weight: var(--weight-medium);
 }
+.connection-state { flex: none; }
+.connection-card > .btn { flex: none; }
 #connection-status:empty { display: none; }
 
 /* ---- First-run connect screen (screens/settings.js applyConnectMode) ---- */
@@ -219,6 +232,55 @@ body[data-connect="true"] .header-top { display: none; }
 .connect-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
 .connect-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
 
+/* ---- Choose a project (screens/project-pick.js) ---- */
+/* Step two of the first run, and the only screen between a saved token and a scoped panel — so it
+   takes the panel whole, the way the connect screen before it does: nothing above it is scoped by a
+   project yet, and the tabs would offer two disabled ones. */
+body[data-view="pick"] #project-bar,
+body[data-view="pick"] #header-top { display: none; }
+/* A column, so the LIST is what gives its height and the footer lands on the panel's bottom edge —
+   the #view-tclist deal, and the same full-bleed row. Unlike that view the column is CAPPED at the
+   viewport and the scrolling moves inside the list: the title, the search and the Disconnect footer
+   are the screen's fixed frame, and scrolling a hundred projects must not carry the search box off
+   the top or the footer out of reach. Only this view pins the body — every other one still scrolls
+   the document. */
+body[data-view="pick"] { height: 100vh; overflow: hidden; }
+body[data-view="pick"] main { min-height: 0; overflow: hidden; }
+#view-pick:not([hidden]) { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#pick-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The frame: these keep their measured height while the list absorbs whatever is left. */
+.pick-head, .pick-field, #pick-status, .pick-footer { flex: 0 0 auto; }
+.pick-head { margin: 0 0 var(--space-4); }
+.pick-title { margin: 0 0 var(--space-2); font-size: var(--fs-title-lg); font-weight: var(--weight-semibold); }
+.pick-sub { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-normal); }
+.pick-field { margin-bottom: var(--space-2); }
+/* The rows are the popup's (projectRowEl, core/project-switcher.js), which brings its own two lines
+   and its trailing count but not the box around them — in the popup that is .menu-option's job, and
+   here it is .list's, which is what gives the screen its rules, its hover and its 32px floor. */
+.pick-list > li { display: flex; align-items: center; gap: var(--space-2); }
+.pick-list > li.active { background: var(--row-hover); }
+/* Filtered down to nothing, the LIST stops taking the height and the empty state takes it instead —
+   otherwise "No project matches" is pushed to the panel's bottom edge, right onto the footer. */
+#pick-list:empty { flex: none; }
+#pick-empty:not([hidden]) { flex: 1 1 auto; }
+#pick-status:empty { display: none; }
+/* Past main's bottom padding, so the row sits ON the edge instead of a gutter above it (.tc-quick-bar
+   says the same). The host is what Disconnect acts on, hence its name beside the button. */
+.pick-footer {
+  z-index: var(--z-sticky);
+  margin: var(--space-3) calc(-1 * var(--gutter)) calc(-1 * var(--gutter));
+}
+.pick-footer-host {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.pick-host { color: var(--fg); font-weight: var(--weight-medium); }
+
 /* ---- Project switcher (#103) ---- */
 /* The menu anchors to the ROW, not to the trigger, so the bar is the positioned box (full-width picker).
    position: relative ONLY — a z-index here would trap the popup, which has to compete in the ROOT
@@ -265,8 +327,9 @@ body[data-connect="true"] .header-top { display: none; }
 #btn-refresh.spinning .md-icon { animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { #btn-refresh.spinning .md-icon { animation: none; } }
 
-/* Pinned to both gutters of the bar, so the list is as wide as the row whatever the trigger measures. */
-.project-menu { left: 0; right: 0; }
+/* Nearly as wide as the row, less a hair at each end: hard against the panel's edge the list would read
+   as part of the frame rather than as a popup over it. */
+.project-menu { left: var(--space-2); right: var(--space-2); }
 .project-filter { margin: 0; }
 /* The shared .menu-list 240px cap is sized for small popups — this list may take most of a short panel (full-width picker). */
 .project-list { max-height: min(60vh, 480px); }
@@ -590,7 +653,6 @@ body[data-connect="true"] .header-top { display: none; }
    and this file loads AFTER the library, so a margin: 0 here would quietly cancel the bleed. */
 .next-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
 #test-actions textarea { margin: var(--space-2) 0; }
-#btn-attach-file { margin-top: var(--space-2); }
 /* Gate reason for a disabled control, shown inline (touch has no hover). */
 .inline-reason { margin: var(--space-1) 0 0; }
 .status-lock-reason { margin: 0 0 var(--space-3); }
@@ -641,8 +703,95 @@ body[data-connect="true"] .header-top { display: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.prearm-hint { margin: 0 0 var(--space-2); line-height: var(--leading-snug); }
-.fullpage-row { margin: var(--space-1) 0; font-size: var(--fs-sm); color: var(--muted); }
+
+/* The bin in a tile's corner. Out of sight until the tile is hovered (or something in it is
+   focused, so the keyboard never loses it); it is absolutely placed, so revealing it moves
+   nothing. RED only under the pointer itself: it is destructive. */
+.file-tile-item { position: relative; min-width: 0; }
+.attachment-del {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  color: var(--muted);
+  border-color: var(--border);
+  background: var(--bg);
+  visibility: hidden;
+  opacity: 0;
+  /* .btn's own transition list, plus opacity — a bare `transition: opacity` here would replace it and
+     the colour change on hover would snap. */
+  transition: background-color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease),
+              color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              opacity var(--dur-fast) var(--ease);
+}
+.file-tile-item:is(:hover, :focus-within) .attachment-del { visibility: visible; opacity: 1; }
+.attachment-del:hover:not(:disabled) { color: var(--failed); border-color: var(--failed); background: var(--failed-bg); }
+/* Scoped to the revealed state, or the reveal above would out-specify it and a locked bin would come
+   back at full strength. */
+.file-tile-item:is(:hover, :focus-within) .attachment-del:disabled { opacity: 0.4; }
+/* No pointer, no hover: a touch panel can never reveal it, so there it simply stays. */
+@media (hover: none) {
+  .attachment-del { visibility: visible; opacity: 1; }
+}
+
+/* The empty grid is a DROP TARGET, not a sentence — a dashed frame is the shape a tester already
+   reads as "put it here". It spans the grid (.file-grid > .attachment-empty above) and stays small
+   on purpose: it sits inside a disclosure that is one of three sections. */
+.attachment-empty { list-style: none; }
+.attachment-dropzone {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  text-align: left;
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.attachment-dropzone:hover { border-color: var(--accent); background: var(--hover-overlay); }
+/* The drag state is the SAME accent as hover, one step louder: the pointer is already over it,
+   so only the fill can carry "let go now". */
+.attachment-dropzone.is-over {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--row-active);
+}
+/* Gated (no result yet, a locked run, no web login): it keeps the frame so the section does not
+   change shape, and drops every affordance — no pointer, no hover, no focus. */
+.attachment-dropzone.is-locked { cursor: default; border-style: dashed; opacity: 0.75; }
+.dropzone-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+.dropzone-body { min-width: 0; }
+.dropzone-title { margin: 0; color: var(--fg); font-size: var(--fs-sm); font-weight: var(--weight-medium); }
+.dropzone-hint { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-2xs); line-height: var(--leading-normal); }
+/* The whole zone is the target — a child under the pointer must not steal the dragleave. */
+.attachment-dropzone * { pointer-events: none; }
+
+.fullpage-row { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+/* One line: the two capture buttons packed at the left, the Full-page option pushed to the far right by
+   the auto margin. Two acts and one setting — the gap between them is what says which is which.
+   It still wraps, and on the second line the option keeps to the right edge. */
+.attach-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* The label centres on the buttons here: its default top-nudge is for a label that wraps under its own
+   control, and in a row it reads as a misalignment. */
+.attach-actions .fullpage-row { margin-left: auto; align-items: center; line-height: var(--leading-none); }
+.attach-actions .fullpage-row > input[type="checkbox"] { margin-top: 0; }
 
 /* A plain border-bottom, NOT the header bar's inset pseudo-element trick: that bar is full-bleed and
    has to claw its inset back, while this row already lives inside main's own gutter padding. */
@@ -666,9 +815,12 @@ body[data-connect="true"] .header-top { display: none; }
 }
 .summary-message.is-failed { background: var(--failed-bg); color: var(--failed-fg); }
 .summary-message.is-ok { background: var(--passed-bg); color: var(--passed-fg); }
-/* A reporter message is printed verbatim and also wears '.code', so the status tint here has to win
-   over the code well's own grey. */
-.summary-message.is-raw { background: none; }
+/* A reporter message is printed verbatim and also wears '.code': it keeps the mono face and the
+   pre-wrap, but the status tint above wins over the code well's own grey, so assertion output reads
+   as the same red banner the web app shows — not as a bare block of grey text. */
+.summary-message.is-raw { border: 1px solid transparent; }
+.summary-message.is-raw.is-failed { border-color: var(--failed-ring); }
+.summary-message.is-raw.is-ok { border-color: var(--passed-ring); }
 .summary-message.markdown { margin-bottom: 0; }
 .summary-message.markdown > :first-child { margin-top: 0; }
 .summary-message.markdown > :last-child { margin-bottom: 0; }
@@ -677,25 +829,66 @@ body[data-connect="true"] .header-top { display: none; }
    that already pads, it only makes this section sit lower than Failure and Meta. */
 #summary-artifacts-body { margin: 0; }
 
-/* Reported steps (#202, front nested-steps.hbs). The nesting indent lives on .summary-step-kids — the
-   container the toggle hides — so one level still costs exactly one --space-3. */
-.summary-step-kids { padding-left: var(--space-3); }
-#summary-steps-body > .summary-step-group { padding: var(--space-1) 0; }
-#summary-steps-body > .summary-step-group + .summary-step-group { border-top: 1px solid var(--row-border); }
+/* Reported steps (#202, front nested-steps.hbs), drawn as the panel's TREE (shared/components.css TREE):
+   a 20px chevron slot, a 20px status slot, then the title — three columns every row pays for, leaf or
+   not, so the marks line up down the whole list.
+   --row-px: 0px — the accordion body already holds the side padding, so the tree measures from its own
+   edge and the guide below lands on the chevron's centre. It carries the UNIT: --tree-guide's
+   `calc(var(--row-px) + …)` is invalid with a bare 0 and the line falls back to its static spot. */
+#summary-steps-body {
+  --row-px: 0px;
+  /* The figure .tree-row.has-chevron computes for itself — the chevron slot and the gap after it. The
+     rule below reads it off the BODY because it is drawn by the row's parent, which the row's own
+     custom property cannot reach. */
+  --row-rule-inset: calc(var(--row-px) + var(--space-5) + var(--space-2));
+}
+/* THE GUIDE — the same line an open folder drops in the runs tree, and drawn the same way: by the
+   CONTAINER of what was opened, never by the row. `.summary-step-kids` IS a `.tree-children`
+   (shared/components.css), so it brings the 28px step and the guide with it — the line starts exactly
+   where the parent row ends and stops with the last thing inside it. Two things fall out of that: a
+   step folded shut draws no line at all, because the container it would come from is hidden; and a
+   title that wraps to a second line never has the guide running up beside its own text, which a spine
+   measured from the group's top could not avoid. */
+.summary-step-group { position: relative; }
+
+/* One step's OWN block: the row plus what hangs under it. The rule closes it — children come after,
+   below the line and one 28px step in. It starts at the STATUS column, never under the chevron: the
+   chevron is the control that opens the row, not part of the line of text the rule underscores. Every
+   row pays for that column, chevron or not, so the whole list is ruled from one x. */
+.summary-step-self { position: relative; padding: var(--space-1) 0; }
+.summary-step-self::after {
+  content: "";
+  position: absolute;
+  left: var(--row-rule-inset);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--row-border);
+  pointer-events: none;
+}
+/* Direct children only — same call as the list's (.list > li:last-child): a nested last row still rules,
+   or the block it ends would run into the next top-level step with nothing between them. */
+#summary-steps-body > .summary-step-group:last-child > .summary-step-self::after { content: none; }
 .summary-step {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: var(--space-2);
-  padding: 1px 0;
+  min-height: var(--space-5);
   font-size: var(--fs-sm);
+  /* 20 — one line box, exactly the height of the glyph slots beside it, so a wrapping title keeps its
+     first line on the marks' centre line. */
+  line-height: var(--space-5);
 }
-.summary-step-toggle { flex: none; color: var(--muted); }
-.summary-step-toggle > .md-icon, .summary-step-toggle > svg {
-  transition: transform var(--dur-fast) var(--ease);
-}
-.summary-step-toggle[aria-expanded="true"] > .md-icon,
+/* The tree's own chevron, not a control: .tree-icon gives it the slot, the reset gives it no chrome.
+   The hover plate is the only thing that says it is pressable. */
+.summary-step-toggle { border-radius: var(--radius-sm); }
+.summary-step-toggle:hover { background: var(--hover-overlay); color: var(--fg); }
+.summary-step-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.summary-step-toggle > svg { transition: transform var(--dur) var(--ease); }
 .summary-step-toggle[aria-expanded="true"] > svg { transform: rotate(90deg); }
-.summary-step-dot { flex: none; color: var(--muted); }
+/* The unset ring is a WHOLE circle where a tick or a cross is a mark inside its box — at one size it
+   reads heavier than either. Only the glyph shrinks: the 20px slot stays, so the title column does too. */
+.summary-step-dot[data-status=""] > svg { width: 13px; height: 13px; }
 .summary-step-dot[data-status="passed"] { color: var(--passed); }
 .summary-step-dot[data-status="failed"] { color: var(--failed); }
 .summary-step-dot[data-status="skipped"] { color: var(--skipped); }
@@ -712,27 +905,53 @@ body[data-connect="true"] .header-top { display: none; }
 .summary-step-status[data-status="failed"] { color: var(--failed); }
 .summary-step-status[data-status="skipped"] { color: var(--skipped); }
 .summary-step-duration { flex: none; color: var(--muted); font-size: var(--fs-2xs); }
+/* What hangs off a step — its error, its log — is nested content like its children are, so it is drawn
+   to the same two numbers the open subtree is: one 28px step in, and the guide down the chevron's
+   centre. Each block draws its own, top to bottom, so the line bounds exactly what it holds instead of
+   running on past it — the way an open folder's guide bounds its children in the runs tree. */
 .summary-step-error {
-  padding: 0 0 var(--space-1) var(--space-5);
+  position: relative;
+  padding: 0 0 var(--space-1) var(--space-7);
   color: var(--failed);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   overflow-wrap: anywhere;
 }
-.summary-step-log,
-.summary-step-atts {
-  margin: var(--space-1) 0 var(--space-2) var(--space-4);
-  padding-left: var(--space-2);
-  border-left: 2px solid var(--border);
+.summary-step-error::before,
+.summary-step-log::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--tree-guide, calc(var(--row-px, var(--space-2)) + var(--space-5) / 2));
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
 }
+/* Red is for errors, and nothing else in this list is red: over an error, and over the length of a
+   FAILED log, the guide is repainted in the failure colour — same line, same 1px, same axis. */
+.summary-step-error::before,
+.summary-step-log.is-failed::before { background: var(--failed); }
+/* An error and the log that explains it are ONE red column, not two segments with a gap between them:
+   whichever of the pair runs on closes up against the next. */
+.summary-step-error:has(+ .summary-step-log) { padding-bottom: 0; }
+.summary-step-error + .summary-step-log { margin-top: 0; }
 .summary-step-log {
+  position: relative;
+  margin: var(--space-1) 0;
+  padding-left: var(--space-7);
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.summary-step-log.is-failed { border-left-color: var(--failed); }
+/* The files of an Attachments node, which is a CHILD row: its parent's guide already runs past it, so
+   it takes only the step in. */
+.summary-step-atts {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-7);
+}
 .summary-step-log a { overflow-wrap: anywhere; }
 .summary-step-atts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 /* The step tree's own screenshot frame (#205) — the file GRIDS use .file-tile instead. */
@@ -917,9 +1136,9 @@ button.summary-step-att-link:focus-visible { outline: 2px solid var(--focus); ou
   height: calc(var(--fs-sm) * var(--leading-snug));
 }
 
-.evidence-section { margin: var(--space-2) 0 var(--space-1); }
-
-.evidence-list { margin: var(--space-1) 0 0; max-height: 190px; }
+/* Its own accordion item now (a sibling of Attachments), so the fold's own padding carries the
+   inset — the list adds none of its own. */
+.evidence-list { margin: 0; max-height: 190px; }
 .evidence-row { padding: 0; }
 .evidence-row:hover { background: none; }
 .ev-row-head {

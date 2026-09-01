@@ -41,7 +41,22 @@ window.AnnotateCore = (() => {
   const HANDLE_CSS = 9;      // CSS px (scaled to natural)
   const HANDLE_HIT_CSS = 12;
   // Freehand only: a glyph cursor would cover the corner a geometric drag starts on.
-  const CURSOR_GLYPH = { pen: 'draw', highlight: 'ink_highlighter' };
+  // Drawn here rather than lifted from the toolbar glyphs: a cursor wants a slim
+  // silhouette and a nib that sits exactly on the pixel the ink lands on. The art is
+  // a 32x32 box, nib down-left; `tip` is the hotspot in that same box.
+  const CURSOR_ART = {
+    // A fineliner: tapered nib, straight barrel, domed cap.
+    pen: {
+      tip: [4, 28],
+      path: 'M4 28 7.18 20.58 7.68 18.24 18.64 7.28A4.3 4.3 0 0 1 24.72 13.36L13.76 24.32 11.42 24.82Z',
+    },
+    // A marker: slanted chisel edge, a collar of daylight, then a fatter barrel.
+    highlight: {
+      tip: [5, 27.2],
+      path: 'M1.62 25.98 5.21 19.63 12.57 26.99 8.38 28.42Z'
+          + 'M7.33 17.51 17.58 7.26A5.2 5.2 0 0 1 24.94 14.62L14.69 24.87Z',
+    },
+  };
   const CURSOR_PX = 28;      // the OS still draws a cursor image this size at 1:1
 
   // `id` is also the op's `tool`: 'pixelate' keeps that id (stored ops and the e2e
@@ -915,19 +930,20 @@ window.AnnotateCore = (() => {
     }
 
     // ---- the drawing cursor -------------------------------------------------
-    // Built from the same Material path the tool's button wears (shared/icons.js).
+    // The pen and the marker wear their own art (CURSOR_ART), inked in the chosen colour.
     function cursorFor(t) {
-      const name = CURSOR_GLYPH[t];
-      const path = name && typeof Icons !== 'undefined' && Icons.PATHS ? Icons.PATHS[name] : null;
-      if (!path) return '';
-      const box = Icons.boxOf ? Icons.boxOf(name) : '0 -960 960 960';
+      const art = CURSOR_ART[t];
+      if (!art) return '';
       // A halo in the opposite ink, so the glyph survives a white dialog and a dark shot.
       const halo = color === '#ffffff' ? '#171717' : '#ffffff';
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CURSOR_PX}" height="${CURSOR_PX}" viewBox="${box}">`
-        + `<path d="${path}" fill="${color}" stroke="${halo}" stroke-width="72"`
-        + ' stroke-linejoin="round" paint-order="stroke"/></svg>';
-      // Both glyphs are drawn nib-down-left, and the nib is where the ink lands.
-      return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") 2 ${CURSOR_PX - 3}, crosshair`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${CURSOR_PX}" height="${CURSOR_PX}" viewBox="0 0 32 32">`
+        + `<path d="${art.path}" fill="${color}" stroke="${halo}" stroke-width="2.2"`
+        + ' stroke-linejoin="round" stroke-linecap="round" paint-order="stroke"/></svg>';
+      // The nib is where the ink lands, so the hotspot rides it.
+      const k = CURSOR_PX / 32;
+      const hx = Math.round(art.tip[0] * k);
+      const hy = Math.round(art.tip[1] * k);
+      return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${hx} ${hy}, crosshair`;
     }
     function paintCursor() {
       if (!canvas) return;
@@ -1260,7 +1276,7 @@ window.AnnotateCore = (() => {
         ['⌘/Ctrl Z', 'Undo'],
         ['⇧⌘/Ctrl Z', 'Redo'],
         ['Delete', 'Remove the selected annotation'],
-        ['⌘/Ctrl ⏎', 'Apply'],
+        ['⌘/Ctrl ⏎', 'Save'],
         ['Esc', 'Keep the original'],
         ['?', 'This list'],
       ];
@@ -1305,7 +1321,7 @@ window.AnnotateCore = (() => {
       spacer.className = 'annot-spacer';
       const discardBtn = mkBtn('annot-discard', 'Discard', 'Discard the screenshot — attach nothing', 'danger');
       const keepBtn = mkBtn('annot-keep', 'Keep original', 'Close and keep the raw screenshot — the annotations AND the crop are dropped (Esc)');
-      const applyBtn = mkBtn('annot-apply', 'Apply', 'Flatten and return the annotated image (⌘/Ctrl ⏎)', 'primary');
+      const applyBtn = mkBtn('annot-apply', 'Save', 'Flatten and return the annotated image (⌘/Ctrl ⏎)', 'primary');
 
       bar.append(
         mkToolRail(), mkSep(),

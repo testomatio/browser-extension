@@ -1,6 +1,7 @@
 // Test-view hotkeys (web-runner parity) and the tab-screenshot capture helpers.
 
-/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip */
+/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, attRemember,
+   renderAttachmentList, progressToast, hideToast */
 
 // ---------- hotkeys (US5) ----------
 // Cmd/Ctrl+Enter/U/I mark passed/failed/skipped through the SAME clickStatus the
@@ -141,6 +142,21 @@ async function savePendingAnnotation() {
   }
 }
 
+// The worker does the shooting, and an MV3 worker can be torn down mid-job — a promise that
+// never settles would leave the panel saying "Capturing tab…" for good. Well past a full-page
+// shot, so a slow page still lands; only a dead worker hits it.
+const CAPTURE_TIMEOUT_MS = 30000;
+
+function captureTab(fullPage) {
+  const asked = chrome.runtime.sendMessage({ type: 'captureTab', fullPage })
+    .catch((e) => ({ ok: false, error: String(e?.message || e) }));
+  const gaveUp = new Promise((resolve) => setTimeout(() => resolve({
+    ok: false,
+    error: 'the screenshot service did not answer — reload the extension on chrome://extensions and try again',
+  }), CAPTURE_TIMEOUT_MS));
+  return Promise.race([asked, gaveUp]);
+}
+
 // Capture → annotate → upload. Apply uploads the merged JPEG even with zero
 // annotations, Keep original the raw shot, Discard returns null (no upload).
 async function attachScreenshotAnnotated() {
@@ -164,11 +180,10 @@ async function attachScreenshotAnnotated() {
       toast(perm.error);
       return;
     }
-    setStatusLine('test-status', 'Capturing tab…');
+    progressToast('Capturing tab…');
     const fullPage = fullPageCaptureEnabled();
-    const resp = await chrome.runtime.sendMessage({ type: 'captureTab', fullPage }).catch((e) => ({ ok: false, error: String(e) }));
+    const resp = await captureTab(fullPage);
     if (!resp?.ok) {
-      setStatusLine('test-status', '', '');
       // #101: another extension's frame blocked the debugger and the viewport
       // rescue is short of `activeTab` — the worker's sentence names the fix.
       toast(resp?.needsGrant ? resp.error : `Capture failed: ${resp?.error || 'unknown'}`, { error: true });
@@ -176,22 +191,29 @@ async function attachScreenshotAnnotated() {
     }
     // #101: the debugger was refused, so this is the viewport alone — never let a
     // "Full page" request hand back a cropped shot silently.
+    // One plaque at a time: the warning IS the message here, so it stands in place of the
+    // "Annotating…" step — the annotator itself is on the page, where the panel says nothing.
     if (fullPage && resp.viewportOnly) toast('Full page needs the debugger, which this page blocks — captured the viewport.', { ms: 8000 });
-    setStatusLine('test-status', 'Annotating…');
+    else progressToast('Annotating…');
     const annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
-    if (!annotated) { setStatusLine('test-status', '', ''); return; } // Discard — no upload, no state change
+    if (!annotated) { hideToast(); return; } // Discard — no upload, no state change
     // #187: the annotator is interactive and the run can finish under it, so the
     // lock is re-asked immediately before the write.
     const lock = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
     // #192: refuse the upload, keep the drawing — the Save button is the way out.
     if (lock) { keepRefusedAnnotation(annotated, record.id); setStatusLine('test-status', lock, 'error'); return; }
     const blob = await (await fetch(annotated)).blob();
-    setStatusLine('test-status', 'Uploading screenshot…');
-    await TestomatAPI.uploadAttachment(record.id, blob, `panel-annotated-${record.id}-${Date.now()}.jpg`);
+    progressToast('Uploading screenshot…');
+    const name = `panel-annotated-${record.id}-${Date.now()}.jpg`;
+    const res = await TestomatAPI.uploadAttachment(record.id, blob, name);
+    // The server list is re-read only on reopen, so the shot would sit invisible on a
+    // screen the tester is already looking at — the same remember+repaint the file
+    // picker does (attachments.js), keyed by record id so a navigation away is safe.
+    attRemember(record.id, { name, url: (res && res.url) || '' });
+    renderAttachmentList();
     setStatusLine('test-status', 'Screenshot attached ✓', 'ok');
   } catch (e) {
-    setStatusLine('test-status', '', '');
-    toast(`Upload failed: ${e.message}`, { error: true });
+    toast(`Upload failed: ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
     updateTestActionsState(); // restore the gate-driven disabled state
   }

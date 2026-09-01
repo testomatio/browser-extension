@@ -193,7 +193,12 @@
         <div id="settings-connection-body" class="disclosure-body">
           <div id="connection-card" class="card connection-card" hidden>
             <span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
-            <p id="connection-host" class="connection-host"></p>
+            <!-- Host over state: the card IS the answer to "am I connected, and to what?", so the
+                 verdict sits with the host instead of on a status line under the Save button. -->
+            <div class="connection-main">
+              <p id="connection-host" class="connection-host"></p>
+              <span id="connection-state" class="badge passed connection-state">Connected</span>
+            </div>
             <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
           </div>
           <!-- Says who signed this panel in when it was not the tester: there is no token of theirs
@@ -383,6 +388,43 @@
       <p id="settings-status" class="status-line" role="status"></p>
     </section>
 
+    <!-- Step two of the first run: the token is in, the project is not. The header switcher's popup
+         cannot make THIS pick — it opens over a panel with nothing behind it — so the same rows and the
+         same filter take the whole screen, and the way back out sits in the footer under them.
+         screens/project-pick.js. -->
+    <section id="view-pick" hidden>
+      <div class="pick-head">
+        <h2 class="pick-title">Choose a project</h2>
+        <p class="pick-sub">Pick the project this panel runs against. You can switch it any time
+          from the header.</p>
+      </div>
+      <!-- role=combobox on the INPUT, not on a wrapper: it owns focus for the whole screen, so it is
+           what carries aria-activedescendant while the arrows walk the list. -->
+      <div class="field pick-field">
+        <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
+        <input id="pick-filter" class="input size-sm" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Search projects…" aria-label="Search projects"
+               role="combobox" aria-expanded="true" aria-controls="pick-list" aria-autocomplete="list" />
+        <button id="pick-filter-clear" class="icon-btn field-clear" data-tip="Clear search" aria-label="Clear search" hidden>
+          <span class="md-icon" data-icon="close" data-icon-size="18"></span>
+        </button>
+      </div>
+      <ul id="pick-list" class="list pick-list" role="listbox" aria-label="Projects"></ul>
+      <!-- Written out rather than built by EmptyState.build(), for the reason the popup's twin is. The
+           BLOCK shape, not the popup's .compact: here the missing rows are the whole screen. -->
+      <div id="pick-empty" class="empty" hidden>
+        <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
+        <div class="empty-body"><p class="empty-text">No project matches</p></div>
+      </div>
+      <p id="pick-status" class="status-line" role="status"></p>
+      <!-- The footer is the screen's OTHER answer: this panel is connected, and nothing here is worth
+           doing. Tertiary, and behind a rule, because leaving is not what the screen is for. -->
+      <div class="bar footer pick-footer">
+        <span class="pick-footer-host">Connected to <span id="pick-host" class="pick-host"></span></span>
+        <button id="pick-disconnect" class="btn tertiary size-sm" type="button">Disconnect</button>
+      </div>
+    </section>
+
     <section id="view-runs" hidden>
       <!-- Search FIRST, the status filters under it — the same order the run view uses. One input for
            both jobs (#106): live title search, and a pasted run/rungroup URL opens its target. -->
@@ -495,7 +537,8 @@
         <div id="run-info" class="disclosure card-foot run-info" hidden>
           <button id="run-info-head" type="button" class="disclosure-head"
                   aria-expanded="true" aria-controls="run-info-body">
-            <span class="md-icon disc-caret" data-icon="chevron_right"></span> Run info
+            <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                  class="md-icon head-icon" data-icon="info"></span>Run info
           </button>
           <dl id="run-info-body" class="disclosure-body kv rows run-info-body"></dl>
         </div>
@@ -634,46 +677,64 @@
             <span id="substatus-label" class="substatus-label">Custom status</span>
             <div id="substatus-mount"></div>
           </div>
-          <textarea id="test-comment" class="textarea" rows="2" placeholder="Comment (optional)"></textarea>
-          <!-- The capture/evidence controls fold into one disclosure, open by default so the files on a
+          <textarea id="test-comment" class="textarea" rows="4" placeholder="Comment (optional)"></textarea>
+          <!-- Evidence (M2 PR-1): errors-only list for the current window. Its OWN accordion, ABOVE
+               Attachments — reading the log comes before attaching. Hidden unless recording. -->
+          <div id="evidence-section" class="disclosure accordion-item" hidden>
+            <button id="evidence-head" type="button" class="disclosure-head evidence-head"
+                    aria-expanded="false" aria-controls="evidence-body">
+              <span class="md-icon ev-caret" data-icon="chevron_right"></span><span
+                      class="md-icon head-icon" data-icon="terminal"></span>Console &amp; network log
+              <span id="evidence-count" class="counter" hidden></span>
+            </button>
+            <div id="evidence-body" class="disclosure-body" hidden>
+              <ul id="evidence-list" class="list framed evidence-list"></ul>
+            </div>
+          </div>
+          <!-- The capture controls fold into one disclosure, open by default so the files on a
                result are visible without digging; closing it is remembered for the session. -->
           <div id="attachments-disclosure" class="disclosure accordion-item">
             <button id="attachments-head" type="button" class="disclosure-head"
                     aria-expanded="true" aria-controls="attachments-body">
-              <span class="md-icon disc-caret" data-icon="chevron_right"></span> Attachments &amp; log
+              <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                      class="md-icon head-icon" data-icon="attach_file"></span>Attachments &amp; log
+              <!-- What the result already carries, counted beside the name like every other fold. -->
+              <span id="attachments-count" class="counter" hidden></span>
             </button>
             <div id="attachments-body" class="disclosure-body">
-              <!-- Shown while NOT recording, so the tester arms the recorder BEFORE reproducing (it keeps the
-                   last N seconds). -->
-              <p id="prearm-hint" class="hint inline-reason prearm-hint" hidden></p>
-              <!-- Full-page capture (M2 PR-3): a SWITCH, not a checkbox — it writes itself on change and the next
-                   shot is already different, so there is no Save for it to belong to. -->
-              <label class="choice fullpage-row">
-                <input id="fullpage-test" class="switch" type="checkbox" role="switch" /> Full page
-              </label>
-              <!-- Evidence section (M2 PR-1): errors-only list for the current window; hidden unless a session
-                   is recording. -->
-              <div id="evidence-section" class="evidence-section accordion-item nested" hidden>
-                <button id="evidence-head" type="button" class="disclosure-head evidence-head" aria-expanded="false">
-                  <span class="md-icon ev-caret" data-icon="chevron_right"></span> Console &amp; network log <span id="evidence-count" class="counter"></span>
-                </button>
-                <ul id="evidence-list" class="list framed evidence-list" hidden></ul>
+              <!-- The two capture buttons and the Full-page option share ONE row — stacking them spent three
+                   lines of a section that is already a disclosure. Buttons left, option right; the row
+                   wraps, so a narrow panel drops a control to the next line rather than squeezing labels. -->
+              <div class="attach-actions">
+                <!-- capture → annotator tab → Apply uploads the merged JPEG (even with zero annotations); Cancel
+                     uploads nothing. -->
+                <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
+                <!-- #107: the native picker, uploaded through the SAME JWT attachment path as the screenshot. The
+                     input is hidden and the button clicks it, so the panel keeps one button style. -->
+                <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
+                <input id="attach-file-input" type="file" multiple hidden />
+                <!-- Full-page capture (M2 PR-3): a setting of the next shot, not an act — so it stands apart
+                     from the two buttons, at the far end of the row, rather than breaking them up. (A
+                     checkbox is what a setting reads as; it writes itself on change, with no Save to belong
+                     to.) It comes LAST in the markup so the reading order matches what the eye sees. -->
+                <label class="choice fullpage-row">
+                  <input id="fullpage-test" type="checkbox" />
+                  <span class="choice-text">Full page<button type="button" class="info-tip"
+                    data-tip="Captures the WHOLE scrollable page, not just what you can see. It needs the debugger, so a page that blocks it (the Chrome Web Store, chrome:// pages) falls back to the viewport and says so."
+                    aria-label="Captures the whole scrollable page, not just what you can see. It needs the debugger, so a page that blocks it falls back to the viewport and says so."><span
+                    class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
+                </label>
               </div>
-              <!-- capture → annotator tab → Apply uploads the merged JPEG (even with zero annotations); Cancel
-                   uploads nothing. -->
-              <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
-              <!-- Gate reason shown inline (a hover-only tooltip is invisible on touch). -->
+              <!-- Gate reasons shown inline (a hover-only tooltip is invisible on touch). They stay UNDER the
+                   row — a sentence has no business inside it. -->
               <p id="screenshot-reason" class="hint inline-reason" hidden></p>
+              <p id="attach-file-reason" class="hint inline-reason" hidden></p>
               <!-- #192: an annotation the upload re-check refuses is KEPT, not lost — this saves it to disk.
-                   Never gated by the run lock: it writes nowhere but the tester's own machine. -->
+                   Never gated by the run lock: it writes nowhere but the tester's own machine. Its own line:
+                   it is a rare recovery step with a long label, not a peer of the two capture buttons. -->
               <button id="btn-save-annotation" class="btn size-sm" hidden
                       data-tip="The upload was refused, but your annotated screenshot is still here — save it to your computer"><span
                       class="md-icon" data-icon="upload_file"></span><span>Save the annotated screenshot</span></button>
-              <!-- #107: the native picker, uploaded through the SAME JWT attachment path as the screenshot. The
-                   input is hidden and the button clicks it, so the panel keeps one button style. -->
-              <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
-              <input id="attach-file-input" type="file" multiple hidden />
-              <p id="attach-file-reason" class="hint inline-reason" hidden></p>
               <!-- Everything uploaded onto THIS result: server truth on open, plus whatever this session sent. -->
               <ul id="attachment-list" class="attachment-list file-grid" hidden></ul>
             </div>
@@ -690,7 +751,8 @@
             <div id="summary-failure" class="disclosure accordion-item" hidden>
               <button id="summary-failure-head" type="button" class="disclosure-head"
                       aria-expanded="true" aria-controls="summary-failure-body">
-                <span class="md-icon disc-caret" data-icon="chevron_right"></span>
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                        class="md-icon head-icon" data-icon="feedback"></span>
                 <span id="summary-failure-title">Failure</span>
               </button>
               <div id="summary-failure-body" class="disclosure-body">
@@ -702,7 +764,8 @@
             <div id="summary-artifacts" class="disclosure accordion-item" hidden>
               <button id="summary-artifacts-head" type="button" class="disclosure-head"
                       aria-expanded="true" aria-controls="summary-artifacts-body">
-                <span class="md-icon disc-caret" data-icon="chevron_right"></span> Artifacts
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                        class="md-icon head-icon" data-icon="folder"></span>Artifacts
                 <span id="summary-artifacts-count" class="counter"></span>
               </button>
               <ul id="summary-artifacts-body" class="disclosure-body attachment-list file-grid"></ul>
@@ -710,7 +773,8 @@
             <div id="summary-meta" class="disclosure accordion-item" hidden>
               <button id="summary-meta-head" type="button" class="disclosure-head"
                       aria-expanded="false" aria-controls="summary-meta-body">
-                <span class="md-icon disc-caret" data-icon="chevron_right"></span> Meta
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                        class="md-icon head-icon" data-icon="data_object"></span>Meta
                 <span id="summary-meta-count" class="counter"></span>
               </button>
               <dl id="summary-meta-body" class="disclosure-body kv rows mono summary-meta" hidden></dl>
@@ -718,7 +782,8 @@
             <div id="summary-steps" class="disclosure accordion-item" hidden>
               <button id="summary-steps-head" type="button" class="disclosure-head"
                       aria-expanded="false" aria-controls="summary-steps-body">
-                <span class="md-icon disc-caret" data-icon="chevron_right"></span> Steps
+                <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
+                        class="md-icon head-icon" data-icon="stairs"></span>Steps
                 <span id="summary-steps-count" class="counter"></span>
               </button>
               <div id="summary-steps-body" class="disclosure-body" hidden></div>
@@ -793,6 +858,9 @@
   <!-- The header's surface switch — after core/views.js, whose toast it uses. -->
   <script src="core/view-switch.js"></script>
   <script src="screens/onboarding.js"></script>
+  <!-- The choose-a-project screen — after core/project-switcher.js, whose row builder and filter it
+       shares with the header popup, and before settings.js, which sends the first run to it. -->
+  <script src="screens/project-pick.js"></script>
   <script src="screens/settings.js"></script>
   <script src="screens/runs-list.js"></script>
   <script src="screens/run-view.js"></script>

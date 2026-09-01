@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons,
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
-   ImgHydrate */
+   ImgHydrate, progressToast, hideToast */
 
 // Object-URL groups (shared/img-hydrate.js) — four, because each is repainted
 // and released on its own occasion.
@@ -835,25 +835,38 @@ function imageMarker() {
   return svgIcon('photo_camera', 13, 'summary-step-marker');
 }
 
+// A step block is a TREE NODE, drawn with the library's own tree parts: a chevron
+// slot, then a glyph slot, then the title — the shape the runs list and TC studio
+// already wear, so the three lists rule at the same columns.
 // An Attachments group node renders NO step row — the web skips it the same way
 // (`{{#unless node.model.attachments}}`) and shows only the files.
 function summaryStepNode(node) {
   const group = document.createElement('div');
-  group.className = 'summary-step-group';
+  group.className = 'summary-step-group tree-node';
+  // The row rule hangs off `.summary-step-self`, so a step's own log stays ABOVE
+  // the line that closes it and its children start below.
+  const self = document.createElement('div');
+  self.className = 'summary-step-self';
+  group.append(self);
   if (node?.attachments) {
-    group.classList.add('summary-step-atts');
-    for (const att of node.attachments) group.append(summaryAttachment(att));
+    // The files hang off the block the way a log does, so the rule that closes the
+    // block still starts at the same column as every other row's.
+    const atts = document.createElement('div');
+    atts.className = 'summary-step-atts';
+    for (const att of node.attachments) atts.append(summaryAttachment(att));
+    self.append(atts);
     return group;
   }
   const row = document.createElement('div');
-  row.className = 'summary-step';
+  row.className = 'summary-step tree-row has-chevron';
   const kids = node?.children?.length ? document.createElement('div') : null;
   if (kids) {
-    // CSS rotates the shared chevron 90° on aria-expanded.
+    // A bare chevron in the tree's 20px slot — still a real button, so it keeps its
+    // place in the tab order. CSS rotates it 90° on aria-expanded.
     const toggle = document.createElement('button');
     toggle.type = 'button';
-    toggle.className = 'btn icon size-xs summary-step-toggle';
-    toggle.append(svgIcon(CHEVRON_ICON, 14));
+    toggle.className = 'tree-icon chevron summary-step-toggle';
+    toggle.append(svgIcon(CHEVRON_ICON, 16));
     const paint = (open) => {
       kids.hidden = !open;
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -862,16 +875,18 @@ function summaryStepNode(node) {
     paint(summaryStepsExpanded);
     toggle.addEventListener('click', () => paint(kids.hidden));
     row.append(toggle);
+  } else {
+    row.append(treeSlot()); // a leaf still pays for the chevron column, or the marks below it stagger
   }
   const dot = document.createElement('span');
-  dot.className = 'summary-step-dot';
+  dot.className = 'tree-icon summary-step-dot';
   dot.dataset.status = node?.status || '';
-  paintStepMark(dot, node?.status, 14, 'radio_button_unchecked');
+  paintStepMark(dot, node?.status, 16, 'radio_button_unchecked');
   const title = document.createElement('span');
   title.className = 'summary-step-title';
   title.textContent = node?.name || '(untitled step)';
   row.append(dot, title);
-  if (node?.isImage) title.append(' ', imageMarker());
+  if (node?.isImage) title.append('\u00a0', imageMarker()); // NBSP: the mark rides the last word instead of wrapping alone
   if (node?.status) {
     const word = document.createElement('span');
     word.className = 'summary-step-status';
@@ -886,22 +901,25 @@ function summaryStepNode(node) {
     d.textContent = dur;
     row.append(d);
   }
-  group.append(row);
+  self.append(row);
   if (node?.error) {
     const err = document.createElement('div');
     err.className = 'summary-step-error';
     err.textContent = String(node.error);
-    group.append(err);
+    self.append(err);
   }
   // The log hangs off the step, not its children — readable while sub-steps are collapsed.
   if (node?.log) {
     const log = document.createElement('div');
     log.className = `summary-step-log${node.error ? ' is-failed' : ''}`;
     linkifyInto(log, String(node.log).trim());
-    group.append(log);
+    self.append(log);
   }
   if (kids) {
-    kids.className = 'summary-step-kids';
+    // A `.tree-children` and nothing more: the open subtree is the library's own
+    // container, so it drops the same guide a folder does in the runs list and
+    // takes the same 28px step in — and folding it away takes the line with it.
+    kids.className = 'summary-step-kids tree-children';
     kids.hidden = !summaryStepsExpanded;
     for (const child of node.children) kids.append(summaryStepNode(child));
     group.append(kids);
@@ -1314,14 +1332,15 @@ async function setFullPageCapture(on) {
 
 // A hover-only tooltip is invisible on touch, so the reason shows inline too. The
 // button's own tooltip is remembered once and restored when the gate lifts.
-function applyActionGate(btnId, reasonId, msg) {
+function applyActionGate(btnId, reasonId, msg, { inline = true } = {}) {
   const btn = $(btnId);
   if (!btn) return;
   if (btn.dataset.baseTip === undefined) btn.dataset.baseTip = Tooltip.get(btn);
   btn.disabled = !!msg;
   Tooltip.set(btn, msg || btn.dataset.baseTip);
   const reason = $(reasonId);
-  if (reason) { reason.textContent = msg || ''; reason.hidden = !msg; }
+  const show = !!msg && inline;
+  if (reason) { reason.textContent = show ? msg : ''; reason.hidden = !show; }
 }
 
 // The buttons double as the result display: the matching one takes the `.solid` fill.
@@ -1363,16 +1382,25 @@ function updateTestActionsState() {
   // #107: uploads are JWT-only, so a PROVEN degraded session disables them —
   // 'unknown' is still probing and must never gate.
   const degraded = TestomatAPI.jwtAvailable() === false;
+  // The lock still DISABLES both buttons, but its reason is not repeated inline: the
+  // group note above already says it once, and two more copies read as a stutter.
+  // `inline: false` keeps the reason on the tooltip only.
   applyActionGate('btn-screenshot-annotate', 'screenshot-reason',
     lock ? lock
       : noResult ? 'No saved result yet — screenshots attach to a test result'
         : degraded ? `Attaching screenshots needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '');
+          : '', { inline: !lock });
   applyActionGate('btn-attach-file', 'attach-file-reason',
     lock ? lock
       : noResult ? 'No saved result yet — files attach to a test result'
         : degraded ? `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '');
+          : '', { inline: !lock });
+  // The empty-list dropzone repeats this gate in its own copy, so it repaints when the gate
+  // moves. ONLY while it IS the dropzone: rebuilding real rows would drop their thumbnails.
+  const attList = $('attachment-list');
+  if (typeof renderAttachmentList === 'function' && attList && !attList.querySelector('.file-tile-item')) {
+    renderAttachmentList();
+  }
 }
 
 // ---- Attachments & log disclosure ----
@@ -1496,14 +1524,14 @@ async function clickStatus(status) {
   const stillHere = () => String(state.currentRecordId) === String(record?.id);
 
   state.saving = true; // guard re-entrancy across the async env-info read below
-  setStatusLine('test-status', `Saving ${status}…`);
+  progressToast(`Saving ${status}…`);
   setWriteState('saving');
   try {
     const res = await writeStatus(record, status, typed, renderTestProgress);
     const queued = !!(res && res.queued);
     delete state.stepTicks[record?.id]; // leaving the test resets ticks
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.updateTestMarker();
-    if (!stillHere()) return; // tester already moved on — nothing left to paint here
+    if (!stillHere()) { hideToast(); return; } // tester already moved on — nothing left to paint here
     // Landed: the line says NOTHING (the verdict is already on three surfaces).
     setStatusLine('test-status', queued ? `${status} — queued offline, will sync when back online` : '', queued ? 'ok' : '');
     setWriteState(queued ? 'queued' : 'saved');

@@ -55,8 +55,9 @@ grant per site afterwards.
      *"Find it in Account → Access Tokens"* under the field opens the
      access-tokens page of the instance you are pointed at.
 4. Click **Save & validate**. The panel makes a live call, loads every project
-   that token reaches and picks one; on success the status line reads
-   `Connected ✓` and you land on the **Runs** tab.
+   that token reaches and picks one; on success you land on the **Runs** tab, and
+   the **Connection** card in Settings shows the host with a green `Connected`
+   pill under it.
 5. Working on a different project? Use the **Project** row at the very top of the
    panel — see [switching projects](#switching-projects).
 
@@ -304,20 +305,30 @@ of the result, says the test already has one.
   the status you just set. What you pick here is what the run list and the run
   header show once you go back (see [Run view](#run-view)).
 - **Comment (optional)** — free text; Markdown.
-- **Attachments & log** — a collapsed section that opens itself the moment you
-  mark the test failed (it never closes itself), holding:
-  - a reminder that the recorder is off and what window it would keep,
-  - **Full page** — capture the whole scrollable page instead of the viewport
-    (remembered),
-  - **Console & network log** — the live errors-only list while recording;
-    click a row for details, **Attach** to drop that one entry into the comment,
+- **Console & network log** — its own collapsed section, right above
+  **Attachments & log**, always there on a test. While the recorder is running it
+  holds the live errors-only list for the window it keeps — click a row for
+  details, **Attach** to drop that one entry into the comment. While it is idle it
+  says so, and tells you to click **Rec** in the panel header to start one.
+- **Attachments & log** — a section that is open by default, so the files on a
+  result are visible without digging (closing it is remembered for the session;
+  marking the test failed opens it again). Its head counts what the result already
+  carries. It holds:
   - **📸 Attach screenshot** — capture → annotate → upload,
+  - **Full page** — the checkbox under that button: capture the whole scrollable
+    page instead of the viewport (remembered),
   - **📎 Attach file** — pick one or more files from your machine (a spec, an
     export, a video…) and upload them onto this result,
-  - the list of everything already attached to the result — screenshots, the
-    console/network log, your own files — each a link that opens in a new tab.
-    An **image** on that list is shown as a thumbnail; click it to see it full
-    size over the panel (Esc, the ✕ or a click outside closes it).
+  - the grid of everything already attached to the result — screenshots, the
+    console/network log, your own files — as the same file tiles the **Artifacts**
+    section uses: an image shows itself, anything else shows its kind and
+    extension, and a click opens it over the page under test. Hover a tile for the
+    **🗑** that deletes that file from the result for everyone (it asks first). The
+    bin is greyed out, with the reason on hover, when that file cannot be deleted
+    from here — a finished run, no web login, or a file the server gave the panel
+    no id for.
+  - nothing attached yet? The grid is a **drop target**: drag a file onto it, or
+    click it to open the same picker the button does.
 - Status line at the bottom — `Saving passed…` while the write is in flight, the
   offline-queued notice, and the errors. A write that *lands* says nothing there:
   the chip in the card, the filled button and the dot on **Summary** are already
@@ -362,8 +373,8 @@ tests you have already graded.
    no *"…is debugging this browser"* bar, and you can keep DevTools open. The
    recorder keeps only the last N seconds (60 by default), so arm it first.
 2. Reproduce the bug in the tab.
-3. Open **Attachments & log** → **Console & network log** to see the errors and
-   failed requests as they arrive. **Attach** copies a single entry into the
+3. Open **Console & network log** to see the errors and failed requests as they
+   arrive. **Attach** copies a single entry into the
    comment.
 4. Type what you saw in the comment.
 5. Click **✗ Failed**. The panel then:
@@ -373,7 +384,7 @@ tests you have already graded.
    - uploads the console+network log as a readable `.txt` and adds it as a
      `Console & network log` meta key (toggleable in Settings),
    - keeps you on the test and opens **Attachments & log** for you.
-6. Optionally **📸 Attach screenshot** → annotate → **Apply**.
+6. Optionally **📸 Attach screenshot** → annotate → **Save**.
 7. Click **Rec** again to stop recording — or just leave the test, which stops it
    for you: the recording belongs to the test it was started in.
 
@@ -432,7 +443,7 @@ step of Undo.
 
 Then:
 
-- **Apply** (⌘/Ctrl ⏎) — upload the flattened, annotated image.
+- **Save** (⌘/Ctrl ⏎) — upload the flattened, annotated image.
 - **Keep original** — upload the raw screenshot, annotations and crop dropped
   (also what Esc and closing the tab do).
 - **Discard** — upload nothing.
@@ -891,8 +902,9 @@ Worth knowing before you plan a session around it:
 - **No editing of existing tests.** The panel creates test cases and shows them;
   changing one — its title, steps, priority, suite — happens in the web app.
 - **No move-to-suite.** The panel cannot move a test to another suite, rename a
-  suite, or delete anything (tests, suites, folders, runs, attachments). All of
-  that stays in the web app.
+  suite, or delete tests, suites, folders or runs. All of that stays in the web
+  app. (Attachments are the exception: a result's own files can be deleted from
+  its attachment list.)
 - **No screen recording.** Screenshots (viewport or full page) and console/
   network logs only — no video, no GIF.
 - **Not in the Chrome Web Store.** Install from a release zip or the repo; update

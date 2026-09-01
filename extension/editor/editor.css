@@ -159,10 +159,31 @@ code, pre { font-family: var(--font-mono); }
    form-field one and reads as part of the strip until it is hovered. */
 .tc-template-trigger { background-color: var(--card); }
 /* The AI switch reads as a setting OF the row rather than a control in it: small type, and it
-   never stretches — the buttons either side keep their size. */
-.tc-polish { flex: none; align-items: center; gap: var(--space-1); font-size: var(--fs-sm); white-space: nowrap; }
+   never stretches — the buttons beside it keep their size. It opens the TAIL of the row, off
+   Record and the camera, which are what gets clicked over and over. */
+.tc-polish {
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto; /* the one gap in the row; the picker rides along behind it */
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+/* ONE auto margin, so the pair travels as a block — and the cap falls back to the picker on the
+   rows where the switch is away (Basic mode, or a server without polishing). */
+.tc-polish + .tc-template-field { margin-inline-start: 0; }
+.tc-polish[hidden] + .tc-template-field { margin-inline-start: auto; }
 .tc-polish > .switch { margin-top: 0; }
 .tc-polish[hidden] { display: none; }
+/* The SHORT row (fitTools, editor.js): at a panel too narrow to hold the words without wrapping,
+   the labels go and what stays is the icons — each still named by its tooltip and aria-label.
+   display:none, never a zero-width box, so the next measurement reads the width really asked for. */
+.tc-tools.is-short .tc-tool > span,
+.tc-tools.is-short .tc-polish-text { display: none; }
+/* An icon left on its own gets the square a .btn.icon has. Only the ones that HAVE an icon:
+   Continue and the polish button carry words alone and keep them. */
+/* `.btn` is in the selector to outweigh the lead-padding rule a leading icon otherwise buys. */
+.tc-tools.is-short .btn.tc-tool:has(> svg) { width: var(--ctl-h); padding: 0; }
 .tc-tool.recording { color: var(--on-status); background: var(--annot-tool); border-color: var(--annot-tool-strong); }
 .tc-tool.recording:hover:not(:disabled) { background: var(--annot-tool-strong); }
 /* A full-width line of its own: the row grows as more shots are taken and must never push the camera

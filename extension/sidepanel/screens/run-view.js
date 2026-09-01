@@ -1,7 +1,8 @@
 // Run view: status-icon names and helpers, the run tests list with progress,
 // status chips, search, suite sections, finish-run, and the run session probe.
 
-/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell */
+/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
+   progressToast */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -40,6 +41,10 @@ function treeIcon(name, cls, emoji) {
   span.append(svgIcon(name, 16));
   return span;
 }
+
+// A row with nothing to unfold keeps the slot anyway: its glyph and title line up
+// with an unfoldable sibling's (TC studio, reported steps).
+const treeSlot = () => Object.assign(document.createElement('span'), { className: 'tree-icon' });
 
 // manual | automated | mixed are the three the product gives a run; a RUNGROUP's
 // own `kind` (multienv) is not one of them and draws nothing.
@@ -435,7 +440,7 @@ async function finishRun() {
   if (blocked) { applyRunLock({ force: true }); toast(blocked); return; }
   const btn = $('btn-finish-run');
   if (btn) btn.disabled = true;
-  setStatusLine('run-status', 'Finishing run…');
+  progressToast('Finishing run…');
   try {
     await settlePendingWrites();
     // The finish PUT answers with the updated run, so Run info needs no re-read.

@@ -726,8 +726,16 @@ a.icon-btn { text-decoration: none; }
 /* 'overflow: hidden' above clips a 2px OUTSET ring at the item's own corners. */
 .accordion-item > .disclosure-head:focus-visible,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:focus-visible { outline-offset: -2px; }
-.accordion-item > .disclosure-head .counter,
-.accordion-item > :is(h2, h3, h4) > .disclosure-head .counter { margin-left: auto; }
+/* The count belongs to the WORD it counts, not to the far edge of the item: it sits straight after the
+   label and takes the small counter size, so a head reads as one line — "Steps 25" — instead of a label
+   and a figure at opposite ends of a wide row. */
+.accordion-item > .disclosure-head > .counter,
+.accordion-item > :is(h2, h3, h4) > .disclosure-head > .counter {
+  --cnt-h: var(--counter-h-sm);
+  --cnt-px: var(--counter-px-sm);
+  --cnt-fs: var(--counter-fs-sm);
+  margin-left: 0;
+}
 .accordion-item > .disclosure-body { padding: var(--space-2) var(--space-3); }
 
 .accordion-item.nested { border: none; border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--space-1) var(--space-2); }
@@ -1208,9 +1216,11 @@ body::after {
 }
 
 /* ---- TOAST — the transient message ---- */
+/* One inset on all three sides: at 12 the plaque sat closer to the panel's bottom edge than to its
+   sides, which reads as a row that slipped rather than one that is floating over the screen. */
 .toast {
   position: fixed;
-  bottom: var(--space-3);
+  bottom: var(--gutter);
   left: var(--gutter);
   right: var(--gutter);
   display: flex;
@@ -1242,6 +1252,9 @@ body::after {
 .toast .toast-action:hover { background: var(--toast-action-bg-hover); box-shadow: none; }
 .toast.error .toast-action { background: transparent; border-color: var(--failed-ring); }
 .toast.error .toast-action:hover { background: var(--toast-action-bg-error-hover); box-shadow: none; }
+/* The running-job plaque: the mark is the text's own colour (the error red belongs to an error), and
+   the row keeps standing until the job answers. */
+.toast.progress .toast-icon { color: inherit; opacity: 0.85; }
 .toast .toast-dismiss { color: inherit; }
 .toast .toast-dismiss:hover { background: var(--toast-action-bg); color: inherit; }
 

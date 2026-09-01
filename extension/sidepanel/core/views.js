@@ -10,11 +10,13 @@
 const TAB_OF_VIEW = {
   tcstudio: 'tests', tclist: 'tests', promote: 'tests',
   runs: 'runs', run: 'runs', test: 'runs',
-  settings: 'settings',
+  // `pick` is the choose-a-project screen: it stands BEFORE the tabs (nothing is scoped yet)
+  // and hides them, but it is the Settings tab it belongs to — the one tab reachable unconfigured.
+  settings: 'settings', pick: 'settings',
 };
 const TABS = ['tests', 'runs', 'settings'];
 // A tab's landing view: the contextual row (Back + title) is hidden there.
-const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings']);
+const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings', 'pick']);
 
 // ---------- view switching ----------
 
@@ -599,16 +601,21 @@ function toastDuration(msg) {
 // Drawn from `Icons` (shared/icons.js), not the screens' `svgIcon` alias: this file
 // is core, and icons.js is the first script the page loads.
 const ALERT_ICON = 'error';
+const PROGRESS_ICON = 'progress_activity';
 
 // A new toast always replaces the previous one. Error toasts mirror the product's
 // error notify (custom-notify.scss `.error.alert`) and still auto-hide.
+// `{ progress: true }` is the running-job plaque: a spinner, no auto-hide, and it stands
+// until the next toast or hideToast() — a timer would take it down mid-work.
 function toast(msg, opts = {}) {
   if (typeof opts === 'number') opts = { ms: opts };
   const el = $('toast');
   const isError = !!opts.error;
+  const progress = !!opts.progress;
   const ms = opts.ms != null ? opts.ms : toastDuration(msg);
   clearTimeout(toast._t);
   el.classList.toggle('error', isError);
+  el.classList.toggle('progress', progress);
   // Set BEFORE the content lands: a live region is only read for changes made while
   // it is in the tree. alert interrupts, status waits; reverted when the toast hides.
   el.setAttribute('role', isError ? 'alert' : 'status');
@@ -617,10 +624,12 @@ function toast(msg, opts = {}) {
   text.className = 'toast-text';
   text.textContent = msg;
   el.replaceChildren(text);
-  if (isError) {
+  if (isError || progress) {
     const icon = document.createElement('span');
     icon.className = 'toast-icon';
-    icon.append(Icons.el(ALERT_ICON, 16));
+    const mark = Icons.el(isError ? ALERT_ICON : PROGRESS_ICON, 16);
+    if (progress) mark.classList.add('spin'); // the shared rotation (SPIN, shared/components.css)
+    icon.append(mark);
     el.prepend(icon);
   }
   // Optional inline action (`{ action: { label, onClick } }`) — no caller today;
@@ -647,13 +656,33 @@ function toast(msg, opts = {}) {
     x.addEventListener('click', () => { clearTimeout(toast._t); el.hidden = true; });
     el.append(x);
   }
-  toast._t = setTimeout(() => { el.hidden = true; el.setAttribute('role', 'status'); }, ms);
+  // A step of a running job holds; everything else auto-hides.
+  if (!progress) toast._t = setTimeout(() => { el.hidden = true; el.setAttribute('role', 'status'); }, ms);
 }
 
+// What the panel is DOING right now — the bottom plaque, never an inline status line: the
+// line sits under the fold on a long screen, and a job that dies leaves it standing forever.
+const progressToast = (msg) => toast(msg, { progress: true });
+
+// Takes down whatever is up. The end of a job whose ANSWER is a status line (or nothing at
+// all) calls this; an answer that is itself a toast just replaces the plaque.
+function hideToast() {
+  const el = $('toast');
+  if (!el) return;
+  clearTimeout(toast._t);
+  el.hidden = true;
+  el.classList.remove('progress');
+  el.setAttribute('role', 'status');
+}
+
+// A screen printing its own line is a job that has ANSWERED, so the running-job plaque goes
+// with it — the one rule that keeps a progress toast from outliving its work, wherever the
+// flow happens to end. A flow that ends printing nothing calls hideToast() itself.
 function setStatusLine(id, msg, cls = '') {
   const el = $(id);
   el.textContent = msg;
   el.className = `status-line ${cls}`.trim();
+  hideToast();
 }
 
 // In-run auth failure: an inline link to Settings instead of teleporting the

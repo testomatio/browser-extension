@@ -197,9 +197,11 @@ on its side (36 wide, so a 16 knob travels exactly its own width) and the
 checkbox and radio its 16, which is also `--control-icon`, because a tick is an
 icon. Markup makes one decision, and it is about WHEN the answer takes effect:
 `.checkbox` is a value in a form that nothing acts on until it is submitted
-(the settings rows, committed by Save & validate), `.switch` is a setting that
-applies the moment it is flipped and has no Save to belong to (Full page, which
-writes itself on change). `.radio` is one of N and never fills — ring plus dot,
+(the settings rows, committed by Save & validate) — and also an option a nearby
+button reads when it fires (Full page, under **Attach screenshot**: it writes
+itself on change, but what it reads as is a setting of the next shot). `.switch`
+is a MODE that changes the screen the moment it is flipped (Bulk, in the TC
+Studio quick bar). `.radio` is one of N and never fills — ring plus dot,
 so a column of radios cannot be misread as a column of checkboxes. The component
 is really the `<label>`: `.choice` is what is clicked, what is read out and what
 the hit area is, and it lines the control up with the FIRST line of a label that
@@ -379,8 +381,8 @@ the same 20px square the glyph would have used (`.tree-icon.emoji`,
 field, not a glyph chosen here.
 
 Deliberately NOT icons, and left as text: the keyboard names in the hotkey legend
-(`⌘ ⏎ ↑ ↓ ← →`) and the `✓` that ends a status line ("Connected ✓") — the e2e
-reads that one.
+(`⌘ ⏎ ↑ ↓ ← →`) and the `✓` that ends a status line ("Screenshot attached ✓") —
+the e2e reads that one.
 
 The vendored markdown toolbar is drawn from this set too. OverType ships an SVG
 per button, which is a second icon set inside a product that has one — but the
@@ -542,8 +544,29 @@ puts it there. Keyed on `state.settings`, not `isConfigured()`: a saved config
 whose project failed to resolve gets the full form, where Disconnect / Forget
 instance / Sign out live.
 
+**Choose-a-project screen (`pick`).** Step two of the first run: the token is
+saved, but the token's project list has more than one entry, so nothing is scoped
+yet. `askForProject()` (`core/project-switcher.js`) — called from `init()` when
+`initProjectSwitcher()` answers `'choose'`, and from `saveSettings()` when a fresh
+token resolved no project — opens `#view-pick` (`screens/project-pick.js`): the
+search field, the list, and a footer holding the connected host and a tertiary
+**Disconnect**. It takes the panel whole, the way the connect screen before it
+does — `body[data-view="pick"]` folds away the project strip and the tab row,
+which are scoped by a project that does not exist yet — and it is a ROOT view, so
+there is no Back either; the footer is the way out. The rows are the header
+popup's, built by the same `projectRowEl()` and filtered by the same
+`matchProjects()`, so the two surfaces cannot drift apart: only the row's SKIN
+differs (`.menu-option` in the popup, the shared `.list` row on the screen). The
+arrows and Enter walk the list from the search field, which owns focus and
+carries `aria-activedescendant`. Picking a row is the ordinary `switchProject()`,
+whose "first pick" branch lands on a fresh runs view. This screen replaced
+opening that popup over an empty Settings page, which put the one thing there was
+to do on it inside a menu.
+
 **The full form has no token field.** Connected, the Connection section is a card
-(`#connection-card`): the instance host, and **Disconnect** —
+(`#connection-card`): the instance host with the connection verdict under it
+(`#connection-state`, the green `Connected` pill — `Project not picked` while a
+first run is still half-done), and **Disconnect** —
 `disconnectInstance()`, which is `forgetInstance()` aimed at the host in
 `state.settings` whatever the Instance field in Advanced is showing, and which
 therefore ends on the connect screen. `#set-token` stays in the DOM (one form,
@@ -559,11 +582,23 @@ Advanced) and `#signout-status`.
 |---|---|
 | `core/state.js` | The single `state` object; `$()`; `recordFor()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
 | `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` — the only writers of the `session` key. |
-| `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
-| `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). |
+| `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()` / `progressToast()` / `hideToast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
+| `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). Two of its parts are shared with the choose-a-project screen rather than copied into it: `matchProjects(rows, filter)` (title AND slug) and `projectRowEl()`, the one project row — two lines plus the trailing count, and the `dataset.projectId` the e2e reads. `askForProject()` is what sends a connection with no project to that screen. |
 | `core/view-switch.js` | The header's surface switch: `initViewSwitch()` asks `ViewMode` which surface this document is in, `renderViewSwitch()` names and marks it for the one the press would land on ("Open in window" / "Dock to side panel"), and the click opens the other one and closes this. The two directions are not symmetric: the window is the worker's (`VIEW_OPEN_WINDOW`), while docking calls `chrome.sidePanel.open()` **before its first await** — the gesture lives only that long — on the normal-window id kept fresh from the worker's focus tracking, because a popup cannot host a side panel. |
 | `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta**. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
 | `core/skeleton.js` | `Skeleton` — the loading placeholders. A **navigation draws its own at once**: the screen it left is already gone, so waiting out a clock only buys an empty view that fills 150 ms later, which reads as a flash of nothing rather than as speed; it fades in (`.skeleton-enter`). The **boot** is the one that still waits — `paintBoot()` starts a 250 ms clock (`DELAY_MS`) so a fast open lands on the real panel having drawn none, and fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` mounts a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` removes it only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. The **run** placeholder covers its whole screen — the summary card, the controls and the checklist — because a plan may also name blocks to `hide` while it is up, and those two paint empty (an empty bordered card over an empty chip row reads as a screen that failed rather than one loading); `hide()` gives them back on either path. A screen that already **holds its rows in memory puts up no placeholder at all**: it paints them and re-reads behind them (see 3.1). Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
+
+**What is RUNNING is a toast, not a line.** Progress — `Capturing tab…`,
+`Uploading <file>…`, `Saving passed…`, `Deleting <name>…`, `Finishing run…`,
+`Validating…` — goes to the bottom plaque via `progressToast()`: a spinner, no
+auto-hide, one slot. An inline status line is where a screen prints its ANSWER,
+and it sits under the fold on a long screen, which is how a job that died left
+`Capturing tab…` standing under the status buttons forever. The plaque comes down
+on one rule rather than at every call site: `setStatusLine()` hides it — a screen
+printing its own line IS the answer — and a flow that ends printing nothing (the
+annotator's Discard, a save whose tester moved on) calls `hideToast()` itself. The
+`Loading …` lines of the list screens stay lines: they pair with a skeleton, and a
+toast per navigation is noise, not information.
 
 **`screens/`** — one file per surface, all plain top-level functions:
 `runs-list.js` (703 lines, dashboard + v2 modes, groups, filters, search, URL
@@ -573,7 +608,8 @@ reported-result summary, the status write), `tc-studio.js` (suite tree + TC list
 + the `.txt` log), `attachments.js` (the Attach file picker, its upload
 loop and the result's attachment list),
 `hotkeys.js` (web-runner hotkeys + `attachScreenshotAnnotated`),
-`livesync.js` (20 s poll), `offline-queue.js`, `onboarding.js`, `settings.js`.
+`livesync.js` (20 s poll), `offline-queue.js`, `onboarding.js`,
+`project-pick.js` (the choose-a-project screen), `settings.js`.
 
 `app.js` is loaded **last** and is the only bootstrap: it wires every listener,
 restores settings + session, and picks the opening view.
@@ -1105,14 +1141,28 @@ separately.
 1. `resolveSiteTab({verb:'captured'})`. Not `ok` ⇒ the reason is toasted and the
    flow ends. **Nothing prompts here** — the only "no" is a restricted page.
 2. `sendMessage({type:'captureTab', fullPage})` → the worker's `captureShot()` →
-   JPEG q80 data URL + the captured `tabId`.
+   JPEG q80 data URL + the captured `tabId`. **Two floors under it**, because a
+   capture that never answers used to leave the panel saying "Capturing tab…"
+   with the button disabled and no way back: the panel races the round trip
+   against `CAPTURE_TIMEOUT_MS` (30 s, `captureTab()` in `screens/hotkeys.js`),
+   and the worker races `captureVisibleTab` against
+   `CAPTURE_VISIBLE_TIMEOUT_MS` (8 s) — on an occluded or minimised window
+   Chrome can leave that callback uncalled, and the timeout drops the flow to
+   the debugger path instead of hanging.
 4. `CaptureAnnotate.annotateImage(dataUrl, tabId, {toast})`:
    - writes `{dataUrl}` to `chrome.storage.session` under a random
      `annotate-<uuid>` key;
-   - **primary**: injects the overlay into that same tab;
+   - **primary**: injects the overlay into that same tab, then WAITS for it to
+     report on the same key: `{ready:true}` the moment its host is on the page,
+     `{error}` for a bail (no stylesheet, no core, a throw in `AnnotateCore`).
+     `executeScript` resolving only says the files *ran*; before this handshake
+     an overlay that bailed after that left the panel on `Annotating…` for good,
+     with the button disabled and nothing on screen. No report in 3 s and no
+     overlay host on the page ⇒ the fallback below;
    - **fallback**: opens `editor.html?annotate=<key>` in a new tab and toasts
-     that the page cannot host the annotator;
-   - the annotator writes back to the *same key* — `{resultDataUrl}` for Apply
+     why — the page cannot host the annotator, the overlay's own `{error}`, or
+     that it never came up;
+   - the annotator writes back to the *same key* — `{resultDataUrl}` for Save
      and for *Keep original*, `{cancelled:true}` for Discard — and the panel
      resolves off `storage.session.onChanged`. Closing the fallback tab with no
      write means *Keep original*.
@@ -1143,9 +1193,33 @@ ends `N of M` when some failed.
 `attributes.attachments` of the JSON:API testrun detail `probeSession()` already
 prefetched into `state.testrunDetail`, merged (de-duplicated by URL) with what
 this panel session uploaded onto that record. Screenshots and the auto-attached
-log therefore appear in it too. The gate lives with the screenshot's in
+log therefore appear in it too — ONE grid for all three, drawn with the same
+`fileTileItem()` the **Artifacts** section uses (#21), so the panel has one file
+shape rather than a list here and a grid there. `attTileItem()` is that tile plus
+the one thing a manual upload has that a runner artifact does not: a **bin**, a
+sibling of the tile (`.file-tile` is itself a `<button>`, which cannot nest one)
+in its corner, revealed on hover or focus-within. It is on every tile and
+disabled with the reason in its tooltip when that file cannot go — no result
+record, a run lock, a degraded (no-JWT) session, or a row the server gave no id
+to (`attId()` reads one off an `<instance>/attachments/<uid>.ext` url when the
+response carried none). `TestomatAPI.deleteAttachment()` asks v2 first
+(`DELETE /api/v2/{project}/attachments/{id}?testrun_id=…`, the route the Testomat
+MCP server calls) and falls back to the Web-UI JSON:API on 403/404/405, the same
+split the upload lives with. The confirm dialog is interactive, so the lock is
+re-asked after it (#187); the row is dropped from *both* merge sources only once
+the server has said yes. The gate lives with the screenshot's in
 `updateTestActionsState()`: no result record, or — uploads being JWT-only — a
 proven-degraded session.
+
+An **empty** grid does not collapse and does not settle for a sentence: it is the
+one place the tester is already looking for *where does the file go*, so it draws
+a dashed **dropzone** spanning the grid. Clicking it opens the same picker the
+button does, a drop rides the same upload path, and it is gated on exactly the
+three reasons the Attach file button is (`attUploadLock()`) — a dropzone must
+never invite a drop the upload would then refuse. The gate is re-read at drop
+time, since a drag outlives the render that drew the zone, and
+`updateTestActionsState()` repaints the zone when the gate moves — but only while
+it *is* the zone, since rebuilding real tiles would drop their previews.
 
 ### 3.4 The evidence (console + network) recorder
 
@@ -1684,7 +1758,7 @@ unconfigured.
 | `evidenceMirror` | `evidence/recorder.js` `evMirror()` | `{session, buffer, windowSec}` — the recorder's throttled mirror so an SW restart recovers. A COPY of the worker's buffer, so removing the key is not enough on its own: `EVIDENCE_WIPE` stops the recording first (§3.4). |
 | `viewPanelWindowId` | `shared/view-mode.js`, written by `background.js` | The panel's own popup window. One panel, not a stack: the next icon click focuses it. Removed when the window closes. |
 | `viewNormalWindowId` | `shared/view-mode.js`, written by `background.js` `windows.onFocusChanged` | The last focused NORMAL window — where the site under test is. What `activeTab()` resolves against in window mode (§4.1); `windows.getAll()` is the fallback when it is missing or stale. |
-| `annotate-<uuid>` | `shared/capture-annotate.js:75,102` | The screenshot handoff; the annotator overwrites the same key with `{resultDataUrl}` or `{cancelled:true}` (`overlay/annotate-overlay.js:145,149,154`, `editor/annotate.js:50`). |
+| `annotate-<uuid>` | `shared/capture-annotate.js:90,124` | The screenshot handoff; the annotator overwrites the same key — `{ready:true}`/`{error}` while it starts, then `{resultDataUrl}` or `{cancelled:true}` (`overlay/annotate-overlay.js`, `editor/annotate.js:50`). |
 | `editorDraft:suite:<id>` | `editor/editor.js` `editorDraftKey()` / `persistDraftNow()` | `{title, markdown, priority, suite, ts, params?, recording?}` — an unsaved NEW test in panel context. `recording` (#23) is `{entries, start, count, polished, rawItems, polishedItems}` — the recording the editor was holding, so a reopened panel can still polish it (or put it back) even though the steps are already in the body. Creation-only: an existing test is read-only, so it can never be dirty. |
 
 ⚠️ The worker calls

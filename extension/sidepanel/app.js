@@ -44,6 +44,8 @@ async function init() {
   initHostHistoryDropdown();
   // Header project switcher (#103/#126): picking a row repoints the panel and resets the tabs.
   initProjectDropdown();
+  // …and its whole-screen twin, the pick a connection lands on when it resolved no project.
+  initProjectPick();
   // Panel-wide Refresh (#127): re-pulls the projects, the open view and both tab counts.
   $('btn-refresh').addEventListener('click', refreshAll);
   // #208 surface switch. Not awaited — it only needs to know its surface before the first click.

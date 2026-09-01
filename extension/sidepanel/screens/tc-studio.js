@@ -48,9 +48,6 @@ function closeSuiteInput() {
   for (const el of document.querySelectorAll('.tc-new-suite')) el.remove();
 }
 
-// A leaf's first slot stays blank: its glyph and title line up with a folder's.
-const treeSlot = () => Object.assign(document.createElement('span'), { className: 'tree-icon' });
-
 // `mount(li)` places the row at the TOP of its list, one row under the button that
 // opened it. Enter or the tick create; Esc, the cross or losing focus dismiss.
 function openSuiteInput({ parentId, fileType, mount }) {
