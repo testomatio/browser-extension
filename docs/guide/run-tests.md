@@ -30,7 +30,8 @@ click the test's title to open it.
   Ticks sync to the server so a colleague sees them (in basic mode they
   stay local).
 - **Passed / Failed / Skipped** save immediately and stay put — moving on
-  is the **Next test →** button (or its hotkeys below).
+  is the **›** arrow of the *n of N* pager under the progress bar, or the
+  hotkeys below.
 - A comment saved with a status lands on the result in the web app too.
 - Failing a test can attach the console & network log of the tab under
   test automatically — that is the [Rec recorder](console-network-log.md).

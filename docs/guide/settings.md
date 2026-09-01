@@ -14,9 +14,9 @@ you get that server's own set.
 ## Connection
 
 The card names the host you are connected to, shows the **Connected** badge
-(or *Project not picked* while the first run is half done) and offers
-**Disconnect**. Authorizing, picking a project and ending the connection
-are on [Connect](connect.md).
+(or *Project not picked* while the first-time setup is half done — token in,
+no project chosen yet) and offers **Disconnect**. Authorizing, picking a
+project and ending the connection are on [Connect](connect.md).
 
 ## Failure log
 

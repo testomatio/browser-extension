@@ -35,7 +35,8 @@ update](docs/guide/install.md).
    → [Connect](docs/guide/connect.md)
 2. **Open a run.** **Runs** tab → click a run → click a test.
 3. **Mark it.** Tick the steps, press **Passed**, **Failed** or **Skipped**
-   (with a comment), then **Next test →**. Nothing navigates on its own.
+   (with a comment), then the **›** arrow in the test's pager (or `N` for
+   the next untested test). Nothing navigates on its own.
    → [Run a manual run](docs/guide/run-tests.md)
 4. **Attach evidence.** In the test's **Attachments** fold: **Attach
    screenshot** opens an annotator over the page, **Attach screen
