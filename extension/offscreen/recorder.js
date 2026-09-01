@@ -5,6 +5,8 @@
 
 'use strict';
 
+/* global WebmDuration */
+
 const REC_TIME_CAP_MS = 5 * 60 * 1000;
 const REC_SIZE_CAP = 50 * 1024 * 1024;
 const REC_CHUNK_MS = 1000;
@@ -103,8 +105,13 @@ function finish(reason) {
   if (!rec) { reset(); return Promise.resolve(null); }
   const ms = elapsedMs();
   finishing = new Promise((resolve) => {
-    const settle = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
+    const settle = async () => {
+      const raw = new Blob(chunks, { type: 'video/webm' });
+      // The streamed take carries no Duration header — written in here, or every player
+      // treats it as endless: the scrubber sits at the end and seeking misbehaves.
+      let blob = raw;
+      try { blob = new Blob([WebmDuration.patch(await raw.arrayBuffer(), ms)], { type: 'video/webm' }); }
+      catch { /* the raw take still plays */ }
       const file = { url: URL.createObjectURL(blob), size: blob.size, ms, reason: reason || 'user' };
       reset();
       finishing = null;
@@ -143,10 +150,15 @@ function pause(on) {
 let trimParts = [];
 
 // 'trim-swap' replaces the parked ORIGINAL with the trimmed take: the old URL is revoked,
-// so the untrimmed picture is unreachable from that moment on.
-function trimSwap(oldUrl) {
-  const blob = new Blob(trimParts, { type: 'video/webm' });
+// so the untrimmed picture is unreachable from that moment on. The re-recorded take lacks a
+// Duration header the same way a live one does — patched with the kept footage's length.
+function trimSwap(oldUrl, ms) {
+  let merged = new Uint8Array(trimParts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of trimParts) { merged.set(p, at); at += p.length; }
   trimParts = [];
+  try { merged = WebmDuration.patch(merged.buffer, ms); } catch { /* the raw take still plays */ }
+  const blob = new Blob([merged], { type: 'video/webm' });
   if (oldUrl) { try { URL.revokeObjectURL(oldUrl); } catch { /* not ours */ } }
   return { ok: true, url: URL.createObjectURL(blob), size: blob.size };
 }
@@ -163,7 +175,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: true });
       return false;
     case 'trim-swap':
-      sendResponse(trimSwap(msg.oldUrl));
+      sendResponse(trimSwap(msg.oldUrl, msg.ms || 0));
       return false;
     case 'start':
       start(msg.streamId).then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));

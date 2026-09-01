@@ -269,7 +269,7 @@
         }
         ack(await send({ type: 'SCREENREC_OFF', cmd: 'trim-chunk', b64: btoa(bin) }));
       }
-      const swapped = await send({ type: 'SCREENREC_OFF', cmd: 'trim-swap', oldUrl: file.url });
+      const swapped = await send({ type: 'SCREENREC_OFF', cmd: 'trim-swap', oldUrl: file.url, ms: Math.round(keptSec() * 1000) });
       if (!swapped || !swapped.ok) throw new Error('the recorder page did not take the file');
       await send({ type: 'SCREENREC_TRIMMED', url: swapped.url, size: swapped.size, ms: Math.round(keptSec() * 1000) });
       closeReview();
