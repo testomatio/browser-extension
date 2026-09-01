@@ -1,12 +1,21 @@
 // Project switcher (#103). Options come from the ACTIVE instance token's own list
 // (JWT `GET /api/projects`, `id` = the slug every v2 route carries).
 
-/* global TestomatAPI, $, state, hasChrome, hostOf, show, toast,
+/* global TestomatAPI, Handoff, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
    prefetchTabCounts, Tooltip, setStatusLine */
 
 // Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
+
+// Any session reaches every project the tester can see — it reads their keys as it goes. Only a
+// connection left with nothing but ONE project's stored token is pinned, which is a handoff whose
+// host has closed its browser and taken the session with it.
+function projectPinned() {
+  const s = state.settings;
+  if (!s || !s.handoff || s.apiToken) return false;
+  return !Handoff.offer();
+}
 
 // Popup-only state; the list itself is always `state.projects`.
 let projectFilter = '';
@@ -50,7 +59,15 @@ function renderProjectBar() {
   const row = current ? projectRows().find((p) => p.id === current) : null;
   label.textContent = current ? (row ? projectLabel(row) : current) : 'Choose a project';
   if (current) trigger.dataset.projectId = current; else delete trigger.dataset.projectId;
-  Tooltip.set(trigger, current ? `Active project: ${label.textContent}` : 'Choose a project');
+  // aria-disabled, never `disabled`: a disabled button swallows the hover, and the tooltip is
+  // the only place the reason fits.
+  trigger.setAttribute('aria-disabled', projectPinned() ? 'true' : 'false');
+  let hint = current ? `Active project: ${label.textContent}` : 'Choose a project';
+  if (projectPinned()) {
+    const app = (Handoff.offer() || {}).app || 'the app that opened this browser';
+    hint = `Project chosen by ${app} — switch it there`;
+  }
+  Tooltip.set(trigger, hint);
   renderProjectOpenLink();
   bar.hidden = false;
   // A list landing mid-open repaints the rows under the tester's cursor.
@@ -133,7 +150,7 @@ function syncProjectActiveOption() {
 function openProjectMenu() {
   const menu = $('project-menu');
   const trigger = $('project-trigger');
-  if (!menu || !trigger || !menu.hidden) return;
+  if (!menu || !trigger || !menu.hidden || projectPinned()) return;
   projectFilter = '';
   projectActiveId = state.settings ? state.settings.projectId : null; // open on the active one
   const input = $('project-filter');
@@ -236,7 +253,7 @@ function initProjectDropdown() {
 // Best-effort: a failure (no session, offline) leaves the saved project as the only
 // option and the panel keeps working — Settings' Save reports a bad token.
 async function refreshProjects() {
-  if (!state.settings || !state.settings.apiToken) return [];
+  if (!Handoff.credentialed(state.settings)) return [];
   let projects;
   try { projects = await TestomatAPI.listProjects(); } catch { return []; }
   state.projects = projects;
@@ -268,7 +285,7 @@ async function switchProject(projectId) {
   }
   const settings = { ...prev, projectId };
   state.settings = settings;
-  TestomatAPI.configure(settings); // also drops the old project's JWT
+  Handoff.configure(settings); // also drops the old project's JWT
   resetProjectScopedState();
   await persistActiveSettings(settings);
   renderProjectBar();
@@ -308,7 +325,7 @@ async function initProjectSwitcher() {
   if (projects.length > 1) return 'choose';
   const settings = { ...state.settings, projectId: projects[0].id };
   state.settings = settings;
-  TestomatAPI.configure(settings);
+  Handoff.configure(settings);
   await persistActiveSettings(settings);
   renderProjectBar();
   return 'ready';

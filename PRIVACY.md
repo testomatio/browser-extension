@@ -12,7 +12,7 @@ cross-checked line by line with `extension/manifest.json`.
 - The extension has **no server of its own**. It talks to exactly one host: the
   Testomat.io instance **you** configure in Settings (`https://app.testomat.io`
   by default, or your own self-hosted URL).
-- Your API token and your preferences are stored **locally**, in your own Chrome
+- Your access token and your preferences are stored **locally**, in your own Chrome
   profile, using `chrome.storage.local`. `chrome.storage.sync` is never used, so
   nothing is copied to your Google account.
 - **No analytics, no telemetry, no crash reporting, no advertising, no CDN, no
@@ -30,7 +30,7 @@ Two areas, both belonging to the extension inside your local Chrome profile.
 
 | Stored | Why |
 |---|---|
-| Your Testomat.io **API token**, per instance | To authenticate every call to that instance |
+| Your Testomat.io **access token**, per instance — the one authorizing gives you, or a General token | To authenticate every call to that instance. Project API keys are read with it as needed and kept in memory only |
 | The instance URL and the selected project | To know where to read and write |
 | Your Settings preferences | Log window length, the environment-info and body-capture toggles, the step-recorder switch |
 | A short history of instances you have connected to | To offer them again |
@@ -135,7 +135,7 @@ else is requested.
 
 | Permission | Why it is needed | Limits |
 |---|---|---|
-| `storage` | Keep the API token, the project choice, preferences, the offline queue and the in-session recording buffer in your local Chrome profile | `chrome.storage.sync` is never used, so nothing leaves the profile through Chrome |
+| `storage` | Keep the access token, the project choice, preferences, the offline queue and the in-session recording buffer in your local Chrome profile | `chrome.storage.sync` is never used, so nothing leaves the profile through Chrome |
 | `sidePanel` | Draw the panel itself in Chrome's side panel | — |
 | `scripting` | On your click, inject the screenshot annotator, the step recorder and the console/network instrumentation into the tab you are testing | Nothing is registered to run automatically except for the origin currently being recorded, and it is unregistered when the recording stops |
 | `webRequest` | List the page's own network traffic (method, URL, status, timing) in the console & network log | **Observational only.** The four listeners are registered with no `extraInfoSpec`: the extension never asks for request or response **headers**, never uses the **blocking** form, and cannot modify, redirect or cancel any request. Events for any tab other than the one being recorded are discarded on arrival and kept nowhere, not even in memory |

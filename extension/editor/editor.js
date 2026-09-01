@@ -1,7 +1,7 @@
 // TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
 // in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
 
-/* global TestomatAPI, OverType, Md, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
+/* global TestomatAPI, Handoff, OverType, Md, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
 (() => {
   'use strict';
 
@@ -403,9 +403,10 @@
     if (!hasLocal()) return RELOADED;
     let settings = null;
     try { ({ settings } = await chrome.storage.local.get('settings')); } catch { return RELOADED; }
-    if (!settings || !settings.baseUrl || !settings.apiToken || !settings.projectId) return NEED_SETUP;
+    if (!Handoff.credentialed(settings) || !settings.projectId) return NEED_SETUP;
     activeSettings = settings;
-    TestomatAPI.configure(settings);
+    await Handoff.ready(); // a handed-off config keeps its session token in the host's file
+    Handoff.configure(settings);
     return true;
   }
 
