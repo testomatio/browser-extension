@@ -197,6 +197,8 @@ body[data-connect="true"] .header-top { display: none; }
 #view-settings[data-mode="connect"] #settings-advanced-item { display: contents; }
 #view-settings[data-mode="connect"] > #connect-hero { display: block; order: 0; }
 #view-settings[data-mode="connect"] #settings-connection-item > .settings-section-title { display: none; }
+/* #73's way in — the hint under the field says "Authorize above", so above it is. */
+#view-settings[data-mode="connect"] #token-authorize { display: block; order: 1; }
 #view-settings[data-mode="connect"] #token-field { display: block; order: 2; }
 #view-settings[data-mode="connect"] #token-help { display: block; order: 3; margin-bottom: var(--space-3); }
 #view-settings[data-mode="connect"] > #btn-save-settings {
