@@ -212,6 +212,7 @@ function resetProjectScopedState() {
   capabilities.jwt = false; // re-probed against the new project
   capabilities.readonly = false; // …and so is the read-only lockout (#155)
   readonlyProbe = null;
+  stopReadonlyWatch(); // the lockout it watched belonged to the project being left
   // Guarded: core/views.js loads after this module.
   if (typeof resetTabCounts === 'function') resetTabCounts();
   if (typeof syncStop === 'function') syncStop(); // no poll for the closed run
@@ -223,6 +224,8 @@ function applyCapabilities() {
   const hint = $('jwt-hint');
   if (hint) hint.hidden = s !== false; // shown only once degradation is proven
   capabilities.readonly = TestomatAPI.readonlyAccess() === true; // #155
+  // The one place the flag is (re)computed, so the watch below simply follows it.
+  if (capabilities.readonly) startReadonlyWatch(); else stopReadonlyWatch();
   if (typeof applyReadonlyBlock === 'function') applyReadonlyBlock(); // the lockout panel
   if (typeof updateDegradedBanner === 'function') updateDegradedBanner(); // runs/run strip
 }
@@ -245,6 +248,33 @@ function probeReadonly() {
 async function readonlyGate() {
   await probeReadonly();
   return capabilities.readonly === true;
+}
+
+// ---------- read-only re-probe (#155) ----------
+// The lockout hides every list, so live sync stays off (livesync.js) and this is all that runs:
+// ONE cheap read on a slow beat, whose only job is to notice that the role changed back.
+const READONLY_RECHECK_MS = 60000;
+let readonlyWatch = null;
+
+// Armed only by applyCapabilities, and never for a panel with no connection to read.
+function startReadonlyWatch() {
+  if (readonlyWatch || !capabilities.readonly || !isConfigured()) return;
+  readonlyWatch = setInterval(recheckReadonly, READONLY_RECHECK_MS);
+}
+
+function stopReadonlyWatch() {
+  if (readonlyWatch) { clearInterval(readonlyWatch); readonlyWatch = null; }
+}
+
+async function recheckReadonly() {
+  // Self-teardown, for any path that clears the flag without passing applyCapabilities.
+  if (!capabilities.readonly || !isConfigured()) { stopReadonlyWatch(); return; }
+  // A hidden panel is nobody watching — the same guard syncShouldPoll keeps.
+  if (document.visibilityState && document.visibilityState !== 'visible') return;
+  await TestomatAPI.recheckAccess(); // coalesced with a corroboration already on the wire
+  if (TestomatAPI.readonlyAccess() !== false) return; // still refused, or never answered at all
+  applyCapabilities(); // stops this watch and lifts the block…
+  if (typeof refreshCurrentView === 'function') refreshCurrentView(); // …onto a screen with data on it
 }
 
 // Best-effort session upgrade + JSON:API testrun prefetch; a failure degrades silently.

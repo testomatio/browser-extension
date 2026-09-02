@@ -25,7 +25,12 @@ const TestomatAPI = (() => {
   // #155: v2 answers 403 to EVERY request — GET included — for read-only access (reader role,
   // company-readonly account, archived project), while a rejected token is a 401 instead.
   let readonly = 'unknown'; // 'unknown' until a v2 call answers | true | false
-  const READONLY_MESSAGE = 'Your access to this project is read-only';
+  // The host, so a tester reading either verdict below knows WHICH server refused them.
+  const instanceHost = () => { try { return new URL(cfg.baseUrl).host; } catch { return 'the web app'; } };
+  const READONLY_MESSAGE = (status) =>
+    `Your access to this project is read-only — ${instanceHost()} answered ${status} to a plain read too`;
+  const ROUTE_REFUSED = (status) =>
+    `${instanceHost()} refused this request (${status}) — the project itself still reads fine`;
 
   class ApiError extends Error {
     constructor(kind, status, detail) {
@@ -93,10 +98,23 @@ const TestomatAPI = (() => {
     return key;
   }
 
-  async function rawFetch(url, opts) {
+  // A request that never answers hangs the panel for its whole life, holding every write flag with it.
+  const REQUEST_TIMEOUT_MS = 30000;
+  // Minutes, not seconds: a 50 MB recording on a slow link, or server-side model work, needs them.
+  const LONG_TIMEOUT_MS = 300000;
+
+  async function rawFetch(url, { timeout = REQUEST_TIMEOUT_MS, signal, ...opts } = {}) {
+    const budget = AbortSignal.timeout(timeout);
+    // Without AbortSignal.any the caller's own signal wins: cancelling has no other way to happen.
+    const combined = !signal ? budget
+      : (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, budget]) : signal);
     try {
-      return await fetch(url, opts);
+      return await fetch(url, { ...opts, signal: combined });
     } catch {
+      // A timeout wears the SAME network error a dead link does, so the offline queue still takes the click.
+      if (budget.aborted) {
+        throw new ApiError('network', 0, `No answer in ${Math.round(timeout / 1000)}s — the request timed out`);
+      }
       throw new ApiError('network', 0, 'Network error');
     }
   }
@@ -129,7 +147,20 @@ const TestomatAPI = (() => {
     return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 
-  async function request(path, { method = 'GET', body, query } = {}) {
+  // The cheapest read v2 has — validate()'s own call, shared so the corroboration cannot drift from it.
+  const RUNS_PING = { query: { per_page: 1 } };
+  // ONE in flight: racing 403s must not fire two probes, nor the probe's own 403 a third.
+  let readonlyCheck = null;
+  function projectIsReadonly() {
+    if (!readonlyCheck) {
+      readonlyCheck = request('/runs', { ...RUNS_PING, corroborate403: false })
+        .then(() => false, (e) => e?.status === 403) // any other failure proves nothing — stay unlocked
+        .finally(() => { readonlyCheck = null; });
+    }
+    return readonlyCheck;
+  }
+
+  async function request(path, { method = 'GET', body, query, corroborate403 = true } = {}) {
     guardConfigured();
     const url = new URL(`${cfg.baseUrl}/api/v2/${cfg.projectId}${path}`);
     if (query) {
@@ -145,8 +176,16 @@ const TestomatAPI = (() => {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    // #155: 403 here means read-only access, never a bad token (that is a 401).
-    if (res.status === 403) { readonly = true; throw new ApiError('readonly', 403, READONLY_MESSAGE); }
+    // Only a plain read answering 403 too proves read-only: a proxy, WAF or SSO gateway refuses ONE route.
+    if (res.status === 403) {
+      // Already proven: what clears the flag is a 2xx below, so re-probing it buys nothing.
+      if (readonly === true) throw new ApiError('readonly', 403, READONLY_MESSAGE(403));
+      if (corroborate403 && await projectIsReadonly()) {
+        readonly = true;
+        throw new ApiError('readonly', 403, READONLY_MESSAGE(403));
+      }
+      throw new ApiError('auth', 403, ROUTE_REFUSED(403)); // the kind toError() gives a 403 anywhere else
+    }
     if (!res.ok) throw await toError(res);
     readonly = false; // a v2 answer at all proves the project is not read-only
     if (res.status === 204) return null;
@@ -169,7 +208,7 @@ const TestomatAPI = (() => {
     return all;
   }
 
-  const validate = () => request('/runs', { query: { per_page: 1 } });
+  const validate = () => request('/runs', RUNS_PING);
   // #110: `render_index` caps per_page at 100 (default 30) and answers meta {total, page, per_page}.
   // Both lists below are the DEGRADED (no-JWT) runs list source.
   const V2_RUNS_PER_PAGE = 50;
@@ -373,7 +412,7 @@ const TestomatAPI = (() => {
 
   // Lazy login, then ONE re-login + retry on 401 or 403 — an expired JWT answers 403 here (unlike
   // v2, where 403 means read-only). `url` is prebuilt: the project base or the api root.
-  async function jwtSend(url, { method = 'GET', body } = {}) {
+  async function jwtSend(url, { method = 'GET', body, timeout } = {}) {
     const doReq = () => rawFetch(url, {
       method,
       headers: {
@@ -381,6 +420,7 @@ const TestomatAPI = (() => {
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
+      timeout, // undefined leaves rawFetch's ordinary budget in place
     });
     if (!jwt) await login();
     let res = await doReq();
@@ -795,6 +835,7 @@ const TestomatAPI = (() => {
     const doc = await jwtRequest('/prompts', {
       method: 'POST',
       body: { prompt: 'polish_recorded_steps', message, ...(testId ? { test_id: testId } : {}) },
+      timeout: LONG_TIMEOUT_MS, // the model runs server-side; timing it out loses the recorded steps
     });
     return { text: (doc && doc.text) || '', steps: doc?.data?.polished_steps || '' };
   }
@@ -808,7 +849,12 @@ const TestomatAPI = (() => {
       formData.append('file', blob, filename);
       return rawFetch(
         `${cfg.baseUrl}/api/${cfg.projectId}/${scope}/${encodeURIComponent(id)}/attachment`,
-        { method: 'POST', headers: { Authorization: `Bearer ${jwt}` }, body: formData },
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${jwt}` },
+          body: formData,
+          timeout: LONG_TIMEOUT_MS, // a recording is megabytes, not a JSON row
+        },
       );
     };
     if (!jwt) await login();
@@ -830,11 +876,14 @@ const TestomatAPI = (() => {
   // prod. So v2 is asked first and a "route is not here" answer — 403 (a read-only v2 token answers
   // that to everything, #155), 404, 405 — hands over to the JSON:API the panel already writes with.
   // Only the SECOND failure reaches the caller: a delete that no route accepts must not read as done.
+  // The 403 being EXPECTED here, it opts out of the read-only corroboration instead of provoking a probe.
   async function deleteAttachment(testrunId, attachmentId) {
     guardConfigured();
     const id = encodeURIComponent(String(attachmentId));
     try {
-      return await request(`/attachments/${id}`, { method: 'DELETE', query: { testrun_id: testrunId } });
+      return await request(`/attachments/${id}`, {
+        method: 'DELETE', query: { testrun_id: testrunId }, corroborate403: false,
+      });
     } catch (e) {
       const st = e && e.status;
       if (st !== 403 && st !== 404 && st !== 405) throw e;
@@ -872,6 +921,7 @@ const TestomatAPI = (() => {
     const doGet = () => rawFetch(url, {
       credentials: 'omit',
       headers: ours && jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
+      timeout: LONG_TIMEOUT_MS, // the asset itself, same size as the upload that made it
     });
     // Basic mode (no session) still tries: a signed bucket link needs no login at all.
     if (ours && !jwt && jwtAvailable !== false) await login().catch(() => {});
@@ -895,6 +945,8 @@ const TestomatAPI = (() => {
     listProjectUsers, listProjects, assignTestrun,
     listTemplates, polishRecordedSteps,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
-    readonlyAccess: () => readonly, ApiError,
+    // recheckAccess is the corroboration read on its own: the panel's read-only watch shares its
+    // coalescing, and reads the VERDICT off readonlyAccess() — only a 2xx in there clears the flag.
+    readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, ApiError,
   };
 })();
