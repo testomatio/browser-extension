@@ -1,12 +1,12 @@
 // Offline queue: ONLY test status writes are queued (on network / transient
 // 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
-/* global TestomatAPI, state, capabilities, hasChrome, isReadonlyError, recordFor,
+/* global TestomatAPI, state, capabilities, hasChrome, hostOf, isReadonlyError, recordFor,
    runRowEl, repaintRow, toast, writeStatus, runStatusTerminal, $, Tooltip */
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
-let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, comment, queuedAt} }
+let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, comment, queuedAt, host, projectId} }
 let queueDraining = false;  // FIFO, one drain at a time — no retry storm
 let queueRedrainRequested = false; // #192: a trigger that arrived mid-drain, honoured once after it
 let queueLastPass = false;         // the running pass is the last one — no more can be promised
@@ -29,7 +29,24 @@ function forcedError() {
   return new TestomatAPI.ApiError(kind, kind === 'auth' ? 403 : 0, 'forced offline (e2e)');
 }
 
+// The connection an entry was written on — `hostOf` is the panel's own host key.
+function queueIdentity() {
+  const s = state.settings || {};
+  return { host: hostOf(s.baseUrl), projectId: s.projectId || null };
+}
+
+// A testrun id means nothing in another project, so only the ACTIVE connection's
+// entries replay. A stamp-less entry (older build) counts as active — no migration.
+function queueEntryActive(entry) {
+  const now = queueIdentity();
+  return (!entry.host || entry.host === now.host)
+    && (!entry.projectId || entry.projectId === now.projectId);
+}
+
+// The WHOLE queue — «is anything queued at all», which is what every caller asks.
 function queueCount() { return Object.keys(queueCache).length; }
+// …and the share of it this connection can actually sync (the banner's count).
+function queueCountActive() { return Object.values(queueCache).filter(queueEntryActive).length; }
 function queueHas(recordId) { return Object.prototype.hasOwnProperty.call(queueCache, qKey(recordId)); }
 
 async function persistQueue() {
@@ -42,17 +59,19 @@ async function persistQueue() {
 async function queueEnqueue({ recordId, runId, status, comment, queuedAt }) {
   queueCache[qKey(recordId)] = {
     recordId, runId, status, comment: comment || '', queuedAt: queuedAt || Date.now(),
+    ...queueIdentity(), // the connection this write belongs to — replay elsewhere 404s
   };
   await persistQueue();
   refreshQueueUI();
 }
 
+// Answers whether anything was actually there, so a caller repaints only on a change.
 async function queueRemove(recordId) {
   const key = qKey(recordId);
-  if (Object.prototype.hasOwnProperty.call(queueCache, key)) {
-    delete queueCache[key];
-    await persistQueue();
-  }
+  if (!Object.prototype.hasOwnProperty.call(queueCache, key)) return false;
+  delete queueCache[key];
+  await persistQueue();
+  return true;
 }
 
 // #152/#186: the SERVER checks no run state, and the queue is the one write path
@@ -96,7 +115,9 @@ async function dropLockedRunEntries(list) {
 // ONE FIFO pass off a snapshot. A still-offline failure stops the pass and keeps
 // every entry; any other failure drops that one, so it cannot wedge the banner.
 async function drainPass() {
-  const list = Object.values(queueCache).sort((a, b) => a.queuedAt - b.queuedAt);
+  // Foreign entries are filtered out ONCE, here: they are not failures, and the run
+  // ids below resolve against the current project — a foreign one would 404 there.
+  const list = Object.values(queueCache).filter(queueEntryActive).sort((a, b) => a.queuedAt - b.queuedAt);
   if (!list.length) return;
   // ONE toast, not one per reason — a second toast() replaces the first in the DOM.
   const dropped = Object.entries(await dropLockedRunEntries(list))
@@ -105,6 +126,7 @@ async function drainPass() {
   for (const entry of list) {
     const snap = queueCache[qKey(entry.recordId)];
     if (!snap) continue; // removed/replaced/dropped since the snapshot list was taken
+    if (!queueEntryActive(snap)) continue; // the connection moved mid-drain — keep it for its own
     const record = (typeof recordFor === 'function' && recordFor(snap.recordId)) || { id: snap.recordId };
     try {
       await writeStatus(record, snap.status, snap.comment, null, { noQueue: true });
@@ -166,13 +188,19 @@ async function queueReplay({ user = false } = {}) {
 function updatePendingBanner() {
   const banner = $('pending-banner');
   if (!banner) return;
-  const n = queueCount();
+  const n = queueCountActive();
+  const other = queueCount() - n;
   const onView = state.view === 'runs' || state.view === 'run' || state.view === 'test';
-  const showit = n > 0 && onView;
+  const showit = n + other > 0 && onView;
   banner.hidden = !showit;
   if (!showit) return;
   const txt = banner.querySelector('.pending-banner-text');
-  if (txt) txt.textContent = `${n} ${n === 1 ? 'change' : 'changes'} pending`;
+  // The count stays about what can sync NOW; the rest gets its own clause rather
+  // than inflating a number Retry cannot move.
+  const parts = [];
+  if (n) parts.push(`${n} ${n === 1 ? 'change' : 'changes'} pending`);
+  if (other) parts.push(`${other} ${other === 1 ? 'change' : 'changes'} waiting for another project or instance`);
+  if (txt) txt.textContent = parts.join(' · ');
 }
 
 // #215: rows went to ONE line and lost their `.meta`, and bailing on a missing
@@ -241,6 +269,7 @@ const OfflineQueue = {
   count: queueCount,
   qualifies: queueQualifies,
   enqueue: queueEnqueue,
+  remove: queueRemove,
   replay: queueReplay,
   forcedError,
   decorateRow: applyQueuedMarker,
