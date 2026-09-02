@@ -73,13 +73,31 @@ function envOs() {
   return hinted;
 }
 
-// Active tab URL via resolveSiteTab. '' for anything but a readable http(s) tab,
-// so the URL key is omitted rather than failing the write.
-async function envActiveTabUrl() {
+// The site tab via resolveSiteTab. null for anything but a readable http(s) tab, so the
+// keys read off it are omitted rather than failing the write.
+async function envSiteTab() {
   try {
-    if (typeof resolveSiteTab !== 'function') return '';
+    if (typeof resolveSiteTab !== 'function') return null;
     const site = await resolveSiteTab();
-    return site.state === 'ok' ? site.tab.url : '';
+    return site.state === 'ok' ? site.tab : null;
+  } catch { return null; }
+}
+
+// Measured INSIDE the tab: the panel's own `screen` is the monitor, not the window a
+// layout bug reproduced in. '' whenever the read cannot be trusted — a missing value
+// beats a wrong one.
+async function envTabViewport(tab) {
+  const tabId = tab && tab.id != null ? tab.id : null;
+  if (tabId == null) return '';
+  if (typeof chrome === 'undefined' || !chrome.scripting?.executeScript) return '';
+  try {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => [window.innerWidth, window.innerHeight],
+    });
+    const [w, h] = Array.isArray(res?.result) ? res.result : [];
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return '';
+    return `${Math.round(w)}×${Math.round(h)}`;
   } catch { return ''; }
 }
 
@@ -90,9 +108,12 @@ async function collectEnvMeta(settings) {
   const entries = [
     ['Browser', envBrowser()],
     ['OS', envOs()],
-    ['Viewport', `${screen.width}×${screen.height}`],
   ];
-  const url = await envActiveTabUrl();
+  // Resolved ONCE: two keys off one tab can never describe two different tabs.
+  const tab = await envSiteTab();
+  const viewport = tab ? await envTabViewport(tab) : '';
+  if (viewport) entries.push(['Viewport', viewport]);
+  const url = tab && tab.url ? tab.url : '';
   if (url) entries.push(['URL', envFullUrlEnabled(settings) ? url : envTrimUrl(url)]);
   return entries;
 }
