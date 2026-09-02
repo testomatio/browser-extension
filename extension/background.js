@@ -510,7 +510,7 @@ function srPushNav(st, text, cap) {
   return dup !== -1 ? dup : srPush(st, { kind: 'expected', text }, cap);
 }
 
-// #77: trimmed like the recorded URL — queries carry reset tokens. A `#/…` route is the page, not a fragment.
+// Trimmed like the recorded URL — queries carry reset tokens. A `#/…` route is the page, not a fragment.
 function srOpenUrl(raw, full) {
   if (full) return raw;
   let u;
