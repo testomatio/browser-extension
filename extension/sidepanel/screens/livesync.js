@@ -4,7 +4,8 @@
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
    refreshRunInfo, refreshRunFinished, renderRunInfo, refreshSuiteFraction, renderRunView,
-   renderTestProgress, applyRunLock, applyAssigneeGate, recordFor, toast, OfflineQueue */
+   renderTestProgress, applyRunLock, applyAssigneeGate, recordFor, toast, OfflineQueue,
+   $, setStatusLine */
 
 let syncTimer = null;
 let syncPollMs = 20000;      // default 20s; overridable via storage.session `pollInterval` (e2e hook)
@@ -73,6 +74,9 @@ async function syncTick() {
     const records = await TestomatAPI.listTestruns(runId);
     if (epoch !== syncEpoch || state.runId !== runId) return; // superseded (stop / run change)
     if (syncWriteDepth > 0 || !syncShouldPoll()) return;      // own write started / navigated away
+    // A recovered connection must not leave a red line standing — only a red one goes.
+    const line = $('run-status');
+    if (line && line.classList.contains('error')) setStatusLine('run-status', '');
     syncApply(records.slice().sort((a, b) => (a.id > b.id ? 1 : -1)));
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // a successful poll tick is a replay trigger
     // The run detail rides the same tick: custom-status counters (#109), Run info
