@@ -51,9 +51,12 @@ A password, card number, CVV, expiry, one-time code, passport or tax id
 records as *Type the password / the card number / the value into the …
 field* — the field is named, the value is not. Recognition uses the
 field's type and `autocomplete`, its wording, and for cards the number's
-own checksum. It is best-effort: if the site handles real payment or
-identity data, switch on **Settings → Step recorder → Never record entered
-values** and every entry reads *Type text into the … field*.
+own checksum. A dropdown recognised the same way — a card expiry month,
+a birth year — records as *Select the value in the … dropdown*. It is
+best-effort: if the site handles real payment or identity data, switch on
+**Settings → Step recorder → Never record entered values** and every entry
+reads *Type text into the … field*, every dropdown *Select an option in
+the … dropdown*.
 
 ## Polish with AI
 

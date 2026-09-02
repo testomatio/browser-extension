@@ -632,19 +632,34 @@
     if (isTextField(el)) flushType(el);
   }
 
+  // An expiry or date-of-birth dropdown is an entered value too, so it masks like a typed one.
+  function flushSelect(el, near) {
+    // Same wait as flushType: a guessed toggle is a value recorded against the setting.
+    if (neverValues === null) { flagRead.then(() => flushSelect(el, near)); return; }
+    const name = nameOf(el, near);
+    const ctx = contextOf(el, name, near);
+    const opt = el.selectedOptions && el.selectedOptions[0];
+    const val = opt ? (opt.textContent || opt.value || '').trim() : String(el.value || '');
+    // ON: "text" reads wrong for a list. Off: maskedAs sees el.value, a card may be option text.
+    const noun = neverValues ? 'an option' : (maskedAs(el) || (looksLikeCard(val) ? 'the card number' : null));
+    if (noun) {
+      record(el, 'select', near, { kind: 'step', action: 'select', name, context: ctx,
+        text: `Select ${noun} in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` },
+      { text: noun, masked: true });
+      return;
+    }
+    record(el, 'select', near, { kind: 'step', action: 'select', name, context: ctx,
+      text: `Select "${trim40(val)}" in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` },
+    { text: trim40(val), masked: false });
+  }
+
   function onChange(e) {
     if (!recording || fromIndicator(e)) return;
     const el = path0(e);
     if (!el || !el.tagName) return;
     const near = nearFacts(el);
     if (el.tagName === 'SELECT') {
-      const name = nameOf(el, near);
-      const ctx = contextOf(el, name, near);
-      const opt = el.selectedOptions && el.selectedOptions[0];
-      const val = opt ? (opt.textContent || opt.value || '').trim() : String(el.value || '');
-      record(el, 'select', near, { kind: 'step', action: 'select', name, context: ctx,
-        text: `Select "${trim40(val)}" in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` },
-      { text: trim40(val), masked: false });
+      flushSelect(el, near);
       return;
     }
     if (el.tagName === 'INPUT' && /^checkbox$/i.test(el.type || '')) {
