@@ -29,6 +29,11 @@
     else window.close();
   }
 
+  // The export is a real-time replay: the host overlay must stop closing us on a reflex Escape.
+  function tellHostBusy(busy) {
+    if (window.parent !== window) window.parent.postMessage({ type: 'TESTOMAT_REVIEW_BUSY', busy }, '*');
+  }
+
   const status = (msg) => { $('review-status').textContent = msg || ''; };
 
   // ---- cut arithmetic --------------------------------------------------------
@@ -199,6 +204,7 @@
     const ranges = keptRanges();
     if (!ranges.length) { status('Everything is cut — nothing would be left to attach'); return null; }
     exporting = true;
+    tellHostBusy(true);
     $('export-veil').hidden = false;
     video.muted = true;
     video.pause();
@@ -236,6 +242,7 @@
       return null;
     } finally {
       exporting = false;
+      tellHostBusy(false); // in the finally so a failed export can never leave the overlay unclosable
       $('export-veil').hidden = true;
       video.muted = false;
     }
