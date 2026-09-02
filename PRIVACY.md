@@ -56,7 +56,7 @@ files of its own.
 | Sent | When |
 |---|---|
 | Test statuses (passed / failed / skipped), comments, step results, assignee, priority, custom status, "finish run" | When you click the corresponding control |
-| **Environment meta** — `Browser` (brand + major version), `OS` (platform name only), `Viewport` (pixel size), `URL` of the tab you were testing | With every status write, while *Settings → Record environment info* is on |
+| **Environment meta** — `Browser` (brand + major version), `OS` (platform name only), `Viewport` (the viewport of the tab you were testing, in CSS pixels), `URL` of the tab you were testing | With every status write, while *Settings → Record environment info* is on |
 | A **console & network log** as a `.txt` attachment | On a Failed result while a recording is running (if auto-attach is on), or when you click Attach |
 | **Screenshots**, annotated or original | Only when you click Apply or Keep in the annotator. Discard uploads nothing |
 | A **screen recording** of the tab under test, as a `.webm` | Only when you press **Attach** in the review that opens at Stop — nothing is uploaded before that. Cut ranges never leave the machine: a trimmed take replaces its original, which is destroyed. Picture only, with no audio of any kind |

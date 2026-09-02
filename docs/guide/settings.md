@@ -30,7 +30,7 @@ What gets recorded, and what leaves the browser, when you mark a test
 | **Attach log to failures** | On | The recorded log is uploaded and linked on a test you mark Failed. Off skips only that automatic upload — **Attach** on a single log entry still works. |
 | **Include response bodies** | On | A failed request carries a snippet of what came back, up to 16 KB. Off keeps the request line and writes *(body capture disabled)* where the snippet would be. |
 | **Log window** | 60 seconds | How much console & network history is kept and attached. Any value from 10 to 600; blank means 60, and a number outside the range is pulled back into it. |
-| **Record environment info** | On | Browser, OS, viewport and page URL are written onto the run as meta, with every status you set — not only a failure. |
+| **Record environment info** | On | Browser, OS, the viewport of the tab under test and its page URL are written onto the run as meta, with every status you set — not only a failure. |
 | **Include the query string** | Off | The recorded URL — and the step recorder's first `Open` step — is cut to origin + path, so reset tokens and signed links in a query string stay out of the run. On records it whole. |
 
 ## Step recorder
