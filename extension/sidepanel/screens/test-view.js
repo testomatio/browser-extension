@@ -1492,6 +1492,13 @@ async function writeStatus(record, status, comment, onOptimistic, opts = {}) {
     }
     // The row always exists (opened by record id) and keeps its test_id.
     if (saved && record) Object.assign(record, saved, { test_id: record.test_id });
+    // This status supersedes anything queued for the row, or the next replay writes
+    // the older one back over it. Before writeEnvMeta and caught: never fatal.
+    if (!opts.noQueue && record && record.id != null && typeof OfflineQueue !== 'undefined') {
+      // The replay path removes its own entry comparing `queuedAt` — a second removal
+      // here would drop a newer click that landed mid-drain.
+      try { if (await OfflineQueue.remove(record.id)) OfflineQueue.refreshUI(); } catch { /* the status is saved */ }
+    }
     await writeEnvMeta(record, status); // #116 — after the id exists, never fatal
     return saved;
   } finally {
