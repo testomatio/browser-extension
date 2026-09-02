@@ -722,10 +722,12 @@ async function shotHookBase() {
 
 // `display_url` is the presigned inline form (no session); `url` is the app-host
 // route behind the login, which fetchAsset carries the JWT to.
+// The instance's own URL first: `display_url` is already a storage link the server put in
+// the data, and the bytes are the same file — its own address redirects there authorized.
 async function attachmentSrc(att) {
   const base = await shotHookBase();
   if (base) return new URL(att?.name || '', base).toString();
-  return att?.display_url || att?.url || '';
+  return att?.url || att?.display_url || '';
 }
 
 // `display_url` is the inline form of an IMAGE; for any other type the server answers a

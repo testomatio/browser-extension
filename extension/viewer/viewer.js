@@ -45,7 +45,8 @@
   // fetchAsset carries the session ONLY for the configured instance; a presigned or public
   // link goes out bare. Both come back as bytes, which is what the CSP leaves room for.
   async function fileBlob() {
-    const res = await TestomatAPI.fetchAsset(fileUrl);
+    // Permissive on purpose: this document presigned nothing, so its signed set can vouch for nothing.
+    const res = await TestomatAPI.fetchAsset(fileUrl, { instanceOnly: false });
     if (!res.ok) throw new Error(String(res.status));
     return res.blob();
   }

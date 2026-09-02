@@ -9,9 +9,10 @@ cross-checked line by line with `extension/manifest.json`.
 
 ## Summary
 
-- The extension has **no server of its own**. It talks to exactly one host: the
+- The extension has **no server of its own**. It talks to one host: the
   Testomat.io instance **you** configure in Settings (`https://app.testomat.io`
-  by default, or your own self-hosted URL).
+  by default, or your own self-hosted URL), and to that instance's own file
+  storage when the instance answers with a signed redirect to it.
 - Your access token and your preferences are stored **locally**, in your own Chrome
   profile, using `chrome.storage.local`. `chrome.storage.sync` is never used, so
   nothing is copied to your Google account.
@@ -98,10 +99,16 @@ are discarded and nothing is written to disk.
 
 ## What the extension never does
 
-- It never contacts any host other than the Testomat.io instance you configured.
-  The extension's own pages run under a Content Security Policy that starts at
-  `default-src 'none'`, so a channel nobody enumerated is closed rather than
-  open.
+- It never contacts any host other than the Testomat.io instance you configured,
+  or that instance's own file storage. The extension's own pages run under a
+  Content Security Policy that starts at `default-src 'none'`, so a channel
+  nobody enumerated is closed rather than open. The storage exception is the
+  instance's doing, not a second party: your files and the avatars beside a name
+  live in the object storage behind your instance, and asking it for one can be
+  answered with a signed, time-limited redirect there, which the browser then
+  follows. Nothing else is asked for a file — an address that merely arrives in
+  data from the server, pointing at a host your instance never signed for, is
+  refused rather than fetched, and shown as a plain link instead.
 - It never records anything without you starting it. A screenshot, a console
   and network recording, and a step recording each begin with a click of yours
   and end when you stop them or close the tab.
