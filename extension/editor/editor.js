@@ -1,7 +1,7 @@
 // TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
 // in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
 
-/* global TestomatAPI, Handoff, OverType, Md, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
+/* global TestomatAPI, Handoff, OverType, Md, MdSections, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
 (() => {
   'use strict';
 
@@ -200,57 +200,10 @@
   }
 
   // ---- recorded-step insertion (step recorder) ----------------------------
-  // An item is `{text, subs}` — the nested `- Expected: …` lines (#78), parsed back out of
-  // the existing body too. Non-list lines inside a target section are not preserved.
-  function fmtItems(items, ordered) {
-    const out = [];
-    items.forEach((it, i) => {
-      const marker = ordered ? `${i + 1}.` : '-';
-      out.push(`${marker} ${it.text}`);
-      // Indent to THIS item's content column or the sub-list starts a new top-level
-      // list instead of nesting (`10.` needs one space more than `9.`).
-      const pad = ' '.repeat(marker.length + 1);
-      (it.subs || []).forEach((s) => out.push(`${pad}- ${s}`));
-    });
-    return out;
-  }
-
-  // `hIdx === -1` = the test has no such heading yet.
-  function sectionSlice(md, heading, ordered) {
-    const lines = md.split('\n');
-    const hRe = new RegExp(`^#{1,6}\\s+${heading}\\s*$`, 'i');
-    const hIdx = lines.findIndex((l) => hRe.test(l));
-    if (hIdx === -1) return { lines, hIdx, end: -1, existing: [] };
-    let end = lines.length;
-    for (let i = hIdx + 1; i < lines.length; i++) { if (/^#{1,6}\s+\S/.test(lines[i])) { end = i; break; } }
-    const itemRe = ordered ? /^\s*\d+\.\s+(.*\S.*)$/ : /^\s*[-*]\s+(.*\S.*)$/;
-    const subRe = /^\s{2,}[-*]\s+(.*\S.*)$/; // indented bullet = a sub-line of the item above
-    const existing = [];
-    for (const l of lines.slice(hIdx + 1, end)) {
-      const sub = l.match(subRe);
-      if (sub && existing.length) { existing[existing.length - 1].subs.push(sub[1]); continue; }
-      const m = l.match(itemRe);
-      if (m) existing.push({ text: m[1], subs: [] });
-    }
-    return { lines, hIdx, end, existing };
-  }
-
-  const sectionHasItems = (md, heading, ordered) => sectionSlice(md, heading, ordered).existing.length > 0;
-
-  // `leadSubs` (#160) belong to the LAST item already in the section: live insertion
-  // delivers an expected result after the step it followed is already in the body.
-  function mergeSection(md, heading, items, ordered, leadSubs = []) {
-    const { lines, hIdx, end, existing } = sectionSlice(md, heading, ordered);
-    const fmt = (arr) => fmtItems(arr, ordered);
-    if (hIdx === -1) {
-      const block = [`### ${heading}`, '', ...fmt(items)];
-      return `${md.replace(/\s+$/, '')}\n\n${block.join('\n')}`;
-    }
-    if (leadSubs.length && existing.length) existing[existing.length - 1].subs.push(...leadSubs);
-    const rebuilt = ['', ...fmt([...existing, ...items])];
-    const merged = [...lines.slice(0, hIdx + 1), ...rebuilt, '', ...lines.slice(end)];
-    return merged.join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
-  }
+  // An item is `{text, subs}` — the nested `- Expected: …` lines (#78). The section arithmetic
+  // itself lives in md-sections.js, which splices rather than re-emits: everything the tester
+  // wrote around the list stays as it is.
+  const STEPS_OPTS = { ordered: true };
 
   // #78/#91: an expected result belongs to the step it followed, as the `- Expected: …`
   // sub-bullet the panel renders inline (sidepanel/screens/test-view.js `extractExpected`).
@@ -271,41 +224,12 @@
 
   function insertRecorded(md, { steps, expected, leadSubs }) {
     let out = md;
-    if (steps.length || leadSubs.length) out = mergeSection(out, 'Steps', steps, true, leadSubs);
-    if (expected.length) out = mergeSection(out, 'Expected', expected.map((t) => ({ text: t, subs: [] })), false);
+    if (steps.length || leadSubs.length) out = MdSections.insert(out, 'Steps', steps, { ...STEPS_OPTS, leadSubs });
+    if (expected.length) out = MdSections.insert(out, 'Expected', expected.map((t) => ({ text: t, subs: [] })), { ordered: false });
     return out;
   }
 
   // ---- AI polish (#23): the recording's own items, rewritten in place --------
-  // 1:1 by index over the `count` items starting at `start` — polished item N replaces
-  // recorded item N. An item whose text is no longer what we last wrote there (`written`)
-  // was edited by hand and is left exactly as it is; so is one the answer has nothing for.
-  function replaceRecItems(md, start, count, next, written) {
-    const { lines, hIdx, end, existing } = sectionSlice(md, 'Steps', true);
-    const items = [];
-    if (hIdx === -1 || start < 0) return { md, items, touched: 0 };
-    let touched = 0;
-    for (let i = 0; i < count; i++) {
-      const it = existing[start + i];
-      if (!it) { items.push(null); continue; } // the tester deleted it — hold the numbering
-      const want = next && next[i];
-      const ours = (written && written[i] && written[i].text) || null;
-      if (want && it.text === ours) {
-        it.text = want.text;
-        // Replaced only when the answer HAS subs: an expected result the recorder folded in
-        // is not something a silent answer may drop.
-        if (want.subs && want.subs.length) it.subs = want.subs.slice();
-        touched++;
-      }
-      items.push({ text: it.text, subs: (it.subs || []).slice() });
-    }
-    if (!touched) return { md, items, touched };
-    const rebuilt = ['', ...fmtItems(existing, true)];
-    const out = [...lines.slice(0, hIdx + 1), ...rebuilt, '', ...lines.slice(end)]
-      .join('\n').replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '');
-    return { md: out, items, touched };
-  }
-
   // The server wraps the section in these markers inside `text`; `data.polished_steps` may
   // carry them too, so the same cut runs on whichever field answered.
   const POLISH_START = '<!-- ![START polished_steps]! -->';
@@ -1836,10 +1760,10 @@
 
     function insertRaw(entries) {
       const md = editor.getValue();
-      const parts = splitRecorded(entries, recStepInserted && sectionHasItems(md, 'Steps', true));
+      const parts = splitRecorded(entries, recStepInserted && MdSections.hasItems(md, 'Steps', STEPS_OPTS));
       if (!parts.steps.length && !parts.expected.length && !parts.leadSubs.length) return false;
       // #23: where this recording's own items begin — counted in the list BEFORE the insert.
-      if (recStart === -1 && parts.steps.length) recStart = sectionSlice(md, 'Steps', true).existing.length;
+      if (recStart === -1 && parts.steps.length) recStart = MdSections.items(md, 'Steps', STEPS_OPTS).length;
       setMarkdown(insertRecorded(md, parts));
       if (parts.steps.length) recStepInserted = true;
       recAnyInserted = true;
@@ -1851,7 +1775,7 @@
     // replacement is allowed to overwrite (nothing else in the body is ever touched).
     function readRecItems() {
       if (recStart === -1) return;
-      const existing = sectionSlice(editor.getValue(), 'Steps', true).existing;
+      const existing = MdSections.items(editor.getValue(), 'Steps', STEPS_OPTS);
       recCount = Math.max(0, existing.length - recStart);
       recRawItems = existing.slice(recStart).map((it) => ({ text: it.text, subs: (it.subs || []).slice() }));
     }
@@ -1879,7 +1803,9 @@
         if (!items.length) throw new Error('nothing came back');
         // The raw texts are captured BEFORE the write, so Undo has somewhere to go back to.
         const raw = recRawItems.map((it) => (it ? { text: it.text, subs: it.subs.slice() } : null));
-        const done = replaceRecItems(editor.getValue(), recStart, recCount, items, recWritten());
+        const done = MdSections.replaceItems(editor.getValue(), 'Steps', STEPS_OPTS, {
+          start: recStart, count: recCount, next: items, written: recWritten(),
+        });
         if (done.md !== editor.getValue()) setMarkdown(done.md);
         recRawItems = raw;
         recPolishedItems = done.items;
@@ -1898,7 +1824,9 @@
     // Back to the sentences the recorder wrote — item by item, and never over one the tester
     // has since rewritten.
     function undoPolish() {
-      const done = replaceRecItems(editor.getValue(), recStart, recCount, recRawItems, recWritten());
+      const done = MdSections.replaceItems(editor.getValue(), 'Steps', STEPS_OPTS, {
+        start: recStart, count: recCount, next: recRawItems, written: recWritten(),
+      });
       if (done.md !== editor.getValue()) setMarkdown(done.md);
       recRawItems = done.items;
       recPolished = false;
@@ -1951,7 +1879,7 @@
       const page = (withPage && withPage.ctx.page) || null;
       const out = [`TEST: ${titleInput.value.replace(/\s+/g, ' ').trim()}`];
       if (page && (page.title || page.url)) out.push(`PAGE: ${page.title || ''} | ${page.url || ''}`);
-      const before = sectionSlice(editor.getValue(), 'Steps', true).existing.slice(0, Math.max(0, recStart));
+      const before = MdSections.items(editor.getValue(), 'Steps', STEPS_OPTS).slice(0, Math.max(0, recStart));
       if (before.length) {
         out.push('EXISTING STEPS (written before the recording — keep their wording, do not repeat them):');
         before.forEach((it, i) => out.push(`${i + 1}. ${it.text}`));
