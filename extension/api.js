@@ -192,20 +192,29 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  // Drain EVERY page of a v2 index; per_page 100 is the server cap. The end of the data is the only
-  // stop (a short page, or `meta.total` reached) — PAGE_GUARD is a runaway guard, not a limit.
+  // Drain EVERY page of a v2 index. 100 is what we ASK for, never a promise: sibling routes are
+  // capped at 30 and 50, and a stop measured against our own number ends the drain on page 1.
   const PAGE_GUARD = 1000;
   async function pagedData(path, query = {}) {
     const all = [];
-    let total = Infinity;
+    let pageSize = null; // the SERVER's page size: `meta.per_page`, else the first page's own length
     for (let page = 1; page <= PAGE_GUARD; page++) {
       const res = await request(path, { query: { ...query, page, per_page: 100 } });
       const items = res?.data || [];
       all.push(...items);
-      if (typeof res?.meta?.total === 'number') total = res.meta.total;
-      if (items.length < 100 || all.length >= total) break;
+      const meta = res?.meta || {};
+      // The server's own account of the drain, wherever it keeps one.
+      if (meta.has_more === false) return all;
+      if (Number.isFinite(meta.total_pages) && page >= meta.total_pages) return all;
+      if (Number.isFinite(meta.total) && all.length >= meta.total) return all;
+      if (Number.isFinite(meta.per_page)) pageSize = meta.per_page;
+      else if (pageSize === null && items.length) pageSize = items.length;
+      // Only THEN a short page, and short against the size the server actually paged with.
+      if (pageSize !== null && items.length < pageSize) return all;
+      if (!items.length) return all; // a page past the end, whatever `has_more` claimed
     }
-    return all;
+    // Returning the pile here would grade a truncated run as a whole one.
+    throw new ApiError('http', 0, `${path} is too long to drain — over ${PAGE_GUARD} pages`);
   }
 
   const validate = () => request('/runs', RUNS_PING);
