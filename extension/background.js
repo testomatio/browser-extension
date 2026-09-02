@@ -2,9 +2,9 @@
 // The evidence recorder holds NO chrome.debugger session; a debugger call here is a screenshot's,
 // or the screen recording fallback's (screenrec/session.js), which holds one while it records.
 
-/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording */
+/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore */
 
-importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js', 'screenrec/session.js');
+importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js', 'evidence/recorder.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
@@ -161,6 +161,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // storage.session defaults to TRUSTED_CONTEXTS only; the annotator and file-overlay content
 // scripts read their handoff keys there, so it must be opened to untrusted contexts.
 try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }); } catch { /* older Chrome */ }
+
+// ==================== Staged screenshots: orphan sweep =====================
+// An editor draft dies with the browser session; the shots it staged sit in IndexedDB, which doesn't.
+const SHOTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function sweepStagedShots() {
+  try {
+    const all = await chrome.storage.session.get(null);
+    await ShotStore.sweep(Object.keys(all).filter((k) => k.startsWith('editorDraft:')), SHOTS_MAX_AGE_MS);
+  } catch { /* best effort — a sweep that missed runs again next startup */ }
+}
+chrome.runtime.onStartup.addListener(sweepStagedShots);
+chrome.runtime.onInstalled.addListener(sweepStagedShots);
 
 // ============================ File overlay (#21) ===========================
 // The panel's tiles open a file OVER the page under test: a popup window cannot float above a

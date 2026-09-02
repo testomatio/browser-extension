@@ -1,7 +1,7 @@
 // TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
 // in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
 
-/* global TestomatAPI, Handoff, OverType, Md, MdSections, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink */
+/* global TestomatAPI, Handoff, OverType, Md, MdSections, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, EmptyState, Sk, ImgHydrate, PanelLink, ShotStore */
 (() => {
   'use strict';
 
@@ -308,8 +308,16 @@
     try { const o = await chrome.storage.session.get(key); return (o && o[key]) || null; } catch { return null; }
   }
   function removeEditorDraft(key) {
+    ShotStore.del(key); // the shots are this draft's, and nothing else would ever come back for them
     if (!hasSession()) return;
     try { chrome.storage.session.remove(key); } catch { /* best effort */ }
+  }
+  // A restored draft's shots, and how many are gone — its own count is what knows they existed.
+  async function readDraftShots(draft, key) {
+    const had = Number(draft && draft.shots) || 0;
+    if (!had) return { shots: [], lost: 0 };
+    const shots = await ShotStore.get(key);
+    return { shots, lost: Math.max(0, had - shots.length) };
   }
 
   // ---- config: same settings the panel persists --------------------------
@@ -1121,6 +1129,7 @@
     ctx, mode = 'create', uid = null, test = null,
     suite, title, markdown, priority, dirty: initialDirty = false,
     templates = [], templateId: initialTemplateId = null, params = null, recorded = null,
+    shots = [], shotsLost = 0,
   }) {
     const editing = mode === 'edit';
     // The page this screen returns to: the test's own read-only view, minus `edit`.
@@ -1137,7 +1146,9 @@
     let dirty = false;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
-    const pendingShots = [];
+    const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
+    let shotsRev = 0;      // the strip's revision…
+    let shotsWritten = -1; // …and the one the store holds: ten JPEGs per typing pause is too many
     let recording = false;
     let recPollTimer = null;
     let recEnding = false;   // guards the drain against a poll/stop race
@@ -1190,6 +1201,7 @@
         markdown: editor.getValue(),
         priority: priorityCtrl.getPriority(),
         suite: suite || null, test: uid || null, ts: Date.now(),
+        shots: pendingShots.length, // a count costs nothing, and outlives a store that lost them
       };
       // Only once the grid knows what the server holds (#5): a draft written before that read lands
       // would restore an empty grid over real parameters.
@@ -1204,6 +1216,8 @@
         };
       }
       try { chrome.storage.session.set({ [draftKey]: draft }); } catch { /* best effort */ }
+      // …and the pictures, far too big for the draft itself — only when the strip actually moved.
+      if (shotsWritten !== shotsRev) { shotsWritten = shotsRev; ShotStore.put(draftKey, pendingShots); }
     }
     function schedulePersist() {
       if (ctx !== 'panel') return;
@@ -2046,6 +2060,7 @@
     // Rebuilt whole on every change: at most MAX_SHOTS rows, and a diff would only be a
     // second place for their order to be wrong.
     function renderShotPreview() {
+      shotsRev += 1; // the one place every change to the strip goes through
       shotPreview.replaceChildren();
       shotPreview.hidden = pendingShots.length === 0;
       if (!pendingShots.length) return;
@@ -2074,6 +2089,7 @@
       pendingShots.splice(i, 1);
       renderShotPreview();
       markDirty();
+      schedulePersist(); // the strip IS the change here — nothing else will write the draft
       const next = shotPreview.querySelector(`.thumb-remove[data-shot="${Math.min(i, pendingShots.length - 1)}"]`);
       (next || attachBtn).focus();
     }
@@ -2103,11 +2119,13 @@
         pendingShots.push(staged);
         renderShotPreview();
         markDirty(); // a pending shot is unsaved work
+        schedulePersist(); // …and a tester who stages one and closes the panel types nothing more
       } finally {
         attachBtn.disabled = false;
       }
     }
     attachBtn.addEventListener('click', attachScreenshot);
+    renderShotPreview(); // a restored draft arrives with its strip already full
     updateRecUi(0, false, false, false);
 
     // ---- parameters: what the test already has (#5) --------------------------
@@ -2364,6 +2382,7 @@
         if (dataUrl) pendingShots.push(dataUrl); else pendingShots.length = 0;
         renderShotPreview();
         markDirty();
+        schedulePersist(); // the stand drives staging through here — it must take the real path
       },
       dropShot: (i) => { dropShot(i); return pendingShots.length; },
     };
@@ -2371,6 +2390,12 @@
     // A restored panel-ctx draft is already unsaved content (it stays in storage until
     // save/discard).
     if (initialDirty) markDirty();
+    // Said now, while the shots can still be retaken — not at Save, when the test is written.
+    if (shotsLost > 0) {
+      showToast(shotsLost > 1
+        ? `${shotsLost} staged screenshots couldn't be restored — take them again`
+        : `A staged screenshot couldn't be restored — take it again`, { error: true });
+    }
   }
 
   // ---- demo: local round-trip proof for the harness (no API) --------------
@@ -2464,16 +2489,20 @@
           let params = null;
           let recorded = null;
           let restoredDirty = false;
+          let shots = [];
+          let shotsLost = 0;
           // An unsaved edit of THIS test outranks what the server still holds — closing
           // the side panel mid-sentence is not a discard.
           if (panelCtx) {
-            const draft = await readEditorDraft(editorDraftKey({ test: cx.test }));
+            const key = editorDraftKey({ test: cx.test });
+            const draft = await readEditorDraft(key);
             if (draft) {
               title = draft.title || '';
               if (draft.markdown != null) markdown = draft.markdown;
               priority = draft.priority || priority;
               params = draft.params || null;
               recorded = draft.recording || null;
+              ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
               restoredDirty = true;
             }
           }
@@ -2481,7 +2510,7 @@
           // the picker would only offer to replace the test.
           renderEditor({
             ctx: cx.ctx, mode: 'edit', uid: cx.test, test: tc || null,
-            title, markdown, priority, params, recorded, dirty: restoredDirty,
+            title, markdown, priority, params, recorded, dirty: restoredDirty, shots, shotsLost,
           });
           return;
         }
@@ -2522,9 +2551,12 @@
     let params = null;
     let recorded = null;
     let restoredDirty = false;
+    let shots = [];
+    let shotsLost = 0;
     // The restored draft is the tester's own text — it outranks the template seed.
     if (panelCtx) {
-      const draft = await readEditorDraft(editorDraftKey({ suite: cx.suite }));
+      const key = editorDraftKey({ suite: cx.suite });
+      const draft = await readEditorDraft(key);
       if (draft) {
         title = draft.title || '';
         if (draft.markdown != null) markdown = draft.markdown;
@@ -2533,12 +2565,13 @@
         // #23: the recording it was holding — the steps are already in the body, and this is
         // what still lets them be polished (or put back).
         recorded = draft.recording || null;
+        ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
         restoredDirty = true;
       }
     }
     renderEditor({
       ctx: cx.ctx, suite: cx.suite,
-      title, markdown, priority, params, recorded, dirty: restoredDirty,
+      title, markdown, priority, params, recorded, dirty: restoredDirty, shots, shotsLost,
       templates, templateId: initialTemplate ? initialTemplate.id : null,
     });
   }
