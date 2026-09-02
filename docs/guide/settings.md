@@ -37,7 +37,7 @@ What gets recorded, and what leaves the browser, when you mark a test
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Never record entered values** | Off | Off, the recorder saves what you type into the steps and masks what it recognises as a password, card number, CVV or one-time code. On, every entry reads *Type text into the … field* — only a password field still says so. Turn it on when the site under test handles real payment or identity data. See [Sensitive values](step-recorder.md#sensitive-values). |
+| **Never record entered values** | Off | Off, the recorder saves what you type into the steps and masks what it recognises as a password, card number, CVV or one-time code. On, every entry reads *Type text into the … field* — only a password field still says so — and a dropdown choice reads *Select an option in the … dropdown*. Turn it on when the site under test handles real payment or identity data. See [Sensitive values](step-recorder.md#sensitive-values). |
 
 ## Appearance
 
