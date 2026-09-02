@@ -59,6 +59,8 @@ function armRecorder(mediaStream) {
   };
   rec.start(REC_CHUNK_MS);
   startedAt = Date.now();
+  // An earlier interval would still be ticking on a recorder this one just replaced.
+  if (capTimer) { clearInterval(capTimer); capTimer = null; }
   // Ticked rather than timed out: a pause must not spend the tester's five minutes.
   capTimer = setInterval(() => { if (elapsedMs() >= REC_TIME_CAP_MS) finish('time').then(pushFile); }, 1000);
   return rec.mimeType || mimeType;
@@ -66,9 +68,16 @@ function armRecorder(mediaStream) {
 
 // ---- cast mode: CDP screencast frames ---------------------------------------
 
+// Frames arrive faster than they decode, and two in flight each find no canvas and arm a
+// recorder of their own — one at a time, so the pipeline is built once and drawn in order.
+let castChain = Promise.resolve();
+function castFrame(b64) {
+  castChain = castChain.then(() => castFrameNow(b64)).catch((e) => { castErr = String((e && e.message) || e); });
+}
+
 // The pipeline is built on the FIRST frame, its size fixes the canvas, so the
 // clock and the caps start when there is a picture, not when the worker asked.
-async function castFrame(b64) {
+async function castFrameNow(b64) {
   if (pausedAt) return; // paused: the screencast is stopped too, but never race it
   // createImageBitmap, not <img>.decode(): a hidden document decodes bitmaps reliably.
   let img;
@@ -76,6 +85,8 @@ async function castFrame(b64) {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     img = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
   } catch (e) { castErr = `decode: ${e && e.message}`; return; }
+  // After the decode, not before: the recording can end mid-flight and arm a recorder no session is behind.
+  if (mode == null) return;
   castFrames += 1;
   if (!castCanvas) {
     castCanvas = document.createElement('canvas');
@@ -177,6 +188,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'trim-swap':
       sendResponse(trimSwap(msg.oldUrl, msg.ms || 0));
       return false;
+    // A take the worker refused to park: its bytes are held by nothing else, let them go.
+    case 'revoke':
+      try { URL.revokeObjectURL(msg.url); } catch { /* not ours */ }
+      sendResponse({ ok: true });
+      return false;
     case 'start':
       start(msg.streamId).then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
       return true;
@@ -189,7 +205,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({ ok: true });
       return false;
     case 'frame':
-      castFrame(msg.data).catch((e) => { castErr = String((e && e.message) || e); });
+      castFrame(msg.data);
       return false;
     case 'pause':
       pause(!!msg.on);

@@ -140,6 +140,18 @@ async function srecStartCast(target, recordId) {
   return { ok: true, tabId: target.id };
 }
 
+// The one way out of a cast: Chrome's "…is debugging" bar goes with the debugger session, and
+// every end of a recording passes here — twice on the stop path, where the second call is a no-op.
+async function srecTeardownCast(st) {
+  if (!st || st.mode !== 'cast' || castTab == null) return;
+  const tabId = castTab;
+  castTab = null; // first, so onDetach stays quiet: whoever ends the recording owns the finish
+  await castSend(tabId, 'Page.stopScreencast').catch(() => {});
+  await castDetach(tabId);
+  // A closed tab throws inside the restore's own try — calling is safe either way.
+  if (st.framesOut) await foreignFramesBack(tabId);
+}
+
 // ---- start / stop ----------------------------------------------------------
 
 function srecName() {
@@ -152,6 +164,15 @@ function srecName() {
 async function srecStart({ recordId = null, tab = null } = {}) {
   const live = await srecGet();
   if (live && live.recording) return { ok: false, reason: 'A screen recording is already running' };
+  // Refused before any tab is resolved or attached: a parked take is a recording the tester has
+  // not finished with, and starting over would drop it on the floor.
+  if (await srecParked()) {
+    return {
+      ok: false,
+      reason: 'A recording is waiting to be reviewed or attached — finish it first',
+      parked: true,
+    };
+  }
   // A hotkey or the menu hands the tab it fired on, which can be a page no extension may
   // touch (chrome://, another extension's page) — those fall through to the resolver, which
   // knows how to stand the bound site tab in instead.
@@ -183,14 +204,7 @@ async function srecStart({ recordId = null, tab = null } = {}) {
 async function srecStop(reason) {
   const st = await srecGet();
   if (!st || !st.recording) return { ok: false, reason: 'Nothing is recording' };
-  if (st.mode === 'cast' && castTab != null) {
-    const tabId = castTab;
-    castTab = null; // silence onDetach, this stop already owns the finish
-    await castSend(tabId, 'Page.stopScreencast').catch(() => {});
-    await castDetach(tabId);
-    // A closed tab throws inside the restore's own try — calling is safe either way.
-    if (st.framesOut) await foreignFramesBack(tabId);
-  }
+  await srecTeardownCast(st);
   const res = await srecOff({ cmd: 'stop', reason });
   await srecFinish((res && res.file) || null, st, reason);
   return { ok: true };
@@ -200,10 +214,19 @@ async function srecStop(reason) {
 // REVIEW opened over the page (#68 preview+trim). Nothing is attached until the tester says so
 // there; the panel only hears 'file' once the review answers.
 async function srecFinish(file, st, reason) {
+  // A cap ends the recording inside the offscreen document, with no stop to detach the cast.
+  await srecTeardownCast(st);
   await srecClear();
   if (!file || !file.size) {
     await srecCloseDoc();
     srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: reason || 'user', empty: true });
+    return;
+  }
+  // A parked take is the tester's: the newcomer's bytes go instead, and its document stays open.
+  const held = await srecParked();
+  if (held && held.url) {
+    await srecOff({ cmd: 'revoke', url: file.url });
+    srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: reason || 'user' });
     return;
   }
   const parked = {
@@ -329,7 +352,9 @@ async function srecTarget() {
 async function srecToggle(tab) {
   const st = await srecGet();
   if (st && st.recording) { await srecStop('user'); return; }
-  await srecStart({ recordId: await srecTarget(), tab });
+  const res = await srecStart({ recordId: await srecTarget(), tab });
+  // From the page there is nowhere to report a refusal — a parked take answers with its review.
+  if (res && res.parked) await srecOpenReview(null);
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
