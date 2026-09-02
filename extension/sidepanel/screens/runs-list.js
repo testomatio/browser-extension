@@ -967,6 +967,12 @@ function runsNoMatchEmpty(idMiss = false) {
 // unknown id, no access. Deliberately blunt: no offer to switch project.
 const RUN_NOT_FOUND = 'Run not found';
 
+// The list's own line, because a toast is wiped by the next toast or status line and it is not.
+function reportRunNotFound(msg = RUN_NOT_FOUND) {
+  if (state.view === 'runs') setStatusLine('runs-status', msg, 'error');
+  else toast(msg, { error: true }); // a line on a hidden view would be invisible
+}
+
 // A scheme, or the bare `host/projects/…/runs/…` shape copied from the address
 // bar. Must stay narrow — a URL-shaped value is never used as a title filter.
 function looksLikeRunUrl(raw) {
@@ -1010,7 +1016,7 @@ async function openParsedRunTarget(target) {
   let detail;
   try { detail = await TestomatAPI.getRun(target.id); }
   catch (e) {
-    if (e?.kind === 'notfound') { toast(RUN_NOT_FOUND, { error: true }); return false; }
+    if (e?.kind === 'notfound') { reportRunNotFound(); return false; }
     handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
     return false;
   }
@@ -1021,7 +1027,7 @@ async function openParsedRunTarget(target) {
 
 async function openRunsSearchUrl() {
   const target = parseRunsUrl($('runs-search').value);
-  if (!target) { toast(RUN_NOT_FOUND, { error: true }); return; }
+  if (!target) { reportRunNotFound(); return; }
   await openParsedRunTarget(target);
 }
 
@@ -1031,7 +1037,7 @@ async function openRunsSearchUrl() {
 // dies on the way (a run that 404s used to leave the panel on nothing at all).
 async function openRunFromUrl(url) {
   const parts = parseRunUrlParts(url);
-  if (!parts) { toast(RUN_NOT_FOUND, { error: true }); return false; }
+  if (!parts) { reportRunNotFound(); return false; }
   let cfgHost = null;
   try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { /* not connected yet */ }
   if (!cfgHost || parts.host !== cfgHost) {
@@ -1084,7 +1090,7 @@ async function openGroupFromUrl(groupId) {
     try { detail = await TestomatAPI.getRunGroup(groupId); }
     catch (e) {
       renderList();
-      if (e?.kind === 'notfound') toast(RUN_NOT_FOUND, { error: true });
+      if (e?.kind === 'notfound') reportRunNotFound();
       else handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
       return;
     }
@@ -1092,10 +1098,10 @@ async function openGroupFromUrl(groupId) {
     chain.push(groupId);
     await expandGroupChain(chain);
     if (renderedGroupRow(groupId)) highlightGroup(groupId);
-    else toast(RUN_NOT_FOUND, { error: true });
+    else reportRunNotFound();
     return;
   }
-  toast(RUN_NOT_FOUND, { error: true });
+  reportRunNotFound();
 }
 
 function findGroupById(groupId) {
@@ -1190,7 +1196,7 @@ async function openRunsSearchId(id) {
   let detail;
   try { detail = await TestomatAPI.getRun(id); }
   catch (e) {
-    if (e?.kind === 'notfound') { toast(RUN_NOT_FOUND, { error: true }); return; }
+    if (e?.kind === 'notfound') { reportRunNotFound(); return; }
     handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
     return;
   }
