@@ -185,9 +185,8 @@
       try { await chrome.storage.session.set({ [key]: { cancelled: true } }); } catch { /* best effort */ }
       teardown();
     };
-    // Navigation/close while open maps to Keep original: the raw shot goes back so the
-    // panel keeps it and its promise settles.
-    const onPageHide = () => { try { chrome.storage.session.set({ [key]: { resultDataUrl: dataUrl } }); } catch { /* noop */ } };
+    // Navigating away is not a deliberate exit: attach nothing rather than the un-blurred raw shot.
+    const onPageHide = () => { try { chrome.storage.session.set({ [key]: { cancelled: true } }); } catch { /* noop */ } };
     window.addEventListener('pagehide', onPageHide);
 
     // A throw in here would otherwise be an unhandled rejection in the page's world — invisible
@@ -200,6 +199,9 @@
         onApply,
         onCancel,
         confirmDiscard: () => window.confirm('Discard the screenshot and its annotations?'),
+        confirmKeep: (hasBlur) => window.confirm(hasBlur
+          ? 'Attach the original screenshot, with the areas you blurred visible again?'
+          : 'Attach the original screenshot and drop the annotations?'),
         onReady: (hooks) => { window.__annot = hooks; },
       });
       window.__annot = handle.hooks; // exposed in the isolated world for e2e
