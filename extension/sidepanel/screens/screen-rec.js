@@ -27,12 +27,13 @@ function srecPaint(st) {
   const btn = $('btn-screen-rec');
   if (!btn) return;
   const on = !!(st && st.recording);
-  // A stopped take waiting in the review (#68): the button leads back there, never to a new one.
-  const waiting = !on && !!(st && st.file && !st.file.reviewed);
+  // ANY parked take: the button finishes that one — its review, or the attach that failed —
+  // never a new recording over it.
+  const waiting = !on && !!(st && st.file);
   const label = $('screen-rec-label');
   if (label) {
     label.textContent = on ? `Stop recording ${srecClock(st.ms)}`
-      : waiting ? 'Review recording…' : 'Attach screen recording';
+      : waiting ? (st.file.reviewed ? 'Retry attach…' : 'Review recording…') : 'Attach screen recording';
   }
   btn.classList.toggle('recording', on);
   if (on || waiting) btn.disabled = false; // stopping/reviewing is never gated: the file is the tester's
@@ -79,6 +80,11 @@ async function onScreenRecClick() {
   if (st && st.recording) {
     await srecSend({ type: 'SCREENREC_STOP' });
     await srecRefresh();
+    return;
+  }
+  // A reviewed take is parked because its upload failed — the click retries THAT, not a new take.
+  if (st && st.file && st.file.reviewed) {
+    await srecAttach(st.file);
     return;
   }
   if (st && st.file && !st.file.reviewed) {
