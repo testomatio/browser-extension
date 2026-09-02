@@ -58,9 +58,10 @@
   const root = document.documentElement;
   const prevOverflow = root.style.overflow;
   let torn = false;
+  let busy = false; // a trim export is running in the frame — tearing it down now throws the take away
 
   function teardown() {
-    if (torn) return;
+    if (torn || busy) return;
     torn = true;
     window.removeEventListener('keydown', onKeydown, true);
     window.removeEventListener('message', onMessage);
@@ -78,7 +79,9 @@
   // Esc or a finished review inside the frame reaches us as a message — that document has its
   // own keyboard. Only our own iframe may ask: any script on the page can post here.
   function onMessage(e) {
-    if (e.source === iframe.contentWindow && e.data && e.data.type === 'TESTOMAT_REVIEW_CLOSE') teardown();
+    if (e.source !== iframe.contentWindow || !e.data) return;
+    if (e.data.type === 'TESTOMAT_REVIEW_BUSY') busy = !!e.data.busy;
+    else if (e.data.type === 'TESTOMAT_REVIEW_CLOSE') teardown();
   }
 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) teardown(); });

@@ -16,6 +16,8 @@ const SREC_MENU_ID = 'testomat-screen-rec';
 const SREC_COMMAND = 'toggle-screen-recording';
 // Enforced in offscreen/recorder.js; kept here for what the bar and the panel say out loud.
 const SREC_TIME_CAP_MS = 5 * 60 * 1000;
+// How long one panel document owns the upload: a panel closed mid-upload must not strand the take.
+const SREC_CLAIM_MS = 2 * 60 * 1000;
 
 // The cast attach, mirrored in a module var so the frame pump filters without an await;
 // re-seeded from storage on a worker restart (the debugger session survives one).
@@ -44,10 +46,10 @@ async function srecEnsureDoc() {
       url: SREC_DOC,
       reasons: ['USER_MEDIA'],
       justification: 'Records the tab under test into a file the tester attaches to a result',
-    }).catch(() => {});
+    });
   }
-  await srecCreating;
-  srecCreating = null;
+  // The refusal is the caller's to report; cleared either way, so a later attempt can try again.
+  try { await srecCreating; } finally { srecCreating = null; }
 }
 
 // Never while a file is parked: the blob: URL — the original's or the trimmed swap's — dies
@@ -79,10 +81,24 @@ const castDetach = (tabId) => new Promise((resolve) => {
   chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; resolve(); });
 });
 
+// The offscreen document's own pipe for frames: a broadcast would copy every JPEG, several a
+// second, into every extension page. Opened on cast-start, dropped when the recording ends.
+let castPort = null;
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || port.name !== 'screenrec-frames') return;
+  castPort = port;
+  port.onDisconnect.addListener(() => { void chrome.runtime.lastError; if (castPort === port) castPort = null; });
+});
+
 // Every frame goes to the offscreen canvas and is acked, or the screencast stalls.
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (method !== 'Page.screencastFrame' || !srecCastOwns(source.tabId)) return;
-  srecOff({ cmd: 'frame', data: params.data });
+  // The broadcast still carries the bootstrap frame — one can arrive before the port is up.
+  if (!castPort) srecOff({ cmd: 'frame', data: params.data });
+  else {
+    try { castPort.postMessage({ cmd: 'frame', data: params.data }); }
+    catch { castPort = null; srecOff({ cmd: 'frame', data: params.data }); }
+  }
   chrome.debugger.sendCommand({ tabId: source.tabId }, 'Page.screencastFrameAck',
     { sessionId: params.sessionId }, () => void chrome.runtime.lastError);
 });
@@ -124,7 +140,14 @@ async function srecStartCast(target, recordId) {
       return { ok: false, reason: 'cast-attach-frame', error: String((e2 && e2.message) || e2) };
     }
   }
-  await srecEnsureDoc();
+  // The attach already stands: leave the tab as it was found before reporting the refusal.
+  try {
+    await srecEnsureDoc();
+  } catch (e) {
+    await castDetach(target.id);
+    if (framesOut) await foreignFramesBack(target.id);
+    return { ok: false, reason: 'Could not open the recorder page: ' + String((e && e.message) || e) };
+  }
   const started = await srecOff({ cmd: 'cast-start' });
   if (!started || !started.ok) {
     await castDetach(target.id);
@@ -189,7 +212,11 @@ async function srecStart({ recordId = null, tab = null } = {}) {
     // No activeTab grant on that tab, record it over the debugger instead.
     return srecStartCast(target, recordId);
   }
-  await srecEnsureDoc();
+  try {
+    await srecEnsureDoc();
+  } catch (e) {
+    return { ok: false, reason: 'Could not open the recorder page: ' + String((e && e.message) || e) };
+  }
   const started = await srecOff({ cmd: 'start', streamId });
   if (!started || !started.ok) {
     await srecCloseDoc();
@@ -285,6 +312,8 @@ async function srecStatus() {
   if (!st || !st.recording) return { recording: false, capMs: SREC_TIME_CAP_MS, file: parked || null };
   const live = await srecOff({ cmd: 'state' });
   if (!live || !live.recording) {
+    // The document died with our debugger session still on the tab: its bar would outlive the take.
+    await srecTeardownCast(st);
     await srecClear();
     return { recording: false, capMs: SREC_TIME_CAP_MS, file: parked || null };
   }
@@ -366,6 +395,9 @@ chrome.commands.onCommand.addListener((cmd, tab) => {
 
 // ---- protocol --------------------------------------------------------------
 
+// A claim reads, checks and stamps across awaits — one at a time, or two panels both find it free.
+let srecClaimChain = Promise.resolve();
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   switch (msg && msg.type) {
     case 'SCREENREC_START': srecStart({ recordId: msg.recordId != null ? msg.recordId : null }).then(sendResponse); return true;
@@ -374,7 +406,34 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'SCREENREC_STATUS': srecStatus().then(sendResponse); return true;
     case 'SCREENREC_TAKE': srecParked().then((f) => sendResponse(f || null)); return true;
     case 'SCREENREC_DONE':
-      chrome.storage.session.remove(SREC_FILE_KEY).then(srecCloseDoc).then(() => sendResponse({ ok: true }));
+      chrome.storage.session.remove(SREC_FILE_KEY).then(srecCloseDoc).then(() => {
+        // Only a discard leaves the plaque with nothing to sit for; an attach speaks for itself.
+        if (!msg.attached) srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'discarded' });
+        sendResponse({ ok: true });
+      });
+      return true;
+    // The 'file' event is a broadcast: every open panel document would upload the same take.
+    case 'SCREENREC_CLAIM':
+      srecClaimChain = srecClaimChain.then(async () => {
+        const parked = await srecParked();
+        if (!parked) return sendResponse({ ok: false });
+        const held = parked.claim;
+        if (held && held.by !== msg.by && Date.now() - held.at < SREC_CLAIM_MS) return sendResponse({ ok: false });
+        await chrome.storage.session.set({ [SREC_FILE_KEY]: { ...parked, claim: { by: msg.by, at: Date.now() } } });
+        return sendResponse({ ok: true });
+      }).catch(() => {});
+      return true;
+    // Sent when an upload fails, so the next «Retry attach…» — here or in another panel — can claim it.
+    case 'SCREENREC_UNCLAIM':
+      srecClaimChain = srecClaimChain.then(async () => {
+        const parked = await srecParked();
+        if (parked && parked.claim && parked.claim.by === msg.by) {
+          const rest = { ...parked };
+          delete rest.claim;
+          await chrome.storage.session.set({ [SREC_FILE_KEY]: rest });
+        }
+        return sendResponse({ ok: true });
+      }).catch(() => {});
       return true;
     // The review approved the file AS RECORDED — only now may the panel attach it.
     case 'SCREENREC_REVIEWED':

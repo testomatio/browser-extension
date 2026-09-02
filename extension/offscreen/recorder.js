@@ -20,6 +20,7 @@ let castCanvas = null;   // cast mode: frames land here, the canvas IS the camer
 let castTrack = null;
 let castFrames = 0;      // received, decoded frames; the state answer carries it
 let castErr = '';        // the last frame failure, surfaced instead of swallowed
+let framePort = null;    // cast mode: the worker's frame pipe, open only while a recording runs
 let startedAt = 0;
 let pausedAt = 0;   // 0 = running
 let pausedMs = 0;
@@ -41,6 +42,8 @@ function elapsedMs() {
 function reset() {
   if (capTimer) { clearInterval(capTimer); capTimer = null; }
   if (stream) stream.getTracks().forEach((t) => t.stop());
+  // A port outliving its recording would hold the worker awake for nothing.
+  if (framePort) { try { framePort.disconnect(); } catch { /* already gone */ } framePort = null; }
   rec = null; mode = null; stream = null; chunks = []; bytes = 0;
   castCanvas = null; castTrack = null; castFrames = 0; castErr = '';
   startedAt = 0; pausedAt = 0; pausedMs = 0;
@@ -67,6 +70,15 @@ function armRecorder(mediaStream) {
 }
 
 // ---- cast mode: CDP screencast frames ---------------------------------------
+
+// Frames come down a pipe of ours, not the broadcast every extension page also hears; the
+// worker still falls back to that one for a frame that beats the connect.
+function castConnect() {
+  if (framePort) return;
+  framePort = chrome.runtime.connect({ name: 'screenrec-frames' });
+  framePort.onMessage.addListener((m) => { if (m && m.cmd === 'frame') castFrame(m.data); });
+  framePort.onDisconnect.addListener(() => { void chrome.runtime.lastError; framePort = null; });
+}
 
 // Frames arrive faster than they decode, and two in flight each find no canvas and arm a
 // recorder of their own — one at a time, so the pipeline is built once and drawn in order.
@@ -201,6 +213,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case 'cast-start':
       reset();
+      castConnect();
       mode = 'cast';
       sendResponse({ ok: true });
       return false;

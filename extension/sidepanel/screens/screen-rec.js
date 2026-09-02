@@ -5,6 +5,8 @@
    updateTestActionsState, attRemember, renderAttachmentList, progressToast, hideToast */
 
 const SREC_COMMAND = 'toggle-screen-recording';
+// One token per panel document: the worker's claim keeps two open panels off the same upload.
+const SREC_ME = Math.random().toString(36).slice(2);
 
 let srecTimer = null;
 let srecBusy = false;
@@ -117,6 +119,9 @@ async function srecAttach(file) {
   if (!record || !record.id) { srecReason('Open a test result and the recording attaches to it.'); return; }
   const lock = recordWriteLock(record);
   if (lock) { srecReason(lock); return; }
+  // Refused: another panel document is already uploading this take — not this tester's problem.
+  const claim = await srecSend({ type: 'SCREENREC_CLAIM', by: SREC_ME });
+  if (!claim || !claim.ok) return;
   srecBusy = true;
   const btn = $('btn-screen-rec');
   if (btn) btn.disabled = true;
@@ -125,7 +130,7 @@ async function srecAttach(file) {
     const blob = await fetch(file.url).then((r) => r.blob());
     const res = await TestomatAPI.uploadAttachment(record.id, blob, file.name);
     attRemember(record.id, { name: file.name, url: (res && res.url) || '' });
-    await srecSend({ type: 'SCREENREC_DONE' });
+    await srecSend({ type: 'SCREENREC_DONE', attached: true });
     srecReason('');
     if (String(record.id) === String(state.currentRecordId)) {
       renderAttachmentList();
@@ -135,6 +140,8 @@ async function srecAttach(file) {
       toast(`Recording attached to "${record.test_title || `Test ${record.test_id}`}"`);
     }
   } catch (e) {
+    // The file stays parked, so it must not stay claimed either: «Retry attach…» claims it again.
+    await srecSend({ type: 'SCREENREC_UNCLAIM', by: SREC_ME });
     toast(`${file.name}: upload failed, ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
     srecBusy = false;
@@ -161,8 +168,8 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || msg.type !== 'SCREENREC_EVENT') return undefined;
   if (msg.event === 'file' && msg.file) srecAttach(msg.file);
   else {
-    // An empty end (stopped at once, tab gone before a frame) leaves no file to speak of.
-    if (msg.event === 'ended' && msg.empty) hideToast();
+    // Nothing left to attach — nothing was recorded, or the take is gone — so the plaque goes too.
+    if (msg.event === 'ended' && (msg.empty || msg.reason === 'discarded')) hideToast();
     srecRefresh();
   }
   return undefined;
