@@ -188,6 +188,7 @@ async function openRunView(runId, title) {
     startLiveSync();         // (re)start polling; also clears an auth-stop
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // run-open is a replay trigger
     loadSuiteEmoji(runId);   // fire-and-forget
+    pruneCommentDrafts(runId); // …and so is dropping the drafts of results THIS run no longer has
     // Kept though fire-and-forget: a row write waits on it for the archived flag (#186).
     runStateProbe = probeRunSession(runId, { infoRead: !!info });
   } catch (e) {

@@ -32,7 +32,11 @@ async function openTestView(recordId) {
   paintTestNav();
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.updateTestMarker();
   $('test-title').textContent = state.testTitle;
+  // A pending draft save carries its OWN record id, so leaving mid-keystroke still
+  // commits the text to the test it was typed in — flushed before this open repaints.
+  flushCommentDraft();
   $('test-comment').value = record.message || '';
+  restoreCommentDraft(record); // …and an unsent draft comes back on a result that has no message yet
   $('test-steps').replaceChildren();
   ImgHydrate.release(IMG_GROUP_DESC); // #205 — the images that body was holding go with it
   // This line belongs to the WRITE (Saving…/queued/error); only a failed read speaks here.
@@ -86,6 +90,121 @@ async function openTestView(recordId) {
     }
     Skeleton.hide(sk);
   }
+}
+
+// ---------- unsent comment drafts ----------
+// The comment box is READ only by a status write, so everything else that leaves the
+// test used to throw the typing away — the pager, the hotkeys, Back, a tab click, the
+// panel closing — and with it the evidence the Attach buttons paste into that same box.
+// Kept per RESULT in chrome.storage.session: it outlives navigation and a closed panel,
+// and dies with the browser session rather than reaching disk.
+// One row per result: `{ text, runId }` — the run is what makes the prune below able to
+// tell "this run dropped the result" from "the tester is simply in another run".
+const DRAFTS_KEY = 'commentDrafts';
+const DRAFT_SAVE_MS = 400; // long enough that a burst of typing is one write
+
+// The panel document is the only writer, so the map is held in memory and MIRRORED to
+// storage (like the offline queue) — seeded once, or a reopened panel would write its
+// fresh map over the drafts already there.
+let draftCache = null;
+let draftLoad = null;
+
+async function loadCommentDrafts() {
+  if (draftCache) return draftCache;
+  if (draftLoad) return draftLoad;
+  if (!hasChrome || !chrome.storage?.session) { draftCache = {}; return draftCache; }
+  draftLoad = (async () => {
+    try {
+      const all = (await chrome.storage.session.get(DRAFTS_KEY))[DRAFTS_KEY];
+      draftCache = all && typeof all === 'object' ? all : {};
+    } catch { draftCache = {}; } // best effort — a draft never fails an open
+    return draftCache;
+  })();
+  return draftLoad;
+}
+
+async function persistCommentDrafts() {
+  if (!hasChrome || !chrome.storage?.session) return;
+  try { await chrome.storage.session.set({ [DRAFTS_KEY]: draftCache }); } catch { /* best effort */ }
+}
+
+// Tolerant of the shape that came before the run tag: a bare string still restores, and
+// answers NO run — so the prune below never claims it.
+const draftText = (entry) => (typeof entry === 'string' ? entry
+  : (entry && typeof entry.text === 'string' ? entry.text : null));
+const draftRunId = (entry) => (entry && typeof entry === 'object' && entry.runId != null
+  ? String(entry.runId) : null);
+
+// '' is a REMOVAL, not a draft: an empty box restores as an empty box either way, and
+// storing it would keep a row for every test the tester merely passed through. Anything
+// else is kept VERBATIM — whitespace included, since only the write trims.
+async function saveCommentDraft(recordId, text, runId) {
+  if (recordId == null) return;
+  const all = await loadCommentDrafts();
+  if (text === '') delete all[String(recordId)];
+  else all[String(recordId)] = { text, runId: runId == null ? null : String(runId) };
+  await persistCommentDrafts();
+}
+
+// Saving '' IS the removal, so a landed status needs no path of its own.
+const dropCommentDraft = (recordId) => saveCommentDraft(recordId, '');
+
+// Every draft at once: a testrun id from the project being left means nothing in the next.
+async function dropAllCommentDrafts() {
+  await loadCommentDrafts(); // settle a read already on the wire, or its rows land back in the cache
+  draftCache = {};
+  if (!hasChrome || !chrome.storage?.session) return;
+  try { await chrome.storage.session.remove(DRAFTS_KEY); } catch { /* best effort */ }
+}
+
+// Run open is the one moment the panel knows which results a run still has — so an entry
+// tagged with THIS run whose result is gone goes, and nothing else does: a draft typed in
+// another run is not this run's to judge, and an untagged one belongs to no run at all.
+async function pruneCommentDrafts(runId) {
+  const all = await loadCommentDrafts();
+  const keys = Object.keys(all);
+  if (!keys.length) return;
+  const run = String(runId);
+  const live = new Set(state.records.map((r) => String(r.id)));
+  const stale = keys.filter((key) => draftRunId(all[key]) === run && !live.has(key));
+  if (!stale.length) return;
+  for (const key of stale) delete all[key];
+  await persistCommentDrafts();
+}
+
+// The open already painted `record.message`; the draft only replaces it on a result
+// that carries none of its own — a written comment is what that test says now.
+async function restoreCommentDraft(record) {
+  if (!record || record.message) return;
+  const all = await loadCommentDrafts();
+  const draft = draftText(all[String(record.id)]);
+  if (draft === null) return; // absent answers null, never '' — an absent draft must not blank the box
+  if (String(state.currentRecordId) !== String(record.id)) return; // moved on
+  $('test-comment').value = draft;
+}
+
+// Debounced, and the id, the run and the text are ALL captured on the keystroke: a save
+// that lands after the tester paged on still belongs to the test it was typed in.
+let draftPending = null;
+let draftSaveTimer = null;
+
+function flushCommentDraft() {
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = null;
+  if (!draftPending) return;
+  const { recordId, text, runId } = draftPending;
+  draftPending = null;
+  saveCommentDraft(recordId, text, runId);
+}
+
+// Also the evidence Attach path: it dispatches `input` on the box after pasting a snippet.
+function onCommentInput() {
+  const recordId = state.currentRecordId;
+  // A pending save for ANOTHER test is committed, not cancelled, by this keystroke.
+  if (draftPending && String(draftPending.recordId) !== String(recordId)) flushCommentDraft();
+  draftPending = { recordId, text: $('test-comment').value, runId: state.runId };
+  clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(flushCommentDraft, DRAFT_SAVE_MS);
 }
 
 // ---- the three sections of the screen (Description / Status / Summary) ----
@@ -1492,6 +1611,9 @@ async function writeStatus(record, status, comment, onOptimistic, opts = {}) {
     }
     // The row always exists (opened by record id) and keeps its test_id.
     if (saved && record) Object.assign(record, saved, { test_id: record.test_id });
+    // The comment reached the server, so the draft it came from is spent — a queued
+    // write does NOT pass here, and its text is held by the queue entry instead.
+    if (record && record.id != null) dropCommentDraft(record.id);
     // This status supersedes anything queued for the row, or the next replay writes
     // the older one back over it. Before writeEnvMeta and caught: never fatal.
     if (!opts.noQueue && record && record.id != null && typeof OfflineQueue !== 'undefined') {

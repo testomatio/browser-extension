@@ -75,6 +75,9 @@ async function init() {
   // ← / → move ±1 through the visible list; #108's jump to the next UNTESTED row is the N key.
   $('btn-prev-test').addEventListener('click', () => navigateTest(-1));
   $('btn-next-test').addEventListener('click', () => navigateTest(1));
+  // The comment is read only by a status write, so what is typed is kept as a draft
+  // until one lands — otherwise leaving the test drops it.
+  $('test-comment').addEventListener('input', onCommentInput);
   $('tab-test-desc').addEventListener('click', () => showTestSection('desc'));
   $('tab-test-status').addEventListener('click', () => showTestSection('status'));
   $('tab-test-summary').addEventListener('click', () => showTestSection('summary'));
