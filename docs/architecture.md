@@ -1405,10 +1405,10 @@ entry with no packet — the deferred `Open <url>` — is still an action: `raw:
 `action: open` + `after: url=<the url>`.
 
 The answer's numbered items replace the recording's items **1:1 by index**
-(`replaceRecItems()`): fewer items leave the tail raw, extras are dropped, and an
-item whose current text is no longer what we last wrote there (`recWritten()`) was
-edited by hand and is skipped. Success toasts `Steps polished ✓`; a failure keeps
-the raw text and toasts once — a 422 in the **server's own words** (`error` /
+(`MdSections.replaceItems()`): fewer items leave the tail raw, extras are dropped,
+and an item whose current text is no longer what we last wrote there (`recWritten()`)
+was edited by hand and is skipped. Success toasts `Steps polished ✓`; a failure
+keeps the raw text and toasts once — a 422 in the **server's own words** (`error` /
 `details` out of the JSON body), a 401/403 switches the feature off, hides it and
 persists that.
 
