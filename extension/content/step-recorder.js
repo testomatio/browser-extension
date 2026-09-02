@@ -619,15 +619,38 @@
     } catch { /* a stop is never held up by its flush */ }
   }
 
+  // An IME composes in the field itself, so mid-composition `.value` is the unfinished
+  // reading ("けんさく") and only compositionend has the text the tester meant ("検索").
+  let composingEl = null; // one caret per document, and the recorder is top-frame only
+
+  function onCompositionStart(e) {
+    if (!recording || fromIndicator(e)) return;
+    composingEl = path0(e);
+  }
+
+  // Blink commits the text into `.value` and dispatches this after, so the step reads the
+  // finished string; the Enter that follows dedupes against it.
+  function onCompositionEnd(e) {
+    if (!recording || fromIndicator(e)) return;
+    const el = path0(e);
+    composingEl = null;
+    flushType(el);
+  }
+
   // The indicator's own input is a text field inside the page (#78) — every one of these
   // must ignore it, or typing an expected result records itself as a step.
   function onBlur(e) {
     if (!recording || fromIndicator(e)) return;
-    flushType(path0(e));
+    const el = path0(e);
+    // A blur mid-composition would record the reading; compositionend does it instead.
+    if (el === composingEl) { composingEl = null; return; }
+    flushType(el);
   }
 
   function onKeydown(e) {
     if (!recording || e.key !== 'Enter' || fromIndicator(e)) return;
+    // Enter is also the IME's commit key; 229 is what IMEs report that leave isComposing unset.
+    if (e.isComposing || e.keyCode === 229) return;
     const el = path0(e);
     if (isTextField(el)) flushType(el);
   }
@@ -1031,6 +1054,8 @@
   document.addEventListener('change', onChange, opts);
   document.addEventListener('blur', onBlur, opts);
   document.addEventListener('keydown', onKeydown, opts);
+  document.addEventListener('compositionstart', onCompositionStart, opts);
+  document.addEventListener('compositionend', onCompositionEnd, opts);
   // The click that navigates is the one a packet window would swallow: both events fire
   // while the document is still alive, and sendMessage from either still reaches the worker.
   window.addEventListener('pagehide', flushOutbox);
@@ -1059,6 +1084,8 @@
     document.removeEventListener('change', onChange, opts);
     document.removeEventListener('blur', onBlur, opts);
     document.removeEventListener('keydown', onKeydown, opts);
+    document.removeEventListener('compositionstart', onCompositionStart, opts);
+    document.removeEventListener('compositionend', onCompositionEnd, opts);
     chrome.runtime.onMessage.removeListener(onFlushMsg);
     if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.removeListener(onFlagChanged);
     dragTeardown();
