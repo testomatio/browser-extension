@@ -27,7 +27,8 @@ async function readPollMs() {
 // state.records), so no extra check is needed for it.
 function syncShouldPoll() {
   if (syncAuthStopped) return false;
-  if (capabilities.readonly) return false; // #155 — nothing open to keep fresh
+  // #155 — nothing open to keep fresh; core/state.js re-probes for the way back instead.
+  if (capabilities.readonly) return false;
   if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return false;
   if (!state.runId) return false;
   return state.view === 'run' || state.view === 'test';
