@@ -15,6 +15,13 @@ function typingInField(target) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
+// …and while a popup is up: an open listbox/menu leaves focus on its `<button>`
+// trigger, so the typing guard alone lets bare letters through underneath it.
+// Every popup control marks its trigger the same way, so new ones come covered.
+function popupOpen() {
+  return !!document.querySelector('[aria-haspopup][aria-expanded="true"]');
+}
+
 // ±1 through the VISIBLE sequence (filter + search applied), clamped, no wrap.
 function navigateTest(delta) {
   const order = visibleRecords();
@@ -86,6 +93,7 @@ function toggleHotkeyLegend() {
 function onHotkey(e) {
   if (state.view !== 'test') return;         // hotkeys live only in the test view
   if (typingInField(e.target)) return;       // never steal keys from a field
+  if (popupOpen()) return;                   // an open popup owns the keyboard, modifiers included
   if (e.metaKey || e.ctrlKey) {              // Cmd (mac) / Ctrl (win/linux); accept both
     const code = e.code === 'Enter' || e.key === 'Enter' ? 'Enter' : e.code;
     const status = HOTKEY_STATUS[code];
