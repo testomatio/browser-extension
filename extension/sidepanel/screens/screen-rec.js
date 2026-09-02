@@ -105,7 +105,15 @@ async function onScreenRecClick() {
 // upload KEEPS the file parked for the next try.
 async function srecAttach(file) {
   if (srecBusy || !file || !file.url || !file.reviewed) return;
-  const record = recordFor(state.currentRecordId);
+  // The take names the result it was started for; the panel may have moved on since it stopped.
+  const bound = file.recordId != null;
+  const record = recordFor(bound ? file.recordId : state.currentRecordId);
+  // Its test is not even loaded here — parked is better than landing on a stranger.
+  if (bound && !record) {
+    srecReason('This recording belongs to another test — open it to attach the file.');
+    await srecRefresh(); // still parked and reviewed — the label says so instead of going stale
+    return;
+  }
   if (!record || !record.id) { srecReason('Open a test result and the recording attaches to it.'); return; }
   const lock = recordWriteLock(record);
   if (lock) { srecReason(lock); return; }
@@ -118,9 +126,14 @@ async function srecAttach(file) {
     const res = await TestomatAPI.uploadAttachment(record.id, blob, file.name);
     attRemember(record.id, { name: file.name, url: (res && res.url) || '' });
     await srecSend({ type: 'SCREENREC_DONE' });
-    renderAttachmentList();
     srecReason('');
-    setStatusLine('test-status', 'Recording attached ✓', 'ok');
+    if (String(record.id) === String(state.currentRecordId)) {
+      renderAttachmentList();
+      setStatusLine('test-status', 'Recording attached ✓', 'ok');
+    } else {
+      // That list and that status line belong to the OPEN test — a landing elsewhere names itself.
+      toast(`Recording attached to "${record.test_title || `Test ${record.test_id}`}"`);
+    }
   } catch (e) {
     toast(`${file.name}: upload failed, ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
@@ -131,14 +144,17 @@ async function srecAttach(file) {
 }
 
 // A recording started from the page binds to whatever result is open here, so the worker is
-// told which one that is; a file parked while the panel was elsewhere lands on arrival.
+// told which one that is; a file parked for THIS result lands on arrival.
 async function srecOnTestOpen() {
   const record = recordFor(state.currentRecordId);
   await srecSend({ type: 'SCREENREC_TARGET', recordId: (record && record.id) || null });
   await srecRefresh();
   const parked = await srecSend({ type: 'SCREENREC_TAKE' });
   // Unreviewed stays parked — the button reads «Review recording…» and leads back to it.
-  if (parked && parked.reviewed) srecAttach(parked);
+  if (!parked || !parked.reviewed) return;
+  // A bound take waits for ITS test to be opened, not for the next one to come along.
+  if (parked.recordId != null && String(parked.recordId) !== String(state.currentRecordId)) return;
+  srecAttach(parked);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
