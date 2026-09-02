@@ -1,7 +1,7 @@
 // A PERSON, printed — the monogram + name cell (`.user-cell` / `.avatar` in components.css).
 // The CSP allows extension images only, so a remote avatar is fetched and swapped in as `blob:`.
 
-/* global Tooltip */
+/* global Tooltip, TestomatAPI */
 /* exported UserCell */
 (() => {
   'use strict';
@@ -41,14 +41,15 @@
     return words[0][0] + words[1][0];
   }
 
-  // Cookies are deliberately NOT sent (`credentials: 'omit'`): the host is whatever the API
-  // named, up to a third-party CDN, and forwarding the session there would be a leak.
+  // Through the API, never a bare fetch: an avatar URL is server DATA, and fetchAsset is what
+  // keeps a host named there from getting a request (and the session from following it out).
   const photos = new Map(); // url → Promise<objectURL|null>
 
   function photo(url) {
     if (!/^https:\/\//i.test(url)) return Promise.resolve(null); // http/data/junk: no
+    if (typeof TestomatAPI === 'undefined') return Promise.resolve(null); // shared file, API optional
     if (!photos.has(url)) {
-      photos.set(url, fetch(url, { credentials: 'omit', cache: 'force-cache' })
+      photos.set(url, TestomatAPI.fetchAsset(url, { instanceOnly: true })
         .then((r) => (r.ok && /^image\//i.test(r.headers.get('content-type') || '') ? r.blob() : null))
         .then((blob) => (blob ? URL.createObjectURL(blob) : null))
         .catch(() => null));

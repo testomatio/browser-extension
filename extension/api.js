@@ -11,6 +11,8 @@ const TestomatAPI = (() => {
   // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
   // the project's own credential, and nothing here needs them to outlive the panel.
   const v2Keys = new Map();
+  // Bucket URLs the INSTANCE signed for us: off-instance, but named by it and not by document data.
+  const signedAssets = new Set();
   // The live session. Memory-only: it is either adopted from the tester's stored credential or
   // exchanged from their General token, and neither is worth a second copy on disk.
   let jwt = null;
@@ -37,7 +39,10 @@ const TestomatAPI = (() => {
     const next = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
     // A minted key belongs to the account that minted it, so another instance or another
     // credential invalidates the lot. A project switch does not — this runs on every tab change.
-    if (!next || next.baseUrl !== cfg?.baseUrl || next.apiToken !== cfg?.apiToken) v2Keys.clear();
+    if (!next || next.baseUrl !== cfg?.baseUrl || next.apiToken !== cfg?.apiToken) {
+      v2Keys.clear();
+      signedAssets.clear(); // another instance signed nothing of ours
+    }
     cfg = next;
     jwt = null;
     jwtUid = null;
@@ -48,7 +53,7 @@ const TestomatAPI = (() => {
   // The host's session token, adopted by login() instead of POST /api/login. Kept apart from
   // configure() so a project switch does not drop it.
   function useHandoffSession(token) {
-    if (token !== handedJwt) v2Keys.clear();
+    if (token !== handedJwt) { v2Keys.clear(); signedAssets.clear(); }
     handedJwt = token || null;
     jwt = null;
     jwtUid = null;
@@ -841,7 +846,9 @@ const TestomatAPI = (() => {
   // rest `needs_presign` — this mints the signed URL for one of those, on demand.
   async function presignArtifact(url) {
     const doc = await jwtRequest('/artifacts/presign', { method: 'POST', body: { url } });
-    return (doc && doc.url) || '';
+    const signed = (doc && doc.url) || '';
+    if (signed) signedAssets.add(signed); // the instance vouched for this host; fetchAsset checks here
+    return signed;
   }
 
   // ---- product assets (description images, result attachments) -------------
@@ -854,11 +861,14 @@ const TestomatAPI = (() => {
 
   // SECURITY: the JWT rides along ONLY for the configured instance — a presigned bucket link carries
   // its own signature. `instanceOnly` refuses off-instance URLs: authored markdown can plant a beacon.
-  async function fetchAsset(raw, { instanceOnly = false } = {}) {
+  // On BY DEFAULT: a host named in server data — an avatar, an attachment — gets no request unless
+  // the instance signed for it itself. What the instance's own storage does with a 302 is its call.
+  async function fetchAsset(raw, { instanceOnly = true } = {}) {
     const url = assetUrl(raw);
     if (!url) throw new ApiError('http', 0, 'Unresolvable asset URL');
     const ours = !!cfg?.baseUrl && (url === cfg.baseUrl || url.startsWith(`${cfg.baseUrl}/`));
-    if (instanceOnly && !ours) throw new ApiError('http', 0, 'Off-instance asset refused');
+    const allowed = ours || signedAssets.has(url);
+    if (instanceOnly && !allowed) throw new ApiError('http', 0, 'Off-instance asset refused');
     const doGet = () => rawFetch(url, {
       credentials: 'omit',
       headers: ours && jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
