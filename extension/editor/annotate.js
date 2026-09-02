@@ -54,6 +54,9 @@ window.Annotate = (() => {
       onApply: (resultDataUrl) => writeAndClose({ resultDataUrl }),
       onCancel: () => writeAndClose({ cancelled: true }),
       confirmDiscard: () => window.confirm('Discard the screenshot and its annotations?'),
+      confirmKeep: (hasBlur) => window.confirm(hasBlur
+        ? 'Attach the original screenshot, with the areas you blurred visible again?'
+        : 'Attach the original screenshot and drop the annotations?'),
       onReady: (hooks) => { window.__annot = hooks; },
     });
     // Expose immediately too, so `ready` can be polled from its false state.

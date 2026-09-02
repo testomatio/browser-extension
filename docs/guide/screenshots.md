@@ -13,8 +13,8 @@ over that page. Nothing uploads until you press **Save** there.
 
 3. Mark it up and press **Save** (`Cmd/Ctrl+Enter`) — the annotated image
    lands on the test's attachments. The other two ways out: **Keep
-   original** (`Esc`) attaches the raw shot and drops the annotations,
-   **Discard** attaches nothing.
+   original** attaches the raw shot, **Discard** attaches nothing. Both
+   ask first once you have marked the picture up, and `Esc` is **Discard**.
 
 The tools, each with a one-letter hotkey:
 

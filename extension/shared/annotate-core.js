@@ -83,6 +83,8 @@ window.AnnotateCore = (() => {
     const onApply = opts.onApply || (() => {});
     const onCancel = opts.onCancel || (() => {});
     const confirmDiscard = opts.confirmDiscard || (() => true);
+    // Called with `hasBlur`: the core decides when to ask, the consumer owns the wording.
+    const confirmKeep = opts.confirmKeep || (() => true);
 
     let canvas = null;
     let ctx = null;
@@ -1097,7 +1099,7 @@ window.AnnotateCore = (() => {
     }
 
     // Hands the ORIGINAL shot back through the SAME onApply as Apply — deliberate: the
-    // consumer stages the raw shot instead of dropping it. Esc and overlay close route here.
+    // consumer stages the raw shot instead of dropping it. requestKeep and the hook route here.
     async function keepResult() {
       if (done) return;
       done = true;
@@ -1117,6 +1119,12 @@ window.AnnotateCore = (() => {
     function requestDiscard() {
       if ((ops.length || history.length) && !confirmDiscard()) return;
       discardResult();
+    }
+
+    // Keeping the original is a loss too: it un-hides every blur, so it asks on the same trigger.
+    function requestKeep() {
+      if ((ops.length || history.length) && !confirmKeep(ops.some((o) => o.tool === 'pixelate'))) return;
+      keepResult();
     }
 
     // ---- layout -----------------------------------------------------------
@@ -1277,7 +1285,7 @@ window.AnnotateCore = (() => {
         ['⇧⌘/Ctrl Z', 'Redo'],
         ['Delete', 'Remove the selected annotation'],
         ['⌘/Ctrl ⏎', 'Save'],
-        ['Esc', 'Keep the original'],
+        ['Esc', 'Discard'],
         ['?', 'This list'],
       ];
       for (const [k, v] of rows) {
@@ -1319,8 +1327,8 @@ window.AnnotateCore = (() => {
 
       const spacer = doc.createElement('div');
       spacer.className = 'annot-spacer';
-      const discardBtn = mkBtn('annot-discard', 'Discard', 'Discard the screenshot — attach nothing', 'danger');
-      const keepBtn = mkBtn('annot-keep', 'Keep original', 'Close and keep the raw screenshot — the annotations AND the crop are dropped (Esc)');
+      const discardBtn = mkBtn('annot-discard', 'Discard', 'Discard the screenshot — attach nothing (Esc)', 'danger');
+      const keepBtn = mkBtn('annot-keep', 'Keep original', 'Close and keep the raw screenshot — the annotations AND the crop are dropped');
       const applyBtn = mkBtn('annot-apply', 'Save', 'Flatten and return the annotated image (⌘/Ctrl ⏎)', 'primary');
 
       bar.append(
@@ -1352,7 +1360,7 @@ window.AnnotateCore = (() => {
       saveBtn.addEventListener('click', downloadImage);
       helpBtn.addEventListener('click', () => toggleHelp());
       discardBtn.addEventListener('click', requestDiscard);
-      keepBtn.addEventListener('click', keepResult);
+      keepBtn.addEventListener('click', requestKeep);
       applyBtn.addEventListener('click', applyResult);
 
       // On `wrap` and in the capture phase: a document-level listener sees the shadow
@@ -1381,7 +1389,8 @@ window.AnnotateCore = (() => {
         if (!helpBox.hidden) { e.preventDefault(); e.stopPropagation(); toggleHelp(false); return; }
         if (selected != null) { e.preventDefault(); e.stopPropagation(); selected = null; syncHistoryBtns(); render(); return; }
         e.preventDefault();
-        keepResult();
+        // The reflex key must never attach an un-redacted shot, so it discards (asking first).
+        requestDiscard();
         return;
       }
       if (mod && (e.key === 'Enter' || e.key === 'NumpadEnter')) { e.preventDefault(); applyResult(); return; }
