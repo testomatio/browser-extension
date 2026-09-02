@@ -215,6 +215,8 @@ function resetProjectScopedState() {
   stopReadonlyWatch(); // the lockout it watched belonged to the project being left
   // Guarded: core/views.js loads after this module.
   if (typeof resetTabCounts === 'function') resetTabCounts();
+  // An unsent comment is keyed by a testrun id, which means nothing in the next project.
+  if (typeof dropAllCommentDrafts === 'function') dropAllCommentDrafts();
   if (typeof syncStop === 'function') syncStop(); // no poll for the closed run
 }
 
