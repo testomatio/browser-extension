@@ -510,16 +510,26 @@ function srPushNav(st, text, cap) {
   return dup !== -1 ? dup : srPush(st, { kind: 'expected', text }, cap);
 }
 
+// #77: trimmed like the recorded URL — queries carry reset tokens. A `#/…` route is the page, not a fragment.
+function srOpenUrl(raw, full) {
+  if (full) return raw;
+  let u;
+  try { u = new URL(raw); } catch { return raw; }
+  return `${u.origin}${u.pathname}${u.hash.startsWith('#/') ? u.hash.split('?')[0] : ''}`;
+}
+
 async function srStart(sender) {
   // `activate`: a recording follows ONE tab, so bring that tab in front of the tester.
   const site = await resolveSiteTab({ verb: 'recorded', activate: true });
   if (site.state !== 'ok') return { ok: false, reason: site.error };
   const tab = site.tab;
+  const { settings } = await chrome.storage.local.get('settings');
   // The `Open <url>` step is DEFERRED to the first real action, so start-then-stop records nothing.
   await srSet({
     tabId: tab.id, recording: true, paused: false, manualPause: false, capBonus: 0, blind: false,
     docIds: await srOwnerIds(sender), // the editor document that owns this recording
-    lastUrl: tab.url, startedAt: Date.now(), pendingOpen: tab.url,
+    lastUrl: tab.url, startedAt: Date.now(),
+    pendingOpen: srOpenUrl(tab.url, !!(settings && settings.envFullUrl === true)),
     entries: [], lastNavIdx: -1, sent: 0,
   });
   await srInjectSync(tab.id);

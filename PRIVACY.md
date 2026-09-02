@@ -82,7 +82,10 @@ extension can capture:
   this trim is on by default. *Settings → Include the query string in the
   recorded URL* opts back in. On a `chrome://` page, the Chrome Web Store or
   another extension's page Chrome hides the address from every extension, and
-  the key is simply omitted.
+  the key is simply omitted. The step recorder's first `Open` step follows the
+  same rule — the query string and the fragment are cut unless that setting is
+  on, except that a fragment which is a route (`#/…`, as in a hash-routed
+  single-page app) is kept without its own query.
 - **Response bodies in the console & network log.** Only for **failed**
   requests (HTTP status ≥ 400, or a network-level error), and only the first
   **16 KB**. Request bodies are never read. *Settings → Include response bodies
