@@ -265,8 +265,8 @@ function takeRecorderWarning() {
 
 // No save yet — Save commits it. The header switcher is NOT repainted: the active
 // project only changes once the new host is saved.
-function onInstanceHostPicked() {
-  const host = $('set-host-history').value;
+// The pick arrives as the argument: the trigger is a <button>, whose own `.value` is always ''.
+function onInstanceHostPicked(host) {
   if (!host) return;
   const s = state.hostSettings[host] || { baseUrl: `https://${host}` };
   setSettingsFields(s);
