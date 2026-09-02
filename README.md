@@ -1,206 +1,95 @@
 # Testomat.io Chrome extension
 
-A Chrome side-panel extension for executing [Testomat.io](https://testomat.io)
-**manual test runs** next to the site being tested. You read a test's steps,
-tick them off, set passed / failed / skipped with a comment, and attach the
-evidence — a screenshot, a console and network log — without leaving the tab
-under test.
+Run [Testomat.io](https://testomat.io) manual tests in Chrome's side panel,
+next to the site you are testing. Open a run, read the steps, tick them
+off, mark passed / failed / skipped with a comment — and attach the evidence
+without leaving the tab: an annotated screenshot, a screen recording, the
+page's console & network log. New tests can be written in the panel too, or
+recorded from your clicks on the page.
 
-It works against `app.testomat.io` and against self-hosted instances. It is not
-in the Chrome Web Store; you install it yourself (see below).
+Works with `app.testomat.io` and with self-hosted instances. Not in the
+Chrome Web Store: you load it from a folder, once.
 
-## What it does
-
-**Runs.** Browse the project's runs and run folders, or paste a run URL. A run
-opens as a checklist grouped by suite. Statuses, comments, tri-state steps
-synced to the server, parametrized example rows, custom statuses, assignee,
-priority, finish run, and the web runner's keyboard shortcuts. Marking a test
-never navigates — you move on when you choose to. An open run re-reads itself
-about every 20 seconds, so a colleague's change lands on its own; a status write
-that fails offline is queued locally and replayed when the connection returns.
-
-**Evidence.** **Rec** records the console messages and network traffic of the
-tab under test into a rolling in-memory window. Errors show inline in the test
-view, and setting a test to Failed uploads a readable `.txt` log and links it on
-the result. **Attach screenshot** captures the tab — viewport or full page —
-and opens an annotator over the page itself: arrow, box, pixelate and text,
-each selectable afterwards to move or delete. The pixelate tool is a real
-mosaic, and the un-pixelated original is dropped on Apply. **Attach screen
-recording** records the tab itself into a `.webm` and puts it on the result; the
-timer, Pause and Stop sit on the page, where you are looking, and the recording
-stops itself at five minutes or 50 MB. Chrome's fast capture route wants the
-extension invoked on the tab first; without that grant the panel records over
-the DevTools protocol instead, same file, with Chrome's "…is debugging this
-browser" bar shown while it runs. A right-click item and `Alt+Shift+R` also
-start a recording, straight from the page.
-
-**Tests.** Browse suites and test cases; an existing test opens as a rendered
-read-only view. New test cases are written in a Markdown editor (with suites and
-folders) — or added straight from a suite's list by title alone, one at a time
-or a whole list at once — and a **step recorder** turns your clicks on the page
-under test into human-readable Markdown steps, masking values it recognises as
-sensitive — and, when you stop, can hand the whole recording to your Testomat.io
-AI to be rewritten (with an Undo). A test's **parameters** are edited there too:
-name the columns, fill a row per run, and write `${name}` in the steps.
-
-**Graceful degradation.** The panel upgrades your API token to a web session
-automatically. When it cannot, it drops to *basic mode*: statuses, comments and
-the run list keep working over the public v2 API, while the session-only
-features are disabled with a stated reason rather than vanishing.
+![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/guide/img/readme-hero.gif)
 
 ## Install
 
-It is not in the Chrome Web Store, so there is no auto-update either way: a new
-version is a zip you unpack, or a `git pull`, followed by the reload button.
-
-Take a release if you just want to run it, and the clone if you intend to follow
-`main` or send patches.
-
-1. Either download the newest zip from
+1. Download the newest zip from
    [Releases](https://github.com/testomatio/browser-extension/releases) and
-   unpack it, or clone the repository:
+   unpack it — or `git clone` this repository.
+2. Open `chrome://extensions` and switch on **Developer mode** (top right).
+3. Click **Load unpacked** and pick the folder you unpacked — from a clone,
+   the **`extension/`** folder inside it, not the repository root.
+4. Click the puzzle icon in Chrome's toolbar and pin **Testomat.io**.
+5. Click the pinned icon — the panel opens and asks you to connect.
 
-   ```
-   git clone https://github.com/testomatio/browser-extension.git
-   ```
+Chrome 123 or newer. Nothing to build. To update, replace the folder's
+contents and press reload (↻) on the extension's card — your settings and
+unsent results survive it. Details and pictures: [Install and
+update](docs/guide/install.md).
 
-2. Open `chrome://extensions` and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and select the folder you unpacked the zip into, or —
-   from a clone — the **`extension/`** folder inside it, not the repository root.
-4. Pin **Testomat.io** from the toolbar's extensions menu.
-5. Click the toolbar icon. The panel opens on Settings; click **Open
-   Testomat.io & authorize**, paste the token it gives you, and click **Save &
-   validate**. Self-hosted? Put your own `https://` URL into **Instance** under
-   **Advanced** before saving.
+## Quick start
 
-One token is all it needs. Authorizing hands back a session that reads your
-projects *and* each project's own API key, so the per-project keys are fetched
-rather than pasted. A **General token** from *Account → Access Tokens* is still
-accepted, and existing ones keep working.
+1. **Connect.** Press **Open Testomat.io & authorize**, paste the token it
+   gives you, press **Connect**, pick your project.
+   → [Connect](docs/guide/connect.md)
+2. **Open a run.** **Runs** tab → click a run → click a test.
+3. **Mark it.** Tick the steps, press **Passed**, **Failed** or **Skipped**
+   (with a comment), then the **›** arrow in the test's pager (or `N` for
+   the next untested test). Nothing navigates on its own.
+   → [Run a manual run](docs/guide/run-tests.md)
+4. **Attach evidence.** In the test's **Attachments** fold: **Attach
+   screenshot** opens an annotator over the page, **Attach screen
+   recording** records the tab; with **Rec** on, marking a test Failed
+   attaches its console & network log by itself.
 
-Chrome 123 or newer. To update: unpack a newer zip over the same folder, or
-`git pull`, then press the reload (↻) icon on the extension's card in
-`chrome://extensions`. Your settings and the offline queue survive the reload.
+## Guide
 
-There is no build step: `extension/` runs exactly as it is checked in. No npm
-install, no bundler, no compiler.
-
-## Signed in by another app
-
-An app that launches Chrome with this extension loaded — Testeiya, for one — can
-sign the panel in itself, so the tester never pastes a token. It writes
-`handoff.json` into the extension folder and opens the panel:
-
-```json
-{
-  "app": "Testeiya",
-  "baseUrl": "https://app.testomat.io",
-  "projectId": "my-project",
-  "jwt": "eyJ…",
-  "projectToken": "tstmt_…",
-  "runUrl": "https://app.testomat.io/projects/my-project/runs/abcd1234",
-  "at": 1756160000000
-}
-```
-
-Two credentials, because the panel talks to two APIs: `projectToken` is what
-`/api/v2` takes, `jwt` is a web session for the routes v2 lacks. `runUrl` is
-optional; with one, the panel opens that run. `at` is milliseconds since the
-epoch and has to grow on every push.
-
-A file rather than a command line: `--load-extension` argv is readable by every
-process on the machine, and these are credentials. Rules the panel follows:
-
-- Only `projectToken` and the project are stored; the `jwt` is held in memory and
-  re-read from the file, exactly like the one `POST /api/login` returns.
-- The file has to stay for as long as the connection should work. Whoever wrote
-  it deletes it — closing the browser it launched is the usual moment.
-- **Disconnect** marks that `at` as answered instead of deleting a file it does
-  not own. Push a newer `at` to offer the connection again.
-- A run is opened once per `at`, so reloading the panel keeps the tester's place.
-
-### Beside a token the tester pasted
-
-An offer is an overlay on the ordinary sign-in, never a replacement. A tester who
-had already connected that instance keeps their own credential and their
-preferences; the two live side by side and each request uses whichever fits:
-
-| Request | Credential |
+| Page | Covers |
 |---|---|
-| Web JSON:API (`/api/…`) | the handed `jwt`, else the tester's own session |
-| `/api/v2` on the handed project | `projectToken` when one was sent |
-| `/api/v2` anywhere else | that project's key, read with whichever session is live |
+| [Install and update](docs/guide/install.md) | Load the folder, pin the icon, update without losing anything |
+| [Connect](docs/guide/connect.md) | Authorize, pick a project, self-hosted instances, basic mode |
+| [Run a manual run](docs/guide/run-tests.md) | Runs, steps, statuses, comments, hotkeys, finish, working offline |
+| [Attach a screenshot](docs/guide/screenshots.md) | Capture the tab, annotate over the page, full-page shots |
+| [Attach a screen recording](docs/guide/screen-recording.md) | Record the tab, review and trim, attach |
+| [Console & network log](docs/guide/console-network-log.md) | Rec: the log that lands on a failed result |
+| [Create tests](docs/guide/create-tests.md) | Add by title, write in the editor, parameters |
+| [Step recorder](docs/guide/step-recorder.md) | Do the flow once, the test writes itself; polish with AI |
+| [Settings and shortcuts](docs/guide/settings.md) | Every setting with its default, sign out, keyboard shortcuts |
 
-`projectToken` is therefore optional — a host that already holds one saves the
-panel a round trip, and nothing more. `jwt` is what the offer is really made of.
+## Privacy
 
-Because a session reaches every project, the switcher stays open. It closes in one
-case: the host has closed its browser, taking the session with it, and the tester
-never signed in themselves — then the stored `projectToken` still opens that one
-project and Settings says so.
+Nothing runs on a page without your click, and nothing the extension reads
+goes anywhere except your own Testomat.io instance. What is stored, what is
+sent and when, every permission and why it is needed, and every off switch:
+[PRIVACY.md](PRIVACY.md).
 
-Signing in over a handed-off connection replaces it outright, session included.
+## Where to report
 
-A panel that is already open takes a new push through
-`window.TestomatHandoff.apply()`, which answers
-`{ok, projectId, run}` — or `{ok: false, reason: "no-offer"}`. A build without
-that global predates this contract and needs updating.
-
-With no host involved the panel logs one `ERR_FILE_NOT_FOUND` for `handoff.json`
-at boot. That is the check for the file, not a fault.
-
-## Permissions, and why each is needed
-
-These are the permissions declared in `extension/manifest.json`. Chrome
-summarises the host permission at install as *"Read and change all your data on
-websites you visit"*.
-
-| Permission | Why |
-|---|---|
-| `storage` | Keeps the API token, the project choice, your preferences and the offline queue in your local Chrome profile. `chrome.storage.sync` is never used, so nothing is copied to your Google account |
-| `sidePanel` | Draws the panel in Chrome's side panel |
-| `scripting` | Injects, on your click, the screenshot annotator, the step recorder and the console/network instrumentation into the tab under test |
-| `webRequest` | Lists the page's own network traffic (method, URL, status, timing) in the recording. Observational listeners only — no headers requested, never the blocking form, so nothing can be modified, redirected or cancelled |
-| `debugger` | Full-page screenshots only, via the DevTools protocol — the only way to capture a whole scrollable document. Attached for that one shot and detached immediately, which is when Chrome's *"…is debugging this browser"* bar appears. Viewport screenshots do not use it |
-| `host_permissions: <all_urls>` | The site under test is different for every user and session, and screenshotting, recording and instrumenting it all require reading that page. Nothing runs on a page without your click. You can narrow this in **chrome://extensions → Details → Site access** at any time |
-
-The `tabs` permission is **not** requested: the extension never enumerates your
-open tabs, and cannot read your browsing history.
-
-Full detail — what is stored, what is transmitted, and every off switch — is in
-**[PRIVACY.md](PRIVACY.md)**.
-
-## Documentation
-
-| | |
-|---|---|
-| **Using it** | [`docs/user-guide.md`](docs/user-guide.md) — every screen and button, the limits and the quirks |
-| **Privacy** | [`PRIVACY.md`](PRIVACY.md) — what is sent where and when, every off switch, what it cannot do |
-| **Working on the code** | [`docs/architecture.md`](docs/architecture.md) — module map, data flows, the permission model, storage keys, known traps |
-
-## How this repository is maintained
-
-The end-to-end suite is not part of this tree: it drives a live Testomat.io
-account with fixtures that only exist there, so it is unrunnable from a clone and
-is maintained separately. Two consequences. Pull requests are verified by
-maintainers by hand, so expect review to take longer than the diff suggests. And
-that suite drives a few test seams in the shipped code (a couple of
-`chrome.storage.session` keys, one message with no production sender) which look
-unused from inside this tree — they are documented in
-[`docs/architecture.md`](docs/architecture.md) §5.3; please leave them alone.
-
-Bugs and feature requests belong **here**, in this repository's
+Bugs and feature requests go to this repository's
 [Issues](https://github.com/testomatio/browser-extension/issues). A useful
 report says what you clicked, what happened (with the exact wording of any
-message), your Chrome version, and whether the *Basic mode* pill was showing.
-Please do not paste API tokens or run URLs you would rather keep private.
+message), your Chrome version, and whether the *Basic mode* pill was
+showing. Please leave out API tokens and run URLs you would rather keep
+private.
+
+## For developers
+
+- [`docs/architecture.md`](docs/architecture.md) — module map, data flows,
+  the permission model, storage keys, known traps.
+- [`docs/host-handoff.md`](docs/host-handoff.md) — signing the panel in from
+  an app that launched the browser (`handoff.json`).
+
+There is no build step: `extension/` runs exactly as it is checked in. The
+end-to-end suite lives outside this tree and drives a live Testomat.io
+account, so pull requests are verified by maintainers by hand; a few test
+seams in the shipped code look unused from here — see architecture §5.3
+and leave them alone.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
-
-Third-party code is vendored under `extension/vendor/` as committed single files
-and keeps its own licence: [showdown](https://github.com/showdownjs/showdown) (MIT)
-and [OverType](https://github.com/panphora/overtype) (MIT). The icon paths come
-from [Material Symbols](https://fonts.google.com/icons) (Apache-2.0), and
-JetBrains Mono ships under the SIL Open Font License (`extension/shared/fonts/OFL.txt`).
+MIT — see [LICENSE](LICENSE). Vendored under `extension/vendor/` with their
+own licences: [showdown](https://github.com/showdownjs/showdown) (MIT) and
+[OverType](https://github.com/panphora/overtype) (MIT); icon paths from
+[Material Symbols](https://fonts.google.com/icons) (Apache-2.0); JetBrains
+Mono under the SIL Open Font License (`extension/shared/fonts/OFL.txt`).

@@ -556,8 +556,8 @@ async function signOut() {
   const ok = await confirmDialog(
     'Sign out? Every saved token, instance, history entry, queued result, session, unsaved '
     + 'test draft, recorded step and captured log is deleted from this '
-    + 'browser. A running recording is stopped for you. Allowed websites are kept — remove '
-    + 'them under Allowed websites.', 'Sign out');
+    + 'browser. A running recording is stopped for you. Site access stays — it is Chrome\'s own '
+    + 'setting, under chrome://extensions → Details → Site access.', 'Sign out');
   if (!ok) return;
   state.booting = true; // quiet the session writer over the erase
   // BEFORE either clear(), or a live recorder re-mirrors its buffer over the wipe.

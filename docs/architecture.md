@@ -8,7 +8,8 @@ Companion docs — read across, they are not repeated here:
 
 | Doc | What it is for |
 |---|---|
-| [`docs/user-guide.md`](user-guide.md) | The tester-facing guide: what every button does and where the limits are. Read it once — it is the fastest way to learn the product. |
+| [`README.md`](../README.md) + [`docs/guide/`](guide/) | The tester-facing docs: the landing page and a task-shaped guide with screenshots — what every button does and where the limits are. Read them once — it is the fastest way to learn the product. |
+| [`docs/host-handoff.md`](host-handoff.md) | The `handoff.json` contract for an app that launches the browser and signs the panel in. |
 | [`PRIVACY.md`](../PRIVACY.md) | What the extension collects, where it goes, and every off switch. |
 
 ---
