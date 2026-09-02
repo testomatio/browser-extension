@@ -264,7 +264,7 @@
               class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
           </label>
           <!-- Evidence recorder window (M2 PR-1): seconds of console/network history attached on a failed
-               test. Absent -> 60, clamp 10-600. -->
+               test. Absent -> 60; a save outside 10-600 is refused, not clamped. -->
           <label class="settings-field-sm">
             <span class="choice-text">Log window<button type="button" class="info-tip"
               data-tip="How much console &amp; network history is attached to a failed test. Between 10 and 600 seconds; leave it blank for 60."

@@ -1297,8 +1297,9 @@ never lost to a race. The relay reads the mirrored top-level
 `evidenceCaptureBodies` key: it runs in the tested page's renderer, and the
 `settings` record it used to fetch also holds the API token.
 
-Retention is the `settings.evidenceWindowSec` window (default 60 s, clamped
-10–600); the buffer is pruned to 2× the window and hard-capped at 1000 entries,
+Retention is the `settings.evidenceWindowSec` window (default 60 s; Settings
+refuses a save outside 10–600, and the recorder clamps what it is handed);
+the buffer is pruned to 2× the window and hard-capped at 1000 entries,
 mirrored to `chrome.storage.session` `evidenceMirror` every 2 s so a worker
 restart mid-recording recovers. That mirror is a COPY — the buffer itself lives
 in the worker — which is why erasing the storage area is not enough to get rid

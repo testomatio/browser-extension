@@ -29,7 +29,7 @@ What gets recorded, and what leaves the browser, when you mark a test
 | **Auto-start console & network recorder when you open a test in a run** | Off | Rec starts by itself when you open a test in a run, bound to that test, and stops when you leave it. |
 | **Attach log to failures** | On | The recorded log is uploaded and linked on a test you mark Failed. Off skips only that automatic upload — **Attach** on a single log entry still works. |
 | **Include response bodies** | On | A failed request carries a snippet of what came back, up to 16 KB. Off keeps the request line and writes *(body capture disabled)* where the snippet would be. |
-| **Log window** | 60 seconds | How much console & network history is kept and attached. Any value from 10 to 600; blank means 60, and a number outside the range is pulled back into it. |
+| **Log window** | 60 seconds | How much console & network history is kept and attached. Any value from 10 to 600; blank means 60. A number outside the range is refused — Save reports *Log window must be between 10 and 600 seconds* and nothing is saved. |
 | **Record environment info** | On | Browser, OS, the viewport of the tab under test and its page URL are written onto the run as meta, with every status you set — not only a failure. |
 | **Include the query string** | Off | The recorded URL — and the step recorder's first `Open` step — is cut to origin + path, so reset tokens and signed links in a query string stay out of the run. On records it whole. |
 
@@ -112,6 +112,9 @@ From any tab, `Alt+Shift+R` starts or stops a
   empty for a server the panel holds no token for; authorize and paste.
 - **"Instance URL must be https://"** / **"Instance is not a valid URL"** —
   fix the Instance field; the fold opens on the error.
+- **"Log window must be between 10 and 600 seconds"** — the number in **Log
+  window** is outside the range; nothing was saved, and the field still holds
+  what you typed. Leave it blank for 60.
 - **"Token rejected by …"** — the token is stale for that server; press
   **Open Testomat.io & authorize** again and save the new one.
 - **"This token reaches no projects"** — ask for access to a project on that

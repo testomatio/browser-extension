@@ -274,13 +274,13 @@ function onInstanceHostPicked(host) {
   syncTokenField(); // a host we hold no token for asks for one
 }
 
-// Read + clamp the evidence-window field (blank -> 60, non-numeric -> 60).
+// Read the evidence-window field: blank -> 60, out of 10-600 or non-numeric -> null (invalid).
 function evidenceWindowFromField() {
   const raw = $('set-evidence-window').value.trim();
   if (raw === '') return 60;
   const n = Math.round(Number(raw));
-  if (!Number.isFinite(n) || n <= 0) return 60;
-  return Math.min(600, Math.max(10, n));
+  if (!Number.isFinite(n) || n < 10 || n > 600) return null;
+  return n;
 }
 
 // A still-reachable previous selection wins; a lone project needs no choosing; several with no
@@ -298,7 +298,7 @@ async function saveSettings() {
     envInfoOnFail: $('set-env-info').checked,
     // Send the URL untrimmed (#177).
     envFullUrl: $('set-env-full-url').checked,
-    // Blank -> 60, clamp 10-600.
+    // Blank -> 60; null when what was typed is out of range, refused below.
     evidenceWindowSec: evidenceWindowFromField(),
     // Start the recorder on entering a testrun, bound to it (absent -> OFF).
     evidenceAutoStart: $('set-evidence-autostart').checked,
@@ -328,6 +328,11 @@ async function saveSettings() {
   } catch {
     openSettingsAdvanced(); // #146: show the field the error is about
     setStatusLine('settings-status', 'Instance is not a valid URL', 'error');
+    return;
+  }
+  // Refused, never rewritten behind the tester's back — the field keeps what was typed.
+  if (settings.evidenceWindowSec === null) {
+    setStatusLine('settings-status', 'Log window must be between 10 and 600 seconds', 'error');
     return;
   }
   // Preserve per-host prefs not shown in this form (e.g. fullPageCapture) across
