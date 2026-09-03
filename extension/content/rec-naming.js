@@ -1,8 +1,5 @@
-// How a step names the thing the tester acted on, and what it says about where that thing sits.
-// The ladder is aria-label -> the element it points at -> the control's own text -> its label ->
-// its placeholder -> its column header -> name/id -> nothing, every value trimmed to 40 chars;
-// the clause is the row, else the section. Injected before content/step-recorder.js
-// (background.js srInject), and it reads the page directly, the way the recorder does.
+// How a step names the thing the tester acted on: aria-label, the id it points at, the control's
+// own text, its label, its placeholder, its column header, name/id — then the row or section clause.
 
 /* global CSS */
 const RecNaming = (() => {

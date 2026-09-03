@@ -1,8 +1,5 @@
-// One queue, in the order the tester acted. An action's packet needs the page's 400ms before it
-// can say what changed, so entries wait — and a manual expectation typed in the meantime must not
-// overtake the step it belongs to. Injected before content/step-recorder.js (background.js
-// srInject). It owns no recording state: the reply comes back through `onReply` to the file that
-// does.
+// One queue, in the order the tester acted: an entry waits out its packet window, so an expectation
+// typed meanwhile cannot overtake the step it belongs to. The reply goes back through `onReply`.
 const RecOutbox = (() => {
   // `sendMessage` and `setTimeout` arrive as arguments so a test drives the queue without a page,
   // and `frameClause` because which frame this is is the recorder's fact, not the queue's.

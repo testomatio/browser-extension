@@ -1,9 +1,5 @@
-// What a secret is allowed to become in a recorded step. Everything typed is otherwise recorded
-// verbatim and uploaded, and card, CVV, expiry, OTP and tax-id fields are text/tel/numeric —
-// never `type=password`. Injected before content/step-recorder.js (background.js srInject).
-//
-// The field's own label is one of the strings a field is known by, and reading it is the naming
-// module's job, so it arrives as an argument rather than being reached for from here.
+// What a secret is allowed to become in a step: everything typed is otherwise recorded verbatim,
+// and a card, CVV or tax-id field is text/tel, never `type=password`. The label arrives as an argument.
 const RecMask = (() => {
   // Split a developer string (`cardNumber`, `card_number`, `CARD-NUMBER`) into words once,
   // then match whole words only, so `shipping` never reads as a `pin`.

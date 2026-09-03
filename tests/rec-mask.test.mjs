@@ -1,9 +1,6 @@
 #!/usr/bin/env node
-// extension/content/rec-mask.js on its own: the rules that decide whether a typed value reaches
-// the test, read as a table rather than through a field and a blur. The whole module loads with
-// no stubs at all — that is the reason this file exists beside the end-to-end rows in
-// tests/step-recorder-mask.test.mjs, which stay the authority on the sentences.
-// Run: node --test tests/*.test.mjs
+// extension/content/rec-mask.js on its own, read as a table: it loads with no stubs at all. The
+// sentences stay the business of tests/step-recorder-mask.test.mjs. Run: node --test tests/*.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

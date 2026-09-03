@@ -1,20 +1,5 @@
-// The shared load() for the step-recorder test files. extension/content/step-recorder.js publishes
-// NOTHING by name — it is one IIFE whose whole surface is the listeners it registers — so a test
-// drives it exactly as a page does: build a node, fire an event at the document, read what reached
-// chrome.runtime.sendMessage. The page under it is tests/helpers/mini-dom.mjs, the same fake every
-// other test file is built on: one DOM, one event shape, one set of rules.
-//
-// THE TRAP THIS FILE EXISTS TO CLOSE: flushType() and flushSelect() return early while the
-// never-values flag is unread and re-enter through `flagRead.then(...)`. A blur fired and flushed
-// synchronously therefore records NOTHING, and a test that asserts an empty outbox there is green
-// and hollow. Use `await h.act(node, 'blur')` — it fires, turns the microtask queue, closes the
-// 400ms packet window and turns it again — or the primitives in that order by hand.
-//
-//   const h = load({ top: false, hostname: 'checkout.example.com' });
-//   const btn = el('button', null, 'Pay now');
-//   h.doc.body.append(btn);
-//   await h.act(btn, 'click');
-//   h.entries()[0].text; // 'Click the "Pay now" button in the "checkout.example.com" frame'
+// The shared load() for the step-recorder test files: it builds the sandbox, evaluates the modules
+// and the recorder into it, and hands back the handles a row needs. See `act()` for the one trap.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,7 +175,8 @@ export function load(opts = {}) {
       for (const l of [...winListeners]) if (l.type === type) l.fn(ev);
       return ev;
     },
-    // Fire, let the deferred flag read land, close the packet window, let the send land.
+    // THE TRAP: typing and select re-enter through the never-values flag read, so a blur fired and
+    // flushed synchronously records NOTHING and a test asserting an empty outbox is green and hollow.
     act: async (node, type, props = {}) => {
       fire(doc, type, { target: node, ...props });
       await settle();

@@ -1,8 +1,5 @@
-// What a reader — a tester, or the AI polish in the editor — is given besides the sentence: the
-// control's own facts, its surroundings, the page, and what the page made of the action. Everything
-// but `after` is read at event time; `after` is read once the 400ms window closes. Never a value
-// the masking refused — `ctx.value` carries the masked noun, not the secret. Injected before
-// content/step-recorder.js (background.js srInject), after content/rec-naming.js.
+// What a step carries besides its sentence: the control's facts, its surroundings, the page, and
+// what the page made of the action. All but `after`, which is read once the window closes.
 
 /* global RecNaming */
 const RecPacket = (() => {

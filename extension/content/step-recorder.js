@@ -25,9 +25,8 @@
   const FRAME_CLAUSE = FRAME_HOST ? ` in the "${FRAME_HOST}" frame` : '';
 
   // ---- the action packet (#23) -----------------------------------------------
-  // Built in content/rec-packet.js; the frame it happened in is this file's fact, so it is
-  // handed over rather than reached for.
-  // AFTER_MS is the window's length: the packet owns it, the queue below waits it out.
+  // Built in content/rec-packet.js. The frame is this file's fact, so it is handed over; the
+  // window's length is the packet's, so it is read back.
   const { AFTER_MS } = RecPacket;
   const armPacket = (el, action, near, value) => RecPacket.armPacket(el, action, near, value, FRAME_HOST);
 

@@ -1,12 +1,5 @@
-// The pill in the corner: the only part of the recorder the tester looks at. What it counts, the
-// three states it can be in, the expectation it lets them type, and dragging it out of the way of
-// the thing they are testing. Injected before content/step-recorder.js (background.js srInject).
-//
-// It owns none of the recording state: it asks for it through `state()` and reports every click
-// back through the handlers, because the file that records is the file that decides what a click
-// means. The expectation input lives here too rather than in a module of its own — it is the
-// pill's own children and the pill's own key handling, and hiding that behind an interface would
-// cost more than the thirty-nine lines it holds.
+// The pill in the corner: the counter, its three states, the expectation input, the drag. It owns
+// no recording state — it reads it through `state()` and hands every click back to the recorder.
 const RecPill = (() => {
   // The page objects arrive as arguments so the pill can be built without one.
   function create({ document, window, storage, icons, top = true, hostId,
