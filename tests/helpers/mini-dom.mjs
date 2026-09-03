@@ -1,36 +1,17 @@
-// A hand-made page for `node --test`. The side-panel screens build their UI out of elements, so
-// almost everything worth testing about them is a decision about a node — and this repo has no
-// package.json and no node_modules, so there is no jsdom to borrow one from. This is the stand-in
-// every test fixture is made of: `el`/`text` build nodes, `makeDocument()` builds the `document`
-// that goes into a `runInNewContext` sandbox, and `fire()` is the only way into a handler that a
-// render wired up. Imported by tests/*.test.mjs only — nothing under extension/ may ever load it.
-//
-// Pre-created ids: `makeDocument(['test-status', 'ul#tc-tree'])` creates one element per entry and
-// appends it to <body>, so a screen reaching for its mount points finds them. An entry is an id on
-// its own (a <div>) or an id qualified with a tag (`ul#tc-tree`); `getElementById` then answers
-// that element — the same node every time it is asked, because it is looked up in the tree.
-//
-// Where it diverges from a browser, each divergence earned by a test:
-//   * querySelectorAll returns a PLAIN ARRAY — every caller spreads it or reads indexOf on it;
-//   * document order is depth-first, node then children, because indexOf on that array is how a
-//     recorded step's position is computed;
-//   * append('<b>hi</b>') is ONE TEXT NODE — nothing here parses HTML, and nothing ever should;
-//   * a property assigned to a node stays verbatim (`el.hidden === true`), while getAttribute, the
-//     selector engine and `attributes` all report it, so el('input', { type: 'checkbox' }) answers
-//     input[type="checkbox"] the way a reflected attribute does in a browser — the three views
-//     agree, or a walk over `attributes` would miss a href the selectors can still see;
-//   * events do not bubble: fire() runs the listeners registered on the node it is handed;
-//   * `=` and `*=` are the only attribute operators the selector engine knows;
-//   * layout is TOLD, never computed: offsetLeft/Top/Width/Height are plain numbers a fixture
-//     writes, and getBoundingClientRect() is built out of them;
-//   * a computed member (see computed(): the element siblings, `labels`, `selectedOptions` and the
-//     table shape) is overwritable, and an override is the property alone — never an attribute;
-//   * createTreeWalker() hands back a SNAPSHOT: nothing here re-walks when the tree moves;
-//   * composedPath() crosses shadow roots and stops at the topmost node — no document, no window.
+// A hand-made page for `node --test`: the panel screens build their UI out of elements, and this
+// repo has no package.json, so there is no jsdom to borrow one from. See DIVERGENCES below.
 
-// The node's own machinery: never copied as a user property by cloneNode, never read as an
-// attribute by the selector engine. Layout, `style` and a shadow root belong here too — a browser
-// reflects none of them as an attribute, and a clone builds its own from its constructor.
+// DIVERGENCES, each earned by a test. querySelectorAll returns a PLAIN ARRAY, and document order
+// is depth-first, because indexOf on that array is how a step's position is computed.
+
+// append('<b>x</b>') is ONE TEXT NODE: nothing here parses HTML. A property assigned to a node
+// stays verbatim, while getAttribute, the selectors and `attributes` all report it.
+
+// Events do not bubble — fire() runs the listeners on the node it is handed. Pre-created ids:
+// makeDocument(['ul#tc-tree']) appends one element per entry to <body>.
+
+// The node's own machinery: never copied by cloneNode, never read as an attribute. Layout, `style`
+// and a shadow root belong here too — a browser reflects none of them.
 const STRUCT = new Set(['tagName', 'nodeType', 'nodeValue', 'childNodes', 'parentElement', 'listeners',
   'style', 'shadowRoot', 'pointerCapture', 'overrides', 'root',
   'offsetLeft', 'offsetTop', 'offsetWidth', 'offsetHeight']);
@@ -203,6 +184,26 @@ class MiniNode {
   childNodes = [];
   listeners = new Map();
 
+  // The raw-tree view of the same three facts, for code that walks a page it did not build:
+  // nextSibling counts the text between two elements, isConnected climbs out of every shadow root.
+  get parentNode() { return this.parentElement; }
+
+  get nextSibling() {
+    const p = this.parentElement;
+    if (!p) return null;
+    return p.childNodes[p.childNodes.indexOf(this) + 1] || null;
+  }
+
+  get isConnected() {
+    for (let n = this; n;) {
+      const root = rootOf(n);
+      if (!root) return false;
+      if (root.nodeType === 9) return true;
+      n = root.host || null;
+    }
+    return false;
+  }
+
   remove() { detach(this); }
 
   replaceWith(...nodes) {
@@ -246,6 +247,16 @@ class MiniParent extends MiniNode {
 
   append(...nodes) { this.childNodes.push(...incoming(this, nodes)); }
   prepend(...nodes) { this.childNodes.unshift(...incoming(this, nodes)); }
+
+  // Put back exactly where it was, which is what a node parked by position is for. A reference
+  // node that is not a child throws, as in a browser: the caller has to notice the tree moved.
+  insertBefore(node, ref) {
+    const [inc] = incoming(this, [node]); // detaches first, so read the reference index after
+    const at = ref == null ? -1 : this.childNodes.indexOf(ref);
+    if (ref != null && at < 0) throw new Error('insertBefore: the reference node is not a child');
+    this.childNodes.splice(at < 0 ? this.childNodes.length : at, 0, inc);
+    return inc;
+  }
 
   replaceChildren(...nodes) {
     const list = incoming(this, nodes);
@@ -387,10 +398,8 @@ class MiniElement extends MiniParent {
   }
 }
 
-// A member a browser computes from the tree, which a fixture must still be able to overwrite:
-// el('textarea', { rows: 3 }) would throw on a getter-only property, and `sel.selectedOptions =
-// undefined` is how a test takes a selection away. An override is the property alone — the
-// selector engine goes on reading the real attributes.
+// A member a browser computes, which a fixture must still be able to overwrite: a getter-only
+// property would throw, and `sel.selectedOptions = undefined` is how a test takes a selection away.
 function computed(name, from) {
   Object.defineProperty(MiniElement.prototype, name, {
     configurable: true,
