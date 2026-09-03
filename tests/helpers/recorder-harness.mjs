@@ -30,6 +30,10 @@ export const RECORDER = process.env.REC_SRC || join(repoRoot, 'extension/content
 
 export const HOST_ID = '__testomat_step_recorder';
 
+// The same list background.js injects, minus shared/icons.js, which the `icons` option stubs.
+// An older checkout of the recorder carries these blocks inline and simply ignores the globals.
+export const MODULES = ['content/rec-mask.js'].map((f) => join(repoRoot, 'extension', f));
+
 // One read per file, however many sandboxes are built out of it.
 const sources = new Map();
 const sourceOf = (path) => {
@@ -65,6 +69,7 @@ export function load(opts = {}) {
     now = 1000,
     reply = echo,
     sourcePath = RECORDER,
+    modules = MODULES,
   } = opts;
 
   const doc = makeDocument(ids);
@@ -155,6 +160,7 @@ export function load(opts = {}) {
 
   // A fresh sandbox per load: `window.__testomatStepRecInited` survives a reused one, and the
   // second evaluation would be a silent no-op that looks exactly like a passing test.
+  for (const m of modules) runInNewContext(sourceOf(m), sandbox);
   runInNewContext(sourceOf(sourcePath), sandbox);
 
   const host = () => doc.getElementById(HOST_ID);

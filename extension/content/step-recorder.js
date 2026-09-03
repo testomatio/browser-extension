@@ -1,7 +1,7 @@
 // Step recorder, injected on demand via chrome.scripting.executeScript (NOT a declared
 // content_script). background.js owns the state; this reflects it and tears itself down.
 
-/* global chrome */
+/* global chrome, RecMask */
 (() => {
   'use strict';
 
@@ -494,88 +494,14 @@
   };
 
   // ---- sensitive values (#176) -----------------------------------------------
-  // Everything typed is recorded verbatim and uploaded, and card, CVV, expiry, OTP and
-  // tax-id fields are text/tel/numeric — never `type=password`.
-
-  // Split a developer string (`cardNumber`, `card_number`, `CARD-NUMBER`) into words once,
-  // then match whole words only, so `shipping` never reads as a `pin`.
-  const words = (s) => String(s || '')
-    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
-    .replace(/[^A-Za-z\d]+/g, ' ')
-    .trim().toLowerCase();
-
-  // Best-effort (Luhn below is the backstop). Entries are written the way `words()` leaves
-  // them: `cardnumber` has no seam to split on, so the space in `card ?num` is load-bearing.
-  const CARD_NUMBER_WORDS = /\b(card ?num(ber)?|cc ?(num(ber)?|no))\b/;
-  const SENSITIVE_WORDS = /\b(card ?num(ber)?|card|cc ?(num(ber)?|no)|cvv|cvc|csc|security code|ssn|social security|passport|otp|passcode|one[- ]?time|exp(iry|iration)?|secret|token|api[- ]?key|pin|iban|routing|account number|tax id)\b/;
-  // A revealed password is a `type=text` field (every show/hide eye flips it). Whole words,
-  // not a `pass` prefix: `passport` is a government id, masked as "the value" above.
-  const PASSWORD_WORDS = /\b(password|passwd|pwd|passphrase)\b/;
-  // `card` ALONE is not a card number: a Kanban "Card title" is masked by the list above,
-  // and calling that "the card number" would be a confident lie.
-  const isCardNumber = (w) => CARD_NUMBER_WORDS.test(w)
-    || (/\bcard\b/.test(w) && /\b(number|num|no|pan)\b/.test(w));
-  // `autocomplete` is the one signal a site states on purpose rather than by habit.
-  const SENSITIVE_AC = /^(cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year|cc-name|one-time-code|new-password|current-password)$/;
-
-  // Spec token order is `section-*`, billing/shipping, the field name, a trailing
-  // `webauthn` — so every remaining token is tested, not just the last.
-  const acTokens = (el) => ((el.getAttribute && el.getAttribute('autocomplete')) || '')
-    .toLowerCase().split(/\s+/)
-    .filter((t) => t && t !== 'billing' && t !== 'shipping' && !t.startsWith('section-'));
-
-  // Every string this field could be known by, as one normalized word bag.
-  const fieldWords = (el) => words([el.getAttribute && el.getAttribute('name'), el.id,
-    el.placeholder, el.getAttribute && el.getAttribute('aria-label'), labelText(el)]
-    .filter(Boolean).join(' '));
-
-  // 13-19 digits passing Luhn IS a payment card whatever the field is called. `\s` and not
-  // ' ': an auto-formatting card input separates groups with a NBSP as often as a space.
-  function looksLikeCard(val) {
-    const d = String(val).replace(/[\s-]/g, '');
-    if (!/^\d{13,19}$/.test(d)) return false;
-    let sum = 0;
-    for (let i = d.length - 1, alt = false; i >= 0; i--, alt = !alt) {
-      let n = d.charCodeAt(i) - 48;
-      if (alt) { n *= 2; if (n > 9) n -= 9; }
-      sum += n;
-    }
-    return sum % 10 === 0;
-  }
-
-  // null = the value is safe to record; otherwise the noun the step says INSTEAD of it.
-  // Only two nouns are ever certain enough to name; everything else is "the value".
-  const isPassword = (el, ac, w) => (el.type || '').toLowerCase() === 'password'
-    || PASSWORD_WORDS.test(w) || ac.includes('new-password') || ac.includes('current-password');
-
-  function maskedAs(el) {
-    const ac = acTokens(el);
-    const val = el.value == null ? '' : String(el.value);
-    const w = fieldWords(el); // one DOM walk (labelText), read three times below
-    if (isPassword(el, ac, w)) return 'the password';
-    if (ac.includes('cc-number') || looksLikeCard(val) || isCardNumber(w)) return 'the card number';
-    if (ac.some((t) => SENSITIVE_AC.test(t)) || SENSITIVE_WORDS.test(w)) return 'the value';
-    return null;
-  }
-
-  // Under the toggle every field reads alike but a password, which keeps its noun: no
-  // value is written either way, and `type=password` is a certainty, not a heuristic.
-  const maskedAllAs = (el) => (isPassword(el, acTokens(el), fieldWords(el)) ? 'the password' : 'text');
+  // The rules themselves live in content/rec-mask.js; the field's label is read here because
+  // reading it is the naming block's job just above.
+  const maskedAs = (el) => RecMask.maskedAs(el, labelText);
+  const maskedAllAs = (el) => RecMask.maskedAllAs(el, labelText);
+  const looksLikeCard = RecMask.looksLikeCard;
 
   // ---- "Never record entered values" (#176) ----------------------------------
-  // Read from its OWN top-level key, never off `settings` — that object carries the API
-  // token, which has no business in a tab's isolated world (#175). Absent -> OFF.
-  const NEVER_KEY = 'stepRecNeverValues';
-  let neverValues = null; // null = not read yet; a value is never emitted on a guess
-  const flagRead = (chrome.storage && chrome.storage.local
-    ? chrome.storage.local.get(NEVER_KEY) : Promise.reject())
-    .then((r) => { neverValues = r[NEVER_KEY] === true; })
-    .catch(() => { neverValues = false; });
-  // A Save mid-recording takes effect on the next step, not the next injection.
-  const onFlagChanged = (changes, area) => {
-    if (area === 'local' && changes[NEVER_KEY]) neverValues = changes[NEVER_KEY].newValue === true;
-  };
-  if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.addListener(onFlagChanged);
+  const flag = RecMask.watchFlag(chrome.storage);
 
   // The last value emitted per field, so blur+Enter don't double-record. A masked field
   // remembers a SENTINEL instead — the secret it just refused to send is not ours to hold.
@@ -585,7 +511,7 @@
     if (!isTextField(el)) return;
     // The toggle read lands milliseconds after injection; a step that beats it waits for
     // it rather than being recorded under a guessed default.
-    if (neverValues === null) { flagRead.then(() => flushType(el)); return; }
+    if (flag.get() === null) { flag.read.then(() => flushType(el)); return; }
     const val = el.value == null ? '' : String(el.value);
     if (!val.trim()) return;
     const near = nearFacts(el);
@@ -593,7 +519,7 @@
     const ctx = contextOf(el, name, near);
     const field = name ? `${name} field` : 'field';
     // Toggle ON: no value, and no heuristic decides anything — see maskedAllAs.
-    const noun = neverValues ? maskedAllAs(el) : maskedAs(el);
+    const noun = flag.get() ? maskedAllAs(el) : maskedAs(el);
     if (noun) {
       if (lastTyped.get(el) === MASKED) return;
       lastTyped.set(el, MASKED);
@@ -624,7 +550,7 @@
   // the ordinary path, so masking, the dedupe and the cap apply exactly as on a blur.
   async function flushPending() {
     try {
-      await flagRead; // flushType drops the step while the never-values toggle is unread
+      await flag.read; // flushType drops the step while the never-values toggle is unread
       const el = deepActive();
       if (el) flushType(el);
       flushOutbox();
@@ -671,13 +597,13 @@
   // An expiry or date-of-birth dropdown is an entered value too, so it masks like a typed one.
   function flushSelect(el, near) {
     // Same wait as flushType: a guessed toggle is a value recorded against the setting.
-    if (neverValues === null) { flagRead.then(() => flushSelect(el, near)); return; }
+    if (flag.get() === null) { flag.read.then(() => flushSelect(el, near)); return; }
     const name = nameOf(el, near);
     const ctx = contextOf(el, name, near);
     const opt = el.selectedOptions && el.selectedOptions[0];
     const val = opt ? (opt.textContent || opt.value || '').trim() : String(el.value || '');
     // ON: "text" reads wrong for a list. Off: maskedAs sees el.value, a card may be option text.
-    const noun = neverValues ? 'an option' : (maskedAs(el) || (looksLikeCard(val) ? 'the card number' : null));
+    const noun = flag.get() ? 'an option' : (maskedAs(el) || (looksLikeCard(val) ? 'the card number' : null));
     if (noun) {
       record(el, 'select', near, { kind: 'step', action: 'select', name, context: ctx,
         text: `Select ${noun} in the ${name ? `${name} ` : ''}dropdown${clauseOf(ctx)}` },
@@ -1100,7 +1026,7 @@
     document.removeEventListener('compositionstart', onCompositionStart, opts);
     document.removeEventListener('compositionend', onCompositionEnd, opts);
     chrome.runtime.onMessage.removeListener(onFlushMsg);
-    if (chrome.storage && chrome.storage.onChanged) chrome.storage.onChanged.removeListener(onFlagChanged);
+    flag.stop();
     dragTeardown();
     host.remove();
     window.__testomatStepRecInited = false;

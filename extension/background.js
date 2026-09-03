@@ -458,7 +458,7 @@ async function srInject(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
-      files: ['shared/icons.js', 'content/step-recorder.js'],
+      files: ['shared/icons.js', 'content/rec-mask.js', 'content/step-recorder.js'],
     });
     return true;
   } catch { return false; }
