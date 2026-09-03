@@ -424,6 +424,16 @@ function rowsOf(el) {
   return [...section('thead'), ...el.querySelectorAll(':scope > tr'), ...section('tbody'), ...section('tfoot')];
 }
 
+// Inherited: the nearest ancestor that STATES the attribute decides, and `contenteditable=""`
+// is "true". The walk stops at a shadow root, where a browser's `parentElement` ends anyway.
+computed('isContentEditable', (el) => {
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    const v = n.getAttribute('contenteditable');
+    if (v != null) return v === '' || v.toLowerCase() === 'true';
+  }
+  return false;
+});
+
 computed('previousElementSibling', (el) => sibling(el, -1));
 computed('nextElementSibling', (el) => sibling(el, 1));
 computed('labels', (el) => (LABELABLE.test(el.tagName) ? labelsOf(el) : undefined));

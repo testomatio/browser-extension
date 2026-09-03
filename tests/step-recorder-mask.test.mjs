@@ -214,7 +214,7 @@ test('D17: the same change in the sync area is not this flag', async () => {
 });
 
 // A slider, a colour and a file picker are entered values a tester would expect back.
-test.todo('D18: range, color and file inputs record a step (#111)', async () => {
+test('D18: range, color and file inputs record a step', async () => {
   const h = load();
   for (const type of ['range', 'color', 'file']) {
     const input = field(h, { type, 'aria-label': 'Volume' }, '7');
@@ -223,12 +223,77 @@ test.todo('D18: range, color and file inputs record a step (#111)', async () => 
   assert.equal(h.entries().length, 3);
 });
 
-test.todo('D19: typing into a contenteditable records a step (#111)', async () => {
+// The filename comes from `files` when the page has one; a browser reports the value itself
+// as `C:\fakepath\photo.png`, and only the last segment is a name a tester reads.
+test('D18b: each of the three says what it was set to, and a nameless one keeps the noun', async () => {
+  const h = load();
+  await h.act(field(h, { type: 'range', 'aria-label': 'Volume' }, '7'), 'change');
+  await h.act(field(h, { type: 'color', 'aria-label': 'Colour' }, '#ff0000'), 'change');
+  const picked = field(h, { type: 'file', 'aria-label': 'Avatar' }, 'C:\\fakepath\\ignored.png');
+  picked.files = [{ name: 'photo.png' }];
+  await h.act(picked, 'change');
+  await h.act(field(h, { type: 'file' }, 'C:\\fakepath\\scan.pdf'), 'change');
+  await h.act(field(h, { type: 'range' }, '3'), 'change');
+  assert.deepEqual(texts(h), [
+    'Set the "Volume" slider to "7"',
+    'Set the "Colour" picker to "#ff0000"',
+    'Attach "photo.png" to the "Avatar" field',
+    'Attach "scan.pdf" to the field',
+    'Set the slider to "3"',
+  ]);
+  assert.deepEqual(h.entries()[0].ctx.value, { text: '7', masked: false });
+});
+
+// The toggle is the only rule these three answer to: a slider position is not a secret.
+test('D18c: under the never-values toggle the three record no value at all', async () => {
+  const h = load({ storage: { stepRecNeverValues: true } });
+  await h.act(field(h, { type: 'range', 'aria-label': 'Volume' }, '7'), 'change');
+  await h.act(field(h, { type: 'color', 'aria-label': 'Colour' }, '#ff0000'), 'change');
+  await h.act(field(h, { type: 'file', 'aria-label': 'Avatar' }, 'C:\\fakepath\\photo.png'), 'change');
+  assert.deepEqual(texts(h), [
+    'Set the "Volume" slider',
+    'Set the "Colour" picker',
+    'Attach a file to the "Avatar" field',
+  ]);
+  assert.deepEqual(h.entries().map((e) => e.ctx.value.masked), [true, true, true]);
+  // The withheld value still says one existed: the editor prints this line under the step.
+  assert.deepEqual(h.entries().map((e) => e.ctx.value.text), ['a value', 'a value', 'a file']);
+});
+
+// Clearing a file input is a `change` like any other, and a page does it on its own Remove
+// button — an empty one has no filename to attach and no step to write.
+test('D18d: a file input with nothing chosen records nothing', async () => {
+  const h = load();
+  const cleared = el('input', { type: 'file', 'aria-label': 'Avatar' });
+  h.doc.body.append(cleared);
+  await h.act(cleared, 'change');
+  assert.deepEqual(h.entries(), []);
+  const picked = field(h, { type: 'file', 'aria-label': 'Avatar' }, 'C:\\fakepath\\photo.png');
+  await h.act(picked, 'change'); // the control: the same page records a real pick
+  assert.deepEqual(texts(h), ['Attach "photo.png" to the "Avatar" field']);
+});
+
+test('D19: typing into a contenteditable records a step', async () => {
   const h = load();
   const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'hello');
   h.doc.body.append(box);
   await h.act(box, 'blur');
   assert.equal(h.entries().length, 1);
+});
+
+// The composer's text is its value, and it reaches the masking rules like any other.
+test('D19b: a contenteditable records its text, and a card number in one is still masked', async () => {
+  const h = load();
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'call me back');
+  h.doc.body.append(box);
+  await h.act(box, 'blur');
+  const [entry] = h.entries();
+  assert.equal(entry.text, 'Type "call me back" into the Notes field');
+  assert.deepEqual(entry.ctx.value, { text: 'call me back', masked: false });
+  const secret = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, '4242 4242 4242 4242');
+  h.doc.body.append(secret);
+  await h.act(secret, 'blur');
+  assert.equal(h.entries()[1].text, 'Type the card number into the Notes field');
 });
 
 test('D20: a textarea is recorded exactly like an input', async () => {

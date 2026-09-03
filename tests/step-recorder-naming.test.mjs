@@ -200,12 +200,30 @@ test('A25: a target carrying the pill id is ignored whatever the path says', asy
   await assertSilent(h, el('button', { id: HOST_ID }, 'Impostor'));
 });
 
-// A whole class of ARIA widgets a SPA builds out of <div>s is missing from CLICK_SEL, so a
-// tester clicking a combobox or a tree item gets a recording with a hole in it.
-test.todo('A26: a combobox, link, slider or treeitem role records nothing (#111)', async () => {
+// The class of ARIA widgets a SPA builds out of <div>s. Without them in CLICK_SEL a tester
+// clicking a combobox or a tree item got a recording with a hole in it.
+test('A26: a combobox, link, slider or treeitem role records a step', async () => {
   for (const role of ['combobox', 'link', 'slider', 'treeitem']) {
     const h = load();
     assert.ok(await say(h, el('div', { role }, 'Country')), `${role} recorded nothing`);
+  }
+});
+
+// Each of the seven has the verb a tester would write by hand, and the bare-noun form when
+// there is nothing to name it by.
+test('A27: every custom-control role reads as the widget it is, named or not', async () => {
+  const rows = [
+    ['link', 'Click the "Country" link', 'Click the link'],
+    ['combobox', 'Open the "Country" dropdown', 'Open the dropdown'],
+    ['listbox', 'Open the "Country" list', 'Open the list'],
+    ['slider', 'Click the "Country" slider', 'Click the slider'],
+    ['spinbutton', 'Click the "Country" spinner', 'Click the spinner'],
+    ['treeitem', 'Select "Country" in the tree', 'Select the tree item'],
+    ['gridcell', 'Click the "Country" cell', 'Click the cell'],
+  ];
+  for (const [role, named, bare] of rows) {
+    assert.equal(await say(load(), el('div', { role }, 'Country')), named, role);
+    assert.equal(await say(load(), el('div', { role })), bare, `${role}, nameless`);
   }
 });
 

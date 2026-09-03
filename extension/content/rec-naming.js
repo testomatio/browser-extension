@@ -259,10 +259,19 @@
     checkbox: (n) => (n ? `Toggle the "${n}" checkbox` : 'Toggle the checkbox'),
     switch: (n) => (n ? `Toggle the "${n}" switch` : 'Toggle the switch'),
     radio: (n) => (n ? `Choose the "${n}" option` : 'Choose the option'),
+    link: (n) => (n ? `Click the "${n}" link` : 'Click the link'),
+    combobox: (n) => (n ? `Open the "${n}" dropdown` : 'Open the dropdown'),
+    listbox: (n) => (n ? `Open the "${n}" list` : 'Open the list'),
+    slider: (n) => (n ? `Click the "${n}" slider` : 'Click the slider'),
+    spinbutton: (n) => (n ? `Click the "${n}" spinner` : 'Click the spinner'),
+    treeitem: (n) => (n ? `Select "${n}" in the tree` : 'Select the tree item'),
+    gridcell: (n) => (n ? `Click the "${n}" cell` : 'Click the cell'),
   };
   const ROLE_NOUN = {
     tab: 'tab', menuitem: 'menu item', menuitemcheckbox: 'menu item', menuitemradio: 'menu item',
     option: 'option', checkbox: 'checkbox', switch: 'switch', radio: 'option', button: 'button',
+    link: 'link', combobox: 'dropdown', listbox: 'list', slider: 'slider',
+    spinbutton: 'spinner', treeitem: 'tree item', gridcell: 'cell',
   };
   const roleOf = (el) => (el.getAttribute && el.getAttribute('role')) || '';
 

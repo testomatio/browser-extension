@@ -69,15 +69,20 @@
   };
   const isTextField = (el) => {
     if (!el || !el.tagName) return false;
+    // A composer is a text field the tester types into; it just holds no `.value`.
+    if (el.isContentEditable === true) return true;
     if (el.tagName === 'TEXTAREA') return true;
     if (el.tagName !== 'INPUT') return false;
     return !/^(button|submit|reset|image|checkbox|radio|file|range|color)$/i.test(el.type || 'text');
   };
+  // What the tester entered: a contenteditable holds it as its own text, never in `.value`.
+  const valueOf = (el) => (el.isContentEditable === true
+    ? (el.innerText == null ? el.textContent : el.innerText) : el.value);
 
   // ---- sensitive values (#176) -----------------------------------------------
   // The rules themselves live in content/rec-mask.js; the field's label is read here because
   // reading it is the naming block's job just above.
-  const maskedAs = (el) => RecMask.maskedAs(el, labelText);
+  const maskedAs = (el, val) => RecMask.maskedAs(el, labelText, val);
   const maskedAllAs = (el) => RecMask.maskedAllAs(el, labelText);
   const looksLikeCard = RecMask.looksLikeCard;
 
@@ -93,14 +98,15 @@
     // The toggle read lands milliseconds after injection; a step that beats it waits for
     // it rather than being recorded under a guessed default.
     if (flag.get() === null) { flag.read.then(() => flushType(el)); return; }
-    const val = el.value == null ? '' : String(el.value);
+    const entered = valueOf(el);
+    const val = entered == null ? '' : String(entered);
     if (!val.trim()) return;
     const near = nearFacts(el);
     const name = nameOf(el, near);
     const ctx = contextOf(el, name, near);
     const field = name ? `${name} field` : 'field';
     // Toggle ON: no value, and no heuristic decides anything — see maskedAllAs.
-    const noun = flag.get() ? maskedAllAs(el) : maskedAs(el);
+    const noun = flag.get() ? maskedAllAs(el) : maskedAs(el, val);
     if (noun) {
       if (lastTyped.get(el) === MASKED) return;
       lastTyped.set(el, MASKED);
@@ -196,6 +202,43 @@
     { text: trim40(val), masked: false });
   }
 
+  // A slider, a colour and a file picker are entered values nobody types: the control IS the
+  // value. No heuristic reads them — a position is not a secret, a filename is not one either.
+  const SET_SAY = {
+    range: (n, v) => `Set the ${n}slider to "${v}"`,
+    color: (n, v) => `Set the ${n}picker to "${v}"`,
+    file: (n, v) => `Attach "${v}" to the ${n}field`,
+  };
+  const SET_MUTE = {
+    range: (n) => `Set the ${n}slider`,
+    color: (n) => `Set the ${n}picker`,
+    file: (n) => `Attach a file to the ${n}field`,
+  };
+  // `files` is the honest name; a browser reports the value itself as `C:\fakepath\photo.png`.
+  const fileName = (el) => {
+    const f = el.files && el.files[0];
+    return f && f.name ? String(f.name) : String(el.value == null ? '' : el.value).split(/[\\/]/).pop();
+  };
+
+  function flushValue(el, near, type) {
+    // Same wait as flushType: a guessed toggle is a value recorded against the setting.
+    if (flag.get() === null) { flag.read.then(() => flushValue(el, near, type)); return; }
+    const val = trim40(type === 'file' ? fileName(el) : (el.value == null ? '' : el.value));
+    // A file input the page CLEARS fires `change` with nothing chosen — no file, no step.
+    if (!val.trim()) return;
+    const name = nameOf(el, near);
+    const ctx = contextOf(el, name, near);
+    const quoted = name ? `"${name}" ` : '';
+    const entry = { kind: 'step', action: 'type', name, context: ctx };
+    if (flag.get()) {
+      record(el, 'type', near, { ...entry, text: SET_MUTE[type](quoted) + clauseOf(ctx) },
+        { text: type === 'file' ? 'a file' : 'a value', masked: true });
+      return;
+    }
+    record(el, 'type', near, { ...entry, text: SET_SAY[type](quoted, val) + clauseOf(ctx) },
+      { text: val, masked: false });
+  }
+
   function onChange(e) {
     if (!recording || fromIndicator(e)) return;
     const el = path0(e);
@@ -203,6 +246,10 @@
     const near = nearFacts(el);
     if (el.tagName === 'SELECT') {
       flushSelect(el, near);
+      return;
+    }
+    if (el.tagName === 'INPUT' && /^(range|color|file)$/i.test(el.type || '')) {
+      flushValue(el, near, String(el.type).toLowerCase());
       return;
     }
     if (el.tagName === 'INPUT' && /^checkbox$/i.test(el.type || '')) {
@@ -228,7 +275,9 @@
   const CLICK_SEL = 'a, button, [role="button"], summary,'
     + ' input[type="button"], input[type="submit"], input[type="reset"], input[type="image"],'
     + ' [role="checkbox"], [role="radio"], [role="switch"], [role="tab"],'
-    + ' [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"]';
+    + ' [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"],'
+    + ' [role="link"], [role="combobox"], [role="listbox"], [role="slider"],'
+    + ' [role="spinbutton"], [role="treeitem"], [role="gridcell"]';
 
   // Shared gate for click + dblclick: the recognized target, or null.
   function clickTarget(e) {
