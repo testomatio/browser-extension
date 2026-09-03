@@ -277,7 +277,7 @@ test('W30: a real page titled "cart" is mistaken for a placeholder, because the 
   assert.equal(load().api.srIsUrlTitle('cart', 'https://shop.example.com/cart'), true);
 });
 
-test.todo('W30b: a real title that the URL merely contains is still a title (bug not filed yet)', () => {
+test.todo('W30b: a real title that the URL merely contains is still a title (#228)', () => {
   assert.equal(load().api.srIsUrlTitle('cart', 'https://shop.example.com/cart'), false);
 });
 
@@ -571,7 +571,7 @@ test('W64: the foreign-frame refusal becomes our own copy, and unlocks the viewp
 });
 
 // Today Chrome's own wording is toasted at the tester verbatim, with no way to act on it.
-test.todo('W65: "another debugger is attached" is explained in our words (bug not filed yet)', () => {
+test.todo('W65: "another debugger is attached" is explained in our words (#229)', () => {
   const err = load().api.dbgError('Another debugger is already attached to the tab with id: 5');
   assert.match(err.message, /DevTools|another tool|close/i);
   assert.equal(err.debuggerBusy, true);
@@ -797,7 +797,7 @@ test('W88: a cast recording already holds the attach, so the shot shares it and 
 
 // After a worker restart the cast's tab is re-seeded asynchronously; a shot taken in that window
 // sees srecCastOwns() false, attaches on top of the cast's own session and is refused by Chrome.
-test.todo('W89: a shot right after a worker restart still shares the cast\'s attach (bug not filed yet)', async () => {
+test.todo('W89: a shot right after a worker restart still shares the cast\'s attach (#230)', async () => {
   const h = load();
   h.hooks.castOwns = () => false; // the re-seed has not landed yet
   h.hooks.dbgAttach = () => 'Another debugger is already attached to the tab with id: 7';
