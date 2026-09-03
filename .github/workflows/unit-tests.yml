@@ -1,0 +1,28 @@
+name: unit-tests
+
+# Every pull request, no path filter: a red test has to be visible in the pull request
+# rather than in the release zip.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The directory form needs a package.json this repo does not have, so the runner
+      # is handed the glob instead.
+      - name: node --test
+        run: node --test tests/*.test.mjs

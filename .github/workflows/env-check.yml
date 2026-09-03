@@ -1,11 +1,20 @@
 name: env-check
 
+# Only what this check actually covers: the whole tests directory would wake three
+# machines and a browser install on every unit-test pull request.
 on:
   workflow_dispatch:
-  push:
-    branches: ['fix/12-*']
+  pull_request:
     paths:
-      - 'tests/**'
+      - 'tests/env-info-matrix.mjs'
+      - 'tests/env-live-probe.mjs'
+      - '.github/workflows/env-check.yml'
+      - 'extension/sidepanel/core/env-info.js'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/env-info-matrix.mjs'
+      - 'tests/env-live-probe.mjs'
       - '.github/workflows/env-check.yml'
       - 'extension/sidepanel/core/env-info.js'
 
