@@ -2,10 +2,12 @@
 // The evidence recorder holds NO chrome.debugger session; a debugger call here is a screenshot's,
 // or the screen recording fallback's (screenrec/session.js), which holds one while it records.
 
-/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore, DbgErrors */
+/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore, DbgErrors,
+   FullpageTrim */
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js',
-  'shared/step-rec-core.js', 'shared/dbg-errors.js', 'evidence/recorder.js', 'screenrec/session.js');
+  'shared/step-rec-core.js', 'shared/dbg-errors.js', 'shared/fullpage-trim.js',
+  'evidence/recorder.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
@@ -293,35 +295,8 @@ async function fullPageClip(tabId) {
   } catch { return null; }
 }
 
-// #158 belt to the clip's braces: a misbehaving Chrome composes the page TWICE, stacked — cut
-// back to the document height. Scale from the WIDTH ratio, not devicePixelRatio, so zoom is absorbed.
-const FULLPAGE_SLACK = 4;     // px of rounding we forgive outright
-const FULLPAGE_TOLERANCE = 1.1; // ...and the share of the document beyond it
-async function trimToDocument(dataUrl, clip) {
-  if (!clip || typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') {
-    return { dataUrl, trimmed: false };
-  }
-  let bmp = null;
-  try {
-    bmp = await createImageBitmap(await (await fetch(dataUrl)).blob());
-    const scale = bmp.width / clip.width;
-    const expected = Math.round(clip.height * scale);
-    const limit = Math.max(expected + FULLPAGE_SLACK, Math.round(expected * FULLPAGE_TOLERANCE));
-    if (!(scale > 0) || !(expected > 0) || bmp.height <= limit) return { dataUrl, trimmed: false };
-    const canvas = new OffscreenCanvas(bmp.width, expected);
-    canvas.getContext('2d').drawImage(bmp, 0, 0);
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 });
-    const buf = new Uint8Array(await blob.arrayBuffer());
-    // Chunked: fromCharCode.apply blows the argument limit on a megabyte of JPEG.
-    let bin = '';
-    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-    return { dataUrl: `data:image/jpeg;base64,${btoa(bin)}`, trimmed: true };
-  } catch {
-    return { dataUrl, trimmed: false }; // never lose the shot over the guard
-  } finally {
-    try { bmp?.close(); } catch { /* best effort */ }
-  }
-}
+// The double-compose guard lives in shared/fullpage-trim.js.
+const { trimToDocument, overshoot, FULLPAGE_SLACK, FULLPAGE_TOLERANCE } = FullpageTrim;
 
 // One attach → shoot → detach (the foreign-frame path below runs it twice).
 // `captureBeyondViewport` is kept for older Chrome builds; it is a no-op next to an explicit clip.

@@ -29,7 +29,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 export const WORKER = process.env.BG_SRC || join(repoRoot, 'extension/background.js');
 
 // The shared files background.js importScripts and then reads through its own bare names.
-const MODULE_FILES = ['shared/step-rec-core.js', 'shared/dbg-errors.js'];
+const MODULE_FILES = ['shared/step-rec-core.js', 'shared/dbg-errors.js', 'shared/fullpage-trim.js'];
 // BG_MODULES swaps one or all of them for mutated copies, the same seam BG_SRC gives the worker.
 export const MODULES = process.env.BG_MODULES
   ? process.env.BG_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
