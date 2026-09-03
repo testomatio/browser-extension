@@ -3,11 +3,11 @@
 // or the screen recording fallback's (screenrec/session.js), which holds one while it records.
 
 /* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore, DbgErrors,
-   FullpageTrim */
+   FullpageTrim, PresenceMatch */
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js',
   'shared/step-rec-core.js', 'shared/dbg-errors.js', 'shared/fullpage-trim.js',
-  'evidence/recorder.js', 'screenrec/session.js');
+  'shared/presence-match.js', 'evidence/recorder.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
@@ -689,15 +689,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 const PRESENCE_ID = 'presence-configured';
 const PRESENCE_FILE = 'content/presence.js';
-const PRESENCE_STATIC_ORIGIN = 'https://app.testomat.io'; // static already — a second one marks twice
-
-function presenceMatch(baseUrl) {
-  let url;
-  try { url = new URL(baseUrl); } catch { return null; }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  if (url.origin === PRESENCE_STATIC_ORIGIN) return null;
-  return `${url.origin}/*`;
-}
+// The match pattern lives in shared/presence-match.js.
+const { presenceMatch, PRESENCE_STATIC_ORIGIN } = PresenceMatch;
 
 // The registration outlives the worker, so it can still name a host the user has replaced since.
 async function syncPresenceScript() {
