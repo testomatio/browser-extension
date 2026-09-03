@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDocument, el, text, fire } from './helpers/mini-dom.mjs';
+import { makeDocument, el, text, fire, NodeFilter } from './helpers/mini-dom.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -565,4 +565,160 @@ test('M49: id and class reflect between property and attribute in both direction
   other.removeAttribute('class');
   assert.equal(other.className, '');
   assert.equal(other.matches('.test-row'), false);
+});
+
+// ---------- what the step recorder reads (tests/helpers/recorder-harness.mjs) ----------
+
+test('M50: [attr*=value] matches a substring, [attr=value] still demands the whole string', () => {
+  const toast = el('div', { className: 'app-toast is-open' });
+  const modal = el('div', { className: 'modal' });
+  const root = el('div', null, toast, modal);
+  assert.deepEqual(root.querySelectorAll('[class*="toast"]'), [toast]);
+  assert.deepEqual(root.querySelectorAll('[class="modal"]'), [modal]);
+  assert.deepEqual(root.querySelectorAll('[class="toast"]'), []);
+  assert.equal(toast.matches('[class*="snackbar"], [class*="app-toast"]'), true);
+});
+
+test('M51: previous/nextElementSibling skip the text between them and stop at the ends', () => {
+  const first = el('td', null, 'Bolt Cutters');
+  const last = el('td', null, el('button', null, 'Delete'));
+  el('tr', null, first, text(' '), last);
+  assert.equal(first.nextElementSibling, last);
+  assert.equal(last.previousElementSibling, first);
+  assert.equal(first.previousElementSibling, null);
+  assert.equal(last.nextElementSibling, null);
+  assert.equal(el('div').nextElementSibling, null);
+});
+
+test('M52: labels answers the wrapping <label> and the one pointing at the id, in document order', () => {
+  const doc = makeDocument();
+  const input = el('input', { id: 'e' });
+  const wrap = el('label', null, 'Email ', input);
+  const pointing = el('label', { for: 'e' }, 'Also email');
+  doc.body.append(wrap, pointing, el('label', { for: 'other' }, 'Other'));
+  assert.deepEqual(input.labels, [wrap, pointing]);
+  assert.deepEqual(el('input').labels, []);
+  assert.equal(el('div').labels, undefined); // a browser gives a <div> no such property at all
+});
+
+test('M53: the table shape: a header row, its cells, and a body cell that knows its index', () => {
+  const head = el('tr', null, el('th', null, 'Item'), el('th', null, 'Bulk'));
+  const cell = el('td', null, el('input', { type: 'checkbox' }));
+  const body = el('tr', null, el('td', null, 'Bolt Cutters'), cell);
+  const table = el('table', null, el('tbody', null, body), el('thead', null, head));
+  assert.equal(table.tHead.tagName, 'THEAD');
+  assert.equal(table.rows[0], head); // the head's row first, however the fixture ordered the sections
+  assert.equal(table.tHead.rows[0], head);
+  assert.equal(cell.cellIndex, 1);
+  assert.equal(head.cells[cell.cellIndex].textContent, 'Bulk');
+  assert.equal(el('td').cellIndex, -1);
+});
+
+test('M54: selectedOptions is the selection, and a fixture can take it away', () => {
+  const large = el('option', { selected: true }, 'Large');
+  const select = el('select', null, el('option', null, 'Small'), large);
+  assert.deepEqual(select.selectedOptions, [large]);
+  select.selectedOptions = undefined; // the browser that answers nothing at all
+  assert.equal(select.selectedOptions, undefined);
+  assert.equal(el('div').selectedOptions, undefined);
+});
+
+test('M55: attachShadow keeps the children it is given, out of the document\'s reach', () => {
+  const doc = makeDocument();
+  const host = el('div', { id: 'pill' });
+  doc.body.append(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const box = el('div', { className: 'box' }, 'Recording');
+  shadow.append(box);
+  assert.equal(host.shadowRoot, shadow);
+  assert.equal(shadow.host, host);
+  assert.equal(shadow.querySelector('.box'), box);
+  assert.equal(doc.querySelector('.box'), null); // the page's selectors never cross the boundary
+  assert.equal(el('div').attachShadow({ mode: 'closed' }).host.shadowRoot, undefined);
+});
+
+test('M56: focus() lands on the nearest root, and the document records the host', () => {
+  const doc = makeDocument();
+  const host = el('div');
+  const button = el('button');
+  doc.body.append(host, button);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const input = el('input');
+  shadow.append(input);
+  input.focus();
+  assert.equal(shadow.activeElement, input);
+  assert.equal(doc.activeElement, host);
+  button.focus();
+  assert.equal(doc.activeElement, button);
+  assert.doesNotThrow(() => el('input').focus()); // detached: nowhere to record it
+});
+
+test('M57: layout is told, not computed, and never reads as an attribute', () => {
+  const box = el('div');
+  assert.deepEqual(box.getBoundingClientRect(),
+    { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 });
+  Object.assign(box, { offsetLeft: 100, offsetTop: 200, offsetWidth: 300, offsetHeight: 40 });
+  const rect = box.getBoundingClientRect();
+  assert.equal(rect.left, 100);
+  assert.equal(rect.top, 200);
+  assert.equal(rect.right, 400);
+  assert.equal(rect.bottom, 240);
+  assert.deepEqual(box.attributes, []);
+  assert.equal(box.getAttribute('offsetWidth'), null);
+});
+
+test('M58: createTreeWalker(SHOW_TEXT) hands back the text runs in document order', () => {
+  const doc = makeDocument();
+  const card = el('button', null,
+    el('h3', null, 'Adjustable Wrench'), el('span', { className: 'badge' }, 'ABCDE'), '$20.33');
+  const walker = doc.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+  const runs = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) runs.push([n.nodeValue, n.parentElement.tagName]);
+  assert.deepEqual(runs, [['Adjustable Wrench', 'H3'], ['ABCDE', 'SPAN'], ['$20.33', 'BUTTON']]);
+  assert.equal(doc.createTreeWalker(card, NodeFilter.SHOW_ELEMENT).nextNode().tagName, 'H3');
+});
+
+test('M59: fire() gives the event a composedPath that crosses the shadow boundary', () => {
+  const doc = makeDocument();
+  const host = el('div', { id: 'pill' });
+  doc.body.append(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const stop = el('button', null, 'Stop');
+  shadow.append(stop);
+  const seen = [];
+  shadow.addEventListener('click', (e) => seen.push(e.composedPath()));
+  fire(shadow, 'click', { target: stop });
+  assert.deepEqual(seen[0], [stop, shadow, host, doc.body, doc.documentElement]);
+  const given = fire(el('div'), 'click', { composedPath: () => ['mine'] });
+  assert.deepEqual(given.composedPath(), ['mine']); // a caller's own path wins
+});
+
+test('M60: setPointerCapture records the pointer, releasing it clears it', () => {
+  const box = el('div');
+  box.setPointerCapture(7);
+  assert.equal(box.pointerCapture, 7);
+  box.releasePointerCapture(7);
+  assert.equal(box.pointerCapture, null);
+  assert.deepEqual(box.attributes, []);
+});
+
+test('M61: a fresh document has an empty title and no active element, and both are writable', () => {
+  const doc = makeDocument();
+  assert.equal(doc.title, '');
+  assert.equal(doc.activeElement, null);
+  doc.title = 'Checkout';
+  doc.activeElement = doc.body;
+  assert.equal(doc.title, 'Checkout');
+  assert.equal(doc.activeElement, doc.body);
+});
+
+test('M62: a computed member can be overwritten, and the override is neither attribute nor clone', () => {
+  const area = el('textarea', { rows: 3 }); // a getter-only property would throw on this line
+  assert.equal(area.rows, 3);
+  assert.equal(area.matches('textarea[rows]'), false);
+  const table = el('table', null, el('tr'));
+  table.rows = [];
+  const copy = table.cloneNode(true);
+  assert.deepEqual(table.rows, []);
+  assert.equal(copy.rows.length, 1); // the copy computes its own, it does not inherit the override
 });

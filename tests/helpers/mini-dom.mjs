@@ -19,11 +19,21 @@
 //     selector engine and `attributes` all report it, so el('input', { type: 'checkbox' }) answers
 //     input[type="checkbox"] the way a reflected attribute does in a browser — the three views
 //     agree, or a walk over `attributes` would miss a href the selectors can still see;
-//   * events do not bubble: fire() runs the listeners registered on the node it is handed.
+//   * events do not bubble: fire() runs the listeners registered on the node it is handed;
+//   * `=` and `*=` are the only attribute operators the selector engine knows;
+//   * layout is TOLD, never computed: offsetLeft/Top/Width/Height are plain numbers a fixture
+//     writes, and getBoundingClientRect() is built out of them;
+//   * a computed member (see computed(): the element siblings, `labels`, `selectedOptions` and the
+//     table shape) is overwritable, and an override is the property alone — never an attribute;
+//   * createTreeWalker() hands back a SNAPSHOT: nothing here re-walks when the tree moves;
+//   * composedPath() crosses shadow roots and stops at the topmost node — no document, no window.
 
 // The node's own machinery: never copied as a user property by cloneNode, never read as an
-// attribute by the selector engine.
-const STRUCT = new Set(['tagName', 'nodeType', 'nodeValue', 'childNodes', 'parentElement', 'listeners']);
+// attribute by the selector engine. Layout, `style` and a shadow root belong here too — a browser
+// reflects none of them as an attribute, and a clone builds its own from its constructor.
+const STRUCT = new Set(['tagName', 'nodeType', 'nodeValue', 'childNodes', 'parentElement', 'listeners',
+  'style', 'shadowRoot', 'pointerCapture', 'overrides', 'root',
+  'offsetLeft', 'offsetTop', 'offsetWidth', 'offsetHeight']);
 
 function detach(node) {
   const parent = node.parentElement;
@@ -57,6 +67,39 @@ function walk(root, out = []) {
   return out;
 }
 
+// The same order with the text nodes kept — what a TreeWalker hands out run by run.
+function walkAll(root, out = []) {
+  for (const child of root.childNodes) {
+    out.push(child);
+    walkAll(child, out);
+  }
+  return out;
+}
+
+// The next or previous ELEMENT: the whitespace between two <li>s is not a sibling anyone means.
+function sibling(node, step) {
+  const kids = node.parentElement ? node.parentElement.childNodes : [];
+  for (let i = kids.indexOf(node) + step; i >= 0 && i < kids.length; i += step) {
+    if (kids[i].nodeType === 1) return kids[i];
+  }
+  return null;
+}
+
+// The root a node lives in: the document it is attached to, or a component's shadow root.
+function rootOf(node) {
+  let n = node;
+  while (n.parentElement) n = n.parentElement;
+  return n.root || (n.host ? n : null);
+}
+
+// An event's path, the way composedPath() reports it: the target, its ancestors, and the host of
+// every shadow root on the way out — which is how a click inside a pill is recognised as the pill's.
+function pathOf(node) {
+  const out = [];
+  for (let n = node; n; n = n.parentElement || n.host || null) out.push(n);
+  return out;
+}
+
 // ---------- selectors ----------
 
 const TOKEN = /:scope|\*|#[-\w]+|\.[-\w]+|\[[^\]]*\]|[-\w]+/g;
@@ -71,8 +114,9 @@ function parseCompound(src) {
     else if (t[0] === '#') cmp.id = t.slice(1);
     else if (t[0] === '.') cmp.classes.push(t.slice(1));
     else if (t[0] === '[') {
-      const m = /^\[([-\w]+)(?:=(.*))?\]$/.exec(t);
-      cmp.attrs.push({ name: m[1], value: m[2] === undefined ? null : unquote(m[2]) });
+      // `*=` as well as `=`: a page's chrome is found by a class SUBSTRING ([class*="toast"]).
+      const m = /^\[([-\w]+)(?:(\*?=)(.*))?\]$/.exec(t);
+      cmp.attrs.push({ name: m[1], op: m[2] || null, value: m[3] === undefined ? null : unquote(m[3]) });
     } else cmp.tag = t.toUpperCase();
   }
   return cmp;
@@ -119,7 +163,8 @@ function matchCompound(node, cmp, scope) {
   for (const c of cmp.classes) if (!node.classList.contains(c)) return false;
   for (const a of cmp.attrs) {
     const v = node.getAttribute(a.name);
-    if (v === null || (a.value !== null && v !== a.value)) return false;
+    if (v === null) return false;
+    if (a.value !== null && (a.op === '*=' ? !v.includes(a.value) : v !== a.value)) return false;
   }
   return true;
 }
@@ -236,6 +281,12 @@ class MiniElement extends MiniParent {
   nodeType = 1;
   id = '';
   className = '';
+  style = { cssText: '' }; // an inline style is a string a fixture reads back, not a CSS engine
+  offsetLeft = 0;
+  offsetTop = 0;
+  offsetWidth = 0;
+  offsetHeight = 0;
+  overrides = new Map(); // a fixture's own value for a computed member — see computed() below
   #attrs = new Map();
   #data;
 
@@ -297,6 +348,35 @@ class MiniElement extends MiniParent {
     };
   }
 
+  // A browser measures the box; here the fixture states it, and the rect is built from the four.
+  getBoundingClientRect() {
+    const { offsetLeft: left, offsetTop: top, offsetWidth: width, offsetHeight: height } = this;
+    return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top };
+  }
+
+  // Focus lands on the nearest root: a shadow root records the node, the document records its host
+  // — which is exactly the ladder a caller descends to find the caret inside a web component.
+  focus() {
+    for (let n = this; n;) {
+      const root = rootOf(n);
+      if (!root) return;
+      root.activeElement = n;
+      n = root.host || null;
+    }
+  }
+
+  // `open` is the mode everything here uses; a closed root is reachable from the return value only.
+  attachShadow({ mode = 'open' } = {}) {
+    const root = new MiniShadowRoot(this, mode);
+    if (mode === 'open') this.shadowRoot = root;
+    return root;
+  }
+
+  // Pointer capture is a nicety its caller is expected to survive losing, so this only records it.
+  setPointerCapture(id) { this.pointerCapture = id; }
+
+  releasePointerCapture() { this.pointerCapture = null; }
+
   cloneNode(deep = false) {
     const copy = new MiniElement(this.tagName);
     for (const k of Object.keys(this)) if (!STRUCT.has(k)) copy[k] = this[k];
@@ -307,16 +387,71 @@ class MiniElement extends MiniParent {
   }
 }
 
+// A member a browser computes from the tree, which a fixture must still be able to overwrite:
+// el('textarea', { rows: 3 }) would throw on a getter-only property, and `sel.selectedOptions =
+// undefined` is how a test takes a selection away. An override is the property alone — the
+// selector engine goes on reading the real attributes.
+function computed(name, from) {
+  Object.defineProperty(MiniElement.prototype, name, {
+    configurable: true,
+    get() { return this.overrides.has(name) ? this.overrides.get(name) : from(this); },
+    set(v) { this.overrides.set(name, v); },
+  });
+}
+
+// Only these answer `labels`; on anything else the property does not exist, as in a browser.
+const LABELABLE = /^(BUTTON|INPUT|METER|OUTPUT|PROGRESS|SELECT|TEXTAREA)$/;
+const labelsOf = (el) => {
+  let top = el;
+  while (top.parentElement) top = top.parentElement;
+  return top.querySelectorAll('label')
+    .filter((l) => l.contains(el) || (el.id && l.getAttribute('for') === el.id));
+};
+
+// HTMLTableElement.rows: the head's rows come first however the fixture ordered the sections.
+function rowsOf(el) {
+  if (el.tagName !== 'TABLE') return el.querySelectorAll(':scope > tr');
+  const section = (t) => el.querySelectorAll(`:scope > ${t} > tr`);
+  return [...section('thead'), ...el.querySelectorAll(':scope > tr'), ...section('tbody'), ...section('tfoot')];
+}
+
+computed('previousElementSibling', (el) => sibling(el, -1));
+computed('nextElementSibling', (el) => sibling(el, 1));
+computed('labels', (el) => (LABELABLE.test(el.tagName) ? labelsOf(el) : undefined));
+computed('selectedOptions', (el) => (el.tagName === 'SELECT'
+  ? el.querySelectorAll('option').filter((o) => o.selected) : undefined));
+// The table shape a column header is found through: cell -> its index -> the header row's cell.
+computed('cellIndex', (el) => (el.parentElement ? el.parentElement.cells.indexOf(el) : -1));
+computed('cells', (el) => el.querySelectorAll(':scope > td, :scope > th'));
+computed('rows', (el) => rowsOf(el));
+computed('tHead', (el) => el.querySelector(':scope > thead'));
+
 class MiniFragment extends MiniParent {
   nodeType = 11;
 }
 
+// What attachShadow() hands back: a tree of its own that the document's selectors never reach,
+// which records what was appended to it and where the focus went inside it.
+class MiniShadowRoot extends MiniParent {
+  nodeType = 11;
+  activeElement = null;
+
+  constructor(host, mode) {
+    super();
+    this.host = host;
+    this.mode = mode;
+  }
+}
+
 class MiniDocument extends MiniNode {
   nodeType = 9;
+  title = '';
+  activeElement = null;
 
   constructor(ids = []) {
     super();
     this.documentElement = new MiniElement('html');
+    this.documentElement.root = this; // how focus() finds its way back out of the tree
     this.body = new MiniElement('body');
     this.documentElement.append(this.body);
     for (const spec of ids) {
@@ -331,6 +466,13 @@ class MiniDocument extends MiniNode {
   createTextNode(value) { return new MiniText(value); }
   createDocumentFragment() { return new MiniFragment(); }
   getElementById(id) { return walk(this.documentElement).find((n) => n.id === id) || null; }
+
+  // A snapshot, not the live walker a browser hands back — nothing here re-walks when the tree moves.
+  createTreeWalker(root, whatToShow = NodeFilter.SHOW_ALL) {
+    const list = walkAll(root).filter((n) => (1 << (n.nodeType - 1)) & whatToShow);
+    let i = 0;
+    return { root, nextNode: () => list[i++] || null };
+  }
   querySelector(sel) { return this.documentElement.querySelector(sel); }
   querySelectorAll(sel) { return this.documentElement.querySelectorAll(sel); }
 }
@@ -351,19 +493,30 @@ export const text = (value) => new MiniText(value);
 
 export const makeDocument = (ids = []) => new MiniDocument(ids);
 
-// The only way into a handler a render wired up. `props` lands on the event, so a keydown test
-// passes `{ key: 'Enter' }`; the returned event carries what the handler did to it.
-export function fire(node, type, props = {}) {
+// What createTreeWalker() filters on; `1 << (nodeType - 1)` is the whole engine.
+export const NodeFilter = { SHOW_ALL: 0xffffffff, SHOW_ELEMENT: 1, SHOW_TEXT: 4 };
+
+// The event fire() builds, on its own: a listener fire() cannot reach — one on a window, or one a
+// harness captured itself — still gets the one event shape rather than a second, thinner fake.
+export function event(target, type, props = {}) {
   const ev = {
     type,
-    target: node,
-    currentTarget: node,
+    target,
+    currentTarget: target,
     defaultPrevented: false,
     propagationStopped: false,
     ...props,
   };
   ev.preventDefault = () => { ev.defaultPrevented = true; };
   ev.stopPropagation = () => { ev.propagationStopped = true; };
+  if (!ev.composedPath) ev.composedPath = () => pathOf(ev.target);
+  return ev;
+}
+
+// The only way into a handler a render wired up. `props` lands on the event, so a keydown test
+// passes `{ key: 'Enter' }`; the returned event carries what the handler did to it.
+export function fire(node, type, props = {}) {
+  const ev = event(node, type, props);
   node.dispatchEvent(ev);
   return ev;
 }
