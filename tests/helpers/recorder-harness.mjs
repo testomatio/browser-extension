@@ -32,7 +32,13 @@ export const HOST_ID = '__testomat_step_recorder';
 
 // The same list background.js injects, minus shared/icons.js, which the `icons` option stubs.
 // An older checkout of the recorder carries these blocks inline and simply ignores the globals.
-export const MODULES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js', 'content/rec-outbox.js'].map((f) => join(repoRoot, 'extension', f));
+const MODULE_FILES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js',
+  'content/rec-outbox.js', 'content/rec-pill.js'];
+// REC_MODULES swaps one or all of them for mutated copies, the same seam REC_SRC gives the
+// recorder: a falsification run never edits a shipped file.
+export const MODULES = process.env.REC_MODULES
+  ? process.env.REC_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
+  : MODULE_FILES.map((f) => join(repoRoot, 'extension', f));
 
 // One read per file, however many sandboxes are built out of it.
 const sources = new Map();
