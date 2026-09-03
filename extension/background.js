@@ -2,10 +2,10 @@
 // The evidence recorder holds NO chrome.debugger session; a debugger call here is a screenshot's,
 // or the screen recording fallback's (screenrec/session.js), which holds one while it records.
 
-/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore */
+/* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore, DbgErrors */
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js',
-  'shared/step-rec-core.js', 'evidence/recorder.js', 'screenrec/session.js');
+  'shared/step-rec-core.js', 'shared/dbg-errors.js', 'evidence/recorder.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
@@ -222,23 +222,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // A VIEWPORT shot is chrome.tabs.captureVisibleTab (no debugger banner); FULL PAGE needs the
 // DevTools protocol on a temporary attach -> capture -> detach. `beyondViewport` picks.
 
-// #101: Chrome refuses the debugger on an http(s) tab while another extension has a frame in it
-// (attaching by targetId too, and an open session starts failing) — and allows it once the frame is gone.
-const DBG_FOREIGN_FRAME = 'Another extension has a frame on this page, so Chrome blocks the debugger this needs — turn that extension off for this page (or use a clean profile) and try again.';
-// captureVisibleTab is allowed under `activeTab` (what a toolbar click leaves) or <all_urls>,
-// never under a per-origin grant — so this wording asks for the click that actually works.
-const DBG_FOREIGN_FRAME_CLICK = 'Another extension has a frame on this page, so Chrome blocks the debugger a full screenshot needs — click the Testomat icon in the toolbar and try again, and the panel will shoot the visible page instead.';
-const dbgIsForeignFrame = (msg) => /chrome-extension:\/\/ URL of different extension/.test(String(msg || ''));
-// Chrome's own wording for "captureVisibleTab needs activeTab or <all_urls>" — the one failure a click fixes.
-const capNeedsGrant = (msg) => /all_urls|activeTab/.test(String(msg || ''));
-
-// The one place a chrome.debugger refusal becomes an Error; `foreignFrame` unlocks the viewport rescue.
-function dbgError(msg) {
-  const foreign = dbgIsForeignFrame(msg);
-  const err = new Error(foreign ? DBG_FOREIGN_FRAME : String(msg));
-  if (foreign) err.foreignFrame = true;
-  return err;
-}
+// The refusals and their copy live in shared/dbg-errors.js; screenrec/session.js reads the bare
+// `dbgIsForeignFrame` from here, at call time, exactly as it did before the move.
+const { dbgIsForeignFrame, capNeedsGrant, dbgError,
+  DBG_FOREIGN_FRAME, DBG_FOREIGN_FRAME_CLICK } = DbgErrors;
 
 function dbgSendCmd(tabId, cmd, cmdParams = {}) {
   return new Promise((resolve, reject) => {
