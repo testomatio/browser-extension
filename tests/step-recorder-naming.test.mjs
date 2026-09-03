@@ -226,7 +226,7 @@ test('B2: aria-labelledby names the field from the element it points at', async 
 });
 
 // The spec-legal multi-id form is looked up as ONE id, finds nothing, and the ladder walks past it.
-test.todo('B3: aria-labelledby with two ids names nothing (bug not filed yet)', async () => {
+test.todo('B3: aria-labelledby with two ids names nothing (#210)', async () => {
   const h = load();
   h.doc.body.append(el('span', { id: 'a' }, 'Billing'), el('span', { id: 'b' }, 'address'));
   const entry = await step(h, el('input', { 'aria-labelledby': 'a b', value: 'Acme Ltd' }), 'blur');
@@ -235,7 +235,7 @@ test.todo('B3: aria-labelledby with two ids names nothing (bug not filed yet)', 
 
 // getElementById only ever searches the light DOM, so an id reused inside a component is answered
 // by whatever unrelated node happens to hold it in the page.
-test.todo('B4: a labelled control in a shadow root borrows a light-DOM id (bug not filed yet)', async () => {
+test.todo('B4: a labelled control in a shadow root borrows a light-DOM id (#211)', async () => {
   const h = load();
   h.doc.body.append(el('h1', { id: 'lbl' }, 'Recent orders'));
   const comp = el('div');
@@ -294,7 +294,7 @@ test('B10: a wrapping label drops the control it wraps before naming it', async 
 
 // The label[for] lookup runs against `document`, so a component's field is named by a page-level
 // label that was never meant for it.
-test.todo('B11: label[for] crosses out of a shadow root (bug not filed yet)', async () => {
+test.todo('B11: label[for] crosses out of a shadow root (#212)', async () => {
   const h = load();
   const stray = el('label', null, 'Recent orders');
   stray.setAttribute('for', 'note');
@@ -315,7 +315,7 @@ test('B12: a placeholder names a field that has nothing else', async () => {
 
 // An icon-only button a human reads by its tooltip records as nameless: `title` rides along in the
 // packet and is never consulted by the ladder.
-test.todo('B13: a title attribute never names the control (bug not filed yet)', async () => {
+test.todo('B13: a title attribute never names the control (#213)', async () => {
   const h = load();
   assert.equal(await say(h, el('button', { title: 'Delete row' })), 'Click the "Delete row" button');
 });
@@ -357,7 +357,7 @@ test('B18: nothing at all leaves the bare noun', async () => {
 
 // The 40-char cut keeps the space it landed on and adds no ellipsis, so the truncated value reads
 // as a complete one and a tester comparing it to the field sees a mismatch.
-test.todo('B19: a truncated value reads as complete (bug not filed yet)', async () => {
+test.todo('B19: a truncated value reads as complete (#214)', async () => {
   const h = load();
   const long = 'The quick brown fox jumps over the lazy dog';
   const entry = await step(h, el('input', { 'aria-label': 'Note', value: long }), 'blur');
@@ -372,7 +372,7 @@ test('B20: a name broken over lines is collapsed to one', async () => {
 
 // trim40 slices UTF-16 code units, so a 40-boundary that lands inside a surrogate pair ships half
 // a character into the step text.
-test.todo('B21: a name cut at an astral emoji ships half a character (bug not filed yet)', async () => {
+test.todo('B21: a name cut at an astral emoji ships half a character (#215)', async () => {
   const h = load();
   const stem = 'Send the receipt to the billing contact'; // 39 units: the emoji straddles the cut
   const entry = await step(h, el('button', { 'aria-label': `${stem}\u{1F600}` }));
@@ -450,7 +450,7 @@ test('C5: with no row, the section speaks', async () => {
 
 // The section walk takes the nearest heading BEFORE the element, wherever it belongs: in a flat
 // grid that is the previous card's heading, and the step claims a section it is not in.
-test.todo('C6: a flat card grid borrows the previous card heading (bug not filed yet)', async () => {
+test.todo('C6: a flat card grid borrows the previous card heading (#216)', async () => {
   const h = load();
   const btn = el('button', null, 'Subscribe to updates');
   h.doc.body.append(el('div', { className: 'grid' },
@@ -464,7 +464,7 @@ test.todo('C6: a flat card grid borrows the previous card heading (bug not filed
 
 // Five order rows keyed only by their number produce five identical steps, and nothing in the
 // recording says which row was clicked.
-test.todo('C7: a row keyed by a number alone names nothing (bug not filed yet)', async () => {
+test.todo('C7: a row keyed by a number alone names nothing (#217)', async () => {
   const h = load();
   const btn = el('button', null, 'Delete');
   h.doc.body.append(el('table', null, el('tr', null,
@@ -475,7 +475,7 @@ test.todo('C7: a row keyed by a number alone names nothing (bug not filed yet)',
 });
 
 // An unclassed counter rides into the row name, so the step goes stale the moment the count moves.
-test.todo('C8: an unclassed counter is kept in the row title (bug not filed yet)', async () => {
+test.todo('C8: an unclassed counter is kept in the row title (#218)', async () => {
   const h = load();
   const btn = el('button', null, 'Open');
   h.doc.body.append(el('ul', null, el('li', null, text('Products '), el('span', null, '(12)'), btn)));
@@ -486,7 +486,7 @@ test.todo('C8: an unclassed counter is kept in the row title (bug not filed yet)
 
 // cellIndex is the cell's index in its own row, so one colspan in the header shifts every mapping
 // after it — and the wrong header then NAMES the control.
-test.todo('C9: a colspan header names the control after the wrong column (bug not filed yet)', async () => {
+test.todo('C9: a colspan header names the control after the wrong column (#219)', async () => {
   const h = load();
   const box = el('input', { type: 'checkbox', checked: true });
   const head = el('tr', null, el('th', { colspan: '2' }, 'Item'), el('th', null, 'Bulk'), el('th', null, 'Notes'));

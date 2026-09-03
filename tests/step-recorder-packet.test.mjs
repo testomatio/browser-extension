@@ -53,7 +53,7 @@ test('I2: the page URL drops the query, the fragment and any user:pass@ it carri
 });
 
 // A hash-routed app moves the tester to a new screen and the packet says nothing happened.
-test.todo('I3: a hash-only route change is lost — after.url stays "unchanged" (bug not filed yet)', async () => {
+test.todo('I3: a hash-only route change is lost — after.url stays "unchanged" (#220)', async () => {
   const h = load({ href: 'https://example.com/app#/cart' });
   await clickOn(h, el('button', null, 'Next'));
   await closeWindow(h, () => { h.location.href = 'https://example.com/app#/checkout'; });
@@ -167,7 +167,7 @@ test('I13: a state attribute that moved is reported as an arrow', async () => {
 
 // A control that loses `aria-expanded` or `disabled` reports nothing: the diff walks the keys
 // of the "after" state only, so a key that disappeared is never compared.
-test.todo('I14: a state key that disappears is not reported (bug not filed yet)', async () => {
+test.todo('I14: a state key that disappears is not reported (#221)', async () => {
   const h = load();
   const box = el('div', { role: 'checkbox' }, 'Bulk');
   box.setAttribute('aria-expanded', 'true');
@@ -177,7 +177,7 @@ test.todo('I14: a state key that disappears is not reported (bug not filed yet)'
 });
 
 // A key the control gains reads with two spaces where the old value would have been.
-test.todo('I15: a state key that appears prints a double space (bug not filed yet)', async () => {
+test.todo('I15: a state key that appears prints a double space (#222)', async () => {
   const h = load();
   const box = el('div', { role: 'checkbox' }, 'Bulk');
   await clickOn(h, box);

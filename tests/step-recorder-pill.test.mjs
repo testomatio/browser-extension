@@ -174,7 +174,7 @@ test('K10b: Stop takes the click at once — the pill never waits for the flush'
   assert.deepEqual(h.entries().map((e) => e.action), ['type']); // recording is off
 });
 
-test.todo('K11: a stopped recorder still shows a live toolbar (bug not filed yet)', async () => {
+test.todo('K11: a stopped recorder still shows a live toolbar (#223)', async () => {
   const h = rec({ reply: (m) => (m.type === 'STEPREC_ADD' ? status() : status()) });
   await h.settle();
   h.fireOn(buttonNamed(h, 'Stop'), 'click');
@@ -196,7 +196,7 @@ test('K12: a poll re-render moves the dot and the label, it never rebuilds them'
   assert.notEqual(buttonNamed(h, 'Stop'), stop); // the buttons, by contrast, are new every render
 });
 
-test.todo('K13: the pill announces nothing to a screen reader (bug not filed yet)', async () => {
+test.todo('K13: the pill announces nothing to a screen reader (#224)', async () => {
   const h = rec();
   await h.settle();
   assert.equal(h.box().getAttribute('aria-live'), 'polite');
@@ -285,7 +285,7 @@ test('L6: a pause takes the pill back and the typed text with it', async () => {
   }
 });
 
-test.todo('L7: the pill swallows every key the page might want (bug not filed yet)', async () => {
+test.todo('L7: the pill swallows every key the page might want (#225)', async () => {
   const h = rec();
   await h.settle();
   // No input open, so neither key means anything to the pill — a page "/" hotkey should still fire.
