@@ -1,7 +1,7 @@
 // Step recorder, injected on demand via chrome.scripting.executeScript (NOT a declared
 // content_script). background.js owns the state; this reflects it and tears itself down.
 
-/* global chrome, RecMask, RecNaming, RecPacket */
+/* global chrome, RecMask, RecNaming, RecPacket, RecOutbox */
 (() => {
   'use strict';
 
@@ -37,52 +37,21 @@
   let manualPause = false; // the tester's own Pause (Resume clears it, no +cap)
   let count = 0;
 
-  // A Stop flush has to know its entry REACHED the worker, not merely that it was handed to
-  // sendMessage — the editor reads and clears the state the moment the flush resolves (#62).
-  const inflight = new Set();
-
-  // `replaces` (dblclick only) is a wire instruction: the exact single-click text this
-  // action supersedes — the worker pops those trailing twins before appending.
-  function send(entry) {
-    if (!entry || !entry.text) return;
-    // Onto BOTH strings: a `replaces` the worker can no longer match leaves the twins behind.
-    if (FRAME_CLAUSE) {
-      entry.text += FRAME_CLAUSE;
-      if (entry.replaces) entry.replaces += FRAME_CLAUSE;
-    }
-    const p = chrome.runtime.sendMessage({ type: 'STEPREC_ADD', entry })
-      .then((r) => {
-        if (!r) return;
-        if (r.recording === false) { recording = false; render(); return; }
-        if (typeof r.count === 'number') count = r.count;
-        paused = !!r.paused;
-        manualPause = !!r.manualPause;
-        render();
-      })
-      .catch(() => { /* worker asleep / gone — the poll recovers */ });
-    inflight.add(p);
-    p.finally(() => inflight.delete(p));
-  }
-
-  // ONE queue, in arrival order: an action's packet needs ~400ms of the page's time before
-  // it can say what changed, and a manual expected must never overtake the step it follows.
-  const outbox = [];
-  const drain = () => { while (outbox.length && outbox[0].ready) send(outbox.shift().entry); };
-  function queueEntry(entry, close) {
-    const item = { entry, ready: !close };
-    outbox.push(item);
-    if (!close) { drain(); return; }
-    item.close = () => {
-      if (item.ready) return;
-      item.ready = true;
-      try { close(entry); } catch { /* a packet is never worth a lost step */ }
-      drain();
-    };
-    setTimeout(item.close, AFTER_MS);
-  }
-  // The window is about to die (a navigation, a Stop): what is queued leaves with the
-  // packet it has rather than with the page.
-  const flushOutbox = () => { for (const it of outbox.slice()) if (it.close) it.close(); };
+  // The queue itself is content/rec-outbox.js; the state a reply moves lives here, because
+  // the pill and every event guard read it.
+  const { queueEntry, flushOutbox, inflight } = RecOutbox.make({
+    sendMessage: (msg) => chrome.runtime.sendMessage(msg),
+    frameClause: FRAME_CLAUSE,
+    afterMs: AFTER_MS,
+    onReply: (r) => {
+      // A worker that says the recording is over ends it here; nothing else in that reply counts.
+      if (r.recording === false) { recording = false; render(); return; }
+      if (typeof r.count === 'number') count = r.count;
+      paused = !!r.paused;
+      manualPause = !!r.manualPause;
+      render();
+    },
+  });
 
   // One recorded action: the sentence is already written, the packet is built around it.
   function record(el, action, near, entry, value) {

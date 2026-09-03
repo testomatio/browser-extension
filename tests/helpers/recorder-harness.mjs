@@ -32,7 +32,7 @@ export const HOST_ID = '__testomat_step_recorder';
 
 // The same list background.js injects, minus shared/icons.js, which the `icons` option stubs.
 // An older checkout of the recorder carries these blocks inline and simply ignores the globals.
-export const MODULES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js'].map((f) => join(repoRoot, 'extension', f));
+export const MODULES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js', 'content/rec-outbox.js'].map((f) => join(repoRoot, 'extension', f));
 
 // One read per file, however many sandboxes are built out of it.
 const sources = new Map();
