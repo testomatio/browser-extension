@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// The contract of tests/helpers/mini-dom.mjs, the hand-made page every screen fixture is built
-// from: if it over-matches or reorders, the tests written on top of it pass for the wrong reason.
-// Run: node --test tests/mini-dom.test.mjs
+// The contract of tests/helpers/mini-dom.mjs: if the fake over-matches or reorders, every test
+// written on top of it passes for the wrong reason. Run: node --test tests/mini-dom.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -534,9 +533,8 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
   assert.equal(row.classList.contains('expanded'), true);
 });
 
-// Added in review of the ticket: `attributes` and `getAttribute` have to describe the same node.
-// A fixture built as el('a', { href }) is the natural way to write one, and the sanitizer only
-// ever sees a node through `attributes` — the two views disagreeing is how a fake lies quietly.
+// `attributes` and `getAttribute` have to describe the same node: the sanitizer only ever sees one
+// through `attributes`, and the two views disagreeing is how a fake lies quietly.
 test('M48: a property set through el() is visible to an attributes walk', () => {
   const a = el('a', { href: 'javascript:alert(1)', title: 'Open' });
   assert.deepEqual(a.attributes, [
@@ -721,4 +719,51 @@ test('M62: a computed member can be overwritten, and the override is neither att
   const copy = table.cloneNode(true);
   assert.deepEqual(table.rows, []);
   assert.equal(copy.rows.length, 1); // the copy computes its own, it does not inherit the override
+});
+
+// The raw-tree view: what a worker's injected script uses to park a node and put it back exactly
+// where it stood (tests/background.test.mjs, the foreign-frame rows).
+test('M63: parentNode is the parent, nextSibling counts the text between two elements', () => {
+  const doc = makeDocument();
+  const first = el('iframe');
+  const gap = text(' ');
+  const last = el('div');
+  doc.body.append(first, gap, last);
+  assert.equal(first.parentNode, doc.body);
+  assert.equal(first.nextSibling, gap);
+  assert.equal(gap.nextSibling, last);
+  assert.equal(last.nextSibling, null);
+  assert.equal(el('div').parentNode, null);
+});
+
+test('M64: insertBefore puts a node back at its old position, and refuses a stray reference', () => {
+  const doc = makeDocument();
+  const a = el('a');
+  const b = el('b');
+  const c = el('i');
+  doc.body.append(a, b, c);
+  const { parentNode: parent, nextSibling: next } = b;
+  b.remove();
+  assert.deepEqual(doc.body.children, [a, c]);
+  parent.insertBefore(b, next);
+  assert.deepEqual(doc.body.children, [a, b, c]);
+  parent.insertBefore(b, null); // a null reference appends, as in a browser
+  assert.deepEqual(doc.body.children, [a, c, b]);
+  assert.throws(() => parent.insertBefore(el('u'), el('s')), /reference node/);
+});
+
+test('M65: isConnected climbs out of a shadow root and answers false for a node on its own', () => {
+  const doc = makeDocument();
+  const host = el('div');
+  const loose = el('span');
+  doc.body.append(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+  const inside = el('button');
+  shadow.append(inside);
+  assert.equal(doc.body.isConnected, true);
+  assert.equal(host.isConnected, true);
+  assert.equal(inside.isConnected, true);
+  assert.equal(loose.isConnected, false);
+  host.remove();
+  assert.equal(inside.isConnected, false); // the whole component left with its host
 });
