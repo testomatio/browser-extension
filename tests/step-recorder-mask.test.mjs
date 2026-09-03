@@ -139,9 +139,9 @@ test('D11: a value that grew between two blurs is two steps', async () => {
   ]);
 });
 
-// A wrong password then the right one records once, so a negative-path login reads as if the
-// first attempt worked. The sentinel that keeps the secret out also swallows the retry.
-test.todo('D12: a masked field records both attempts, not just the first (#111)', async () => {
+// A wrong password then the right one used to record once, so a negative-path login read as if
+// the first attempt had worked: every flush matched the one sentinel a masked field remembered.
+test('D12: a masked field records both attempts, not just the first', async () => {
   const h = load();
   const input = field(h, { type: 'password', 'aria-label': 'Password' }, 'wrong');
   await h.act(input, 'blur');
@@ -151,6 +151,16 @@ test.todo('D12: a masked field records both attempts, not just the first (#111)'
     'Type the password into the Password field',
     'Type the password into the Password field',
   ]);
+});
+
+// The other half of the same rule, and what the sentinel was there for: one attempt is one step
+// however many events end it — the field is left untouched between the blur and the Enter.
+test('D12b: blur then Enter on an unchanged masked value is one step, not two', async () => {
+  const h = load();
+  const input = field(h, { type: 'password', 'aria-label': 'Password' }, 'hunter2');
+  await h.act(input, 'blur');
+  await h.act(input, 'keydown', { key: 'Enter' });
+  assert.deepEqual(texts(h), ['Type the password into the Password field']);
 });
 
 test('D13: a field with nothing to name it is still "the field"', async () => {

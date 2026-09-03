@@ -38,6 +38,12 @@
       .box.paused .dot { animation: none; background: #f59e0b; }
       @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
       .txt { flex: none; white-space: nowrap; }
+      /* Says the setting is on, not that anything went wrong: dimmer and smaller than the
+         counter it follows, in the same rounded shape as everything else in the pill. */
+      .chip {
+        flex: none; white-space: nowrap; font-size: 11px; padding: 2px 8px;
+        border-radius: 9999px; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.12);
+      }
       button {
         flex: none; font: inherit; font-weight: 600; cursor: pointer;
         padding: 4px 12px; border-radius: 9999px; border: 1px solid rgba(255,255,255,0.35);
@@ -84,6 +90,10 @@
     dot.className = 'dot';
     const txt = document.createElement('span');
     txt.className = 'txt';
+    // "Never record entered values" is on: the tester reads it here rather than in the saved steps.
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = 'Values off';
 
     // ---- moving the pill -------------------------------------------------------
     // The dropped position lives in storage.local under its own top-level key (never
@@ -231,7 +241,7 @@
     // Three states, one pill: recording, the tester's own pause (Resume) and the cap's
     // "Still recording?" (Continue) — so Continue's +cap never ends a manual pause.
     function render() {
-      const { recording, paused, manualPause, count } = state();
+      const { recording, paused, manualPause, count, muted } = state();
       txt.textContent = manualPause ? `Paused · ${steps(count)}`
         : paused ? 'Still recording?' : `Recording · ${steps(count)}`;
       // An open input OWNS the pill: a poll re-render would take the caret and the
@@ -242,6 +252,7 @@
       }
       box.classList.toggle('paused', paused || manualPause);
       box.replaceChildren(dot, txt);
+      if (muted) box.append(chip);
       const stop = pillButton('Stop', 'stop', onStop);
       if (manualPause) {
         box.append(pillButton('Resume', '', () => onPause(false)), stop);

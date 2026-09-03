@@ -81,14 +81,23 @@
 
   // `get()` answers null until the read lands: a value is never emitted on a guess, so a step
   // that beats the read waits on `read` rather than being recorded under a default.
-  function watchFlag(storage) {
+  // `onChange` is told the value when it first lands and whenever it flips — a caller that
+  // SHOWS the flag cannot wait for the next step to find out it changed.
+  function watchFlag(storage, onChange) {
     let neverValues = null;
+    // Guarded: `read` gates every recorded step, and a watcher that throws must not poison it.
+    const tell = () => { try { if (onChange) onChange(neverValues); } catch { /* not the flag's problem */ } };
     const read = (storage && storage.local ? storage.local.get(NEVER_KEY) : Promise.reject())
       .then((r) => { neverValues = r[NEVER_KEY] === true; })
-      .catch(() => { neverValues = false; });
+      .catch(() => { neverValues = false; })
+      .then(tell);
     // A Save mid-recording takes effect on the next step, not the next injection.
     const onChanged = (changes, area) => {
-      if (area === 'local' && changes[NEVER_KEY]) neverValues = changes[NEVER_KEY].newValue === true;
+      if (area !== 'local' || !changes[NEVER_KEY]) return;
+      const next = changes[NEVER_KEY].newValue === true;
+      if (next === neverValues) return;
+      neverValues = next;
+      tell();
     };
     if (storage && storage.onChanged) storage.onChanged.addListener(onChanged);
     return {
