@@ -4,6 +4,9 @@
 // LOADING. The worker publishes nothing, so its functions come back as the script's completion
 // value; `importScripts` is a no-op and the five siblings are put on the sandbox by hand.
 
+// The worker's OWN shared modules are the exception: they are evaluated in the same sandbox, before
+// background.js, so the rows exercise the moved code itself and not a stub standing in for it.
+
 // Each name is read as `typeof x === 'undefined' ? undefined : x`, so a mutated copy that deletes
 // one still loads. createContext, not runInNewContext: an injected `func` needs a document after.
 
@@ -24,6 +27,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 // BG_SRC drives the whole suite against a mutated copy, so a falsification run never has to edit
 // the shipped file and risk leaving it edited.
 export const WORKER = process.env.BG_SRC || join(repoRoot, 'extension/background.js');
+
+// The shared files background.js importScripts and then reads through its own bare names.
+const MODULE_FILES = ['shared/step-rec-core.js'];
+// BG_MODULES swaps one or all of them for mutated copies, the same seam BG_SRC gives the worker.
+export const MODULES = process.env.BG_MODULES
+  ? process.env.BG_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
+  : MODULE_FILES.map((f) => join(repoRoot, 'extension', f));
 
 const sources = new Map();
 const sourceOf = (path) => {
@@ -101,6 +111,7 @@ export function load(opts = {}) {
     session = {},
     local = {},
     sourcePath = WORKER,
+    modules = MODULES,
   } = opts;
 
   const calls = [];                 // every stubbed call, in order: {name, args}
@@ -312,6 +323,8 @@ export function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
+  // Same context, before the worker: a module's top-level `const` is what background.js destructures.
+  for (const m of modules) runInContext(sourceOf(m), context, { filename: m });
   const api = runInContext(`${sourceOf(sourcePath)}\n${PICK}`, context, { filename: sourcePath });
 
   const port = (name) => {
