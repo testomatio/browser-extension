@@ -453,10 +453,11 @@ function srPush(st, entry, cap) {
 }
 
 // icons.js FIRST: the pill's "+ Expected" glyph comes from that set (same order as capture-annotate.js).
+// `allFrames`: an embedded form is where the steps go missing; one frame refusing injection is not a blind tab.
 async function srInject(tabId) {
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       files: ['shared/icons.js', 'content/step-recorder.js'],
     });
     return true;

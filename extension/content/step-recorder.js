@@ -11,6 +11,8 @@
   if (window.__testomatStepRecInited) return;
   if (!chrome?.runtime?.sendMessage) return;
   window.__testomatStepRecInited = true;
+  // Every frame records; ONE of them draws — otherwise the tester gets a pill per frame.
+  const TOP = window.top === window;
 
   // ---- element naming: aria-label -> text -> label -> placeholder -> column header (#74)
   //      -> name/id -> null (bare tag); values trimmed to 40 chars. ---------------
@@ -251,6 +253,11 @@
     : ctx.row ? ` in the "${ctx.row}" row`
       : ctx.section ? ` in the "${ctx.section}" section` : '');
 
+  // Where the step happened: its own hostname is all a cross-origin frame knows of itself.
+  const FRAME_HOST = TOP ? '' : trim40(location.hostname || '');
+  // An `about:blank` frame has nothing to name, so it says nothing rather than `in the "" frame`.
+  const FRAME_CLAUSE = FRAME_HOST ? ` in the "${FRAME_HOST}" frame` : '';
+
   // ---- the action packet (#23) -----------------------------------------------
   // What a reader (a tester, or the AI polish in the editor) needs to recognize the action:
   // the control, its surroundings, the page, and what the page did next. Never a value the
@@ -392,6 +399,7 @@
   // once the window closes. Returns the closure that finishes the entry.
   function armPacket(el, action, near, value) {
     const ctx = { action, element: elementFacts(el), near, page: pageOf() };
+    if (FRAME_HOST) ctx.frame = FRAME_HOST; // the reader has to know it was not the page itself
     if (value) ctx.value = value;
     const before = { url: ctx.page.url, title: ctx.page.title, state: stateOf(el), counter: counterText(el) };
     const notes = watchNotes();
@@ -424,6 +432,11 @@
   // action supersedes — the worker pops those trailing twins before appending.
   function send(entry) {
     if (!entry || !entry.text) return;
+    // Onto BOTH strings: a `replaces` the worker can no longer match leaves the twins behind.
+    if (FRAME_CLAUSE) {
+      entry.text += FRAME_CLAUSE;
+      if (entry.replaces) entry.replaces += FRAME_CLAUSE;
+    }
     const p = chrome.runtime.sendMessage({ type: 'STEPREC_ADD', entry })
       .then((r) => {
         if (!r) return;
@@ -621,7 +634,7 @@
 
   // An IME composes in the field itself, so mid-composition `.value` is the unfinished
   // reading ("けんさく") and only compositionend has the text the tester meant ("検索").
-  let composingEl = null; // one caret per document, and the recorder is top-frame only
+  let composingEl = null; // one caret per document, and every frame runs its own copy
 
   function onCompositionStart(e) {
     if (!recording || fromIndicator(e)) return;
@@ -949,7 +962,7 @@
   ['pointerdown', 'pointerup', 'mousedown', 'mouseup'].forEach((t) => box.addEventListener(t, (e) => e.stopPropagation()));
 
   const onResize = () => { if (pos) applyPos(); };
-  window.addEventListener('resize', onResize);
+  if (TOP) window.addEventListener('resize', onResize); // a frame's pill is never on screen to re-clamp
 
   function dragTeardown() {
     window.removeEventListener('pointermove', onPointerMove, winOpts);
@@ -1094,7 +1107,8 @@
   }
 
   // Self-removes once recording ends — editor Stop, indicator Stop and tab close all
-  // flip recording=false.
+  // flip recording=false. A frame has no counter to feed, so it asks four times less often.
+  const POLL_MS = TOP ? 500 : 2000;
   pollTimer = setInterval(() => {
     chrome.runtime.sendMessage({ type: 'STEPREC_STATUS' })
       .then((s) => {
@@ -1105,14 +1119,18 @@
         render();
       })
       .catch(() => { /* worker asleep — keep the indicator, retry next tick */ });
-  }, 500);
+  }, POLL_MS);
 
-  (document.body || document.documentElement).append(host);
+  // The pill is the top frame's: everything above it is detached nodes a frame never reaches.
+  if (TOP) (document.body || document.documentElement).append(host);
   render();
 
   // The page's real title, for the worker's navigation entry — reliable after a
   // re-inject, unlike tab.title.
   const reportTitle = () => chrome.runtime.sendMessage({ type: 'STEPREC_TITLE', title: document.title }).catch(() => {});
-  if (document.title) reportTitle();
-  else window.addEventListener('DOMContentLoaded', reportTitle, { once: true });
+  // Top frame only: a payment form's <title> is not where the tester navigated.
+  if (TOP) {
+    if (document.title) reportTitle();
+    else window.addEventListener('DOMContentLoaded', reportTitle, { once: true });
+  }
 })();
