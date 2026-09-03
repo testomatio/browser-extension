@@ -767,3 +767,21 @@ test('M65: isConnected climbs out of a shadow root and answers false for a node 
   host.remove();
   assert.equal(inside.isConnected, false); // the whole component left with its host
 });
+
+test('M66: isContentEditable is inherited, and the nearest statement wins', () => {
+  const doc = makeDocument();
+  const plain = el('span', null, 'copy');
+  const inner = el('b', null, 'bold');
+  const off = el('span', null, el('i', null, 'quoted'));
+  off.setAttribute('contenteditable', 'false');
+  const box = el('div', { contenteditable: 'true' }, inner, off);
+  const empty = el('div');
+  empty.setAttribute('contenteditable', ''); // the bare attribute is "true"
+  doc.body.append(plain, box, empty);
+  assert.equal(box.isContentEditable, true);
+  assert.equal(inner.isContentEditable, true);   // inherited from the composer above it
+  assert.equal(empty.isContentEditable, true);
+  assert.equal(off.isContentEditable, false);    // the nearer statement, not the outer one
+  assert.equal(off.querySelector('i').isContentEditable, false);
+  assert.equal(plain.isContentEditable, false);  // nothing above it says anything
+});

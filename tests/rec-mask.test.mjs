@@ -80,6 +80,8 @@ test('a card number is named only when it is certain, and guessed at from the va
   assert.equal(RecMask.maskedAs(field({ autocomplete: 'cc-number', value: '' })), 'the card number');
   // The field says nothing, the value says everything.
   assert.equal(RecMask.maskedAs(field({ name: 'reference', value: '4111 1111 1111 1111' })), 'the card number');
+  // A contenteditable has no `.value`: its caller reads the text and hands it in.
+  assert.equal(RecMask.maskedAs(field({ name: 'reference' }), null, '4111 1111 1111 1111'), 'the card number');
 });
 
 test('everything else sensitive is "the value" — the noun is never a guess', () => {

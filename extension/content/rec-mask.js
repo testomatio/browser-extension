@@ -58,12 +58,13 @@
   const isPassword = (el, ac, w) => (el.type || '').toLowerCase() === 'password'
     || PASSWORD_WORDS.test(w) || ac.includes('new-password') || ac.includes('current-password');
 
-  function maskedAs(el, labelText) {
+  // `val` is handed in by a caller that reads it elsewhere — a contenteditable has no `.value`.
+  function maskedAs(el, labelText, val = el.value) {
     const ac = acTokens(el);
-    const val = el.value == null ? '' : String(el.value);
+    const entered = val == null ? '' : String(val);
     const w = fieldWords(el, labelText); // one DOM walk (labelText), read three times below
     if (isPassword(el, ac, w)) return 'the password';
-    if (ac.includes('cc-number') || looksLikeCard(val) || isCardNumber(w)) return 'the card number';
+    if (ac.includes('cc-number') || looksLikeCard(entered) || isCardNumber(w)) return 'the card number';
     if (ac.some((t) => SENSITIVE_AC.test(t)) || SENSITIVE_WORDS.test(w)) return 'the value';
     return null;
   }
