@@ -204,6 +204,14 @@ class MiniNode {
     return false;
   }
 
+  // The tree this node lives in: the document, a component's shadow root, or — detached — the
+  // topmost node itself, exactly the three a browser hands back.
+  getRootNode() {
+    let n = this;
+    while (n.parentElement) n = n.parentElement;
+    return n.root || n;
+  }
+
   remove() { detach(this); }
 
   replaceWith(...nodes) {
@@ -447,11 +455,14 @@ computed('tHead', (el) => el.querySelector(':scope > thead'));
 
 class MiniFragment extends MiniParent {
   nodeType = 11;
+
+  // A fragment and a shadow root answer ids in their OWN tree; an element never answers at all.
+  getElementById(id) { return walk(this).find((n) => n.id === id) || null; }
 }
 
 // What attachShadow() hands back: a tree of its own that the document's selectors never reach,
 // which records what was appended to it and where the focus went inside it.
-class MiniShadowRoot extends MiniParent {
+class MiniShadowRoot extends MiniFragment {
   nodeType = 11;
   activeElement = null;
 

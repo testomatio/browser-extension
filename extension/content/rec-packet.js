@@ -54,6 +54,15 @@
   }
   const pageOf = () => ({ title: trimTo(document.title, 80), url: pageUrl() });
 
+  // Where the tester STANDS, for the before/after comparison only: a hash-routed app moves
+  // screens in the fragment, so it is kept — unless it reads as credentials (`=` or `&`).
+  const routeHash = (h) => (h.length > 1 && !/[=&]/.test(h) ? h : '');
+  function routeUrl() {
+    const base = pageUrl();
+    try { return base + routeHash(new URL(location.href).hash || ''); }
+    catch { return base; }
+  }
+
   // ---- what the page did next ------------------------------------------------
   const TOAST_SEL = '[role="status"], [aria-live], [class*="toast"], [class*="notification"], [class*="snackbar"]';
   const DIALOG_SEL = '[role="dialog"], [role="alertdialog"], dialog, [class*="modal"]';
@@ -113,10 +122,12 @@
     for (const a of STATE_ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v != null) s[a] = v; }
     return s;
   }
-  // Only what actually moved: `aria-checked: false → true`.
-  const stateDiff = (before, after) => Object.keys(after)
+  // Only what actually moved, on BOTH sides: `aria-checked: false → true`. A key the control
+  // gained or lost prints the same arrow with that side blank — the old value carries its space.
+  const was = (v) => (v == null ? '' : ` ${v}`);
+  const stateDiff = (before, after) => Object.keys({ ...before, ...after })
     .filter((k) => before[k] !== after[k])
-    .map((k) => `${k}: ${before[k] == null ? '' : before[k]} → ${after[k]}`).join(', ');
+    .map((k) => `${k}:${was(before[k])} → ${after[k] == null ? '' : after[k]}`).join(', ');
 
   // The badge nearest the control — inside it, else inside one of its two nearest ancestors.
   const COUNTER_SEL = '[class*="badge"], [class*="count"], [class*="counter"]';
@@ -150,10 +161,10 @@
     const ctx = { action, element: elementFacts(el), near, page: pageOf() };
     if (frameHost) ctx.frame = frameHost; // the reader has to know it was not the page itself
     if (value) ctx.value = value;
-    const before = { url: ctx.page.url, title: ctx.page.title, state: stateOf(el), counter: counterText(el) };
+    const before = { url: routeUrl(), title: ctx.page.title, state: stateOf(el), counter: counterText(el) };
     const notes = watchNotes();
     return (entry) => {
-      const now = { url: pageUrl(), title: trimTo(document.title, 80), counter: counterText(el) };
+      const now = { url: routeUrl(), title: trimTo(document.title, 80), counter: counterText(el) };
       const seen = notes();
       ctx.after = {
         url: now.url === before.url ? 'unchanged' : `${before.url} → ${now.url}`,
@@ -167,5 +178,5 @@
     };
   }
 
-  window.RecPacket = { AFTER_MS, armPacket, pageUrl, elementFacts, stateOf, stateDiff, counterText, fitPacket };
+  window.RecPacket = { AFTER_MS, armPacket, pageUrl, routeUrl, elementFacts, stateOf, stateDiff, counterText, fitPacket };
 })();

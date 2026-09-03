@@ -68,6 +68,9 @@
     style.textContent = CSS_TEXT;
     const box = document.createElement('div');
     box.className = 'box';
+    // The label is the only place the counter, the pause and "Still recording?" are said —
+    // a reader who cannot see the pill hears it change.
+    box.setAttribute('aria-live', 'polite');
     shadow.append(style, box);
 
     const steps = (n) => `${n} step${n === 1 ? '' : 's'}`;
@@ -227,16 +230,17 @@
       render();
     }
 
-    // Stopped on the way OUT of the shadow root, so a page's "/" hotkey never sees the tester
-    // typing. A page CAPTURE listener still runs first, hence fromIndicator() in ours.
+    // Stopped on the way OUT of the shadow root while the tester is TYPING, so a page's "/"
+    // hotkey never sees the expectation — and still fires when the pill merely holds the focus.
     shadow.addEventListener('keydown', (e) => {
-      if (expOpen && e.target === expInput) {
+      const open = expOpen; // Enter and Escape close the input; the key that closed it is still ours
+      if (open && e.target === expInput) {
         if (e.key === 'Enter') { e.preventDefault(); commitExpected(); }
         else if (e.key === 'Escape') { e.preventDefault(); closeExpected(); render(); }
       }
-      e.stopPropagation();
+      if (open) e.stopPropagation();
     });
-    ['keyup', 'keypress', 'input', 'change'].forEach((t) => shadow.addEventListener(t, (e) => e.stopPropagation()));
+    ['keyup', 'keypress', 'input', 'change'].forEach((t) => shadow.addEventListener(t, (e) => { if (expOpen) e.stopPropagation(); }));
 
     // Three states, one pill: recording, the tester's own pause (Resume) and the cap's
     // "Still recording?" (Continue) — so Continue's +cap never ends a manual pause.
@@ -254,7 +258,11 @@
       box.replaceChildren(dot, txt);
       if (muted) box.append(chip);
       const stop = pillButton('Stop', 'stop', onStop);
-      if (manualPause) {
+      // A recording that is over has nothing left to pause, continue or expect: Stop is the
+      // only button that still means anything until the poll takes the pill down.
+      if (!recording) {
+        box.append(stop);
+      } else if (manualPause) {
         box.append(pillButton('Resume', '', () => onPause(false)), stop);
       } else if (paused) {
         const cont = pillButton('Continue', '', onContinue);
