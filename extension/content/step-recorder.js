@@ -87,12 +87,26 @@
   const looksLikeCard = RecMask.looksLikeCard;
 
   // ---- "Never record entered values" (#176) ----------------------------------
-  const flag = RecMask.watchFlag(chrome.storage);
+  // The pill says when the flag is on, so a landing or a flip redraws it — and only then, since
+  // the pill is built further down and a redraw that changes nothing is one the tester paid for.
+  let muted = false;
+  let pillReady = false;
+  const flag = RecMask.watchFlag(chrome.storage, (on) => {
+    if (on === muted) return;
+    muted = on;
+    if (pillReady) render();
+  });
 
   // The last value emitted per field, so blur+Enter don't double-record. A masked field
-  // remembers a SENTINEL instead — the secret it just refused to send is not ours to hold.
+  // remembers a FINGERPRINT of it instead, so a second attempt at the same field records too.
   const lastTyped = new WeakMap();
-  const MASKED = '\0masked';
+  // FNV-1a, folded unsigned and printed base 36, `\0`-prefixed so it can never collide with a
+  // real value: the secret is never stored, logged or sent — only this, beside `el.value` itself.
+  const fingerprint = (s) => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i += 1) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+    return `\0m${(h >>> 0).toString(36)}`;
+  };
   function flushType(el) {
     if (!isTextField(el)) return;
     // The toggle read lands milliseconds after injection; a step that beats it waits for
@@ -108,8 +122,9 @@
     // Toggle ON: no value, and no heuristic decides anything — see maskedAllAs.
     const noun = flag.get() ? maskedAllAs(el) : maskedAs(el, val);
     if (noun) {
-      if (lastTyped.get(el) === MASKED) return;
-      lastTyped.set(el, MASKED);
+      const seen = fingerprint(val);
+      if (lastTyped.get(el) === seen) return;
+      lastTyped.set(el, seen);
       record(el, 'type', near, { kind: 'step', action: 'type', name, context: ctx,
         text: `Type ${noun} into the ${field}${clauseOf(ctx)}` }, { text: noun, masked: true });
       return;
@@ -333,7 +348,7 @@
     icons: window.Icons,
     top: TOP,
     hostId: HOST_ID,
-    state: () => ({ recording, paused, manualPause, count }),
+    state: () => ({ recording, paused, manualPause, count, muted }),
     onStop: () => requestStop(),
     onPause: (on) => setManualPause(on),
     onContinue: () => {
@@ -344,6 +359,7 @@
   });
   const host = pill.host;
   const render = () => pill.render();
+  pillReady = true; // from here a flag landing or flipping has a pill to redraw
 
 
   function setManualPause(on) {

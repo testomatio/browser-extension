@@ -15,6 +15,7 @@ const rec = (opts = {}) => load(opts);
 const status = (over = {}) => ({ count: 0, paused: false, manualPause: false, recording: true, ...over });
 
 const pillText = (h) => (h.box().querySelector('.txt') || {}).textContent;
+const chip = (h) => h.box().querySelector('.chip');
 const pillButtons = (h) => h.box().querySelectorAll('button').map((b) => b.textContent);
 const buttonNamed = (h, label) => h.box().querySelectorAll('button').find((b) => b.textContent === label);
 const css = (h) => h.host().style.cssText;
@@ -200,6 +201,44 @@ test.todo('K13: the pill announces nothing to a screen reader (#224)', async () 
   const h = rec();
   await h.settle();
   assert.equal(h.box().getAttribute('aria-live'), 'polite');
+});
+
+// With "Never record entered values" on, every typed value is replaced by a noun — the pill is
+// the only place a tester finds that out before reading the finished steps.
+test('K14: with values being recorded the pill carries no chip', async () => {
+  const h = rec();
+  await h.settle();
+  assert.equal(chip(h), null);
+  assert.deepEqual(h.box().children.map((c) => c.className), ['dot', 'txt', 'exp', '', 'stop']);
+});
+
+test('K15: the toggle lands after injection and redraws the pill on its own', async () => {
+  const h = rec({ storage: { stepRecNeverValues: true } });
+  assert.equal(chip(h), null); // the storage read has not come back yet
+  await h.settle();            // no poll and no step: the flag's own callback redrew the pill
+  assert.equal(chip(h).textContent, 'Values off');
+  // After the counter, before the buttons.
+  assert.deepEqual(h.box().children.map((c) => `${c.tagName}.${c.className}`),
+    ['SPAN.dot', 'SPAN.txt', 'SPAN.chip', 'BUTTON.exp', 'BUTTON.', 'BUTTON.stop']);
+});
+
+test('K16: the toggle saved mid-recording reaches the pill without waiting for a step', async () => {
+  const h = rec();
+  await h.settle();
+  h.changeFlag({ stepRecNeverValues: { newValue: true } });
+  assert.equal(chip(h).textContent, 'Values off'); // synchronously, on the storage change alone
+  h.changeFlag({ stepRecNeverValues: { newValue: false } });
+  assert.equal(chip(h), null); // and gone again the moment it is turned back off
+});
+
+test('K17: the Expected input owns the pill, chip included', async () => {
+  const h = rec({ storage: { stepRecNeverValues: true } });
+  await h.settle();
+  const input = openExpected(h);
+  assert.equal(chip(h), null);
+  assert.deepEqual(h.box().children.map((c) => c.className), ['dot', 'exp-input', 'stop']);
+  h.fireOn(h.shadow(), 'keydown', { target: input, key: 'Escape' });
+  assert.equal(chip(h).textContent, 'Values off'); // the pill comes back with it
 });
 
 // ---- L: + Expected ---------------------------------------------------------
