@@ -4,7 +4,9 @@
 // Run: node --test tests/step-recorder-outbox.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { load, el, HOST_ID } from './helpers/recorder-harness.mjs';
+import { readFileSync } from 'node:fs';
+import { runInContext } from 'node:vm';
+import { load, el, HOST_ID, MODULES } from './helpers/recorder-harness.mjs';
 
 // The page every row below clicks: one button, in the body, named by its own text.
 function payNow(h) {
@@ -206,4 +208,18 @@ test('J10: an empty reply changes nothing', async () => {
   await h.act(payNow(h), 'click');
   assert.equal(h.box().querySelector('.txt').textContent, 'Recording · 0 steps');
   assert.ok([...h.box().children].some((n) => n.textContent === 'Pause'));
+});
+
+// Injected files are evaluated again on a same-document re-inject, and the recorder's own latch
+// runs last — so a module that throws on its second run takes the whole injection with it.
+test('J11: injecting the modules a second time into the same page is a no-op', async () => {
+  const h = load();
+  await h.act(payNow(h), 'click');
+  const before = h.entries().length;
+
+  for (const m of MODULES) runInContext(readFileSync(m, 'utf8'), h.sandbox);
+
+  await h.act(payNow(h), 'click');
+  assert.equal(h.entries().length, before + 1); // still one recorder, still recording
+  assert.equal(h.sandbox.RecMask.maskedAs({ type: 'password', value: 'x' }), 'the password');
 });

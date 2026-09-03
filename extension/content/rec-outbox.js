@@ -1,6 +1,12 @@
 // One queue, in the order the tester acted: an entry waits out its packet window, so an expectation
 // typed meanwhile cannot overtake the step it belongs to. The reply goes back through `onReply`.
-const RecOutbox = (() => {
+
+/* global window */
+(() => {
+  'use strict';
+  // Injected on demand, and a same-document re-inject runs the file again: without this the
+  // second run throws before the recorder's own latch is ever reached.
+  if (window.RecOutbox) return;
   // `sendMessage` and `setTimeout` arrive as arguments so a test drives the queue without a page,
   // and `frameClause` because which frame this is is the recorder's fact, not the queue's.
   function make({ sendMessage, frameClause = '', afterMs = 400, onReply, setTimeout: wait }) {
@@ -49,5 +55,5 @@ const RecOutbox = (() => {
     return { send, queueEntry, flushOutbox, inflight };
   }
 
-  return { make };
+  window.RecOutbox = { make };
 })();

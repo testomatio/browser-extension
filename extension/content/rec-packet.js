@@ -2,7 +2,13 @@
 // what the page made of the action. All but `after`, which is read once the window closes.
 
 /* global RecNaming */
-const RecPacket = (() => {
+
+/* global window */
+(() => {
+  'use strict';
+  // Injected on demand, and a same-document re-inject runs the file again: without this the
+  // second run throws before the recorder's own latch is ever reached.
+  if (window.RecPacket) return;
   const { trimTo, trim40, textRuns, firstAttr } = RecNaming;
 
   const PACKET_MAX = 1500; // bytes of JSON per entry
@@ -161,6 +167,5 @@ const RecPacket = (() => {
     };
   }
 
-
-  return { AFTER_MS, armPacket, pageUrl, elementFacts, stateOf, stateDiff, counterText, fitPacket };
+  window.RecPacket = { AFTER_MS, armPacket, pageUrl, elementFacts, stateOf, stateDiff, counterText, fitPacket };
 })();

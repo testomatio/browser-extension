@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
+import { createContext, runInContext } from 'node:vm';
 import { makeDocument, el, text, fire, event, NodeFilter } from './mini-dom.mjs';
 
 export { el, text };
@@ -149,10 +149,14 @@ export function load(opts = {}) {
   };
   if (!noObserver) sandbox.MutationObserver = Observer;
 
-  // A fresh sandbox per load: `window.__testomatStepRecInited` survives a reused one, and the
-  // second evaluation would be a silent no-op that looks exactly like a passing test.
-  for (const m of modules) runInNewContext(sourceOf(m), sandbox);
-  runInNewContext(sourceOf(sourcePath), sandbox);
+  // In a page `window` IS the global, which is how an injected module's `window.RecMask = …`
+  // becomes the bare `RecMask` the recorder reads. The sandbox has to say the same thing.
+  const context = createContext(sandbox);
+  Object.assign(sandbox, win);
+  sandbox.window = sandbox;
+  sandbox.top = top ? sandbox : {};
+  for (const m of modules) runInContext(sourceOf(m), context);
+  runInContext(sourceOf(sourcePath), context);
 
   const host = () => doc.getElementById(HOST_ID);
   const shadow = () => host()?.shadowRoot || null;
@@ -161,7 +165,7 @@ export function load(opts = {}) {
 
   return {
     doc,
-    win,
+    win: sandbox, // the page's window IS its global, and the recorder writes its latch there
     sandbox,
     location: sandbox.location,
     pollDelay,

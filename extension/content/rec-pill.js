@@ -1,6 +1,12 @@
 // The pill in the corner: the counter, its three states, the expectation input, the drag. It owns
 // no recording state — it reads it through `state()` and hands every click back to the recorder.
-const RecPill = (() => {
+
+/* global window */
+(() => {
+  'use strict';
+  // Injected on demand, and a same-document re-inject runs the file again: without this the
+  // second run throws before the recorder's own latch is ever reached.
+  if (window.RecPill) return;
   // The page objects arrive as arguments so the pill can be built without one.
   function create({ document, window, storage, icons, top = true, hostId,
     state, onStop, onPause, onContinue, onExpected }) {
@@ -262,5 +268,5 @@ const RecPill = (() => {
     };
   }
 
-  return { create };
+  window.RecPill = { create };
 })();

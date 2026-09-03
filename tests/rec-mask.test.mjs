@@ -4,14 +4,18 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
+import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const source = readFileSync(join(repoRoot, 'extension/content/rec-mask.js'), 'utf8');
-// A top-level const is lexical, so the script's completion value is how it gets out.
-const RecMask = runInNewContext(`${source}\nRecMask;`, {});
+// Injected files publish onto `window`, which in a page is the global itself — so the sandbox
+// has to be its own window before the module will hand anything back.
+const sandbox = {};
+sandbox.window = sandbox;
+runInContext(source, createContext(sandbox));
+const { RecMask } = sandbox;
 
 // Enough of a field for the rules: they read the attributes, the value and the type, nothing else.
 const field = ({ type = 'text', value = '', name = '', id = '', placeholder = '', ...attrs } = {}) => ({

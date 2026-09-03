@@ -2,7 +2,13 @@
 // own text, its label, its placeholder, its column header, name/id — then the row or section clause.
 
 /* global CSS */
-const RecNaming = (() => {
+
+/* global window */
+(() => {
+  'use strict';
+  // Injected on demand, and a same-document re-inject runs the file again: without this the
+  // second run throws before the recorder's own latch is ever reached.
+  if (window.RecNaming) return;
   const trimTo = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
   const trim40 = (s) => trimTo(s, 40);
 
@@ -269,7 +275,7 @@ const RecNaming = (() => {
     return (name ? `Click the "${name}" ${word}` : `Click the ${word}`) + clause;
   }
 
-  return {
+  window.RecNaming = {
     trimTo, trim40, badgeish, inBadge, textRuns, firstAttr, labelText, elementName,
     cleanText, rowTitle, sectionTitle, columnTitle, headingOf, siblingsOf,
     nearFacts, nameOf, contextOf, clauseOf, roleOf, clickPhrase, ROLE_PHRASE, ROLE_NOUN,

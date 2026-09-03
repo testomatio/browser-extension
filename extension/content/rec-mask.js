@@ -1,6 +1,12 @@
 // What a secret is allowed to become in a step: everything typed is otherwise recorded verbatim,
 // and a card, CVV or tax-id field is text/tel, never `type=password`. The label arrives as an argument.
-const RecMask = (() => {
+
+/* global window */
+(() => {
+  'use strict';
+  // Injected on demand, and a same-document re-inject runs the file again: without this the
+  // second run throws before the recorder's own latch is ever reached.
+  if (window.RecMask) return;
   // Split a developer string (`cardNumber`, `card_number`, `CARD-NUMBER`) into words once,
   // then match whole words only, so `shipping` never reads as a `pin`.
   const words = (s) => String(s || '')
@@ -91,5 +97,5 @@ const RecMask = (() => {
     };
   }
 
-  return { words, isCardNumber, acTokens, fieldWords, looksLikeCard, maskedAs, maskedAllAs, watchFlag };
+  window.RecMask = { words, isCardNumber, acTokens, fieldWords, looksLikeCard, maskedAs, maskedAllAs, watchFlag };
 })();
