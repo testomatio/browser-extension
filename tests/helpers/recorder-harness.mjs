@@ -1,24 +1,9 @@
-// The shared load() for the step-recorder test files. extension/content/step-recorder.js publishes
-// NOTHING by name — it is one IIFE whose whole surface is the listeners it registers — so a test
-// drives it exactly as a page does: build a node, fire an event at the document, read what reached
-// chrome.runtime.sendMessage. The page under it is tests/helpers/mini-dom.mjs, the same fake every
-// other test file is built on: one DOM, one event shape, one set of rules.
-//
-// THE TRAP THIS FILE EXISTS TO CLOSE: flushType() and flushSelect() return early while the
-// never-values flag is unread and re-enter through `flagRead.then(...)`. A blur fired and flushed
-// synchronously therefore records NOTHING, and a test that asserts an empty outbox there is green
-// and hollow. Use `await h.act(node, 'blur')` — it fires, turns the microtask queue, closes the
-// 400ms packet window and turns it again — or the primitives in that order by hand.
-//
-//   const h = load({ top: false, hostname: 'checkout.example.com' });
-//   const btn = el('button', null, 'Pay now');
-//   h.doc.body.append(btn);
-//   await h.act(btn, 'click');
-//   h.entries()[0].text; // 'Click the "Pay now" button in the "checkout.example.com" frame'
+// The shared load() for the step-recorder test files: it builds the sandbox, evaluates the modules
+// and the recorder into it, and hands back the handles a row needs. See `act()` for the one trap.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInNewContext } from 'node:vm';
+import { createContext, runInContext } from 'node:vm';
 import { makeDocument, el, text, fire, event, NodeFilter } from './mini-dom.mjs';
 
 export { el, text };
@@ -29,6 +14,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 export const RECORDER = process.env.REC_SRC || join(repoRoot, 'extension/content/step-recorder.js');
 
 export const HOST_ID = '__testomat_step_recorder';
+
+// The same list background.js injects, minus shared/icons.js, which the `icons` option stubs.
+// An older checkout of the recorder carries these blocks inline and simply ignores the globals.
+const MODULE_FILES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js',
+  'content/rec-outbox.js', 'content/rec-pill.js'];
+// REC_MODULES swaps one or all of them for mutated copies, the same seam REC_SRC gives the
+// recorder: a falsification run never edits a shipped file.
+export const MODULES = process.env.REC_MODULES
+  ? process.env.REC_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
+  : MODULE_FILES.map((f) => join(repoRoot, 'extension', f));
 
 // One read per file, however many sandboxes are built out of it.
 const sources = new Map();
@@ -65,6 +60,7 @@ export function load(opts = {}) {
     now = 1000,
     reply = echo,
     sourcePath = RECORDER,
+    modules = MODULES,
   } = opts;
 
   const doc = makeDocument(ids);
@@ -153,9 +149,14 @@ export function load(opts = {}) {
   };
   if (!noObserver) sandbox.MutationObserver = Observer;
 
-  // A fresh sandbox per load: `window.__testomatStepRecInited` survives a reused one, and the
-  // second evaluation would be a silent no-op that looks exactly like a passing test.
-  runInNewContext(sourceOf(sourcePath), sandbox);
+  // In a page `window` IS the global, which is how an injected module's `window.RecMask = …`
+  // becomes the bare `RecMask` the recorder reads. The sandbox has to say the same thing.
+  const context = createContext(sandbox);
+  Object.assign(sandbox, win);
+  sandbox.window = sandbox;
+  sandbox.top = top ? sandbox : {};
+  for (const m of modules) runInContext(sourceOf(m), context);
+  runInContext(sourceOf(sourcePath), context);
 
   const host = () => doc.getElementById(HOST_ID);
   const shadow = () => host()?.shadowRoot || null;
@@ -164,7 +165,7 @@ export function load(opts = {}) {
 
   return {
     doc,
-    win,
+    win: sandbox, // the page's window IS its global, and the recorder writes its latch there
     sandbox,
     location: sandbox.location,
     pollDelay,
@@ -178,7 +179,8 @@ export function load(opts = {}) {
       for (const l of [...winListeners]) if (l.type === type) l.fn(ev);
       return ev;
     },
-    // Fire, let the deferred flag read land, close the packet window, let the send land.
+    // THE TRAP: typing and select re-enter through the never-values flag read, so a blur fired and
+    // flushed synchronously records NOTHING and a test asserting an empty outbox is green and hollow.
     act: async (node, type, props = {}) => {
       fire(doc, type, { target: node, ...props });
       await settle();
