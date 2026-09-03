@@ -16,7 +16,7 @@
 
   // ---- element naming and context (#74, #23) ---------------------------------
   // Both walks live in content/rec-naming.js; these are the names the rest of the file reads.
-  const { trimTo, trim40, textRuns, firstAttr, labelText, nearFacts, nameOf, contextOf,
+  const { trimTo, trim40, trimMark, textRuns, firstAttr, labelText, nearFacts, nameOf, contextOf,
     clauseOf, roleOf, clickPhrase, ROLE_PHRASE, ROLE_NOUN } = RecNaming;
 
   // Where the step happened: its own hostname is all a cross-origin frame knows of itself.
@@ -131,8 +131,10 @@
     }
     if (lastTyped.get(el) === val) return;
     lastTyped.set(el, val);
+    // Marked, not merely cut: a value that reads as complete is one a tester compares and fails.
+    const shown = trimMark(val, 40);
     record(el, 'type', near, { kind: 'step', action: 'type', name, context: ctx,
-      text: `Type "${trim40(val)}" into the ${field}${clauseOf(ctx)}` }, { text: trim40(val), masked: false });
+      text: `Type "${shown}" into the ${field}${clauseOf(ctx)}` }, { text: shown, masked: false });
   }
 
   // `document.activeElement` stops at a shadow host, so the caret inside a web component is

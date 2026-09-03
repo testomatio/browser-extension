@@ -1,5 +1,6 @@
-// How a step names the thing the tester acted on: aria-label, the id it points at, the control's
-// own text, its label, its placeholder, its column header, name/id — then the row or section clause.
+// How a step names the thing the tester acted on: aria-label, the ids it points at, the control's
+// own text, its label, its placeholder, its column header, its title, name/id — then the row or
+// section clause.
 
 /* global CSS */
 
@@ -9,8 +10,19 @@
   // Injected on demand, and a same-document re-inject runs the file again: without this the
   // second run throws before the recorder's own latch is ever reached.
   if (window.RecNaming) return;
-  const trimTo = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
-  const trim40 = (s) => trimTo(s, 40);
+  // Counted in code points, never in storage units: a cut between the halves of an emoji ships
+  // half a character into the step.
+  const oneLine = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const trimTo = (s, n) => {
+    const cp = [...oneLine(s)];
+    return cp.length <= n ? cp.join('') : cp.slice(0, n).join('');
+  };
+  const trim40 = (s) => trimMark(s, 40);
+  // A cut a reader can SEE: the ellipsis takes the place of what was dropped, inside the same n.
+  const trimMark = (s, n) => {
+    const cp = [...oneLine(s)];
+    return cp.length <= n ? cp.join('') : `${cp.slice(0, n - 1).join('').replace(/\s+$/, '')}…`;
+  };
 
   // Decorative chrome (badge, counter, anything hidden from the a11y tree, a <script>
   // body): its text is never a name a tester reads — #86 `in the "3" row`, #75 a snippet.
@@ -79,13 +91,18 @@
     const t = clone.textContent;
     return t && t.trim() ? t : null;
   }
+  // An id belongs to ONE tree: inside a web component that is its shadow root, and the page's
+  // ids were never that component's to answer with.
+  const rootOf = (el) => (el.getRootNode && el.getRootNode()) || document;
+  const byId = (el, id) => { const r = rootOf(el); return r.getElementById ? r.getElementById(id) : null; };
+
   function labelText(el) {
     try {
       if (el.labels && el.labels.length) { const t = cleanLabelText(el.labels[0]); if (t) return t; }
     } catch { /* labels unsupported */ }
     const wrap = el.closest && el.closest('label');
     if (wrap) { const t = cleanLabelText(wrap); if (t) return t; }
-    if (el.id) { const t = cleanLabelText(document.querySelector(`label[for="${CSS.escape(el.id)}"]`)); if (t) return t; }
+    if (el.id) { const t = cleanLabelText(rootOf(el).querySelector(`label[for="${CSS.escape(el.id)}"]`)); if (t) return t; }
     return null;
   }
 
@@ -107,8 +124,11 @@
     if (aria && aria.trim()) return trim40(aria);
     const labelledby = el.getAttribute && el.getAttribute('aria-labelledby');
     if (labelledby) {
-      const l = document.getElementById(labelledby);
-      if (l && l.textContent.trim()) return trim40(l.textContent);
+      // The attribute holds a LIST of ids, and the name is everything they say, in that order.
+      const named = labelledby.trim().split(/\s+/)
+        .map((id) => { const l = byId(el, id); return l ? (l.textContent || '').trim() : ''; })
+        .filter(Boolean);
+      if (named.length) return trim40(named.join(' '));
     }
     if (isButtonish(el)) {
       const t = buttonishText(el);
@@ -119,6 +139,10 @@
     if (lbl) return trim40(lbl);
     if (el.placeholder && el.placeholder.trim()) return trim40(el.placeholder);
     if (fallback) return fallback;
+    // The tooltip on an icon-only button is the author's own name for it: under everything the
+    // tester can read without hovering, over the dev strings below.
+    const title = el.getAttribute && el.getAttribute('title');
+    if (title && title.trim()) return trim40(title);
     // #23: `near.label` IS the label branch above. What is new is the row/section — a
     // nameless control is named by the clause the sentence already carries ("Click the
     // button in the "Bolt Cutters" row"), which beats writing a dev string over it.
@@ -143,17 +167,28 @@
     return t || null;
   }
 
-  // A bare counter ("3"), a price or a lone glyph is noise, not a row title (#86).
-  const titleish = (t) => !!t && t.length >= 2 && /\p{L}/u.test(t);
+  // A price, a date or a lone glyph is noise, not a row title (#86). A bare run of digits IS
+  // one: without it ten Delete buttons in ten order rows record ten identical steps.
+  const worded = (t) => !!t && t.length >= 2 && /\p{L}/u.test(t);
+  const numeric = (t) => !!t && /^\d{2,}$/.test(t);
+  const titleish = (t) => worded(t) || numeric(t);
+
+  // A counter the page wrote no class on ("Products (12)") goes stale the moment the count moves.
+  const dropCount = (t) => (t ? t.replace(/\s*\(\s*\d[\d.,]*\s*\)$/, '').trim() : t);
 
   // The first title-ish heading/cell/bold run in document order (badges skipped), else the
   // item's whole text when it is short enough to BE a title — a sliced paragraph is noise.
+  // A number-only cell is a title of last resort: any WORDED cell in the row reads better.
   function rowTitle(row) {
+    let keyed = null;
     for (const n of row.querySelectorAll(ROW_TITLE_SEL)) {
-      const t = cleanText(n);
-      if (titleish(t) && !inBadge(n, row)) return trim40(t);
+      const t = dropCount(cleanText(n));
+      if (!titleish(t) || inBadge(n, row)) continue;
+      if (worded(t)) return trim40(t);
+      keyed = keyed || trim40(t);
     }
-    const own = cleanText(row);
+    if (keyed) return keyed;
+    const own = dropCount(cleanText(row));
     return titleish(own) && own.length <= 60 ? trim40(own) : null;
   }
 
@@ -169,19 +204,36 @@
       let sib = node.previousElementSibling;
       for (let i = 0; sib && i < 12; i++, sib = sib.previousElementSibling) {
         if (/^H[1-6]$/.test(sib.tagName)) { const t = cleanText(sib); if (t) return trim40(t); }
+        // A block of its own between us and the heading is a PEER — the card next to this one —
+        // and a heading past it heads that card as much as this one.
+        if (sib.children && sib.children.length) break;
       }
     }
     return null;
   }
 
-  // `cellIndex` is the honest mapping to the header cell; only a real header row answers.
+  // A colspan makes a cell's INDEX and its column two different numbers, so both rows are
+  // counted in spans: the header that covers the column is the one that names the cell.
+  const spanOf = (c) => Math.max(1, parseInt(c.getAttribute('colspan'), 10) || 1);
+  function columnAt(row, cell) {
+    let col = 0;
+    for (const c of row.cells) { if (c === cell) return col; col += spanOf(c); }
+    return -1;
+  }
+  function coveringCell(row, col) {
+    let at = 0;
+    for (const c of row.cells) { at += spanOf(c); if (col >= 0 && col < at) return c; }
+    return null;
+  }
+
+  // Only a real header row answers, and only the cell whose span covers this one's column.
   function columnTitle(el) {
     const cell = el.closest && el.closest('td, th');
     if (!cell || cell.tagName === 'TH') return null;
     const table = cell.closest('table');
     const head = table && (table.tHead ? table.tHead.rows[0] : table.rows[0]);
     if (!head || head === cell.parentElement) return null;
-    const th = head.cells[cell.cellIndex];
+    const th = coveringCell(head, columnAt(cell.parentElement, cell));
     if (!th || th.tagName !== 'TH') return null;
     const t = cleanText(th);
     return t ? trim40(t) : null;
@@ -285,7 +337,7 @@
   }
 
   window.RecNaming = {
-    trimTo, trim40, badgeish, inBadge, textRuns, firstAttr, labelText, elementName,
+    trimTo, trim40, trimMark, badgeish, inBadge, textRuns, firstAttr, labelText, elementName,
     cleanText, rowTitle, sectionTitle, columnTitle, headingOf, siblingsOf,
     nearFacts, nameOf, contextOf, clauseOf, roleOf, clickPhrase, ROLE_PHRASE, ROLE_NOUN,
   };

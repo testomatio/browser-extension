@@ -175,7 +175,9 @@ test('K10b: Stop takes the click at once — the pill never waits for the flush'
   assert.deepEqual(h.entries().map((e) => e.action), ['type']); // recording is off
 });
 
-test.todo('K11: a stopped recorder still shows a live toolbar (#223)', async () => {
+// Stopped, from the pill or from the panel: Pause and + Expected have nothing left to act on,
+// so the toolbar comes back down to the one button that still does.
+test('K11: a stopped recorder offers Stop alone', async () => {
   const h = rec({ reply: (m) => (m.type === 'STEPREC_ADD' ? status() : status()) });
   await h.settle();
   h.fireOn(buttonNamed(h, 'Stop'), 'click');
@@ -197,7 +199,8 @@ test('K12: a poll re-render moves the dot and the label, it never rebuilds them'
   assert.notEqual(buttonNamed(h, 'Stop'), stop); // the buttons, by contrast, are new every render
 });
 
-test.todo('K13: the pill announces nothing to a screen reader (#224)', async () => {
+// The counter, the pause and "Still recording?" are only ever said in the pill's label.
+test('K13: the pill is a polite live region', async () => {
   const h = rec();
   await h.settle();
   assert.equal(h.box().getAttribute('aria-live'), 'polite');
@@ -324,7 +327,8 @@ test('L6: a pause takes the pill back and the typed text with it', async () => {
   }
 });
 
-test.todo('L7: the pill swallows every key the page might want (#225)', async () => {
+// A click on a pill button leaves the focus inside the shadow root; the page keeps its hotkeys.
+test('L7: with no input open the pill lets the page have its keys', async () => {
   const h = rec();
   await h.settle();
   // No input open, so neither key means anything to the pill — a page "/" hotkey should still fire.

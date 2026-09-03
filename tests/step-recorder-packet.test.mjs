@@ -52,12 +52,25 @@ test('I2: the page URL drops the query, the fragment and any user:pass@ it carri
   assert.equal(ctxOf(h).page.url, 'https://example.com/pay');
 });
 
-// A hash-routed app moves the tester to a new screen and the packet says nothing happened.
-test.todo('I3: a hash-only route change is lost — after.url stays "unchanged" (#220)', async () => {
+// A hash-routed app moves the tester to a new screen without touching the origin or the path,
+// so the before/after comparison keeps a route-like fragment that `page.url` still drops.
+test('I3: a hash-only route change is reported as one arrow', async () => {
   const h = load({ href: 'https://example.com/app#/cart' });
   await clickOn(h, el('button', null, 'Next'));
   await closeWindow(h, () => { h.location.href = 'https://example.com/app#/checkout'; });
   assert.equal(ctxOf(h).after.url, 'https://example.com/app#/cart → https://example.com/app#/checkout');
+});
+
+// A fragment is not always a route: an OAuth implicit flow parks the access token in one, and
+// the packet is text that leaves the page. `=` or `&` in it means credentials, not a screen.
+test('I3b: a fragment that reads as credentials is never carried into the packet', async () => {
+  const h = load({ href: 'https://example.com/app#access_token=ya29.abc&scope=email' });
+  await clickOn(h, el('button', null, 'Next'));
+  await closeWindow(h, () => { h.location.href = 'https://example.com/app#access_token=ya29.zzz&scope=email'; });
+  const ctx = ctxOf(h);
+  assert.equal(ctx.page.url, 'https://example.com/app');
+  assert.equal(ctx.after.url, 'unchanged'); // the token moved; that is not a route change
+  assert.equal(JSON.stringify(ctx).includes('ya29'), false);
 });
 
 test('I4: a real navigation inside the window is reported as one arrow', async () => {
@@ -165,9 +178,9 @@ test('I13: a state attribute that moved is reported as an arrow', async () => {
   assert.equal(ctxOf(h).after.state, 'aria-checked: false → true');
 });
 
-// A control that loses `aria-expanded` or `disabled` reports nothing: the diff walks the keys
-// of the "after" state only, so a key that disappeared is never compared.
-test.todo('I14: a state key that disappears is not reported (#221)', async () => {
+// A control that loses `aria-expanded` changed as much as one that flipped it: the diff walks
+// both sides, so a key that disappeared arrives with the far side of the arrow empty.
+test('I14: a state key that disappears is reported with an empty new value', async () => {
   const h = load();
   const box = el('div', { role: 'checkbox' }, 'Bulk');
   box.setAttribute('aria-expanded', 'true');
@@ -176,8 +189,8 @@ test.todo('I14: a state key that disappears is not reported (#221)', async () =>
   assert.equal(ctxOf(h).after.state, 'aria-expanded: true → ');
 });
 
-// A key the control gains reads with two spaces where the old value would have been.
-test.todo('I15: a state key that appears prints a double space (#222)', async () => {
+// A key the control gains has no old value, and none is what it prints — one space, not two.
+test('I15: a state key that appears is reported with an empty old value', async () => {
   const h = load();
   const box = el('div', { role: 'checkbox' }, 'Bulk');
   await clickOn(h, box);
