@@ -12,7 +12,7 @@ const V2KEY = 'V2KEY';                       // a minted project key — a liter
 const keyDoc = (attrs) => ok({ data: { attributes: attrs } });
 const loginOk = ok({ jwt: JWT });
 
-// ---- error mapping — toError / ApiError (E-P1-2 and E-P2-1 still OPEN) ----
+// ---- error mapping — toError / ApiError (E-P2-1 still OPEN) ----
 
 test('14: 401 is the one sentence about the token, whatever the body said', async () => {
   const h = load().configure();
@@ -57,13 +57,81 @@ test('18: a 500 the parser chokes on falls back to the status line', async () =>
   assert.equal(e.message, 'HTTP 500');
 });
 
-test('19: a 429 loses its Retry-After — nothing reads the header', async () => {
+test('19: a 429 honours Retry-After, twice, and then says what to do about it', async () => {
   const h = load().configure();
-  h.reply(fail(429, { headers: { 'Retry-After': '30' } }));
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': '5' } })));
   const e = await rejection(h.mod.validate());
-  assert.equal(e.kind, 'http');
-  assert.equal(e.message, 'HTTP 429');
-  assert.equal(e.retryAfter, undefined); // E-P1-2 OPEN: the wait the server asked for is dropped
+  assert.equal(h.calls.length, 3);                 // the try, then TWO retries
+  assert.deepEqual(h.waits(), [5000, 5000]);       // the header's seconds, both times
+  assert.equal(e.kind, 'http');                    // NOT a new kind: the offline queue reads this
+  assert.equal(e.status, 429);
+  assert.equal(e.message, 'Too many requests — wait a minute, then try again');
+});
+
+test('19a: no Retry-After backs off 1s then 2s', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), fail(429));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [1000, 2000]);
+});
+
+test('19b: a Retry-After asking for an hour is clamped to 30s', async () => {
+  const h = load().configure();
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': '3600' } })));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [30000, 30000]);
+});
+
+test('19c: an HTTP-date Retry-After is read as a wait, and clamped the same way', async () => {
+  const h = load().configure();
+  const at = (secs) => new Date(Date.now() + secs * 1000).toUTCString();
+  h.reply(fail(429, { headers: { 'Retry-After': at(4) } }), fail(429, { headers: { 'Retry-After': at(600) } }),
+    fail(429, { headers: { 'Retry-After': at(-60) } }));
+  await rejection(h.mod.validate());
+  const [first, second] = h.waits();
+  assert.ok(first > 2000 && first <= 4000, `${first}`); // ~4s, less whatever the row itself took
+  assert.equal(second, 30000);                          // 10 minutes, clamped
+});
+
+test('19d: an unreadable Retry-After falls back to our own back-off', async () => {
+  const h = load().configure();
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': 'soon' } })));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [1000, 2000]);
+});
+
+test('19e: a 429 that clears on the retry never reaches the tester', async () => {
+  const h = load().configure();
+  h.reply(fail(429), ok({ data: [] }));
+  assert.deepEqual(plain(await h.mod.validate()), { data: [] });
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.waits(), [1000]);
+  assert.equal(h.mod.rateLimitedAt(), 0); // the 2xx cleared the stamp: live sync goes back to 20s
+});
+
+test('19f: the rate-limit stamp is what live sync slows itself on', async () => {
+  const h = load().configure();
+  assert.equal(h.mod.rateLimitedAt(), 0);
+  h.reply(fail(429), fail(429), fail(429));
+  const before = Date.now();
+  await rejection(h.mod.validate());
+  assert.ok(h.mod.rateLimitedAt() >= before, `${h.mod.rateLimitedAt()}`);
+});
+
+test('19g: a 429 is NOT the network error the offline queue takes a click on', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), fail(429));
+  const e = await rejection(h.mod.validate());
+  // OfflineQueue.qualifies() is `kind === 'network' || kind === 'auth'` — a rate limit is neither.
+  assert.equal(e.kind === 'network' || e.kind === 'auth', false);
+});
+
+test('19h: a rate-limited write is retried too — a 429 means it never ran', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), ok({ data: {} }));
+  await h.inner.request('/tests', { method: 'POST', body: { a: 1 } });
+  assert.deepEqual(h.methods(), ['POST', 'POST', 'POST']);
+  assert.deepEqual(h.waits(), [1000, 2000]);
 });
 
 test('20: a dead link is a network error, in those words', async () => {

@@ -92,6 +92,9 @@ const TestomatAPI = (() => {
   }
 
   const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;
+  // When the instance last answered 429, after ApiTransport had already waited out its retries.
+  // The panel's live sync reads it to slow its own polling instead of adding to the flood.
+  const rateLimitedAt = () => ApiTransport.rateLimitedAt();
 
   function guardConfigured() {
     if (!cfg?.baseUrl || !hasCredential() || !cfg?.projectId) {
@@ -664,6 +667,6 @@ const TestomatAPI = (() => {
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
     // recheckAccess is the corroboration read on its own: the panel's read-only watch shares its
     // coalescing, and reads the VERDICT off readonlyAccess() — only a 2xx in there clears the flag.
-    readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, ApiError,
+    readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, rateLimitedAt, ApiError,
   };
 })();

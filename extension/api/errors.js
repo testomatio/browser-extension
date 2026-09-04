@@ -8,6 +8,9 @@ const ApiErrors = (() => {
     `Your access to this project is read-only — ${host} answered ${status} to a plain read too`;
   const routeRefused = (host, status) =>
     `${host} refused this request (${status}) — the project itself still reads fine`;
+  // A 429 already waited out ApiTransport's two retries by the time it gets here, so the tester is
+  // told to wait rather than to click again straight away. Never the body: a 429 body is a quota dump.
+  const RATE_LIMITED = 'Too many requests — wait a minute, then try again';
 
   class ApiError extends Error {
     constructor(kind, status, detail) {
@@ -25,10 +28,12 @@ const ApiErrors = (() => {
       // Valid token without project membership also yields 404 (research R6).
       return new ApiError('notfound', 404, 'Not found — or no access to this project');
     }
+    // `http` and 429 on purpose: the offline queue reads `kind` and must not start queueing these.
+    if (res.status === 429) return new ApiError('http', 429, RATE_LIMITED);
     let detail = '';
     try { detail = JSON.stringify(await res.json()); } catch { /* empty body */ }
     return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 
-  return { ApiError, toError, instanceHost, readonlyMessage, routeRefused };
+  return { ApiError, toError, instanceHost, readonlyMessage, routeRefused, RATE_LIMITED };
 })();

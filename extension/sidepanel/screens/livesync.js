@@ -13,6 +13,24 @@ let syncFetching = false;    // a poll fetch is in flight (no overlap)
 let syncEpoch = 0;           // bumped on stop/restart — invalidates an in-flight fetch
 let syncWriteDepth = 0;      // tester's own writes in flight (skip ticks while > 0)
 let syncAuthStopped = false; // a poll 401/403 stopped the loop; resumes on Refresh (openRunView)
+let syncArmedMs = 0;         // the interval the live timer is actually armed with
+
+// #106: polling a rate-limited instance at the usual rate is what keeps it rate-limiting us. While
+// the API's last answer was a 429, one tick a minute; a 2xx clears the stamp and the next re-arm
+// returns to the ordinary interval — as does a stamp gone stale, if no answer ever arrives.
+const SYNC_RATE_LIMIT_MS = 60000;
+function syncTargetMs() {
+  let at = 0;
+  try { at = Number(TestomatAPI.rateLimitedAt?.()) || 0; } catch { at = 0; }
+  return at && Date.now() - at < SYNC_RATE_LIMIT_MS ? SYNC_RATE_LIMIT_MS : syncPollMs;
+}
+
+// The ONE place the timer is armed, so the interval can never drift from syncTargetMs().
+function syncArm() {
+  if (syncTimer) clearInterval(syncTimer);
+  syncArmedMs = syncTargetMs();
+  syncTimer = setInterval(syncTick, syncArmedMs);
+}
 
 async function readPollMs() {
   try {
@@ -41,12 +59,13 @@ async function startLiveSync() {
   syncAuthStopped = false;
   syncStop();                       // clear a prior timer + bump the epoch
   syncPollMs = await readPollMs();
-  syncTimer = setInterval(syncTick, syncPollMs);
+  syncArm();
 }
 
 function syncStop() {
   syncEpoch += 1;                   // invalidate any in-flight fetch
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  syncArmedMs = 0;
 }
 
 // Own-write bracket: a poll must not apply a stale snapshot over the fresh local
@@ -60,8 +79,7 @@ function syncEndWrite() {
 // Immediate refetch + timer reset — only meaningful while the loop is active.
 function syncNow() {
   if (!syncTimer) return;
-  clearInterval(syncTimer);
-  syncTimer = setInterval(syncTick, syncPollMs);
+  syncArm();
   syncTick();
 }
 
@@ -99,6 +117,9 @@ async function syncTick() {
     if (e && e.kind === 'auth') { syncAuthStopped = true; syncStop(); }
   } finally {
     syncFetching = false;
+    // The rate-limit stamp changed under this tick (set by a 429, cleared by a 2xx) — re-arm so the
+    // NEXT tick lands at the interval that answer earned. Free while nothing is rate-limiting us.
+    if (syncTimer && syncArmedMs !== syncTargetMs()) syncArm();
   }
 }
 
