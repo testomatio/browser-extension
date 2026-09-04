@@ -47,6 +47,8 @@ const ParamsGrid = (() => {
     let baseRows = new Map();
     let ready = !!seed;   // the draft may carry the grid only once it stands for something
     let available = true; // false in basic mode: no session, no rows
+    // Which model row a planned write came from, held off the plan itself so it stays plain data.
+    const planRows = new WeakMap();
 
     const section = document.createElement('section');
     section.className = 'tc-params';
@@ -251,7 +253,7 @@ const ParamsGrid = (() => {
         const cells = row.cells.map((c) => c.trim());
         // An emptied row is a row the tester took out; one that was never written just goes.
         if (cells.every((c) => !c)) { if (row.id) deletes.push(row.id); continue; }
-        rows.push({ id: row.id, cells });
+        rows.push({ id: row.id, cells, row });
       }
       const lastIn = (arr) => arr.reduce((last, v, i) => (v ? i : last), -1);
       const lastHeader = lastIn(headers);
@@ -261,9 +263,19 @@ const ParamsGrid = (() => {
       const kept = headers.slice(0, width);
       const unnamed = kept.findIndex((h) => !h);
       if (unnamed !== -1) { showError('Every parameter needs a name', unnamed); return null; }
-      const writes = rows.map((r) => ({
-        kind: r.id ? 'update' : 'create', id: r.id, cells: r.cells.slice(0, width),
-      })).filter((w) => w.kind === 'create' || !sameCells(baseRows.get(w.id), w.cells));
+      // `${name}` resolves to the FIRST column of that name, so a second one is values nobody can
+      // reach. Points at the second occurrence — that is the one the tester has to rename.
+      const twice = kept.findIndex((h, i) => kept.indexOf(h) !== i);
+      if (twice !== -1) { showError('Two parameters have the same name', twice); return null; }
+      const writes = [];
+      for (const r of rows) {
+        const w = { kind: r.id ? 'update' : 'create', id: r.id, cells: r.cells.slice(0, width) };
+        // A row the server already holds exactly travels no further; the rest is remembered by
+        // the write it produced, so what lands can be written back onto it.
+        if (w.kind === 'update' && sameCells(baseRows.get(w.id), w.cells)) continue;
+        planRows.set(w, r.row);
+        writes.push(w);
+      }
       return {
         headers: kept,
         headersChanged: !sameCells(kept, baseHeaders),
@@ -272,22 +284,46 @@ const ParamsGrid = (() => {
       };
     }
 
+    // A create that landed hands its row the id the server gave it, or a second Save would create
+    // a SECOND example holding the same values.
+    function landedCreate(w, made) {
+      const id = made && made.id ? String(made.id) : null;
+      if (!id) return;
+      const row = planRows.get(w);
+      if (row) row.id = id;
+      baseRows.set(id, w.cells.slice());
+    }
+    // A delete that landed leaves the model — both the row taken out and the one emptied in
+    // place — so the retry does not ask the server to delete it a second time.
+    function landedDelete(id) {
+      const i = model.removed.indexOf(id);
+      if (i !== -1) model.removed.splice(i, 1);
+      for (const r of model.rows) if (r.id === id) r.id = null;
+    }
+
     // Sequential and best-effort, like the screenshot uploads: the first failure is what gets
     // reported, and the writes behind it still go out. Returns that message, or null.
+    // Every leg that lands advances the baseline, so a second plan() carries only what did not.
     async function commit(uid, planned) {
       let failure = null;
       const fail = (e) => { if (!failure) failure = (e && e.message) || String(e); };
       if (planned.headersChanged) {
-        try { await TestomatAPI.setTestParams(uid, planned.headers); } catch (e) { fail(e); }
+        try {
+          await TestomatAPI.setTestParams(uid, planned.headers);
+          baseHeaders = planned.headers.slice();
+        } catch (e) { fail(e); }
       }
       for (const w of planned.writes) {
         try {
-          if (w.kind === 'create') await TestomatAPI.createExample(uid, w.cells);
-          else await TestomatAPI.updateExample(w.id, w.cells);
+          if (w.kind === 'create') landedCreate(w, await TestomatAPI.createExample(uid, w.cells));
+          else {
+            await TestomatAPI.updateExample(w.id, w.cells);
+            baseRows.set(w.id, w.cells.slice());
+          }
         } catch (e) { fail(e); }
       }
       for (const id of planned.deletes) {
-        try { await TestomatAPI.deleteExample(id); } catch (e) { fail(e); }
+        try { await TestomatAPI.deleteExample(id); landedDelete(id); } catch (e) { fail(e); }
       }
       return failure;
     }

@@ -24,14 +24,16 @@ const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)
 
 // One sandbox per test: the control keeps module state (baseline, ready, available) and the grid
 // hands out focus, so a shared document would let one case decide the next one's answer.
-// `fails(name, args, nth)` returning a string is how a leg of commit() is made to reject.
-function load({ fails = () => null } = {}) {
+// `fails(name, args, nth)` returning a string is how a leg of commit() is made to reject, and
+// `reply(name, args, nth)` is what a leg that goes through answers with — `createExample`'s id.
+function load({ fails = () => null, reply = () => undefined } = {}) {
   const calls = [];
   const tips = [];
   const call = async (name, ...args) => {
     calls.push([name, ...args]);
     const msg = fails(name, args, calls.length);
     if (msg) throw new Error(msg);
+    return reply(name, args, calls.length);
   };
   const document = makeDocument();
   const ctx = createContext({
@@ -52,8 +54,8 @@ function load({ fails = () => null } = {}) {
 
 // The control mounted into the document — focus() only records on an attached tree, and cases 41
 // and 42 are about where the caret lands.
-function mount({ seed = null, fails } = {}) {
-  const env = load({ fails });
+function mount({ seed = null, fails, reply } = {}) {
+  const env = load({ fails, reply });
   const edits = [];
   const ctl = env.ParamsGrid.buildParamsControl({ seed, onEdited: () => edits.push(1) });
   env.document.body.append(ctl.section);
@@ -182,12 +184,10 @@ test('47: in basic mode plan() is an empty plan, never a refusal', () => {
   });
 });
 
-// 48 and 49 are the two names plan() does not check; the todos for them are at the end of the file.
-
-test('48/49 (today): a duplicate name and a name outside [\\w-] are both saved as typed', () => {
-  const dup = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
-  assert.deepEqual(plain(dup.ctl.plan()).headers, ['email', 'email']);
-  assert.equal(dup.error().hidden, true);
+// 48, the duplicate name, is the check #112 adds below (58-60). 49, a name outside [\w-], stays
+// allowed on purpose: #244 escaped the name in params.js, so `price(usd)` resolves and refusing it
+// would take away a column testers can use today.
+test('49 (today): a name outside [\\w-] is saved as typed, and #112 leaves it that way', () => {
   const odd = mount({ seed: { headers: ['price(usd)', 'a)'], rows: [['9', 'b']] } });
   assert.deepEqual(plain(odd.ctl.plan()).headers, ['price(usd)', 'a)']);
   assert.equal(odd.error().hidden, true);
@@ -200,6 +200,49 @@ test('50: Save writes the trimmed name, while the grid keeps what the tester typ
   assert.deepEqual(p.writes, [{ kind: 'create', id: null, cells: ['v'] }]);
   assert.deepEqual(plain(g.ctl.get()).headers, [' email ']);
   assert.deepEqual(plain(g.ctl.get()).rows, [{ id: null, cells: [' v '] }]);
+});
+
+// ===================== #112: two columns may not share a name ==============
+
+test('58 (#112): two columns with the same name are refused, pointing at the second', () => {
+  const g = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
+  assert.equal(g.ctl.plan(), null);
+  assert.equal(g.error().textContent, 'Two parameters have the same name');
+  assert.equal(g.error().hidden, false);
+  assert.equal(g.open(), true);
+  assert.equal(g.document.activeElement, g.cell('head', 1));
+  // The second of the PAIR, not the last column: a, b, a points at index 2.
+  const three = mount({ seed: { headers: ['a', 'b', 'a'], rows: [['1', '2', '3']] } });
+  assert.equal(three.ctl.plan(), null);
+  assert.equal(three.document.activeElement, three.cell('head', 2));
+});
+
+test('59 (#112): the names are compared trimmed, and case tells two of them apart', () => {
+  // What Save would write is what is compared: ' email ' and 'email' are one name.
+  const same = mount({ seed: { headers: [' email ', 'email'], rows: [['a', 'b']] } });
+  assert.equal(same.ctl.plan(), null);
+  assert.equal(same.error().textContent, 'Two parameters have the same name');
+  // The server keeps the case and nothing downstream folds it, so these are two parameters.
+  const cased = mount({ seed: { headers: ['email', 'Email'], rows: [['a', 'b']] } });
+  assert.deepEqual(plain(cased.ctl.plan()).headers, ['email', 'Email']);
+  assert.equal(cased.error().hidden, true);
+});
+
+test('60 (#112): a repeat cannot hide behind a column nobody filled in', () => {
+  // A NAMED column travels even with nothing under it (43 drops only the unnamed ones), so the
+  // second `a` is written to the test and has to be refused.
+  const unused = mount({ seed: { headers: ['a', 'a'], rows: [['1', '']] } });
+  assert.equal(unused.ctl.plan(), null);
+  assert.equal(unused.error().textContent, 'Two parameters have the same name');
+  // Blank names are never a duplicate pair: with nothing in them the grid is an empty plan…
+  const spare = mount({ seed: { headers: ['', ''], rows: [] } });
+  assert.deepEqual(plain(spare.ctl.plan()), {
+    headers: [], headersChanged: false, writes: [], deletes: [],
+  });
+  // …and with a value under one, it is the nameless refusal that speaks first.
+  const used = mount({ seed: { headers: ['', ''], rows: [['1', '']] } });
+  assert.equal(used.ctl.plan(), null);
+  assert.equal(used.error().textContent, 'Name the parameters first');
 });
 
 // ===================== commit(): best-effort, first message wins ============
@@ -249,6 +292,144 @@ test('53: everything through is a null, which is what Save reads as success', as
   // A thrown non-Error still reads as a sentence rather than as `undefined`.
   const bad = mount({ fails: () => 'plain string' });
   assert.equal(await bad.ctl.commit('uid1', planOf({ headersChanged: true })), 'plain string');
+});
+
+// ============ #112: a write that failed can be sent again, and only it ======
+
+// The shape createExample answers with, keyed off the row's first cell so the id says which row
+// the server made — `{id, data}`, as api.js builds it.
+const madeExample = (name, args) => (name === 'createExample' ? { id: `ex-${args[1][0]}`, data: args[1] } : undefined);
+
+test('61 (#112): after a partial write the second plan() carries only the row that failed', async () => {
+  let flaky = true; // …until the retry, which is when the second row goes through
+  const g = mount({
+    seed: { headers: ['a'], rows: [['1'], ['2']] },
+    fails: (name, args) => (flaky && args[1] && args[1][0] === '2' ? 'row two blew up' : null),
+    reply: madeExample,
+  });
+  const first = g.ctl.plan();
+  assert.deepEqual(plain(first.writes), [
+    { kind: 'create', id: null, cells: ['1'] },
+    { kind: 'create', id: null, cells: ['2'] },
+  ]);
+  assert.equal(await g.ctl.commit('uid1', first), 'row two blew up');
+  // The row that landed took the server's id; the one that failed still has none.
+  assert.deepEqual(plain(g.ctl.get()).rows, [
+    { id: 'ex-1', cells: ['1'] },
+    { id: null, cells: ['2'] },
+  ]);
+  const second = g.ctl.plan();
+  assert.equal(second.headersChanged, false); // the names leg landed with the first row
+  assert.deepEqual(plain(second.writes), [{ kind: 'create', id: null, cells: ['2'] }]);
+  // The second Save sends exactly that one write — the names and the first row never go again.
+  flaky = false;
+  assert.equal(await g.ctl.commit('uid1', second), null);
+  assert.deepEqual(plain(g.calls), [
+    ['setTestParams', 'uid1', ['a']],
+    ['createExample', 'uid1', ['1']],
+    ['createExample', 'uid1', ['2']],
+    ['createExample', 'uid1', ['2']],
+  ]);
+  // …and now the grid holds what the server holds: a third Save has nothing to send.
+  assert.deepEqual(plain(g.ctl.get()).rows, [
+    { id: 'ex-1', cells: ['1'] },
+    { id: 'ex-2', cells: ['2'] },
+  ]);
+  const third = g.ctl.plan();
+  assert.equal(third.headersChanged, false);
+  assert.deepEqual(plain(third.writes), []);
+});
+
+test('62 (#112): when nothing lands, the second plan() carries every leg again', async () => {
+  const g = mount({
+    seed: { headers: ['a'], rows: [['1'], ['2']] },
+    fails: () => 'the network went away',
+    reply: madeExample,
+  });
+  assert.equal(await g.ctl.commit('uid1', g.ctl.plan()), 'the network went away');
+  const second = g.ctl.plan();
+  assert.equal(second.headersChanged, true);
+  assert.deepEqual(plain(second.writes), [
+    { kind: 'create', id: null, cells: ['1'] },
+    { kind: 'create', id: null, cells: ['2'] },
+  ]);
+  assert.deepEqual(plain(g.ctl.get()).rows, [
+    { id: null, cells: ['1'] }, { id: null, cells: ['2'] },
+  ]);
+});
+
+test('63 (#112): a create that landed is updated by the retry, never created twice', async () => {
+  const g = mount({ seed: { headers: ['a'], rows: [['1']] }, reply: madeExample });
+  assert.equal(await g.ctl.commit('uid1', g.ctl.plan()), null);
+  // Nothing has changed since, so a second Save has nothing at all to send.
+  assert.deepEqual(plain(g.ctl.plan()).writes, []);
+  // One keystroke in that row and it is an UPDATE of the example the create made.
+  typeIn(g.cell(0, 0), '1b');
+  const retry = g.ctl.plan();
+  assert.deepEqual(plain(retry.writes), [{ kind: 'update', id: 'ex-1', cells: ['1b'] }]);
+  assert.equal(await g.ctl.commit('uid1', retry), null);
+  assert.deepEqual(plain(g.calls), [
+    ['setTestParams', 'uid1', ['a']],
+    ['createExample', 'uid1', ['1']],
+    ['updateExample', 'ex-1', ['1b']],
+  ]);
+});
+
+test('64 (#112): a create the server answered without an id is created again', async () => {
+  // Nothing came back to update, so the honest retry is another create — and the row still has
+  // no id. This is the one case where a second Save can leave two examples behind.
+  const g = mount({ seed: { headers: ['a'], rows: [['1']] } });
+  assert.equal(await g.ctl.commit('uid1', g.ctl.plan()), null);
+  assert.deepEqual(plain(g.ctl.get()).rows, [{ id: null, cells: ['1'] }]);
+  assert.deepEqual(plain(g.ctl.plan()).writes, [{ kind: 'create', id: null, cells: ['1'] }]);
+});
+
+test('65 (#112): an update that landed leaves the plan, one that failed stays in it', async () => {
+  const g = mount({ fails: (name, args) => (args[1] && args[1][0] === 'y2' ? 'row two blew up' : null) });
+  g.ctl.load({ headers: ['a'], rows: [{ id: '1', cells: ['x'] }, { id: '2', cells: ['y'] }] });
+  typeIn(g.cell(0, 0), 'x2');
+  typeIn(g.cell(1, 0), 'y2');
+  const first = g.ctl.plan();
+  assert.deepEqual(plain(first.writes), [
+    { kind: 'update', id: '1', cells: ['x2'] },
+    { kind: 'update', id: '2', cells: ['y2'] },
+  ]);
+  assert.equal(await g.ctl.commit('uid1', first), 'row two blew up');
+  assert.deepEqual(plain(g.ctl.plan()).writes, [{ kind: 'update', id: '2', cells: ['y2'] }]);
+});
+
+test('66 (#112): the names leg is sent again only when it did not land', async () => {
+  const g = mount({ seed: { headers: ['a'], rows: [] } });
+  assert.equal(g.ctl.plan().headersChanged, true);
+  assert.equal(await g.ctl.commit('uid1', g.ctl.plan()), null);
+  assert.equal(g.ctl.plan().headersChanged, false);
+  // Renaming the column after that is a change again.
+  typeIn(g.cell('head', 0), 'b');
+  assert.equal(g.ctl.plan().headersChanged, true);
+  // The same write against a leg that refuses it stays on the plan.
+  const bad = mount({ seed: { headers: ['a'], rows: [] }, fails: () => 'no params for you' });
+  assert.equal(await bad.ctl.commit('uid1', bad.ctl.plan()), 'no params for you');
+  assert.equal(bad.ctl.plan().headersChanged, true);
+});
+
+test('67 (#112): a delete that landed leaves the plan, and one that failed is sent again', async () => {
+  // Both kinds of delete in one grid: row 1 is taken out with its ✕, row 2 is emptied in place.
+  const setup = (bad) => {
+    const g = mount({ fails: (name, args) => (name === 'deleteExample' && args[0] === bad ? 'delete blew up' : null) });
+    g.ctl.load({ headers: ['a'], rows: [{ id: '1', cells: ['x'] }, { id: '2', cells: ['y'] }] });
+    fire(g.q('.tc-params-remove[data-row="0"]'), 'click');
+    typeIn(g.cell(0, 0), '');
+    return g;
+  };
+  const a = setup('2');
+  const firstA = a.ctl.plan();
+  assert.deepEqual(plain(firstA.deletes), ['1', '2']);
+  assert.equal(await a.ctl.commit('uid1', firstA), 'delete blew up');
+  assert.deepEqual(plain(a.ctl.plan()).deletes, ['2']);
+  // The other way round: the emptied row's delete lands and the spliced-out one's does not.
+  const b = setup('1');
+  assert.equal(await b.ctl.commit('uid1', b.ctl.plan()), 'delete blew up');
+  assert.deepEqual(plain(b.ctl.plan()).deletes, ['1']);
 });
 
 // ===================== the grid the tester actually touches =================
@@ -308,21 +489,6 @@ test('57: a draft outranks the server read — only the baseline is taken from i
   assert.equal(fresh.open(), true);
 });
 
-// ===================== what #112 will add, carried over unfixed =============
-
-// 48: `params.js` resolves both `${email}` occurrences to the FIRST column (tests/params.test.mjs
-// P13), so the second column's values are unreachable and the tester is never told.
-test.todo('48 (#112): two columns with the same name are refused before Save', () => {
-  const g = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
-  assert.equal(g.ctl.plan(), null);
-  assert.equal(g.error().textContent, 'Two parameters have the same name');
-  assert.equal(g.document.activeElement, g.cell('head', 1));
-});
-
-// 49: #192 said such a name breaks substitution downstream. It no longer does — #244 escapes the
-// name in params.js and `${price(usd)}` resolves (P7). What is left is only the missing check.
-test.todo('49 (#112): a column name outside [\\w-] is refused before Save', () => {
-  const g = mount({ seed: { headers: ['price(usd)'], rows: [['9']] } });
-  assert.equal(g.ctl.plan(), null);
-  assert.equal(g.document.activeElement, g.cell('head', 0));
-});
+// 48 is done: two columns of the same name are refused, case 58 above. 49 was dropped — #244
+// escaped the name in params.js, so `${price(usd)}` resolves (P7) and a rule against it would take
+// away a name testers can use. Case 57b below pins that such a name still saves.

@@ -378,7 +378,7 @@
   // PATCHes title/description/priority of `uid` and leaves the suite alone.
   function renderEditor({
     ctx, mode = 'create', uid = null, test = null,
-    suite, title, markdown, priority, dirty: initialDirty = false,
+    suite, title, markdown, priority, dirty: initialDirty = false, savedId: restoredSavedId = null,
     templates = [], templateId: initialTemplateId = null, params = null, recorded = null,
     shots = [], shotsLost = 0,
   }) {
@@ -394,6 +394,9 @@
     const draftKey = editorDraftKey(editing ? { test: uid } : { suite });
     let saving = false;
     let done = false;        // saved → the read-only view took over this page
+    // The id the first Save got. A second Save updates that test instead of creating another,
+    // which is what lets a half-written Save be retried at all.
+    let savedId = restoredSavedId;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
     const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
@@ -413,6 +416,7 @@
         recording: () => rec.draftShape(),
         shots: () => pendingShots,
         shotsRev: () => shotsRev,
+        savedId: () => savedId,
         stripRefresh: () => scheduleStripRefresh(),
       },
     });
@@ -452,7 +456,7 @@
     titleInput.rows = 1;
     titleInput.placeholder = 'Test case title';
     titleInput.value = title || '';
-    titleInput.addEventListener('input', () => { clearTitleError(); onEdited(); });
+    titleInput.addEventListener('input', () => { clearTitleError(); syncSaveEnabled(); onEdited(); });
     // Enter moves to the body: a title is one line of text, and a stray newline in it
     // would travel to the API.
     titleInput.addEventListener('keydown', (e) => {
@@ -702,6 +706,11 @@
     saveBtn.className = 'btn primary';
     saveBtn.textContent = 'Save';
     saveBtn.addEventListener('click', () => { save(); });
+    // A title is required, so Save is not offered without one — the same rule quick add follows.
+    // Also what re-arms the button after a save attempt, in place of a bare `disabled = false`.
+    function syncSaveEnabled() {
+      saveBtn.disabled = saving || done || !titleInput.value.trim();
+    }
 
     const cancelBtn = document.createElement('button');
     cancelBtn.id = 'tc-cancel';
@@ -1012,6 +1021,7 @@
     attachBtn.addEventListener('click', attachScreenshot);
     renderShotPreview(); // a restored draft arrives with its strip already full
     rec.refresh();
+    syncSaveEnabled(); // a create opens with no title, so Save opens greyed out
 
     // ---- parameters: what the test already has (#5) --------------------------
     // Session-only, so basic mode drops the block whole rather than offering a grid that could not
@@ -1079,12 +1089,16 @@
         if (!paramsWrite) return null;
         // The update deliberately omits `suite_id` — sending it would MOVE the test
         // (contract m3), and this editor changes its text, not where it lives.
-        const written = editing
-          ? await TestomatAPI.updateTest(uid, { title: t, description, priority })
+        // A test this editor already created is UPDATED by the retry below — writing it again
+        // would leave two tests behind.
+        const target = savedId || (editing ? uid : null);
+        const written = target
+          ? await TestomatAPI.updateTest(target, { title: t, description, priority })
           : await TestomatAPI.createTest({ title: t, suite_id: suite, description, priority });
         // Editing, the uid is known before the request and stays the uid whatever the
         // response echoes back.
-        const id = (written && written.id) || (editing ? uid : null);
+        const id = (written && written.id) || target;
+        savedId = id;
         // Best-effort: a failed upload toasts but never fails Save, and the shots that did
         // NOT land stay staged, so a second Save retries exactly them.
         let shotError = null;
@@ -1105,24 +1119,30 @@
           pendingShots.splice(0, pendingShots.length, ...kept);
           renderShotPreview();
         }
-        // Same best-effort contract as the uploads: the test is saved either way, and a parameter
-        // that could not be written is said in the toast instead of failing the Save.
+        // The test itself is saved either way; the parameters leg is best-effort, as the uploads are.
         const paramsError = id ? await paramsCtl.commit(id, paramsWrite) : null;
+        // What did not land is still only in this grid: hold the editor, its draft and the dirty
+        // flag, so a second Save sends exactly those rows.
+        if (paramsError) {
+          // The draft has to learn the test exists, or a reload before the retry makes a second one.
+          schedulePersist();
+          showToast(`Saved — parameters couldn't be written (${paramsError})`, { error: true });
+          return null;
+        }
         clearDirty();
         if (ctx === 'panel') removeEditorDraft(draftKey);
         // For a create, `test: {}` is not a missing record: it is the `manual` kind
         // TestType reads out of a record carrying no state flags.
-        const rec = (editing && test) ? { ...test, title: t, priority } : {};
+        const record = (editing && test) ? { ...test, title: t, priority } : {};
         // View first, then the toast — showToast targets the view's own element. With no
         // id back (never seen on v2) just latch `done`, so a retry can't create a copy.
-        if (id) handOverToView(id, { title: t, markdown: description, priority, test: rec });
+        if (id) handOverToView(id, { title: t, markdown: description, priority, test: record });
         else done = true;
         if (shotError) {
           showToast(shotFailed > 1
             ? `Saved — ${shotFailed} screenshots couldn't attach (${shotError})`
             : `Saved — the screenshot couldn't attach (${shotError})`, { error: true });
         }
-        else if (paramsError) showToast(`Saved — parameters couldn't be written (${paramsError})`, { error: true });
         else showToast('Saved ✓');
         return id;
       } catch (e) {
@@ -1130,7 +1150,7 @@
         return null;
       } finally {
         saving = false;
-        saveBtn.disabled = false;
+        syncSaveEnabled(); // never back over an empty title
         saveBtn.textContent = 'Save';
       }
     }
@@ -1228,7 +1248,7 @@
         if (previewing) renderPreviewInto(previewPane, editor.getValue());
       },
       getTitle: () => titleInput.value,
-      setTitle: (t) => { titleInput.value = t; clearTitleError(); onEdited(); },
+      setTitle: (t) => { titleInput.value = t; clearTitleError(); syncSaveEnabled(); onEdited(); },
       getPriority: () => priorityCtrl.getPriority(),
       setPriority: (p) => priorityCtrl.setPriority(p),
       // The parameters grid as data: `{headers, rows:[{id, cells}], removed}`.
@@ -1437,6 +1457,8 @@
     let restoredDirty = false;
     let shots = [];
     let shotsLost = 0;
+    // A create whose test landed but whose parameters did not: the retry must update it.
+    let savedId = null;
     // The restored draft is the tester's own text — it outranks the template seed.
     if (panelCtx) {
       const key = editorDraftKey({ suite: cx.suite });
@@ -1450,11 +1472,12 @@
         // what still lets them be polished (or put back).
         recorded = draft.recording || null;
         ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
+        savedId = draft.savedId || null;
         restoredDirty = true;
       }
     }
     renderEditor({
-      ctx: cx.ctx, suite: cx.suite,
+      ctx: cx.ctx, suite: cx.suite, savedId,
       title, markdown, priority, params, recorded, dirty: restoredDirty, shots, shotsLost,
       templates, templateId: initialTemplate ? initialTemplate.id : null,
     });
