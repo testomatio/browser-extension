@@ -113,7 +113,10 @@ function evBuildTxt(runTitle, testTitle, entries, status) {
   lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
   lines.push(`Recorded tab: ${status.tabTitle || '—'}`);
   if (status.tabUrl) lines.push(`URL: ${status.tabUrl}`);
-  lines.push(`Window: last ${status.windowSec}s · ${entries.length} entries · ${new Date().toISOString()}`);
+  // A status with no window would write "last undefineds" into a file that is uploaded onto
+  // the result: the panel's own kept window stands in, the way every other field here falls back.
+  const win = Number.isFinite(status.windowSec) ? status.windowSec : evWindowSeconds();
+  lines.push(`Window: last ${win}s · ${entries.length} entries · ${new Date().toISOString()}`);
   lines.push('');
   const cons = entries.filter((e) => e.kind !== 'network');
   const nets = entries.filter((e) => e.kind === 'network');

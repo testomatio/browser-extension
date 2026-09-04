@@ -384,6 +384,19 @@ test('15: nothing captured is still a readable file — both sections say (none)
   assert.ok(one.includes('== Network (0) ==\n(none)'), one);
 });
 
+test('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
+  const h = load();
+  const win = (txt) => txt.split('\n').find((l) => l.startsWith('Window:'));
+  // uploadEvidenceLog hands evBuildTxt `snap.status || {}`, so this is a shape it really gets.
+  // Was: 'Window: last undefineds · 0 entries · …', in a file uploaded onto the result.
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], {})), /^Window: last \d+s · 0 entries · /);
+  // The stand-in is the panel's own kept window, not a figure invented for the header.
+  h.state.settings = { evidenceWindowSec: 90 };
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], {})), /^Window: last 90s · /);
+  // …and a status that DOES carry one is still quoted as it came, fallback or no fallback.
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], { windowSec: 120 })), /^Window: last 120s · /);
+});
+
 test('16: a body the tester switched off is named as switched off, not as an empty one', () => {
   const h = load();
   const off = h.fn.evBuildTxt('R', 'T', [net({ url: 'https://x/y', bodySkipped: true })], { windowSec: 60 });
@@ -1320,15 +1333,6 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 15: uploadEvidenceLog passes `snap.status || {}`, so a snapshot that carries no status writes the
-// literal string `undefined` into a file that is then uploaded to the server.
-test.todo('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
-  const h = load();
-  const txt = h.fn.evBuildTxt('Run A', 'Test B', [], {});
-  // Today: 'Window: last undefineds · 0 entries · …'.
-  assert.match(txt.split('\n').find((l) => l.startsWith('Window:')), /^Window: last \d+s · /);
-});
-
 // 17: PRIVACY.md promises URL trimming and never exempts this file, but the .txt carries the whole
 // request URL, query string and all — straight to the server, beside the result.
 test.todo('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
