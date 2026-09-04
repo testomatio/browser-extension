@@ -6,15 +6,14 @@
 // the tester signs in once and v2 keys are minted, never typed. A handed-off config
 // (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
-/* global ApiErrors, ApiTransport, ApiPaging, ApiPeople, ApiNormalize */
+/* global ApiErrors, ApiTransport, ApiPaging, ApiPeople, ApiNormalize, ApiAssets */
 
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
   // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
   // the project's own credential, and nothing here needs them to outlive the panel.
   const v2Keys = new Map();
-  // Bucket URLs the INSTANCE signed for us: off-instance, but named by it and not by document data.
-  const signedAssets = new Set();
+  const { signedAssets } = ApiAssets;
   // The live session. Memory-only: it is either adopted from the tester's stored credential or
   // exchanged from their General token, and neither is worth a second copy on disk.
   let jwt = null;
@@ -640,47 +639,16 @@ const TestomatAPI = (() => {
     return jwtRequest(`/attachments/${id}`, { method: 'DELETE' });
   }
 
-  // #21: on a private bucket the server presigns only the first artifacts of a result and flags the
-  // rest `needs_presign` — this mints the signed URL for one of those, on demand.
-  async function presignArtifact(url) {
-    const doc = await jwtRequest('/artifacts/presign', { method: 'POST', body: { url } });
-    const signed = (doc && doc.url) || '';
-    if (signed) signedAssets.add(signed); // the instance vouched for this host; fetchAsset checks here
-    return signed;
-  }
-
-  // ---- product assets (description images, result attachments) -------------
-  // #205: content URLs come both absolute (`<instance>/attachments/{uid}.png`) and ROOT-RELATIVE
-  // (`/rails/active_storage/…`) — a relative one resolves against the INSTANCE, never the document.
-  function assetUrl(raw) {
-    const base = cfg?.baseUrl ? `${cfg.baseUrl}/` : '';
-    try { return new URL(String(raw), base || undefined).toString(); } catch { return ''; }
-  }
-
-  // SECURITY: the JWT rides along ONLY for the configured instance — a presigned bucket link carries
-  // its own signature. `instanceOnly` refuses off-instance URLs: authored markdown can plant a beacon.
-  // On BY DEFAULT: a host named in server data — an avatar, an attachment — gets no request unless
-  // the instance signed for it itself. What the instance's own storage does with a 302 is its call.
-  async function fetchAsset(raw, { instanceOnly = true } = {}) {
-    const url = assetUrl(raw);
-    if (!url) throw new ApiError('http', 0, 'Unresolvable asset URL');
-    const ours = !!cfg?.baseUrl && (url === cfg.baseUrl || url.startsWith(`${cfg.baseUrl}/`));
-    const allowed = ours || signedAssets.has(url);
-    if (instanceOnly && !allowed) throw new ApiError('http', 0, 'Off-instance asset refused');
-    const doGet = () => rawFetch(url, {
-      credentials: 'omit',
-      headers: ours && jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
-      timeout: LONG_TIMEOUT_MS, // the asset itself, same size as the upload that made it
-    });
-    // Basic mode (no session) still tries: a signed bucket link needs no login at all.
-    if (ours && !jwt && jwtAvailable !== false) await login().catch(() => {});
-    let res = await doGet();
-    if (ours && jwt && (res.status === 401 || res.status === 403)) {
-      await login().catch(() => {});
-      res = await doGet();
-    }
-    return res;
-  }
+  // The live session these three read: cfg's base URL, the JWT in hand and the login that mints it.
+  const { assetUrl, fetchAsset, presignArtifact } = ApiAssets.create({
+    baseUrl: () => cfg?.baseUrl,
+    jwt: () => jwt,
+    jwtAvailable: () => jwtAvailable,
+    login,
+    jwtRequest,
+    rawFetch,
+    timeout: LONG_TIMEOUT_MS,
+  });
 
   return {
     configure, useHandoffSession, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
