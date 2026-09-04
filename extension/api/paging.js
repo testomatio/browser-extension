@@ -31,6 +31,27 @@ const ApiPaging = (() => {
     throw new ApiError('http', 0, `${path} is too long to drain — over ${PAGE_GUARD} pages`);
   }
 
+  // The two page fan-outs read page 1's `meta.total_pages` and then ask for the rest. A large project
+  // announces hundreds, and firing them in one frame is what makes opening the Tests tab hang — six at
+  // a time keeps the tab responsive without making the drain feel serial.
+  const FANOUT_LIMIT = 6;
+  // Results come back in the order of `items`, NOT of completion: the pages are assembled into the
+  // list the panel renders, so a page landing late must still land in its own slot.
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const i = next;
+        next += 1;
+        out[i] = await fn(items[i], i);
+      }
+    };
+    // One rejection ends the run the way the Promise.all it replaces did.
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return out;
+  }
+
   // Three meta dialects, verified live on prod: /runs/dashboard camelCase, perPage HARDCODED 30 (param
   // ignored); /runs?group_id= snake_case, per_page honoured (default 50); /rungroups?groupId= fixed at 30.
   const pageResult = (items, page, meta, keys) => ({
@@ -43,5 +64,5 @@ const ApiPaging = (() => {
   const DASH_KEYS = { page: 'page', perPage: 'perPage', total: 'totalCount', totalPages: 'totalPages' };
   const GROUP_KEYS = { page: 'page', perPage: 'per_page', total: 'num', totalPages: 'total_pages' };
 
-  return { drain, pageResult, PAGE_GUARD, DASH_KEYS, GROUP_KEYS };
+  return { drain, mapLimit, pageResult, PAGE_GUARD, FANOUT_LIMIT, DASH_KEYS, GROUP_KEYS };
 })();

@@ -574,7 +574,8 @@
           <!-- The custom status refining the verdict (#109). Read-only here: it is WRITTEN by the select in
                the Test result tab, and the run rows wear the same pill. -->
           <span id="test-substatus-mark" class="badge custom-status" hidden></span>
-          <!-- Offline queue: this test's status is saved locally and awaiting sync. -->
+          <!-- Offline queue: this test's status is saved locally and awaiting sync. The tip here is the
+               offline one; updateTestQueuedMarker swaps it when the token was rejected instead (#106). -->
           <span id="test-queued" class="badge outline queued-mark" hidden
                 data-tip="Saved offline — will sync when the connection returns">queued</span>
           <!-- Hidden rather than dropped: the h2 is still the one element the title is written into, and the

@@ -12,7 +12,7 @@ const V2KEY = 'V2KEY';                       // a minted project key — a liter
 const keyDoc = (attrs) => ok({ data: { attributes: attrs } });
 const loginOk = ok({ jwt: JWT });
 
-// ---- error mapping — toError / ApiError (E-P1-2 and E-P2-1 still OPEN) ----
+// ---- error mapping — toError / ApiError ----
 
 test('14: 401 is the one sentence about the token, whatever the body said', async () => {
   const h = load().configure();
@@ -40,13 +40,42 @@ test('16: 404 says it may be the project, not the row', async () => {
   assert.equal(e.message, 'Not found — or no access to this project');
 });
 
-test('17: a 500 body reaches the tester as a raw JSON dump', async () => {
+test('17: a 500 body reaches the tester as the sentence the server wrote', async () => {
   const h = load().configure();
   h.reply({ status: 500, json: { errors: [{ detail: 'boom' }] } });
   const e = await rejection(h.mod.validate());
   assert.equal(e.kind, 'http');
-  // E-P2-1 OPEN: no formatter yet, so the tester reads the wire shape
-  assert.equal(e.message, '{"errors":[{"detail":"boom"}]}');
+  assert.equal(e.message, 'boom'); // never the wire shape it arrived in
+});
+
+test('17a: every body shape the two APIs use, and the order they are read in', async () => {
+  const cases = [
+    [{ message: 'the run is closed' }, 'the run is closed'],
+    [{ error: 'suite not empty' }, 'suite not empty'],
+    [{ errors: [{ detail: 'title is too long' }] }, 'title is too long'],
+    [{ errors: [{ title: 'Unprocessable' }] }, 'Unprocessable'],
+    [{ errors: [{ message: 'nope' }] }, 'nope'],
+    [{ errors: ['plain string'] }, 'plain string'],
+    [{ message: 'wins', error: 'loses' }, 'wins'],
+    [{ errors: [{ detail: 'wins', title: 'loses' }] }, 'wins'],
+  ];
+  for (const [body, want] of cases) {
+    const h = load().configure();
+    h.reply({ status: 422, json: body });
+    const e = await rejection(h.mod.validate());
+    assert.equal(e.message, want, JSON.stringify(body));
+    assert.equal(e.status, 422);
+  }
+});
+
+test('17b: nothing readable in the body falls back to the status line, never to a dump', async () => {
+  const bodies = [{}, { data: { id: 7 } }, { errors: [] }, { message: '   ' }, { message: 5 }, null, [1, 2]];
+  for (const body of bodies) {
+    const h = load().configure();
+    h.reply({ status: 500, json: body });
+    const e = await rejection(h.mod.validate());
+    assert.equal(e.message, 'HTTP 500', JSON.stringify(body));
+  }
 });
 
 test('18: a 500 the parser chokes on falls back to the status line', async () => {
@@ -57,13 +86,81 @@ test('18: a 500 the parser chokes on falls back to the status line', async () =>
   assert.equal(e.message, 'HTTP 500');
 });
 
-test('19: a 429 loses its Retry-After — nothing reads the header', async () => {
+test('19: a 429 honours Retry-After, twice, and then says what to do about it', async () => {
   const h = load().configure();
-  h.reply(fail(429, { headers: { 'Retry-After': '30' } }));
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': '5' } })));
   const e = await rejection(h.mod.validate());
-  assert.equal(e.kind, 'http');
-  assert.equal(e.message, 'HTTP 429');
-  assert.equal(e.retryAfter, undefined); // E-P1-2 OPEN: the wait the server asked for is dropped
+  assert.equal(h.calls.length, 3);                 // the try, then TWO retries
+  assert.deepEqual(h.waits(), [5000, 5000]);       // the header's seconds, both times
+  assert.equal(e.kind, 'http');                    // NOT a new kind: the offline queue reads this
+  assert.equal(e.status, 429);
+  assert.equal(e.message, 'Too many requests — wait a minute, then try again');
+});
+
+test('19a: no Retry-After backs off 1s then 2s', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), fail(429));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [1000, 2000]);
+});
+
+test('19b: a Retry-After asking for an hour is clamped to 30s', async () => {
+  const h = load().configure();
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': '3600' } })));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [30000, 30000]);
+});
+
+test('19c: an HTTP-date Retry-After is read as a wait, and clamped the same way', async () => {
+  const h = load().configure();
+  const at = (secs) => new Date(Date.now() + secs * 1000).toUTCString();
+  h.reply(fail(429, { headers: { 'Retry-After': at(4) } }), fail(429, { headers: { 'Retry-After': at(600) } }),
+    fail(429, { headers: { 'Retry-After': at(-60) } }));
+  await rejection(h.mod.validate());
+  const [first, second] = h.waits();
+  assert.ok(first > 2000 && first <= 4000, `${first}`); // ~4s, less whatever the row itself took
+  assert.equal(second, 30000);                          // 10 minutes, clamped
+});
+
+test('19d: an unreadable Retry-After falls back to our own back-off', async () => {
+  const h = load().configure();
+  h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': 'soon' } })));
+  await rejection(h.mod.validate());
+  assert.deepEqual(h.waits(), [1000, 2000]);
+});
+
+test('19e: a 429 that clears on the retry never reaches the tester', async () => {
+  const h = load().configure();
+  h.reply(fail(429), ok({ data: [] }));
+  assert.deepEqual(plain(await h.mod.validate()), { data: [] });
+  assert.equal(h.calls.length, 2);
+  assert.deepEqual(h.waits(), [1000]);
+  assert.equal(h.mod.rateLimitedAt(), 0); // the 2xx cleared the stamp: live sync goes back to 20s
+});
+
+test('19f: the rate-limit stamp is what live sync slows itself on', async () => {
+  const h = load().configure();
+  assert.equal(h.mod.rateLimitedAt(), 0);
+  h.reply(fail(429), fail(429), fail(429));
+  const before = Date.now();
+  await rejection(h.mod.validate());
+  assert.ok(h.mod.rateLimitedAt() >= before, `${h.mod.rateLimitedAt()}`);
+});
+
+test('19g: a 429 is NOT the network error the offline queue takes a click on', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), fail(429));
+  const e = await rejection(h.mod.validate());
+  // OfflineQueue.qualifies() is `kind === 'network' || kind === 'auth'` — a rate limit is neither.
+  assert.equal(e.kind === 'network' || e.kind === 'auth', false);
+});
+
+test('19h: a rate-limited write is retried too — a 429 means it never ran', async () => {
+  const h = load().configure();
+  h.reply(fail(429), fail(429), ok({ data: {} }));
+  await h.inner.request('/tests', { method: 'POST', body: { a: 1 } });
+  assert.deepEqual(h.methods(), ['POST', 'POST', 'POST']);
+  assert.deepEqual(h.waits(), [1000, 2000]);
 });
 
 test('20: a dead link is a network error, in those words', async () => {
@@ -230,16 +327,90 @@ test('35: once read-only is proven, opting out of the probe does not opt out of 
   assert.equal(h.calls.length, 1);
 });
 
-test('36: a minted key that answers 401 stays cached, and nothing retries', async () => {
+test('36: a minted key that answers 401 is dropped, re-minted and retried — ONCE', async () => {
   const h = load().configure({ apiToken: JWT });
   h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
   h.route('/api/v2/', fail(401));
   assert.equal((await rejection(h.mod.validate())).kind, 'auth');
-  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
-  // E-P1-4 OPEN: no rotation, so the second call re-uses the key the server just rejected
-  assert.equal(h.matching('/api/projects/p1').length, 1);
+  // One mint for the first try, one for the retry — and then it gives up rather than loop.
+  assert.equal(h.matching('/api/projects/p1').length, 2);
   assert.equal(h.matching('/api/v2/').length, 2);
-  h.matching('/api/v2/').forEach((c) => assert.equal(c.headers.Authorization, `Bearer ${V2KEY}`));
+  h.clear();
+  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
+  assert.equal(h.matching('/api/v2/').length, 2); // the next call is a fresh try, not a longer loop
+});
+
+test('36a: a rotated key: the first refusal is invisible, the write lands on the fresh key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  // The owner rotated it: KEY1 is dead, whatever is minted next works.
+  h.route('/api/v2/', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(401) : ok({ data: {} })));
+  await h.inner.request('/tests', { method: 'POST', body: { a: 1 } });
+  assert.equal(minted, 2);
+  assert.deepEqual(h.matching('/api/v2/').map((c) => c.headers.Authorization),
+    ['Bearer KEY1', 'Bearer KEY2']);
+  assert.equal(h.mod.readonlyAccess(), false); // the retry's 2xx clears the flag as any other would
+});
+
+test('36b: a 403 the corroboration CLEARS rotates too — one route refused can be a dead key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('per_page=1', ok({ data: [] }));   // the plain read is fine: NOT read-only
+  h.route('/tests', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(403) : ok({ data: {} })));
+  await h.inner.request('/tests');
+  assert.equal(minted, 2);
+  assert.deepEqual(h.matching('/api/v2/p1/tests').map((c) => c.headers.Authorization),
+    ['Bearer KEY1', 'Bearer KEY2']);
+  assert.equal(h.matching('per_page=1').length, 1); // the corroboration ran BEFORE the rotation
+});
+
+test('36b2: a read-only project keeps its verdict — the corroboration outranks the rotation', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', fail(403));
+  const e = await rejection(h.mod.validate());
+  assert.equal(e.kind, 'readonly');
+  assert.equal(h.matching('/api/projects/p1').length, 1); // no key churn on a read-only project
+  assert.equal(h.matching('remint').length, 0);           // `remint` is ours, never a query param
+});
+
+test('36c: three routes refused at once on a minted key still share ONE corroboration read', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('per_page=1', fail(403));
+  h.route('/api/v2/', fail(403));
+  const errs = await Promise.all(['/a', '/b', '/c'].map((p) => rejection(h.inner.request(p))));
+  errs.forEach((e) => assert.equal(e.kind, 'readonly'));
+  assert.equal(h.matching('per_page=1').length, 1); // the shared in-flight promise is untouched
+});
+
+test('36d: the corroboration probe does NOT re-mint, whatever it is answered', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('/api/v2/', fail(403)); // the probe is refused too, so it must not start its own rotation
+  await rejection(h.inner.request('/a'));
+  assert.equal(minted, 1);
+});
+
+test('36e: a General token is not ours to rotate — nothing is dropped, nothing retries', async () => {
+  const h = load().configure(); // apiToken: TOKEN, used as the v2 bearer directly
+  h.reply(fail(401));
+  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.matching('/api/projects/').length, 0);
+});
+
+test('36f: deleteAttachment keeps its two legs — the v2 403 is the route, not the key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', fail(403));
+  h.route('/api/p1/attachments/', { status: 204 });
+  assert.equal(await h.mod.deleteAttachment('t1', 'a1'), null);
+  assert.equal(h.matching('/api/v2/').length, 1); // no rotation retry rode along
+  assert.notEqual(h.mod.readonlyAccess(), true);
 });
 
 test('37: a base URL with no scheme throws a RAW TypeError, with no kind on it', async () => {

@@ -14,9 +14,11 @@
 // name that has moved out of the closure is picked off its module global instead; the closure's own
 // still wins, so a half-done extract shows up as a leftover rather than hiding behind the module.
 
-// STUBS. api.js reaches for exactly six globals: fetch, URL, AbortSignal (.timeout/.any), atob,
-// FormData — and Blob through the caller's payload. Node supplies all but `fetch`, which is the
-// scripted recorder below. No chrome, no document, no timers, no storage, no top-level side effects.
+// STUBS. api.js reaches for exactly seven globals: fetch, URL, AbortSignal (.timeout/.any), atob,
+// FormData, setTimeout — and Blob through the caller's payload. Node supplies all but `fetch`, which
+// is the scripted recorder below. No chrome, no document, no storage, no top-level side effects.
+// `setTimeout` is the rate-limit back-off's only wait: the stub records the ms and fires at once, so
+// a row reads the wait it ASKED for (h.waits()) instead of sitting through it.
 
 // TRAPS. Module state is a singleton per load (cfg, jwt, v2Keys, readonly, readonlyCheck,
 // signedAssets, handedJwt) — call load() per test. `readonlyCheck` is a shared in-flight promise: a
@@ -131,6 +133,7 @@ export function load(opts = {}) {
   let inFlight = 0;
   let maxInFlight = 0;
   let lastTimeout = null; // the budget rawFetch asked for, read back off the AbortSignal stub
+  const waits = [];       // every ms the code asked to sleep for, in order
 
   const hooks = {
     // Overridden by the two timeout rows: a signal already aborted, without waiting 30 real seconds.
@@ -188,6 +191,8 @@ export function load(opts = {}) {
     Blob,
     atob,
     console,
+    // The back-off's wait, recorded and skipped: a row asserts the ms, never waits them.
+    setTimeout: (fn, ms) => { waits.push(ms); return setTimeout(fn, 0); },
   };
 
   const context = createContext(sandbox);
@@ -218,8 +223,10 @@ export function load(opts = {}) {
     // Every request whose URL carries `part`.
     matching: (part) => calls.filter((c) => c.url.includes(part)),
     body: (i) => (typeof calls[i]?.body === 'string' ? JSON.parse(calls[i].body) : calls[i]?.body),
-    clear: () => { calls.length = 0; maxInFlight = 0; return h; },
+    clear: () => { calls.length = 0; maxInFlight = 0; waits.length = 0; return h; },
     maxInFlight: () => maxInFlight,
+    // Every back-off the code asked for, in ms and in order.
+    waits: () => waits.slice(),
     settle,
   };
   return h;

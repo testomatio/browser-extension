@@ -92,6 +92,9 @@ const TestomatAPI = (() => {
   }
 
   const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;
+  // When the instance last answered 429, after ApiTransport had already waited out its retries.
+  // The panel's live sync reads it to slow its own polling instead of adding to the flood.
+  const rateLimitedAt = () => ApiTransport.rateLimitedAt();
 
   function guardConfigured() {
     if (!cfg?.baseUrl || !hasCredential() || !cfg?.projectId) {
@@ -114,14 +117,17 @@ const TestomatAPI = (() => {
   let readonlyCheck = null;
   function projectIsReadonly() {
     if (!readonlyCheck) {
-      readonlyCheck = request('/runs', { ...RUNS_PING, corroborate403: false })
+      // `remint: false` too: this probe runs AFTER the rotation retry already had its go, and a
+      // read-only project 403s on every key there is — re-minting per probe would churn forever.
+      readonlyCheck = request('/runs', { ...RUNS_PING, corroborate403: false, remint: false })
         .then(() => false, (e) => e?.status === 403) // any other failure proves nothing — stay unlocked
         .finally(() => { readonlyCheck = null; });
     }
     return readonlyCheck;
   }
 
-  async function request(path, { method = 'GET', body, query, corroborate403 = true } = {}) {
+  async function request(path, opts = {}) {
+    const { method = 'GET', body, query, corroborate403 = true, remint = true } = opts;
     guardConfigured();
     const url = new URL(`${cfg.baseUrl}/api/v2/${cfg.projectId}${path}`);
     if (query) {
@@ -129,14 +135,28 @@ const TestomatAPI = (() => {
         if (v !== null && v !== undefined) url.searchParams.set(k, v);
       }
     }
+    const token = await v2Token();
+    // A key WE minted, not the tester's own General token or a handoff's: only a minted one can be
+    // replaced without asking anybody, so only a minted one is worth retrying behind their back.
+    const minted = v2Keys.get(cfg.projectId) === token;
+    // #106: an owner rotating the project key leaves every open panel holding a dead one. Drop it,
+    // mint a fresh one and replay ONCE — `remint: false` on the replay is what stops a loop.
+    const rotateKey = () => {
+      // Only if nobody re-minted underneath us: a sibling request's fresh key is not ours to discard.
+      if (v2Keys.get(cfg.projectId) === token) v2Keys.delete(cfg.projectId);
+      return request(path, { ...opts, remint: false });
+    };
     const res = await rawFetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${await v2Token()}`,
+        Authorization: `Bearer ${token}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    // A REJECTED key is a 401 here — read-only access is the 403 below (#155) — so this is the
+    // unambiguous rotation signal, and it is taken before anything else looks at the answer.
+    if (res.status === 401 && remint && minted) return rotateKey();
     // Only a plain read answering 403 too proves read-only: a proxy, WAF or SSO gateway refuses ONE route.
     if (res.status === 403) {
       // Already proven: what clears the flag is a 2xx below, so re-probing it buys nothing.
@@ -145,6 +165,10 @@ const TestomatAPI = (() => {
         readonly = true;
         throw new ApiError('readonly', 403, READONLY_MESSAGE(403));
       }
+      // Not read-only, so ONE route refused us — and a rotated key can read that way too. The same
+      // one retry as a 401 gets, but AFTER the corroboration: before it, a read-only project would
+      // drop and re-mint its key on every single call and never learn anything.
+      if (remint && minted) return rotateKey();
       throw new ApiError('auth', 403, ROUTE_REFUSED(403)); // the kind toError() gives a 403 anywhere else
     }
     if (!res.ok) throw await toError(res);
@@ -153,7 +177,7 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  const { drain, pageResult, PAGE_GUARD, DASH_KEYS, GROUP_KEYS } = ApiPaging;
+  const { drain, mapLimit, pageResult, PAGE_GUARD, FANOUT_LIMIT, DASH_KEYS, GROUP_KEYS } = ApiPaging;
   const pagedData = (path, query) => drain(request, path, query);
 
   const validate = () => request('/runs', RUNS_PING);
@@ -195,10 +219,13 @@ const TestomatAPI = (() => {
     };
     const first = await jwtRequest('/suites?page=1');
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
+    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
-    const rest = await Promise.all(
-      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`/suites?page=${i + 2}`)),
+    const rest = await mapLimit(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
+      FANOUT_LIMIT,
+      (p) => jwtRequest(`/suites?page=${p}`),
     );
     rest.forEach(take);
     return positions;
@@ -521,10 +548,13 @@ const TestomatAPI = (() => {
     const path = `/testruns?run_id=${encodeURIComponent(runId)}`;
     const first = await jwtRequest(`${path}&page=1`);
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
+    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
-    const rest = await Promise.all(
-      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`${path}&page=${i + 2}`)),
+    const rest = await mapLimit(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
+      FANOUT_LIMIT,
+      (p) => jwtRequest(`${path}&page=${p}`),
     );
     rest.forEach(take);
     return map;
@@ -629,8 +659,10 @@ const TestomatAPI = (() => {
     guardConfigured();
     const id = encodeURIComponent(String(attachmentId));
     try {
+      // `remint: false` for the same reason as `corroborate403: false`: the 403 here is the ROUTE
+      // answering, not the key, so rotating it would buy a wasted round trip on every delete.
       return await request(`/attachments/${id}`, {
-        method: 'DELETE', query: { testrun_id: testrunId }, corroborate403: false,
+        method: 'DELETE', query: { testrun_id: testrunId }, corroborate403: false, remint: false,
       });
     } catch (e) {
       const st = e && e.status;
@@ -664,6 +696,6 @@ const TestomatAPI = (() => {
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
     // recheckAccess is the corroboration read on its own: the panel's read-only watch shares its
     // coalescing, and reads the VERDICT off readonlyAccess() — only a 2xx in there clears the flag.
-    readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, ApiError,
+    readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, rateLimitedAt, ApiError,
   };
 })();
