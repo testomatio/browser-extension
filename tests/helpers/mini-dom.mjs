@@ -333,9 +333,12 @@ class MiniNode {
     this.listeners.get(type).push({ fn, capture, options });
   }
 
-  removeEventListener(type, fn) {
+  // The phase is part of a listener's identity: a remove that forgets `true` removes nothing,
+  // exactly as in a browser — which is how a leaked document-level capture listener is caught.
+  removeEventListener(type, fn, options) {
+    const capture = options === true || !!(options && options.capture);
     const list = this.listeners.get(type) || [];
-    const i = list.findIndex((l) => l.fn === fn);
+    const i = list.findIndex((l) => l.fn === fn && l.capture === capture);
     if (i >= 0) list.splice(i, 1);
   }
 
