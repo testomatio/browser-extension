@@ -320,8 +320,8 @@ test.todo('an expected result recorded into a Steps section that holds only pros
   assert.match(MdSections.insert(proseOnly, 'Steps', [step('Click Login')], opts), /Expected: the dashboard/);
 });
 
-// `slice` reads a missing body as '', the append branch stringifies it — the tester gets the word.
-test.todo('recording into a body that does not exist yet writes no literal null into the test (#146)', () => {
+// `slice` reads a missing body as '', and the append branch joins onto that same normalised body.
+test('recording into a body that does not exist yet writes no literal null into the test (#146)', () => {
   const out = MdSections.insert(null, 'Steps', [step('Open the site')], STEPS);
   assert.equal(out, MdSections.insert('', 'Steps', [step('Open the site')], STEPS));
   assert.doesNotMatch(out, /null/);

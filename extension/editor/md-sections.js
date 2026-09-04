@@ -114,7 +114,8 @@ const MdSections = (() => {
     // decides where the new section joins the document.
     if (cut.hIdx === -1) {
       const block = [`### ${heading}`, '', ...render(list, cut.style)];
-      return `${String(md).replace(/\s+$/, '')}\n\n${block.join('\n')}`;
+      // `cut.lines` is the body slice() normalised: a missing one joins onto '', not onto "null".
+      return `${cut.lines.join('\n').replace(/\s+$/, '')}\n\n${block.join('\n')}`;
     }
     const lines = cut.lines.slice();
     const last = cut.items[cut.items.length - 1];
