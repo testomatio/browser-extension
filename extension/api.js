@@ -6,7 +6,7 @@
 // the tester signs in once and v2 keys are minted, never typed. A handed-off config
 // (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
-/* global ApiErrors, ApiTransport */
+/* global ApiErrors, ApiTransport, ApiPaging */
 
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
@@ -154,30 +154,8 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  // Drain EVERY page of a v2 index. 100 is what we ASK for, never a promise: sibling routes are
-  // capped at 30 and 50, and a stop measured against our own number ends the drain on page 1.
-  const PAGE_GUARD = 1000;
-  async function pagedData(path, query = {}) {
-    const all = [];
-    let pageSize = null; // the SERVER's page size: `meta.per_page`, else the first page's own length
-    for (let page = 1; page <= PAGE_GUARD; page++) {
-      const res = await request(path, { query: { ...query, page, per_page: 100 } });
-      const items = res?.data || [];
-      all.push(...items);
-      const meta = res?.meta || {};
-      // The server's own account of the drain, wherever it keeps one.
-      if (meta.has_more === false) return all;
-      if (Number.isFinite(meta.total_pages) && page >= meta.total_pages) return all;
-      if (Number.isFinite(meta.total) && all.length >= meta.total) return all;
-      if (Number.isFinite(meta.per_page)) pageSize = meta.per_page;
-      else if (pageSize === null && items.length) pageSize = items.length;
-      // Only THEN a short page, and short against the size the server actually paged with.
-      if (pageSize !== null && items.length < pageSize) return all;
-      if (!items.length) return all; // a page past the end, whatever `has_more` claimed
-    }
-    // Returning the pile here would grade a truncated run as a whole one.
-    throw new ApiError('http', 0, `${path} is too long to drain — over ${PAGE_GUARD} pages`);
-  }
+  const { drain, pageResult, PAGE_GUARD, DASH_KEYS, GROUP_KEYS } = ApiPaging;
+  const pagedData = (path, query) => drain(request, path, query);
 
   const validate = () => request('/runs', RUNS_PING);
   // #110: `render_index` caps per_page at 100 (default 30) and answers meta {total, page, per_page}.
@@ -454,18 +432,6 @@ const TestomatAPI = (() => {
   }
 
   // ---- paged list results (#110) ------------------------------------------
-  // Three meta dialects, verified live on prod: /runs/dashboard camelCase, perPage HARDCODED 30 (param
-  // ignored); /runs?group_id= snake_case, per_page honoured (default 50); /rungroups?groupId= fixed at 30.
-  const pageResult = (items, page, meta, keys) => ({
-    items,
-    page: Number(meta?.[keys.page] ?? page) || page,
-    perPage: meta?.[keys.perPage] != null ? Number(meta[keys.perPage]) : null,
-    total: meta?.[keys.total] != null ? Number(meta[keys.total]) : null,
-    totalPages: meta?.[keys.totalPages] != null ? Number(meta[keys.totalPages]) : null,
-  });
-  const DASH_KEYS = { page: 'page', perPage: 'perPage', total: 'totalCount', totalPages: 'totalPages' };
-  const GROUP_KEYS = { page: 'page', perPage: 'per_page', total: 'num', totalPages: 'total_pages' };
-
   async function fetchDashboardPage(page = 1) {
     const doc = await jwtRequest(`/runs/dashboard?page=${encodeURIComponent(page)}`);
     const items = (doc?.data || []).map((n) => (n.type === 'rungroup' ? normDashGroup(n) : normDashRun(n)));
