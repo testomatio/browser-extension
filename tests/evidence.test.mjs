@@ -508,3 +508,902 @@ test('28: a storage that refuses the write is not a crash the Rec click carries'
   await noChrome.fn.mirrorCaptureBodiesForRelay();
   assert.equal(noChrome.store.ops('local', 'set').length, 0);
 });
+
+// ---------- which testrun a recording belongs to (rows 29-32) ----------
+
+test('29: the tester is told what ended the recording, unless naming it would mean the test title', () => {
+  const h = load();
+  assert.equal(h.fn.evStoppedMessage('target_closed'), 'Recording stopped — the recorded tab was closed');
+  assert.equal(h.fn.evStoppedMessage('panel-closed'), 'Recording stopped — the panel was closed');
+  assert.equal(h.fn.evStoppedMessage('left-testrun'), 'Recording stopped');
+  assert.equal(h.fn.evStoppedMessage(undefined), 'Recording stopped');
+});
+
+test('30: a live session whose testrun is not the screen on show has been left behind', () => {
+  const h = load({ view: 'run' });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  assert.equal(h.fn.evLeftBoundTestrun(), true);
+  // Back on the test it started in, it has not been left at all.
+  h.state.view = 'test';
+  assert.equal(h.fn.evLeftBoundTestrun(), false);
+  // …and a screen with no recording under it is never "left", wherever the tester is.
+  h.evUi.recording = false;
+  h.state.view = 'run';
+  assert.equal(h.fn.evLeftBoundTestrun(), false);
+});
+
+test('31: a panel reload passes through the run view on its way back — that is not leaving', () => {
+  const h = load({ view: 'run', booting: true });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  assert.equal(h.fn.evLeftBoundTestrun(), false);
+  // The same screen once the boot has finished IS a departure.
+  h.state.booting = false;
+  assert.equal(h.fn.evLeftBoundTestrun(), true);
+});
+
+test('32: the bound testrun is compared stringified — a numeric id and its string are one testrun', () => {
+  const h = load({ currentRecordId: 7 });
+  h.evUi.recording = true;
+  h.evUi.recordId = '7';
+  assert.equal(h.fn.evLeftBoundTestrun(), false);
+  // A genuinely different testrun on the same screen still ends the session.
+  h.state.currentRecordId = 8;
+  assert.equal(h.fn.evLeftBoundTestrun(), true);
+});
+
+// ---------- status and the Rec toggle (rows 33-39) ----------
+
+const RECORDING = { recording: true, tabId: 7, recordId: '55', tabTitle: 'Shop', tabUrl: `${SITE}/cart` };
+
+test('33: a stopped recorder leaves no live error count standing on the chip', async () => {
+  const h = load({ reply: (m) => (m.type === 'EVIDENCE_LIST'
+    ? { ok: true, status: { recording: true }, entries: [con(), net()] }
+    : { ok: true, status: { recording: false } }) });
+  h.fn.applyEvidenceStatus(RECORDING);
+  await settle();
+  assert.equal(h.evUi.errors.length, 2);
+  assert.equal(h.node.evidenceErrors.textContent, '2');
+  assert.equal(h.node.evidenceErrors.hidden, false);
+
+  h.fn.applyEvidenceStatus({ recording: false });
+  assert.deepEqual(plain(h.evUi.errors), []);
+  assert.equal(h.calls.card.close, 1);          // and the card the pointer may be resting in shuts
+  assert.equal(h.node.evidenceErrors.hidden, true);
+  assert.equal(h.node.evidenceErrors.textContent, '');
+});
+
+test('33b: a status that does not stop the recording leaves the rows where they are', async () => {
+  const h = load({ reply: (m) => (m.type === 'EVIDENCE_LIST'
+    ? { ok: true, status: { recording: true }, entries: [con(), net()] }
+    : { ok: true, status: { recording: false } }) });
+  h.fn.applyEvidenceStatus(RECORDING);
+  await settle();
+  h.fn.applyEvidenceStatus({ ...RECORDING, tabTitle: 'Shop — cart' });
+  assert.equal(h.evUi.errors.length, 2);
+  assert.equal(h.calls.card.close, 0);
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-label'), 'Rec — recording Shop — cart, 2 errors caught, click to stop');
+});
+
+test('33c: the chip counts the RECORDING, so rows left over from an ended one show no figure', () => {
+  const h = load();
+  // The second line of defence behind the clear in applyEvidenceStatus: whatever is still in the
+  // list, an idle chip must read as "nothing has been recorded", never as "recorded, 2 errors".
+  h.evUi.errors = [con(), net()];
+  h.fn.renderEvidenceToggle();
+  assert.equal(h.node.evidenceErrors.hidden, true);
+  assert.equal(h.node.evidenceErrors.textContent, '');
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-label'),
+    'Rec — record the console & network log from the tab under test');
+
+  // The identical rows under a live recording are exactly what the chip is for.
+  h.evUi.recording = true;
+  h.evUi.tabTitle = 'Shop';
+  h.fn.renderEvidenceToggle();
+  assert.equal(h.node.evidenceErrors.hidden, false);
+  assert.equal(h.node.evidenceErrors.textContent, '2');
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-label'), 'Rec — recording Shop, 2 errors caught, click to stop');
+
+  // One error is singular, and the chip belongs to the test view alone.
+  h.evUi.errors = [con()];
+  h.fn.renderEvidenceToggle();
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-label'), 'Rec — recording Shop, 1 error caught, click to stop');
+  h.state.view = 'run';
+  h.fn.renderEvidenceToggle();
+  assert.equal(h.node.evidenceToggle.hidden, true);
+  assert.equal(h.node.recSlot.hidden, true); // the slot follows it, so the tabs row loses no width
+});
+
+test('34: an answer with no status at all resets the screen instead of throwing', () => {
+  const h = load();
+  h.fn.applyEvidenceStatus(RECORDING);
+  assert.equal(h.evUi.recording, true);
+  h.fn.applyEvidenceStatus(undefined);
+  assert.deepEqual(
+    [h.evUi.recording, h.evUi.tabId, h.evUi.recordId, h.evUi.tabTitle, h.evUi.tabUrl],
+    [false, null, null, '', ''],
+  );
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(h.node.evidenceToggle.getAttribute('aria-label'),
+    'Rec — record the console & network log from the tab under test');
+});
+
+test('35: Rec off the test view, or with no testrun to belong to, says so and starts nothing', async () => {
+  for (const opts of [{ view: 'run' }, { currentRecordId: null }]) {
+    const h = load(opts);
+    await h.fn.onEvidenceToggle();
+    assert.deepEqual(h.calls.toasts, [{ msg: NO_TEST }], JSON.stringify(opts));
+    assert.deepEqual(h.types(), [], JSON.stringify(opts));
+    assert.deepEqual(h.calls.disabledAt, [], JSON.stringify(opts)); // it never reached the resolver
+    assert.equal(h.node.evidenceToggle.disabled, false);
+  }
+  // The identical click inside an open test does start a session.
+  const open = load({ reply: () => ({ ok: true, status: RECORDING }) });
+  await open.fn.onEvidenceToggle();
+  assert.deepEqual(open.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
+});
+
+test('36: a page Chrome keeps extensions off is named, and the button comes back', async () => {
+  const h = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await h.fn.onEvidenceToggle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+  assert.deepEqual(h.types(), []);
+  assert.equal(h.store.ops('local', 'set').length, 0); // not even the body-capture flag was written
+  assert.deepEqual(h.calls.disabledAt, [true]);        // held down while the resolver ran…
+  assert.equal(h.node.evidenceToggle.disabled, false); // …and released by the finally
+});
+
+test('37: a start writes the page\'s flag BEFORE the toggle, so the hook cannot ask too early', async () => {
+  const h = load({ reply: (m) => (m.type === 'EVIDENCE_TOGGLE'
+    ? { ok: true, status: RECORDING }
+    : { ok: true, status: { recording: true }, entries: [] }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(h.calls.order, [
+    'resolveSiteTab', 'storage.set', 'send:EVIDENCE_TOGGLE',
+    // The status is applied before the toast, and the poll it starts asks for its first figure
+    // straight away rather than waiting the 2 s out.
+    'card.attach', 'card.update', 'send:EVIDENCE_LIST', 'toast', 'card.update',
+  ]);
+  assert.deepEqual(h.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
+  assert.deepEqual(h.store.ops('local', 'set').map((c) => c.arg), [{ evidenceCaptureBodies: true }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recording Shop' }]);
+});
+
+test('37b: a recorder that answers without a tab title still names something', async () => {
+  const h = load({ reply: () => ({ ok: true, status: { recording: true, tabId: 7, recordId: '55' } }) });
+  await h.fn.onEvidenceToggle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recording tab' }]);
+});
+
+test('38: the stop carries the testrun on SHOW, not the one the session was bound to', async () => {
+  const h = load({ currentRecordId: '55' });
+  h.evUi.recording = true;
+  h.evUi.recordId = '99'; // a session started in another testrun and restored across a reload
+  await h.fn.onEvidenceToggle();
+  assert.deepEqual(h.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: null, recordId: '55' });
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recording stopped' }]);
+  assert.deepEqual(h.calls.disabledAt, []); // stopping never resolves a tab
+});
+
+test('39: a recorder that refuses says why and then re-reads the truth from the worker', async () => {
+  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x' }]);
+  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
+  // A STOP the worker never answered is named too, rather than passing for a success.
+  const gone = load({ reply: () => undefined });
+  gone.evUi.recording = true;
+  await gone.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(gone.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
+  assert.deepEqual(gone.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
+});
+
+test('39c: an unanswered START leaks its TypeError into the toast — today\'s wording, pinned', async () => {
+  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path
+  // reads `r.unrecordable` unguarded one line above the `!r` the stop path enjoys. See the todo.
+  const h = load({ reply: () => undefined });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(h.calls.toasts, [{ msg: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')" }]);
+  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE']); // and no status refresh follows it
+  assert.equal(h.node.evidenceToggle.disabled, false);
+});
+
+test('39b: a throw inside the flow is a sentence, and the button is released all the same', async () => {
+  const h = load({ resolveSiteTab: async () => { throw new Error('tabs query failed'); } });
+  await h.fn.onEvidenceToggle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder error: tabs query failed' }]);
+  assert.equal(h.node.evidenceToggle.disabled, false);
+  assert.deepEqual(h.types(), []);
+});
+
+// ---------- starting by itself, and the 2 s poll (rows 40-48) ----------
+
+const AUTO = { evidenceAutoStart: true };
+const started = (m) => (m.type === 'EVIDENCE_TOGGLE'
+  ? { ok: true, status: { recording: true, tabId: 7, recordId: '55', tabTitle: 'Shop' } }
+  : { ok: true, status: { recording: true }, entries: [] });
+
+test('40: entering a testrun arms the recorder — but only with the setting on and nothing running', async () => {
+  const off = load({ settings: {}, reply: started });
+  await off.fn.evAutoStartOnTestView();
+  assert.deepEqual(off.types(), []);
+
+  const busy = load({ settings: AUTO, reply: started });
+  busy.evUi.recording = true;
+  await busy.fn.evAutoStartOnTestView();
+  assert.deepEqual(busy.types(), []);
+
+  const noRun = load({ settings: AUTO, currentRecordId: null, reply: started });
+  await noRun.fn.evAutoStartOnTestView();
+  assert.deepEqual(noRun.types(), []);
+
+  const away = load({ settings: AUTO, view: 'run', reply: started });
+  await away.fn.evAutoStartOnTestView();
+  assert.deepEqual(away.types(), []);
+
+  // All four conditions met, driven identically: the session starts and the poll begins.
+  const on = load({ settings: AUTO, reply: started });
+  await on.fn.evAutoStartOnTestView();
+  await settle();
+  assert.deepEqual(on.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
+  assert.equal(on.evUi.recording, true);
+  assert.deepEqual(on.clock.arms(), [2000]);
+});
+
+test('41: Back and straight forward again inside one round trip starts ONE session, not two', async () => {
+  const h = load({ settings: AUTO, reply: started });
+  const first = h.fn.evAutoStartOnTestView();
+  const second = h.fn.evAutoStartOnTestView();
+  await first;
+  await second;
+  await settle();
+  // A second toggle would have STOPPED the first one's session, which is the whole point.
+  assert.deepEqual(h.types().filter((t) => t === 'EVIDENCE_TOGGLE'), ['EVIDENCE_TOGGLE']);
+  // One entry on its own still starts one, so the row above is not counting a stub that never sends.
+  const alone = load({ settings: AUTO, reply: started });
+  await alone.fn.evAutoStartOnTestView();
+  assert.deepEqual(alone.types().filter((t) => t === 'EVIDENCE_TOGGLE'), ['EVIDENCE_TOGGLE']);
+});
+
+test('41b: the question is re-asked after EVERY await — a tester gone by the flag write starts nothing', async () => {
+  // Left between resolving the tab and writing the page's flag.
+  let a = null;
+  a = load({ settings: AUTO, reply: started, resolveSiteTab: async () => { a.state.view = 'run'; return a.site; } });
+  a.site = { state: 'ok', tab: { id: 7 }, origin: SITE, error: null };
+  await a.fn.evAutoStartOnTestView();
+  assert.deepEqual(a.types(), []);
+  assert.equal(a.store.ops('local', 'set').length, 0);
+
+  // Left between the flag write and the toggle: the flag is out, the session is not.
+  let b = null;
+  b = load({ settings: AUTO, reply: started, onMirror: () => { b.state.currentRecordId = '56'; } });
+  await b.fn.evAutoStartOnTestView();
+  assert.deepEqual(b.types(), []);
+  assert.equal(b.store.ops('local', 'set').length, 1);
+});
+
+test('42: a session that lands after the tester walked off is still applied, then ended by the poll', async () => {
+  let h = null;
+  h = load({
+    settings: AUTO,
+    onSend: (m) => { if (m.type === 'EVIDENCE_TOGGLE') h.state.view = 'run'; },
+    reply: started,
+  });
+  await h.fn.evAutoStartOnTestView();
+  await settle();
+  // Only a LIVE session can be the one the poll then stops — the stop is the proof it was applied.
+  assert.deepEqual(h.calls.sends, [
+    { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' },
+    { type: 'EVIDENCE_STOP', reason: 'left-testrun' },
+  ]);
+  assert.equal(h.evUi.recording, false);
+  assert.equal(h.clock.count(), 0); // and the 2 s timer it armed went with it
+
+  // The same start with the tester still on the test keeps the session and polls instead.
+  const stay = load({ settings: AUTO, reply: started });
+  await stay.fn.evAutoStartOnTestView();
+  await settle();
+  assert.deepEqual(stay.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_LIST']);
+  assert.equal(stay.evUi.recording, true);
+});
+
+test('43: an automatic start is silent in both outcomes — a toast on every test opened is noise', async () => {
+  const ok = load({ settings: AUTO, reply: started });
+  await ok.fn.evAutoStartOnTestView();
+  await settle();
+  assert.deepEqual(ok.calls.toasts, []);
+
+  const blocked = load({ settings: AUTO, site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await blocked.fn.evAutoStartOnTestView();
+  assert.deepEqual(blocked.calls.toasts, []);
+  assert.deepEqual(blocked.types(), []);
+  // The tester's OWN click on that same page does say it — the silence belongs to the auto-start.
+  await blocked.fn.onEvidenceToggle();
+  assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+});
+
+test('44: a poll that finds the tester gone clears the chip FIRST and only then tells the worker', async () => {
+  const h = load({ view: 'run' });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  await h.fn.pollEvidenceErrors();
+  assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_STOP', reason: 'left-testrun' }]);
+  // Cleared before the round trip, so the screen being left cannot hold a live chip meanwhile.
+  assert.deepEqual(h.calls.recordingAt, [{ type: 'EVIDENCE_STOP', recording: false }]);
+  assert.equal(h.evUi.recording, false);
+
+  // The same poll on the testrun the session belongs to asks for the list instead.
+  const home = load({ reply: () => ({ ok: true, status: { recording: true }, entries: [con()] }) });
+  home.evUi.recording = true;
+  home.evUi.recordId = '55';
+  await home.fn.pollEvidenceErrors();
+  assert.deepEqual(home.types(), ['EVIDENCE_LIST']);
+  assert.equal(home.evUi.errors.length, 1);
+});
+
+test('45: a recorder that stopped underneath us wins — its rows never reach the screen', async () => {
+  const h = load({ reply: () => ({ ok: true, status: { recording: false }, entries: [con({ text: 'B' })] }) });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  h.evUi.errors = [con({ text: 'A' })];
+  await h.fn.pollEvidenceErrors();
+  assert.deepEqual(h.types(), ['EVIDENCE_LIST']);
+  assert.equal(h.evUi.recording, false);
+  assert.deepEqual(plain(h.evUi.errors), []); // B never lands, and A goes with the stop
+
+  // A poll the worker could not answer changes nothing at all.
+  const lost = load({ reply: () => ({ ok: false, error: 'no-extension' }) });
+  lost.evUi.recording = true;
+  lost.evUi.recordId = '55';
+  lost.evUi.errors = [con({ text: 'A' })];
+  await lost.fn.pollEvidenceErrors();
+  assert.equal(lost.evUi.recording, true);
+  assert.deepEqual(plain(lost.evUi.errors).map((e) => e.text), ['A']);
+});
+
+test('46: the recording gets ONE 2 s poll, and the count does not wait 2 s for its first figure', async () => {
+  const h = load({ reply: () => ({ ok: true, status: { recording: true }, entries: [con(), net()] }) });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  h.fn.syncEvidencePolling();
+  await settle();
+  assert.deepEqual(h.clock.arms(), [2000]);
+  // The immediate first poll, and it asks for the errors ONLY: the section is an error log, and a
+  // full console would bury the two rows the tester came for under every info line the page wrote.
+  assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_LIST', errorsOnly: true }]);
+  assert.equal(h.evUi.errors.length, 2);
+
+  h.fn.syncEvidencePolling(); // a second sync must not stack a second timer
+  assert.equal(h.clock.count(), 1);
+  assert.deepEqual(h.clock.arms(), [2000]);
+
+  await h.clock.tick();
+  await settle();
+  assert.deepEqual(h.types(), ['EVIDENCE_LIST', 'EVIDENCE_LIST']);
+});
+
+test('47: the timer belongs to the recording — a stop takes it away', async () => {
+  const h = load({ reply: () => ({ ok: true, status: { recording: true }, entries: [] }) });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  h.fn.syncEvidencePolling();
+  await settle();
+  assert.equal(h.clock.count(), 1);
+
+  h.evUi.recording = false;
+  h.fn.syncEvidencePolling();
+  assert.equal(h.clock.count(), 0);
+  assert.equal(h.evUi.pollTimer, null);
+  assert.deepEqual(h.clock.cleared.length, 1);
+  // A tick after the stop reaches nothing: no further round trip is made.
+  const before = h.calls.sends.length;
+  await h.clock.tick();
+  await settle();
+  assert.equal(h.calls.sends.length, before);
+});
+
+test('48: leaving the test retires the rows the tester had open — a later recording opens none of them', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.expanded.add('console:1:boom');
+  h.state.view = 'run';
+  h.fn.updateEvidenceSection();
+  assert.equal(h.node.evidenceSection.hidden, true);
+  assert.equal(h.evUi.expanded.size, 0);
+
+  // On the test, with the recording still live, the same call keeps them.
+  const stay = load();
+  stay.evUi.recording = true;
+  stay.evUi.expanded.add('console:1:boom');
+  stay.fn.updateEvidenceSection();
+  assert.equal(stay.node.evidenceSection.hidden, false);
+  assert.equal(stay.evUi.expanded.size, 1);
+
+  // The fold itself belongs to the test view, not to the recording: idle it is still on show.
+  const idle = load();
+  idle.evUi.expanded.add('console:1:boom');
+  idle.fn.updateEvidenceSection();
+  assert.equal(idle.node.evidenceSection.hidden, false);
+  assert.equal(idle.evUi.expanded.size, 0); // …but the keys retire with the session that made them
+});
+
+// ---------- the list (rows 49-52) ----------
+
+const many = (n) => Array.from({ length: n }, (_, i) => con({ text: `e${i}`, ts: TS + i }));
+
+test('49: a page that logged 250 errors draws the last 100 — the figure still counts them all', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.sectionOpen = true;
+  h.evUi.errors = many(250);
+  h.fn.renderEvidenceList();
+  assert.equal(h.rows().length, 100);
+  assert.equal(h.rows()[0].querySelector('.ev-text').textContent, `console.error · e150 · ${AT}`);
+  assert.equal(h.rows()[99].querySelector('.ev-text').textContent, `console.error · e249 · ${AT}`);
+  assert.equal(h.node.evidenceCount.textContent, '250');
+});
+
+test('49b: a row the tester opened is still open after the 2 s repaint', async () => {
+  const entries = many(4);
+  const h = load({ reply: () => ({ ok: true, status: { recording: true }, entries }) });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  h.evUi.sectionOpen = true;
+  await h.fn.pollEvidenceErrors();
+  const open = (i) => h.rows()[i].classList.contains('expanded');
+  assert.deepEqual([open(0), open(1), open(2), open(3)], [false, false, false, false]);
+
+  const head = h.rows()[2].querySelector('.ev-row-head');
+  fire(head, 'click');
+  assert.equal(open(2), true);
+  assert.equal(h.rows()[2].querySelector('.ev-details').hidden, false);
+
+  await h.clock.tick(); // …nothing armed yet, but the poll is what the interval calls
+  await h.fn.pollEvidenceErrors();
+  assert.deepEqual([open(0), open(1), open(2), open(3)], [false, false, true, false]);
+  assert.equal(h.rows()[2].querySelector('.ev-details').hidden, false);
+
+  // Clicking it shut survives the repaint just as well — the verdict is the set, not the DOM.
+  fire(h.rows()[2].querySelector('.ev-row-head'), 'click');
+  await h.fn.pollEvidenceErrors();
+  assert.equal(open(2), false);
+  assert.equal(h.evUi.expanded.size, 0);
+});
+
+test('49c: the Attach button on a row does not also fold the row open', async () => {
+  const entries = [con()];
+  const h = load({ reply: () => ({ ok: true, status: { recording: true }, entries }) });
+  h.evUi.recording = true;
+  h.evUi.recordId = '55';
+  h.evUi.sectionOpen = true;
+  await h.fn.pollEvidenceErrors();
+  const row = h.rows()[0];
+  const head = row.querySelector('.ev-row-head');
+  // The click really lands on the button inside the head, the way a pointer delivers it.
+  fire(head, 'click', { target: row.querySelector('.ev-attach') });
+  assert.equal(row.classList.contains('expanded'), false);
+  // …while the same click anywhere else in the head does open it.
+  fire(head, 'click');
+  assert.equal(row.classList.contains('expanded'), true);
+});
+
+test('50: idle carries NO figure — a "0" beside the name would read as "recorded, and clean"', () => {
+  const h = load();
+  h.evUi.sectionOpen = true;
+  h.evUi.errors = [con(), net()]; // stale rows from a session that has ended
+  h.fn.renderEvidenceList();
+  assert.equal(h.node.evidenceCount.hidden, true);
+  assert.equal(h.node.evidenceCount.textContent, '');
+  assert.deepEqual(h.calls.counters, []); // paintCounter is never even asked for a figure
+  assert.deepEqual(h.calls.empties.map((e) => e.icon), ['fiber_manual_record']);
+  const hint = h.rows()[0].querySelector('.empty-text').textContent;
+  assert.ok(hint.startsWith('Not recording. Click Rec at the top of the panel'), hint);
+  assert.ok(hint.includes('the last 60s are kept'), hint);
+});
+
+test('51: an empty errors-only log is a TICK, not a shrug — the page behaved', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.sectionOpen = true;
+  h.fn.renderEvidenceList();
+  assert.equal(h.node.evidenceCount.hidden, false);
+  assert.equal(h.node.evidenceCount.textContent, '0');
+  assert.deepEqual(h.calls.empties.map((e) => e.icon), ['check_circle']);
+  assert.equal(h.rows()[0].querySelector('.empty-text').textContent, 'No console or network errors captured yet.');
+  // The moment one error arrives, the tick gives way to the row.
+  h.evUi.errors = [con()];
+  h.fn.renderEvidenceList();
+  assert.equal(h.node.evidenceCount.textContent, '1');
+  assert.equal(h.rows()[0].querySelector('.ev-text').textContent, `console.error · boom · ${AT}`);
+});
+
+test('52: a folded section costs nothing to repaint — the count still moves', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.errors = [con(), net()];
+  const sentinel = el('li', { id: 'sentinel' });
+  h.node.evidenceList.append(sentinel);
+  h.fn.renderEvidenceList();
+  assert.equal(h.rows().length, 1);
+  assert.equal(h.rows()[0], sentinel);        // the list was never touched
+  assert.equal(h.node.evidenceCount.textContent, '2'); // the head's figure was
+
+  // Unfolding it draws the rows over the sentinel, so the row above is not asserting a dead call.
+  h.evUi.sectionOpen = true;
+  h.fn.renderEvidenceList();
+  assert.equal(h.rows().length, 2);
+  assert.equal(h.rows()[0].className, 'evidence-row ev-con');
+});
+
+// ---------- attaching one row to the comment (rows 53-54) ----------
+
+test('53: Attach drops the snippet into the comment and tells the draft-save it changed', () => {
+  const h = load();
+  const seen = [];
+  h.node.testComment.addEventListener('input', (ev) => { seen.push({ type: ev.type, bubbles: ev.bubbles }); });
+
+  h.fn.attachEvidenceEntry(con());
+  assert.equal(h.node.testComment.value, `> \`[console.error ${AT}] boom\``);
+  assert.deepEqual(h.calls.toasts, [{ msg: ATTACHED }]);
+
+  // A second row appends under the first, on its own line — it never replaces what is there.
+  h.fn.attachEvidenceEntry(net({ url: 'https://x/y' }));
+  assert.equal(
+    h.node.testComment.value,
+    `> \`[console.error ${AT}] boom\`\n> \`[500 GET https://x/y ${AT}]\``,
+  );
+  // Without the bubbling `input` the comment-draft save never runs and the tester's text is lost.
+  assert.deepEqual(seen, [{ type: 'input', bubbles: true }, { type: 'input', bubbles: true }]);
+});
+
+test('53b: text the tester typed themselves keeps its place above the snippet', () => {
+  const h = load();
+  h.node.testComment.value = 'Repro: click Buy twice';
+  h.fn.attachEvidenceEntry(con());
+  assert.equal(h.node.testComment.value, `Repro: click Buy twice\n> \`[console.error ${AT}] boom\``);
+});
+
+test('54: a panel with no comment box to attach to is not a crash', () => {
+  const h = load({ without: ['test-comment'] });
+  h.fn.attachEvidenceEntry(con());
+  assert.deepEqual(h.calls.toasts, []); // silent: nothing was attached, so nothing is claimed
+  // The same entry on a panel that HAS the box does toast, so the silence is the missing box.
+  const box = load();
+  box.fn.attachEvidenceEntry(con());
+  assert.deepEqual(box.calls.toasts, [{ msg: ATTACHED }]);
+});
+
+// ---------- the upload on a failed test (rows 55-59) ----------
+
+const SNAP = {
+  ok: true,
+  entries: [con(), net({ url: 'https://x/y', bodySnippet: '{"a":1}' })],
+  status: { tabTitle: 'Shop', tabUrl: `${SITE}/cart`, windowSec: 60 },
+};
+const recorded = (m) => {
+  if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
+  if (m.type === 'EVIDENCE_SNAPSHOT') return SNAP;
+  return { ok: true, status: { recording: false } };
+};
+
+test('55: with no result to hang it on, or auto-attach off, the FAIL attaches nothing', async () => {
+  const none = load({ reply: recorded });
+  assert.equal(await none.fn.uploadEvidenceLog(null), '');
+  assert.equal(await none.fn.uploadEvidenceLog({}), '');
+  assert.equal(await none.fn.uploadEvidenceLog({ id: '' }), '');
+  assert.deepEqual(none.types(), []);
+
+  const off = load({ settings: { evidenceAutoAttach: false }, reply: recorded });
+  assert.equal(await off.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(off.types(), []);
+  assert.deepEqual(off.calls.uploads, []);
+
+  // The same record with the gate open goes all the way to the upload.
+  const on = load({ reply: recorded });
+  assert.equal(await on.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
+});
+
+test('56: a recorder that is not recording is asked for no snapshot at all', async () => {
+  const idle = load({ reply: (m) => (m.type === 'EVIDENCE_STATUS'
+    ? { ok: true, status: { recording: false } } : recorded(m)) });
+  assert.equal(await idle.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(idle.types(), ['EVIDENCE_STATUS']);
+
+  const gone = load({ reply: (m) => (m.type === 'EVIDENCE_STATUS' ? { ok: false, error: 'no-extension' } : recorded(m)) });
+  assert.equal(await gone.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(gone.types(), ['EVIDENCE_STATUS']);
+
+  // A snapshot the worker could not build stops one step later, before any blob is made.
+  const empty = load({ reply: (m) => (m.type === 'EVIDENCE_SNAPSHOT' ? { ok: false } : recorded(m)) });
+  assert.equal(await empty.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(empty.types(), ['EVIDENCE_STATUS', 'EVIDENCE_SNAPSHOT']);
+  assert.deepEqual(empty.calls.uploads, []);
+});
+
+test('57: the FAIL uploads the window as a named .txt, and hands back the URL the META key needs', async () => {
+  const h = load({ reply: recorded });
+  const url = await h.fn.uploadEvidenceLog({ id: '900', test_title: 'Test B' });
+  assert.equal(url, UPLOADED);
+  assert.deepEqual(h.types(), ['EVIDENCE_STATUS', 'EVIDENCE_SNAPSHOT']);
+  assert.equal(h.calls.uploads.length, 1);
+  const sent = h.calls.uploads[0];
+  assert.equal(sent.id, '900');
+  assert.equal(sent.name, `evidence-900-${NOW}.txt`);
+  assert.equal(sent.blob.type, 'text/plain');
+  // The run title comes from `state`, the test title from the record, the rows from the snapshot.
+  assert.ok(sent.blob.text.startsWith('Console & network log — Run A / Test B\nRecorded tab: Shop\n'), sent.blob.text);
+  assert.ok(sent.blob.text.includes('== Console (1) ==\n[14:05:09] console.error: boom'), sent.blob.text);
+  assert.ok(sent.blob.text.includes('== Network (1) ==\n[14:05:09] 500 GET https://x/y\n    {"a":1}'), sent.blob.text);
+  assert.equal(sent.blob.text, h.fn.evBuildTxt('Run A', 'Test B', SNAP.entries, SNAP.status));
+});
+
+test('57b: a record with no title of its own borrows the one on screen', async () => {
+  const h = load({ testTitle: 'Checkout — guest', reply: recorded });
+  await h.fn.uploadEvidenceLog({ id: '900' });
+  assert.ok(h.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Checkout — guest\n'));
+  // With neither, the artifact still names itself rather than printing an empty half.
+  const bare = load({ reply: recorded, without: ['test-title'] });
+  await bare.fn.uploadEvidenceLog({ id: '900' });
+  assert.ok(bare.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Test\n'));
+});
+
+test('58: an upload that fails is non-fatal — the status write already landed', async () => {
+  const broke = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
+  assert.equal(await broke.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(broke.calls.toasts, [
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)" },
+  ]);
+
+  const silent = load({ reply: recorded, upload: () => ({}) });
+  assert.equal(await silent.fn.uploadEvidenceLog({ id: '900' }), '');
+  assert.deepEqual(silent.calls.toasts, [
+    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)" },
+  ]);
+  // A landing upload says nothing at all: the sentence is the failure's, not the flow's.
+  const ok = load({ reply: recorded });
+  assert.equal(await ok.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
+  assert.deepEqual(ok.calls.toasts, []);
+});
+
+// ---------- wiring, messaging and the card (rows 60-64) ----------
+
+test('60: in the chain the dot keeps pulsing, so a "stopped" toast would contradict the screen', () => {
+  const h = load({ settings: AUTO });
+  h.fn.initEvidence();
+  h.calls.toasts.length = 0;
+  h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'left-testrun' });
+  assert.deepEqual(h.calls.toasts, []);
+  assert.equal(h.evUi.recording, false); // …but the status was applied all the same
+
+  // Every other reason keeps its sentence, chain or no chain.
+  h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'target_closed' });
+  h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'panel-closed' });
+  assert.deepEqual(h.calls.toasts, [
+    { msg: 'Recording stopped — the recorded tab was closed' },
+    { msg: 'Recording stopped — the panel was closed' },
+  ]);
+  // And a message that is not ours is not ours.
+  h.calls.listener({ type: 'SOMETHING_ELSE', reason: 'target_closed' });
+  h.calls.listener(null);
+  assert.equal(h.calls.toasts.length, 2);
+});
+
+test('60b: nothing is chained without the setting, the test view AND a testrun — then it does say so', () => {
+  const cases = [
+    { settings: {} },                       // auto-start off: nothing will restart
+    { settings: AUTO, view: 'run' },        // not on a test: nothing to start on
+    { settings: AUTO, currentRecordId: null }, // no testrun to bind a new session to
+  ];
+  for (const opts of cases) {
+    const h = load(opts);
+    h.fn.initEvidence();
+    h.calls.toasts.length = 0;
+    h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'left-testrun' });
+    assert.deepEqual(h.calls.toasts, [{ msg: 'Recording stopped' }], JSON.stringify(opts));
+  }
+});
+
+test('60c: init wires the Rec chip and the fold, and asks the worker what it is doing', async () => {
+  const h = load({ reply: (m) => (m.type === 'EVIDENCE_TOGGLE'
+    ? { ok: true, status: { recording: true, tabId: 7, recordId: '55', tabTitle: 'Shop' } }
+    : { ok: true, status: { recording: false } }) });
+  h.fn.initEvidence();
+  await settle();
+  assert.deepEqual(h.types(), ['EVIDENCE_STATUS']);
+
+  h.click('evidenceHead');
+  assert.equal(h.evUi.sectionOpen, true);
+  assert.equal(h.node.evidenceHead.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.node.evidenceBody.hidden, false);
+
+  h.click('evidenceToggle');
+  await settle();
+  assert.deepEqual(h.calls.sends[1], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recording Shop' }]);
+  // …and folding it shut again is the same click.
+  h.click('evidenceHead');
+  assert.equal(h.evUi.sectionOpen, false);
+  assert.equal(h.node.evidenceBody.hidden, true);
+});
+
+test('61: outside the extension context every message answers instead of throwing', async () => {
+  for (const opts of [{ hasChrome: false }, { runtime: false }]) {
+    const h = load(opts);
+    assert.deepEqual(plain(await h.fn.evSend({ type: 'EVIDENCE_STATUS' })), { ok: false, error: 'no-extension' },
+      JSON.stringify(opts));
+    assert.deepEqual(h.calls.sends, [], JSON.stringify(opts));
+  }
+  // A live context passes the worker's own answer straight back.
+  const live = load({ reply: () => ({ ok: true, status: { recording: true } }) });
+  assert.deepEqual(plain(await live.fn.evSend({ type: 'EVIDENCE_STATUS' })), { ok: true, status: { recording: true } });
+});
+
+test('62: a worker torn down mid-message hands its sentence back rather than throwing', async () => {
+  const gone = load({ reply: () => Promise.reject(new Error('Receiving end does not exist')) });
+  assert.deepEqual(plain(await gone.fn.evSend({ type: 'EVIDENCE_STATUS' })),
+    { ok: false, error: 'Receiving end does not exist' });
+  // A rejection that is not an Error at all still reads as a sentence.
+  const odd = load({ reply: () => Promise.reject('boom') });
+  assert.deepEqual(plain(await odd.fn.evSend({ type: 'EVIDENCE_STATUS' })), { ok: false, error: 'boom' });
+});
+
+test('63: on the card a console row drops its prefix while an uncaught throw keeps its word', () => {
+  const h = load();
+  h.evUi.tabUrl = `${SITE}/cart`;
+  assert.equal(h.fn.evCardRowText({ kind: 'exception', text: 'boom' }), 'uncaught · boom');
+  assert.equal(h.fn.evCardRowText({ kind: 'console', level: 'error', text: 'boom' }), 'boom');
+  assert.equal(h.fn.evCardRowText(net({ url: `${SITE}/api/y` })), '500 GET /api/y');
+});
+
+test('64: the card is a glance at what just happened — the newest six, newest first, then "+N more"', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.tabTitle = 'Shop';
+  h.evUi.errors = many(9);
+  const box = h.fn.evRecordingCard();
+  assert.equal(box.querySelector('.hovercard-title').textContent, 'Shop');
+  assert.equal(box.querySelector('.hovercard-meta').textContent, '9 errors · last 60s');
+  assert.deepEqual(
+    box.querySelectorAll('.hovercard-row').map((r) => r.querySelector('.hovercard-text').textContent),
+    ['e8', 'e7', 'e6', 'e5', 'e4', 'e3'],
+  );
+  assert.equal(box.querySelector('.hovercard-more').textContent, '+3 more');
+  assert.equal(h.screen.EV_CARD_ROWS, 6);
+});
+
+test('64b: exactly six errors fit, and none of them is a "+0 more"', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.errors = many(6);
+  const box = h.fn.evRecordingCard();
+  assert.equal(box.querySelectorAll('.hovercard-row').length, 6);
+  assert.equal(box.querySelector('.hovercard-more'), null);
+  assert.equal(box.querySelector('.hovercard-meta').textContent, '6 errors · last 60s');
+});
+
+test('64c: a clean page says so, and the foot changes with the screen the tester is on', () => {
+  const h = load();
+  h.evUi.recording = true;
+  const clean = h.fn.evRecordingCard();
+  assert.equal(clean.querySelector('.hovercard-meta').textContent, 'No errors yet · last 60s');
+  assert.equal(clean.querySelectorAll('.hovercard-row').length, 0);
+  assert.equal(clean.querySelector('.link-btn').textContent, 'Open the console & network log');
+
+  // Off the test view there is no list to open, so the foot says what to do instead.
+  h.state.view = 'run';
+  const away = h.fn.evRecordingCard();
+  assert.equal(away.querySelector('.link-btn'), null);
+  assert.equal(away.querySelector('.hovercard-foot').textContent, 'Open a test to attach these — click Rec to stop.');
+});
+
+test('64d: the link on the card lands the tester on the rows, in the tab that holds them', () => {
+  const h = load();
+  h.evUi.recording = true;
+  h.evUi.errors = many(2);
+  const box = h.fn.evRecordingCard();
+  fire(box.querySelector('.link-btn'), 'click');
+  // The fold lives in the Status tab, which a test does not open on: the tab is switched FIRST.
+  assert.deepEqual(h.calls.sections, ['status']);
+  assert.equal(h.evUi.sectionOpen, true);
+  assert.equal(h.calls.card.close, 1);
+});
+
+// ===================== shipped bugs, carried over unfixed =====================
+
+// Every row below asserts what the tester should get; each fails against today's file. The numbers
+// stay as placeholders — the issues are described in the PR, not filed from here.
+
+// 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
+// megabyte-long bodySnippet and the whole of it lands in the tester's comment.
+test.todo('11 — TODO(issue): a body a recorded page made enormous does not land whole in the comment', () => {
+  const h = load();
+  const body = 'x'.repeat(2 * 1024 * 1024);
+  const snippet = h.fn.evEntrySnippet(net({ bodySnippet: body }));
+  // Today: snippet.length is just over 2 MB.
+  assert.ok(snippet.length < body.length, `${snippet.length} characters reached the comment`);
+});
+
+// 15: uploadEvidenceLog passes `snap.status || {}`, so a snapshot that carries no status writes the
+// literal string `undefined` into a file that is then uploaded to the server.
+test.todo('15 — TODO(issue): a snapshot with no window still writes a number into the uploaded .txt', () => {
+  const h = load();
+  const txt = h.fn.evBuildTxt('Run A', 'Test B', [], {});
+  // Today: 'Window: last undefineds · 0 entries · …'.
+  assert.match(txt.split('\n').find((l) => l.startsWith('Window:')), /^Window: last \d+s · /);
+});
+
+// 17: PRIVACY.md promises URL trimming and never exempts this file, but the .txt carries the whole
+// request URL, query string and all — straight to the server, beside the result.
+test.todo('17 — TODO(issue): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
+  const h = load();
+  const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })], { windowSec: 60 });
+  // Today: the whole URL, query included, is written into the file.
+  assert.ok(!txt.includes('token=abc123'), txt);
+});
+
+// 21: the comment above evShortUrl says an unparseable input "comes back as it came", but `new URL`
+// parses a data: URL happily and the scheme is then silently dropped from the host-less branch.
+test.todo('21 — TODO(issue): a data: URL on the card keeps the scheme that says what it is', () => {
+  const h = load();
+  h.evUi.tabUrl = `${SITE}/cart`;
+  // Today: 'text/plain,hi' — indistinguishable from a path on the site under test.
+  assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
+});
+
+// 23: the panel says it mirrors the recorder's clamp, and the recorder guards with `!= null` before
+// clamping. This one does not, and state.settings starts life as null (core/state.js), so an
+// unconfigured panel tells the tester it keeps ten seconds while the recorder keeps sixty.
+test.todo('23 — TODO(issue): a panel with no settings loaded yet quotes the recorder\'s 60s, not 10s', () => {
+  const h = load({ settings: null });
+  assert.equal(h.fn.evWindowSeconds(), 60);
+  h.state.settings = { evidenceWindowSec: null };
+  assert.equal(h.fn.evWindowSeconds(), 60);
+});
+
+// 39 and 58 are one bug: both toasts report a failure and neither is styled as one, so they read as
+// ordinary confirmations in the same place a success would appear.
+test.todo('39 — TODO(issue): a recorder that refused is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
+});
+
+test.todo('58 — TODO(issue): a log that could not attach is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
+  await h.fn.uploadEvidenceLog({ id: '900' });
+  assert.deepEqual(h.calls.toasts, [
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
+  ]);
+});
+
+// 39c: the start path reads `r.unrecordable` one line above the `!r` guard the stop path gets, so a
+// worker that answered nothing — which is what chrome.runtime.sendMessage resolves to when no
+// listener replied — reaches the tester as a raw TypeError instead of the sentence written for it.
+test.todo('39c — TODO(issue): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
+  const h = load({ reply: () => undefined });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
+  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
+});
+
+// 59 (#107): the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here, and
+// a queue entry carries no snapshot. What gets uploaded is the recorder's buffer at REPLAY time —
+// whatever page the tester happens to be on now — filed under the result of a test failed hours ago.
+test.todo('59 (#107): a replayed FAIL attaches the log captured when it was marked, not the one now', async () => {
+  const atFailTime = [con({ text: 'the error the tester saw' })];
+  const rightNow = [con({ text: 'an unrelated page open at replay time' })];
+  const h = load({ reply: (m) => {
+    if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
+    if (m.type === 'EVIDENCE_SNAPSHOT') return { ok: true, entries: rightNow, status: { windowSec: 60 } };
+    return { ok: true, status: { recording: false } };
+  } });
+  await h.fn.uploadEvidenceLog({ id: '900', test_title: 'T', queuedAt: NOW - 3_600_000, entries: atFailTime });
+  assert.ok(h.calls.uploads[0].blob.text.includes('the error the tester saw'), h.calls.uploads[0].blob.text);
+});
