@@ -6,7 +6,7 @@
 // the tester signs in once and v2 keys are minted, never typed. A handed-off config
 // (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
-/* global ApiErrors */
+/* global ApiErrors, ApiTransport */
 
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
@@ -92,26 +92,7 @@ const TestomatAPI = (() => {
     return key;
   }
 
-  // A request that never answers hangs the panel for its whole life, holding every write flag with it.
-  const REQUEST_TIMEOUT_MS = 30000;
-  // Minutes, not seconds: a 50 MB recording on a slow link, or server-side model work, needs them.
-  const LONG_TIMEOUT_MS = 300000;
-
-  async function rawFetch(url, { timeout = REQUEST_TIMEOUT_MS, signal, ...opts } = {}) {
-    const budget = AbortSignal.timeout(timeout);
-    // Without AbortSignal.any the caller's own signal wins: cancelling has no other way to happen.
-    const combined = !signal ? budget
-      : (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, budget]) : signal);
-    try {
-      return await fetch(url, { ...opts, signal: combined });
-    } catch {
-      // A timeout wears the SAME network error a dead link does, so the offline queue still takes the click.
-      if (budget.aborted) {
-        throw new ApiError('network', 0, `No answer in ${Math.round(timeout / 1000)}s — the request timed out`);
-      }
-      throw new ApiError('network', 0, 'Network error');
-    }
-  }
+  const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;
 
   function guardConfigured() {
     if (!cfg?.baseUrl || !hasCredential() || !cfg?.projectId) {
