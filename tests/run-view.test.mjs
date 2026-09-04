@@ -1651,3 +1651,656 @@ test('114: the suite fraction counts what is DONE in that suite, pending exclude
   h.fn.refreshSuiteFraction(h.node.runTests.querySelector('li.test-row'));
   assert.deepEqual(h.node.runTests.querySelectorAll('.suite-frac').map((f) => f.textContent), ['2/2', '1/1']);
 });
+
+// ---------- the inline write (rows 40-44, 115-118) ----------
+
+// A rendered checklist with one suite section, which is what writeRowStatus repaints into.
+function written(opts = {}) {
+  const h = load({ runStatus: 'running', records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'A' })], ...opts });
+  h.fn.renderRunSections();
+  h.fn.renderRunFilterChips();
+  const li = h.node.runTests.querySelector('li[data-record-id="1"]');
+  return { h, li, record: h.state.records[0], btn: (s) => li.querySelector(`.row-st[data-status="${s}"]`) };
+}
+
+test('40: clicking the status a row already carries writes nothing at all', async () => {
+  const { h, li, record } = written();
+  record.status = 'passed';
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.deepEqual(h.calls.writes, []);
+  assert.equal(h.state.inlineWrites, 0);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
+  // A DIFFERENT status does write, so the silence above is the guard and not a dead fixture.
+  await h.fn.writeRowStatus(record, 'failed', li);
+  assert.deepEqual(h.calls.writes, [{ id: 1, status: 'failed', comment: '' }]);
+});
+
+test('115: a row without a record is not written either', async () => {
+  const { h, li } = written();
+  await h.fn.writeRowStatus(null, 'passed', li);
+  assert.deepEqual(h.calls.writes, []);
+});
+
+test('116: the row is claimed and the spinner painted in the click\'s own turn, before any await', () => {
+  const { h, li, record, btn } = written();
+  const pending = h.fn.writeRowStatus(record, 'passed', li); // deliberately not awaited yet
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true],
+    'a disabled button fires no second click');
+  assert.ok(btn('passed').classList.contains('busy'));
+  return pending;
+});
+
+test('42: a write that lands repaints the row, flashes it, then moves every counter — in that order', async () => {
+  const { h, li, record, btn } = written();
+  const badge = addBadge(h, li);
+  h.calls.order.length = 0;
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.deepEqual(h.calls.order, ['lock-read', 'write', 'lock-read', 'flash', 'progress', 'chips', 'lock-read']);
+  assert.equal(li.querySelector('.row-status').dataset.status, 'passed');
+  assert.ok(badge.classList.contains('saved-flash'));
+  assert.deepEqual(h.clock.arms(), [1000], 'and it un-flashes a second later');
+  assert.equal(h.fraction(), '1/2');
+  assert.deepEqual(h.chipCounts(), ['2', '1', '0', '0', '1']);
+  assert.equal(h.node.runTests.querySelector('.suite-frac').textContent, '1/2');
+  assert.equal(h.state.inlineWrites, 0);
+  assert.equal(btn('passed').classList.contains('busy'), false);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
+});
+
+test('43: a write that only QUEUED repaints the row but does not tell the tester it saved', async () => {
+  const { h, li, record } = written();
+  const badge = addBadge(h, li);
+  h.on.write = async () => ({ queued: true });
+  h.calls.order.length = 0;
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.equal(li.querySelector('.row-status').dataset.status, 'passed', 'repainted');
+  assert.deepEqual(h.calls.decorated.slice(-1), ['1'], 'and the queued marker re-applied');
+  assert.equal(h.calls.order.includes('flash'), false);
+  assert.equal(badge.classList.contains('saved-flash'), false);
+  assert.deepEqual(h.clock.arms(), [], 'no un-flash timer either');
+  // Row 42 flashed the identical badge on the identical row, so this absence is the `queued` branch.
+});
+
+test('44: a write that failed puts the record back and reports itself inline', async () => {
+  const { h, li, record, btn } = written();
+  h.on.write = async () => { throw Object.assign(new Error('boom'), { kind: 'http' }); };
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.equal(record.status, 'pending', 'restored from the snapshot taken before the write');
+  assert.deepEqual(h.calls.apiErrors, [{ message: 'boom', id: 'run-status', opts: { inlineAuth: true } }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Status not saved: boom', error: true }]);
+  assert.equal(btn('passed').classList.contains('busy'), false);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
+  assert.equal(h.state.inlineWrites, 0);
+  // Object.assign is a MERGE: a key the write added is restored to nothing, it is not removed.
+  assert.equal(record.message, '');
+});
+
+test('44a: an expired session is handled inline and NOT toasted a second time', async () => {
+  const { h, li, record } = written();
+  h.on.write = async () => { throw Object.assign(new Error('nope'), { kind: 'auth' }); };
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.equal(h.calls.apiErrors.length, 1);
+  assert.deepEqual(h.calls.toasts, []);
+  assert.equal(record.status, 'pending');
+});
+
+test('41: a lock that lands WHILE the probe is out stops the write it was waiting for', async () => {
+  const h = load({ runStatus: 'running', holdSleep: true });
+  const gate = deferred();
+  h.on.projectInfo = () => gate.promise;     // the probe parks on the project read
+  h.on.listTestruns = async () => [rec(1, { suite_title: 'A' })];
+  await h.fn.openRunView('r1');              // …which is what arms runStateProbe
+  const row = h.node.runTests.querySelector('li[data-record-id="1"]');
+  const pending = h.fn.writeRowStatus(h.state.records[0], 'passed', row);
+  await settle();
+  assert.deepEqual(h.calls.writes, [], 'still waiting for the archived answer');
+  h.state.runInfo = { isArchived: true };    // a colleague archives the run mid-probe
+  gate.resolve();
+  await pending;
+  assert.deepEqual(h.calls.writes, [], 'and the write never goes out');
+  assert.deepEqual(h.calls.toasts, [{ msg: ARCHIVED }]);
+  assert.equal(h.node.runLockNote.textContent, ARCHIVED, 'the lock is force-painted');
+  assert.equal(row.querySelector('.row-st[data-status="passed"]').classList.contains('busy'), false);
+  assert.deepEqual(row.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true]);
+});
+
+test('41a: the same wait with no lock landing lets the write through — the probe is not a block', async () => {
+  const h = load({ runStatus: 'running', holdSleep: true });
+  const gate = deferred();
+  h.on.projectInfo = () => gate.promise;
+  h.on.listTestruns = async () => [rec(1, { suite_title: 'A' })];
+  await h.fn.openRunView('r1');
+  const row = h.node.runTests.querySelector('li[data-record-id="1"]');
+  const pending = h.fn.writeRowStatus(h.state.records[0], 'passed', row);
+  await settle();
+  assert.deepEqual(h.calls.writes, []);
+  gate.resolve();
+  await pending;
+  assert.deepEqual(h.calls.writes, [{ id: 1, status: 'passed', comment: '' }]);
+  assert.deepEqual(h.calls.toasts, []);
+});
+
+test('117: a probe that HANGS is given up on after two seconds rather than parking the write', async () => {
+  const h = load({ runStatus: 'running', holdSleep: true });
+  h.on.projectInfo = () => new Promise(() => {});  // never answers
+  h.on.listTestruns = async () => [rec(1, { suite_title: 'A' })];
+  await h.fn.openRunView('r1');
+  let done = false;
+  const race = h.lex.awaitRunState().then(() => { done = true; });
+  await settle();
+  assert.equal(done, false, 'parked on the probe');
+  assert.deepEqual(h.calls.sleeps.map((s) => s.ms), [h.lex.PROBE_WAIT_MS]);
+  assert.equal(h.lex.PROBE_WAIT_MS, 2000);
+  h.releaseSleeps();  // the 2000 ms give-up fires
+  await race;
+  assert.equal(done, true);
+});
+
+test('117a: with no probe out at all the write waits for nothing and arms no timer', async () => {
+  const h = load({ runStatus: 'running', holdSleep: true });
+  await h.lex.awaitRunState();
+  assert.deepEqual(h.calls.sleeps, []);
+});
+
+test('117b: a probe that REJECTED is swallowed — the write goes on rather than throwing', async () => {
+  const h = load({ runStatus: 'running' });
+  h.on.projectInfo = async () => { throw new Error('probe died'); };
+  h.on.listTestruns = async () => [rec(1, { suite_title: 'A' })];
+  await h.fn.openRunView('r1');
+  await assert.doesNotReject(() => h.lex.awaitRunState());
+  const row = h.node.runTests.querySelector('li[data-record-id="1"]');
+  await h.fn.writeRowStatus(h.state.records[0], 'passed', row);
+  assert.deepEqual(h.calls.writes, [{ id: 1, status: 'passed', comment: '' }]);
+});
+
+test('118: with nothing pending, Finish waits for nobody', async () => {
+  const h = load({ saving: false });
+  await h.fn.settlePendingWrites();
+  assert.deepEqual(h.calls.sleeps, []);
+});
+
+// ---------- opening a run (rows 54-60, 119-125) ----------
+
+test('54: a failed meta read still paints the checklist, and says so above it', async () => {
+  const h = load({ runTitle: '', records: [] });
+  h.on.getRun = async () => { throw new Error('meta down'); };
+  h.on.listTestruns = async () => [rec(1), rec(2)];
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.rowIds(), ['1', '2'], 'the essential leg carried the screen');
+  assert.equal(h.node.runMetaNote.hidden, false);
+  assert.equal(h.state.runTitle, 'Run');
+  assert.equal(h.state.runStatus, null);
+  assert.deepEqual(h.calls.apiErrors, []);
+});
+
+test('54a: a meta read that DID land hides the note and names the run', async () => {
+  const h = load({ runTitle: '' });
+  h.on.getRun = async () => ({ clean_title: 'Checkout', title: 'raw', status: 'running', kind: 'manual' });
+  h.on.listTestruns = async () => [rec(1)];
+  await h.fn.openRunView('r1');
+  assert.equal(h.node.runMetaNote.hidden, true);
+  assert.equal(h.state.runTitle, 'Checkout', 'clean_title first');
+  assert.equal(h.state.runStatus, 'running');
+  assert.equal(h.state.runKind, 'manual');
+});
+
+test('55: a failed checklist read is the one failure that stops the screen', async () => {
+  const h = load({ runId: 'r0', records: [rec(9)] });
+  h.on.listTestruns = async () => { throw new Error('list down'); };
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.calls.apiErrors, [{ message: 'list down', id: 'run-status', opts: undefined }]);
+  assert.deepEqual(h.rowIds(), []);
+  assert.deepEqual(h.state.records.map((r) => r.id), [9], 'the old records were never replaced');
+  assert.equal(h.calls.liveSyncs, 0);
+  assert.deepEqual(h.calls.skeleton, [['show', 'run'], ['hide', 'run']], 'and the placeholder came back off');
+});
+
+test('56: reopening the SAME run keeps the screen as the tester left it', async () => {
+  const h = load({ runId: 'r1', records: [rec(1)], runFilter: 'failed', runSearch: 'check', expandedSuites: { A: false } });
+  h.node.runSearch.value = 'check';
+  h.on.listTestruns = async () => [rec(1), rec(2)];
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.calls.skeleton, [], 'no skeleton and no torn-down list');
+  assert.equal(h.state.runFilter, 'failed');
+  assert.equal(h.state.runSearch, 'check');
+  assert.deepEqual(h.state.expandedSuites, { A: false });
+  assert.equal(h.node.runSearch.value, 'check');
+  assert.deepEqual(h.state.records.map((r) => r.id), [1, 2], 'and the re-read still landed');
+});
+
+test('57: opening a DIFFERENT run resets the filter, the search and the suite preferences', async () => {
+  const h = load({ runId: 'r0', records: [rec(1)], runFilter: 'failed', runSearch: 'check', expandedSuites: { A: false } });
+  h.node.runSearch.value = 'check';
+  h.on.getRun = async () => ({});
+  h.on.listTestruns = async () => [];
+  await h.fn.openRunView('r2');
+  assert.deepEqual(h.calls.skeleton, [['show', 'run'], ['hide', 'run']]);
+  assert.equal(h.state.runFilter, 'all');
+  assert.equal(h.state.runSearch, '');
+  assert.deepEqual(plain(h.state.expandedSuites), {});
+  assert.equal(h.node.runSearch.value, '');
+  assert.equal(h.node.runInfo.hidden, true, 'and the previous run\'s card is gone');
+  assert.equal(h.state.currentRecordId, null);
+});
+
+test('58: a run the tester left mid-flight is dropped before its records are written', async () => {
+  const h = load({ runId: 'r1', records: [rec(9)] });
+  h.on.listTestruns = async () => { h.state.runId = 'r2'; return [rec(1), rec(2)]; };
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.state.records.map((r) => r.id), [9]);
+  assert.deepEqual(h.rowIds(), []);
+  assert.equal(h.calls.liveSyncs, 0);
+  assert.equal(h.calls.projectInfo, 0, 'and no state probe was armed for a run nobody is on');
+});
+
+test('59: a payload that says nothing about the custom counters must not blank them', () => {
+  const h = load({ substatusCounts: { flaky: 2 } });
+  h.fn.applyRunInfo({});
+  assert.deepEqual(h.state.substatusCounts, { flaky: 2 });
+  // One that DOES carry them replaces them, so the survival above is the guard talking.
+  h.fn.applyRunInfo({ substatusCounts: { blocked: 1 } });
+  assert.deepEqual(plain(h.state.substatusCounts), { blocked: 1 });
+});
+
+test('60: un-archiving is something the payload SAID — false lands, absent does not', () => {
+  const h = load({ runInfo: { isArchived: true } });
+  h.fn.applyRunInfo({});
+  assert.equal(h.state.runInfo.isArchived, true, 'silence changes nothing');
+  h.fn.applyRunInfo({ isArchived: false });
+  assert.equal(h.state.runInfo.isArchived, false);
+  assert.equal(h.fn.runWriteLock(), '');
+});
+
+test('60a: everything else on the payload is merged over the v2 base', () => {
+  const h = load({ runInfo: { status: 'running', testsCount: 4 } });
+  h.fn.applyRunInfo({ duration: 90, status: 'passed' });
+  assert.deepEqual(plain(h.state.runInfo), { status: 'passed', testsCount: 4, duration: 90 });
+});
+
+test('119: a read-only project never opens the run at all — it is gated before any state is touched', async () => {
+  const h = load({ gate: true, runId: 'r0', records: [rec(9)] });
+  await h.fn.openRunView('r1', 'Checkout');
+  assert.deepEqual(h.calls.shows, ['run']);
+  assert.equal(h.state.runId, 'r0');
+  assert.equal(h.state.runTitle, '');
+  assert.deepEqual(h.calls.reads.testruns, []);
+  // The same call with the gate open reads and opens, so the silence above is the lockout talking.
+  const open = load({ gate: false, runId: 'r0' });
+  open.on.listTestruns = async () => [rec(1)];
+  open.on.getRun = async () => ({ title: 'Checkout run' });
+  await open.fn.openRunView('r1', 'Checkout');
+  assert.equal(open.state.runId, 'r1');
+  // The passed-in title paints the header at once; the server's own replaces it a leg later.
+  assert.equal(open.state.runTitle, 'Checkout run');
+  assert.deepEqual(open.calls.reads.testruns, ['r1']);
+});
+
+test('120: a token-only panel makes no JSON:API reads on open, and the probe stops at the answer', async () => {
+  const h = load({ jwt: false, jwtAvailable: false });
+  h.on.listTestruns = async () => [rec(1)];
+  await h.fn.openRunView('r1');
+  await settle(4);
+  assert.deepEqual(h.calls.reads.run, ['r1']);
+  assert.deepEqual(h.calls.reads.info, []);
+  assert.deepEqual(h.calls.reads.examples, []);
+  assert.equal(h.sandbox.capabilities.jwt, false);
+  assert.equal(h.calls.capabilities, 1, 'the panel is told what it may show');
+  assert.equal(h.calls.projectUsers, 0, 'and the member read never runs');
+});
+
+test('120a: a session proven late reads the examples and the counters it could not read before', async () => {
+  const h = load({ jwt: false, jwtAvailable: true, records: [] });
+  h.on.listTestruns = async () => [rec(1, { suite_title: 'A' })];
+  h.on.listTestrunExamples = async () => ({ 1: { values: ['ru'] } });
+  h.on.getRunInfo = async () => ({ substatusCounts: { flaky: 1 }, duration: 90 });
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.calls.reads.examples, [], 'not on the open batch — the session was unproven');
+  await settle(4);
+  assert.equal(h.sandbox.capabilities.jwt, true);
+  assert.deepEqual(h.calls.reads.examples, ['r1'], 'the probe went back for them');
+  assert.deepEqual(h.calls.reads.info, ['r1']);
+  assert.deepEqual(plain(h.state.substatusCounts), { flaky: 1 });
+  assert.equal(h.node.runTests.querySelector('.example').textContent, 'ru');
+  assert.equal(h.calls.projectUsers, 1);
+});
+
+test('121: opening a run restarts live sync, replays the queue and prunes the drafts it left behind', async () => {
+  const h = load();
+  h.on.listTestruns = async () => [rec(1)];
+  await h.fn.openRunView('r1');
+  assert.equal(h.calls.liveSyncs, 1);
+  assert.equal(h.calls.replays, 1);
+  assert.deepEqual(h.calls.prunes, ['r1']);
+  assert.equal(h.calls.reads.suiteTree, 1);
+  assert.ok(h.calls.contextBars >= 1, 'and the header is repainted with the real title');
+});
+
+test('122: the info read is best-effort — a session gate, a stale run and a failure all answer false', async () => {
+  const basic = load({ jwt: false, runInfo: { status: 'running' } });
+  assert.equal(await basic.fn.refreshRunInfo('r1'), false);
+  assert.deepEqual(basic.calls.reads.info, []);
+
+  const broken = load({ jwt: true });
+  broken.on.getRunInfo = async () => { throw new Error('down'); };
+  assert.equal(await broken.fn.refreshRunInfo('r1'), false);
+  assert.deepEqual(plain(broken.state.runInfo), {}, 'the last painted values stand');
+
+  const stale = load({ jwt: true });
+  stale.on.getRunInfo = async () => { stale.state.runId = 'r2'; return { duration: 90 }; };
+  assert.equal(await stale.fn.refreshRunInfo('r1'), false);
+  assert.deepEqual(plain(stale.state.runInfo), {});
+
+  const ok = load({ jwt: true });
+  ok.on.getRunInfo = async () => ({ duration: 90 });
+  assert.equal(await ok.fn.refreshRunInfo('r1'), true);
+  assert.equal(ok.state.runInfo.duration, 90);
+});
+
+test('123: the example read answers true only when there is a chip to paint', async () => {
+  const empty = load({ jwt: true });
+  empty.on.listTestrunExamples = async () => ({});
+  assert.equal(await empty.fn.refreshRunExamples('r1'), false);
+  assert.deepEqual(plain(empty.state.runExamples), {}, 'but the map is still replaced');
+
+  const full = load({ jwt: true, runExamples: { 9: { values: ['old'] } } });
+  full.on.listTestrunExamples = async () => ({ 1: { values: ['ru'] } });
+  assert.equal(await full.fn.refreshRunExamples('r1'), true);
+  assert.deepEqual(plain(full.state.runExamples), { 1: { values: ['ru'] } });
+
+  const broken = load({ jwt: true, runExamples: { 9: { values: ['old'] } } });
+  broken.on.listTestrunExamples = async () => { throw new Error('down'); };
+  assert.equal(await broken.fn.refreshRunExamples('r1'), false);
+  assert.deepEqual(plain(broken.state.runExamples), { 9: { values: ['old'] } });
+
+  const basic = load({ jwt: false });
+  assert.equal(await basic.fn.refreshRunExamples('r1'), false);
+  assert.deepEqual(basic.calls.reads.examples, []);
+});
+
+test('124: only a token-only panel re-reads v2 to learn a colleague finished the run', async () => {
+  const full = load({ jwt: true, runStatus: 'running' });
+  await full.fn.refreshRunFinished('r1');
+  assert.deepEqual(full.calls.reads.run, [], 'the JSON:API read already tells it');
+
+  const basic = load({ jwt: false, runStatus: 'running' });
+  basic.on.getRun = async () => ({ status: 'finished', total_tests: 4 });
+  await basic.fn.refreshRunFinished('r1');
+  assert.equal(basic.state.runStatus, 'finished');
+  assert.equal(basic.state.runInfo.testsCount, 4, 'and the v2 half of the card rides along');
+  assert.equal(basic.fn.runWriteLock(), FINISHED);
+});
+
+test('124a: a failed or stale v2 re-read keeps what the panel had', async () => {
+  const broken = load({ jwt: false, runStatus: 'running' });
+  broken.on.getRun = async () => { throw new Error('down'); };
+  await broken.fn.refreshRunFinished('r1');
+  assert.equal(broken.state.runStatus, 'running');
+
+  const stale = load({ jwt: false, runStatus: 'running' });
+  stale.on.getRun = async () => { stale.state.runId = 'r2'; return { status: 'finished' }; };
+  await stale.fn.refreshRunFinished('r1');
+  assert.equal(stale.state.runStatus, 'running');
+
+  const nothing = load({ jwt: false, runStatus: 'running' });
+  nothing.on.getRun = async () => null;
+  await nothing.fn.refreshRunFinished('r1');
+  assert.equal(nothing.state.runStatus, 'running');
+});
+
+test('125: a failed example read leaves the rows bare rather than blanking the run', async () => {
+  const h = load({ jwt: true });
+  h.on.listTestruns = async () => [rec(1)];
+  h.on.listTestrunExamples = async () => { throw new Error('down'); };
+  await h.fn.openRunView('r1');
+  assert.deepEqual(h.rowIds(), ['1']);
+  assert.deepEqual(plain(h.state.runExamples), {});
+  assert.equal(h.node.runTests.querySelector('.example'), null);
+});
+
+// ---------- sections and the two empty states (rows 61-63, 126-129) ----------
+
+const twoSuites = () => [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'B', status: 'failed' })];
+
+test('61: a filter overrides an explicit collapse — a matching suite may not hide its match', () => {
+  const h = load({ records: twoSuites(), runFilter: 'failed', expandedSuites: { B: false } });
+  h.fn.renderRunSections();
+  const b = h.node.runTests.querySelector('[data-suite="B"]');
+  assert.equal(b.classList.contains('collapsed'), false);
+  // The identical preference with no filter on DOES collapse it.
+  const quiet = load({ records: twoSuites(), runFilter: 'all', expandedSuites: { B: false } });
+  quiet.fn.renderRunSections();
+  assert.equal(quiet.node.runTests.querySelector('[data-suite="B"]').classList.contains('collapsed'), true);
+});
+
+test('61a: a search does the same as a filter, and whitespace alone does not', () => {
+  const h = load({ records: twoSuites(), runSearch: 'test', expandedSuites: { A: false } });
+  h.fn.renderRunSections();
+  assert.equal(h.node.runTests.querySelector('[data-suite="A"]').classList.contains('collapsed'), false);
+  const blank = load({ records: twoSuites(), runSearch: '   ', expandedSuites: { A: false } });
+  blank.fn.renderRunSections();
+  assert.equal(blank.node.runTests.querySelector('[data-suite="A"]').classList.contains('collapsed'), true);
+});
+
+test('126: a many-suite run opens collapsed; a lone suite opens itself', () => {
+  const many = load({ records: twoSuites() });
+  many.fn.renderRunSections();
+  assert.deepEqual(many.node.runTests.querySelectorAll('.suite-section').map((s) => s.classList.contains('collapsed')),
+    [true, true]);
+  const one = load({ records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'A' })] });
+  one.fn.renderRunSections();
+  assert.equal(one.node.runTests.querySelector('.suite-section').classList.contains('collapsed'), false);
+  // …and an explicit preference beats the lone-suite default in either direction.
+  const shut = load({ records: [rec(1, { suite_title: 'A' })], expandedSuites: { A: false } });
+  shut.fn.renderRunSections();
+  assert.equal(shut.node.runTests.querySelector('.suite-section').classList.contains('collapsed'), true);
+});
+
+test('127: clicking a suite head folds it and remembers the choice for this run', () => {
+  const h = load({ records: twoSuites() });
+  h.fn.renderRunSections();
+  const a = h.node.runTests.querySelector('[data-suite="A"]');
+  assert.equal(a.classList.contains('collapsed'), true);
+  fire(a.querySelector('.suite-head'), 'click');
+  assert.equal(a.classList.contains('collapsed'), false);
+  assert.equal(h.state.expandedSuites.A, true);
+  fire(a.querySelector('.suite-head'), 'click');
+  assert.equal(a.classList.contains('collapsed'), true);
+  assert.equal(h.state.expandedSuites.A, false);
+});
+
+test('62: a constraint that matches nothing says so out loud, offering only the constraint that is on', () => {
+  const search = load({ records: twoSuites(), runSearch: 'zzz' });
+  search.fn.renderRunSections();
+  assert.equal(search.emptyTitle(), 'No tests match');
+  assert.equal(search.node.runTests.querySelector('.empty').getAttribute('role'), 'status');
+  assert.equal(search.node.runTests.querySelector('.empty').dataset.icon, 'find_in_page');
+  assert.deepEqual(search.emptyActions(), ['Clear search']);
+  assert.equal(search.node.runTests.querySelector('.empty-text').textContent,
+    'No test or suite title in this run matches what you typed.');
+
+  const filtered = load({ records: twoSuites(), runFilter: 'skipped' });
+  filtered.fn.renderRunSections();
+  assert.equal(filtered.node.runTests.querySelector('.empty').dataset.icon, 'filter_list_off');
+  assert.deepEqual(filtered.emptyActions(), ['Show all tests']);
+  assert.equal(filtered.node.runTests.querySelector('.empty-text').textContent,
+    'No test in this run carries that status.');
+
+  const both = load({ records: twoSuites(), runFilter: 'skipped', runSearch: 'zzz' });
+  both.fn.renderRunSections();
+  assert.deepEqual(both.emptyActions(), ['Clear search', 'Show all tests']);
+  assert.deepEqual(both.sectionKeys(), [], 'and no section is drawn beside the plaque');
+});
+
+test('62a: both offers actually undo their constraint', () => {
+  const h = load({ records: twoSuites(), runFilter: 'skipped', runSearch: 'zzz' });
+  h.node.runSearch.value = 'zzz';
+  h.fn.renderRunSections();
+  fire(h.node.runTests.querySelectorAll('.empty-actions > *')[0], 'click');
+  assert.equal(h.state.runSearch, '');
+  assert.equal(h.emptyTitle(), 'No tests match', 'the status filter is still on');
+  fire(h.node.runTests.querySelectorAll('.empty-actions > *')[0], 'click');
+  assert.equal(h.state.runFilter, 'all');
+  assert.deepEqual(h.rowIds(), ['1', '2']);
+  assert.equal(h.emptyTitle(), null);
+});
+
+test('63: an empty run offers the web app — but only when the panel knows where that is', () => {
+  const h = load({ records: [], runId: 'r1', settings: { baseUrl: BASE, projectId: 'my project' } });
+  h.fn.renderRunSections();
+  assert.equal(h.emptyTitle(), 'No tests in this run');
+  assert.equal(h.node.runTests.querySelector('.empty').dataset.icon, 'checklist');
+  const link = h.node.runTests.querySelector('.empty-actions a');
+  assert.equal(link.href, `${BASE}/projects/my%20project/runs/r1`);
+  assert.equal(link.target, '_blank');
+  assert.equal(link.rel, 'noopener noreferrer');
+  assert.equal(link.querySelector('span').textContent, 'Open in Testomat');
+});
+
+test('63a: no base URL, no project or no run id and the offer is simply absent', () => {
+  for (const settings of [{}, { baseUrl: BASE }, { projectId: 'p' }]) {
+    const h = load({ records: [], settings });
+    h.fn.renderRunSections();
+    assert.equal(h.emptyTitle(), 'No tests in this run');
+    assert.deepEqual(h.emptyActions(), [], JSON.stringify(settings));
+  }
+  const noRun = load({ records: [], runId: null });
+  noRun.fn.renderRunSections();
+  assert.deepEqual(noRun.emptyActions(), []);
+});
+
+test('128: a suite section names itself, counts itself and carries only the rows that passed the filter', () => {
+  const h = load({
+    records: [rec(1, { suite_title: 'A', status: 'failed' }), rec(2, { suite_title: 'A' }),
+      rec(3, { suite_title: 'B' })],
+    runFilter: 'failed',
+  });
+  h.fn.renderRunSections();
+  assert.deepEqual(h.sectionKeys(), ['A'], 'a section with no matching row is not drawn at all');
+  assert.deepEqual(h.rowIds(), ['1']);
+  // The fraction is over the WHOLE suite, not over what the filter left.
+  assert.equal(h.node.runTests.querySelector('.suite-frac').textContent, '1/2');
+  const head = h.node.runTests.querySelector('.suite-head');
+  assert.deepEqual(head.querySelectorAll('.tree-icon').map((i) => i.className),
+    ['tree-icon chevron', 'tree-icon file-icon']);
+  assert.equal(h.node.runTests.querySelector('.suite-rows').className, 'suite-rows tree-children');
+});
+
+test('129: the status line is cleared on every rebuild — the plaque takes over the announcement', () => {
+  const h = load({ records: twoSuites() });
+  h.fn.renderRunSections();
+  assert.deepEqual(h.calls.lines, [{ id: 'run-status', text: '', tone: undefined }]);
+});
+
+// ---------- two more greens the todos below lean on (130-131) ----------
+
+test('130: every chip counts what its rows DISPLAY, and All is the whole run', () => {
+  const h = load({
+    records: [rec(1, { status: 'passed' }), rec(2, { status: 'failed' }),
+      rec(3, { status: 'skipped' }), rec(4, { status: 'pending' }), rec(5, { status: '' })],
+  });
+  const counts = plain(h.fn.runStatusCounts());
+  assert.deepEqual(counts, { all: 5, passed: 1, failed: 1, skipped: 1, untested: 2 });
+  assert.equal(counts.passed + counts.failed + counts.skipped + counts.untested, counts.all);
+});
+
+test('131: Finish waits while an inline write is still in flight, and goes on the moment it lands', async () => {
+  const h = load({ holdSleep: true });
+  h.state.inlineWrites = 1;
+  const settling = h.fn.settlePendingWrites();
+  await settle();
+  assert.deepEqual(h.calls.sleeps.map((s) => s.ms), [25], 'it is waiting, not returning');
+  h.state.inlineWrites = 0;
+  h.releaseSleeps();
+  await settling;
+  assert.equal(h.calls.sleeps.length, 1, 'and it stops the moment the write lands');
+});
+
+// ---------- the shipped bugs (rows 4, 45, 46, 47, 52, 53, 64, 65) ----------
+// Each body asserts what the panel SHOULD do; each fails against the shipped file today.
+
+// 4: a `running` row is counted by nothing but `all` (runStatusCounts, 894-901), so the chips can
+// sum to less than the total the All chip shows and the tester cannot find the missing row.
+test.todo('4 (TODO(issue)): the status chips add up to the All chip, running rows included', () => {
+  const h = load({
+    records: [rec(1, { status: 'passed' }), rec(2, { status: 'failed' }),
+      rec(3, { status: 'pending' }), rec(4, { status: 'running' })],
+  });
+  const c = plain(h.fn.runStatusCounts());
+  // Today: { all: 4, passed: 1, failed: 1, skipped: 0, untested: 1 } — the parts sum to 3.
+  assert.equal(c.passed + c.failed + c.skipped + c.untested, c.all);
+});
+
+// 45: flashRowSaved looks for a `.badge`, and testRow (1107-1127) builds `.status-icon`, `.example`
+// and `.btn` — never one. The only `.badge` on a run row is the offline queue's «queued» marker,
+// which is exactly the case line 1222 skips the flash for, so the green flash is dead code.
+test.todo('45 (TODO(issue)): a row the tester just marked flashes to say it saved', async () => {
+  const { h, li, record } = written();
+  await h.fn.writeRowStatus(record, 'passed', li);
+  // Today: li.querySelector('.badge') is null and flashRowSaved returns before touching anything.
+  assert.ok(li.querySelector('.saved-flash'), 'nothing on the row was flashed');
+});
+
+// 46: STATUS_ICON.skipped and NEUTRAL_ICON are the same glyph, so skipped and pending differ by
+// colour alone — unreadable to a colour-blind tester and invisible in a greyscale screenshot.
+test.todo('46 (#115): skipped and pending are told apart by their shape, not only their colour', () => {
+  const h = load();
+  assert.notEqual(h.fn.statusIcon('skipped').dataset.icon, h.fn.statusIcon('pending').dataset.icon);
+});
+
+// 47: updateRunActions (384) compares state.runStatus to 'running' literally, while normStatus folds
+// launching into running everywhere else — so the pill says "running" and Finish is simply absent.
+test.todo('47 (TODO(issue)): a launching run is a running run, and can be finished', () => {
+  const h = load({ runStatus: 'launching', jwtAvailable: true });
+  h.fn.paintRunState();
+  assert.equal(h.node.runState.textContent, 'launching');
+  h.fn.updateRunActions();
+  // Today: hidden, because only the literal 'running' counts here.
+  assert.equal(h.node.btnFinishRun.hidden, false);
+});
+
+// 52: settlePendingWrites (417-421) polls 200 × 25 ms and then gives up, so a save still in flight
+// after five seconds is overrun by the finish PUT and the run is closed around it.
+test.todo('52 (TODO(issue)): finishing waits for a pending save instead of giving up after 5s', async () => {
+  const h = load({ saving: true });
+  await h.fn.settlePendingWrites();
+  // Today: it returns after 200 sleeps of 25 ms with state.saving still true, and finishRun goes on.
+  assert.equal(h.state.saving, false, `gave up after ${h.calls.sleeps.length} × 25 ms`);
+});
+
+// 53: three copies of `(a, b) => a.id > b.id ? 1 : -1` compare ids as TEXT (run-view.js:182 and
+// :451, screens/livesync.js:80), so a run past its ninth record lists 10 before 9.
+test.todo("53 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
+  const h = load({ runId: 'r0' });
+  h.on.listTestruns = async () => [rec('9'), rec('10')];
+  await h.fn.openRunView('r1');
+  assert.deepEqual([...h.state.records].map((r) => r.id), ['9', '10']);
+});
+
+// 64: testRow (1107-1127) and the suiteSection head (1239-1266) carry a click listener and nothing
+// else — no tabindex, no role, no keydown — so the whole checklist is unreachable by keyboard.
+test.todo('64 (#109): a test row and a suite head can be reached and opened from the keyboard', () => {
+  const h = load({ records: [rec(1, { suite_title: 'A' })] });
+  h.fn.renderRunSections();
+  const li = h.node.runTests.querySelector('li.test-row');
+  const head = h.node.runTests.querySelector('.suite-head');
+  assert.equal(li.listeners.has('click'), true, 'the mouse path is wired');   // green today
+  // Today: no tabindex, no role and no keydown on either.
+  assert.notEqual(li.getAttribute('tabindex'), null);
+  assert.equal(li.listeners.has('keydown'), true);
+  assert.notEqual(head.getAttribute('tabindex'), null);
+  assert.equal(head.listeners.has('keydown'), true);
+});
+
+// 65: onRunSearch (1041-1045) rebuilds every section on every keystroke, with no debounce — five
+// characters typed into a 400-row run is five full rebuilds of the list.
+test.todo('65 (TODO(issue)): typing into the search does not rebuild the whole list per keystroke', () => {
+  const h = load({ records: Array.from({ length: 400 }, (_, i) => rec(i + 1, { suite_title: 'A' })) });
+  h.calls.order.length = 0;
+  for (const q of ['c', 'ch', 'che', 'chec', 'check']) {
+    h.node.runSearch.value = q;
+    h.fn.onRunSearch();
+  }
+  // Today: 5.
+  assert.ok(h.calls.order.filter((s) => s === 'sections').length < 5,
+    `${h.calls.order.filter((s) => s === 'sections').length} rebuilds for 5 keystrokes`);
+});
