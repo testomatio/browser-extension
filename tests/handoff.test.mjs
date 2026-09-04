@@ -248,9 +248,21 @@ test('H21: adopting the offer keeps the tester\'s own token and their settings f
   assert.deepEqual(h.calls.session, [JWT]); // and the API is pointed at the host's session
 });
 
-// A-P1-3: a project key the host sent is handed to commitSettings, which writes it to
-// chrome.storage.local. PRIVACY.md says project keys are memory-only.
-test.todo('H22: a project key a host sent should stay in memory, and today is persisted to disk');
+// A-P1-3: PRIVACY.md says project keys are memory-only, so the one a host sent is kept out of what
+// commitSettings writes to chrome.storage.local and merged back into the API config instead.
+test('H22: a project key a host sent stays in memory and never reaches the disk', async () => {
+  const h = loadHandoff({ file: { ...FULL, projectToken: TOKEN } });
+  await h.Handoff.ready();
+  await h.Handoff.connect();
+  const { settings } = h.calls.commit[0];
+  assert.equal('projectToken' in settings, false);
+  assert.equal('projectTokenFor' in settings, false);
+  assert.equal(settings.projectId, 'p1'); // the rest of the offer is saved as before
+  // …and the API is still handed the key, out of the offer held in memory.
+  const cfg = h.calls.configure.at(-1);
+  assert.equal(cfg.projectToken, TOKEN);
+  assert.equal(cfg.projectTokenFor, 'p1');
+});
 
 test('H23: with no project key from the host, no stale one is left naming the project', async () => {
   const prior = { projectToken: 'old', projectTokenFor: 'p0' };
@@ -398,12 +410,16 @@ test('H39: the host\'s entry point is published on the page, and a page without 
   assert.equal(typeof loadHandoff().Handoff.ready, 'function'); // no window, still loaded
 });
 
-test('H40: an offer the host sent with a project key names the project that key belongs to', async () => {
-  // The persisting half of this is the A-P1-3 gap H22 carries; what it names is right today.
+test('H40: a project key the host sent is named with its own project, so a switch cannot send it', async () => {
+  // api.js sends the key only while `projectTokenFor` is the open project, so the name travels
+  // with it through configure() — a switch elsewhere mints that project's key instead.
   const h = loadHandoff({ file: { ...FULL, projectToken: TOKEN } });
   await h.Handoff.ready();
   await h.Handoff.connect();
-  const { settings } = h.calls.commit[0];
-  assert.equal(settings.projectToken, TOKEN);
-  assert.equal(settings.projectTokenFor, 'p1');
+  assert.equal(h.calls.configure.at(-1).projectTokenFor, 'p1');
+  h.Handoff.configure({ baseUrl: 'https://app.testomat.io', projectId: 'p2', handoff: true });
+  const moved = h.calls.configure.at(-1);
+  assert.equal(moved.projectId, 'p2');
+  assert.equal(moved.projectToken, TOKEN);
+  assert.equal(moved.projectTokenFor, 'p1'); // still p1's key, and no longer the open project's
 });
