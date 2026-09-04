@@ -156,6 +156,7 @@ function load(opts = {}) {
     opened: [],         // openTestView(id) — the sandbox property, re-pointed below
     runViews: [],
     attachmentLists: 0,
+    summary: [],        // TestSummary.render / .hide / .refresh
     markers: 0,
     refreshUIs: 0,
     setStatus: [],
@@ -301,6 +302,13 @@ function load(opts = {}) {
     // The draft store moved to screens/test-drafts.js, which has its own suite; here the write
     // only owes it a call, so the stub records that and nothing else.
     CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },
+    // Same for the result summary card (screens/test-summary.js, tests/test-summary.test.mjs): the
+    // write path only asks it to repaint, so row 90c reads the ask back off this list.
+    TestSummary: {
+      render: () => { calls.summary.push('render'); },
+      hide: () => { calls.summary.push('hide'); },
+      refresh: () => { calls.summary.push('refresh'); calls.order.push('refreshSummary'); },
+    },
     OfflineQueue: {
       forcedError: () => on.forcedError(),
       qualifies: (e) => on.qualifies(e),
@@ -814,6 +822,8 @@ test('90c: a queued click does not touch the result summary card', async () => {
   h.state.testrunDetail = { data: { attributes: { status: 'pending', message: '' } } };
   h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
   await h.fn.clickStatus('passed');
+  // The card patches the prefetched detail itself, so "not touched" is the ask never being made.
+  assert.deepEqual(h.calls.summary, []);
   assert.equal(h.state.testrunDetail.data.attributes.status, 'pending');
 });
 
@@ -828,6 +838,9 @@ test('91: a landed click says NOTHING on the line and moves the screen to Status
   assert.equal(h.calls.setStatus[0].message, 'note'); // the box is trimmed on the way out
   assert.equal(h.calls.hideToasts, 0);
   assert.equal(h.calls.markers, 1);
+  // The card belongs to screens/test-summary.js now, so the landed verdict owes it a repaint —
+  // without this row, 90c's "queued does NOT refresh" would pass against a screen refreshing never.
+  assert.deepEqual(h.calls.summary, ['refresh']);
 });
 
 test('92: FAILED reopens the attachments fold and still does not navigate', async () => {
