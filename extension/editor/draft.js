@@ -3,9 +3,9 @@
 
 /* global ShotStore */
 const EditorDraft = (() => {
-  // ---- panel-ctx unsaved-edit persistence (data-loss guard) ----------------
-  // Closing a side panel tears the page down with no native unload prompt (beforeunload
-  // can't show a dialog there and doesn't fire reliably), so the dirty draft is persisted.
+  // ---- unsaved-edit persistence (data-loss guard) --------------------------
+  // A page can go without a chance to ask — a side panel closing (beforeunload can't show a
+  // dialog there), a tab torn down by an extension reload — so the dirty draft is persisted.
   const editorDraftKey = ({ suite, test }) => (test
     ? `editorDraft:test:${test}`
     : `editorDraft:suite:${suite}`);
@@ -35,7 +35,7 @@ const EditorDraft = (() => {
   // of getters onto them rather than their values, which change under every keystroke.
   function makeDirtyTracker({ ctx, draftKey, read }) {
     // Dirty tracking is centralized so the tab-ctx `beforeunload` guard mirrors it —
-    // registered only while dirty; panel ctx persists to storage.session instead.
+    // registered only while dirty. Both contexts persist to storage.session as well.
     let dirty = false;
     let persistTimer = null;
     let shotsWritten = -1; // the revision the store holds: ten JPEGs per typing pause is too many
@@ -52,11 +52,13 @@ const EditorDraft = (() => {
       // the draft milliseconds after this removed it.
       clearTimeout(persistTimer);
       if (ctx === 'tab') window.removeEventListener('beforeunload', beforeUnloadHandler);
-      if (ctx === 'panel') removeEditorDraft(draftKey);
+      // In every context: a draft a tab left behind is the one the panel would restore next,
+      // over fresh server data.
+      removeEditorDraft(draftKey);
     }
 
     function persistDraftNow() {
-      if (ctx !== 'panel' || !hasSession()) return;
+      if (!hasSession()) return;
       const draft = {
         title: read.title(),
         markdown: read.markdown(),
@@ -82,7 +84,6 @@ const EditorDraft = (() => {
       if (shotsWritten !== rev) { shotsWritten = rev; ShotStore.put(draftKey, read.shots()); }
     }
     function schedulePersist() {
-      if (ctx !== 'panel') return;
       clearTimeout(persistTimer);
       persistTimer = setTimeout(persistDraftNow, 400);
     }

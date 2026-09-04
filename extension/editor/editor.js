@@ -1130,7 +1130,7 @@
           return null;
         }
         clearDirty();
-        if (ctx === 'panel') removeEditorDraft(draftKey);
+        removeEditorDraft(draftKey); // clearDirty only removes it when it was still dirty
         // For a create, `test: {}` is not a missing record: it is the `manual` kind
         // TestType reads out of a record carrying no state flags.
         const record = (editing && test) ? { ...test, title: t, priority } : {};
@@ -1394,20 +1394,18 @@
           let restoredDirty = false;
           let shots = [];
           let shotsLost = 0;
-          // An unsaved edit of THIS test outranks what the server still holds — closing
-          // the side panel mid-sentence is not a discard.
-          if (panelCtx) {
-            const key = editorDraftKey({ test: cx.test });
-            const draft = await readEditorDraft(key);
-            if (draft) {
-              title = draft.title || '';
-              if (draft.markdown != null) markdown = draft.markdown;
-              priority = draft.priority || priority;
-              params = draft.params || null;
-              recorded = draft.recording || null;
-              ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
-              restoredDirty = true;
-            }
+          // An unsaved edit of THIS test outranks what the server still holds — a panel closed
+          // or a tab torn down mid-sentence is not a discard, in either context.
+          const key = editorDraftKey({ test: cx.test });
+          const draft = await readEditorDraft(key);
+          if (draft) {
+            title = draft.title || '';
+            if (draft.markdown != null) markdown = draft.markdown;
+            priority = draft.priority || priority;
+            params = draft.params || null;
+            recorded = draft.recording || null;
+            ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
+            restoredDirty = true;
           }
           // No `templates`: a template SEEDS an unwritten body, and this one is written —
           // the picker would only offer to replace the test.
@@ -1460,21 +1458,19 @@
     // A create whose test landed but whose parameters did not: the retry must update it.
     let savedId = null;
     // The restored draft is the tester's own text — it outranks the template seed.
-    if (panelCtx) {
-      const key = editorDraftKey({ suite: cx.suite });
-      const draft = await readEditorDraft(key);
-      if (draft) {
-        title = draft.title || '';
-        if (draft.markdown != null) markdown = draft.markdown;
-        priority = draft.priority || 'normal';
-        params = draft.params || null;
-        // #23: the recording it was holding — the steps are already in the body, and this is
-        // what still lets them be polished (or put back).
-        recorded = draft.recording || null;
-        ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
-        savedId = draft.savedId || null;
-        restoredDirty = true;
-      }
+    const key = editorDraftKey({ suite: cx.suite });
+    const draft = await readEditorDraft(key);
+    if (draft) {
+      title = draft.title || '';
+      if (draft.markdown != null) markdown = draft.markdown;
+      priority = draft.priority || 'normal';
+      params = draft.params || null;
+      // #23: the recording it was holding — the steps are already in the body, and this is
+      // what still lets them be polished (or put back).
+      recorded = draft.recording || null;
+      ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
+      savedId = draft.savedId || null;
+      restoredDirty = true;
     }
     renderEditor({
       ctx: cx.ctx, suite: cx.suite, savedId,
