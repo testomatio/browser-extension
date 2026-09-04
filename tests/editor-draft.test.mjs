@@ -23,8 +23,10 @@ const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)
 function makeClock(log) {
   let seq = 0;
   const jobs = new Map();
+  const delays = [];
   return {
-    setTimeout: (fn) => { const id = ++seq; jobs.set(id, fn); return id; },
+    setTimeout: (fn, ms) => { const id = ++seq; jobs.set(id, fn); delays.push(ms); return id; },
+    delays: () => [...delays],
     clearTimeout: (id) => { log.push('clearTimeout'); jobs.delete(id); },
     armed: () => jobs.size,
     run: () => { const all = [...jobs.values()]; jobs.clear(); for (const fn of all) fn(); },
@@ -224,9 +226,10 @@ test('65: an editor opened in a TAB writes no draft at all — D P2-17, still op
   assert.equal(env.clock.armed(), 0);
 });
 
-// The bug behind case 65: a tab-context editor is torn down by an extension update or a reload
-// like any other page, and the beforeunload dialog it relies on cannot survive that.
-test.todo('65 (TODO): a tab-context editor persists its draft, so a reload does not eat it', () => {
+// The bug behind case 65 (#249): a tab editor is torn down by an extension update or a reload like
+// any other page, and the beforeunload dialog it relies on cannot survive that. The restore is
+// gated on the panel too (editor.js), so a fix has to move the write and both reads together.
+test.todo('65 (#249): a tab-context editor persists its draft, so a reload does not eat it', () => {
   const env = load();
   const { t } = tracker(env, { ctx: 'tab' });
   t.persistDraftNow();
@@ -377,6 +380,8 @@ test('70: onEdited marks, throttles and refreshes the image strip, in that order
   assert.equal(strips(), 3); // the strip follows every keystroke…
   assert.equal(env.clock.armed(), 1); // …the draft write does not
   assert.equal(env.store.size, 0);
+  // 400ms, pinned: shorter writes storage on every keystroke, longer is work the tester loses.
+  assert.deepEqual(env.clock.delays(), [400, 400, 400]);
   env.clock.run();
   assert.equal(written(env).markdown, '### Steps\n\n1. Open');
 });
