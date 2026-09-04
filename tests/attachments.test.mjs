@@ -7,7 +7,7 @@
 // Run: node --test tests/attachments.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+import { loadScreen, makeDocument, el, fire, plain, settle, rejection } from './helpers/panel-harness.mjs';
 
 const HOST = 'app.testomat.io';
 // The four gate sentences, spelled here exactly as the screen spells them: this file and
@@ -432,4 +432,445 @@ test('28: a row with no url is forgotten by name', () => {
   const byUrl = load({ server: [{ name: 'a.png', url: 'U' }, { name: 'a.png', url: 'V' }] });
   byUrl.fn.attForget(7, { name: 'a.png', url: 'V' });
   assert.deepEqual(byUrl.serverRows().map((a) => a.url), ['U']);
+});
+
+// ---------- the upload gate (rows 29-31) ----------
+
+test('29: with no saved result there is nothing for a file to attach to', () => {
+  const h = load();
+  assert.equal(h.fn.attUploadLock(), '');
+  h.replaceRecord(null);
+  assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
+  h.replaceRecord({ name: 'no id yet' });
+  assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
+});
+
+test('30: a finished run is asked before the web session', () => {
+  const h = load({ jwt: false });
+  h.record().lock = RUN_LOCK;
+  assert.equal(h.fn.attUploadLock(), RUN_LOCK);
+  h.record().lock = '';
+  assert.equal(h.fn.attUploadLock(), NO_JWT_UP);
+});
+
+test('31: a proven-gone web session gates uploads; one still being probed does not', () => {
+  assert.equal(load({ jwt: false }).fn.attUploadLock(), NO_JWT_UP);
+  assert.equal(load({ jwt: 'unknown' }).fn.attUploadLock(), '');
+  assert.equal(load({ jwt: true }).fn.attUploadLock(), '');
+});
+
+// ---------- the empty state as a drop target (rows 32-37) ----------
+
+test('32: a locked dropzone is a plain div — a focusable control that refuses itself is a trap', () => {
+  const h = load({ jwt: false });
+  const li = h.fn.attDropzone();
+  assert.equal(li.className, 'attachment-empty');
+  const zone = li.querySelector('.attachment-dropzone');
+  assert.equal(zone.tagName, 'DIV');
+  assert.equal(zone.type, undefined);
+  assert.equal(zone.classList.contains('is-locked'), true);
+  assert.equal(li.querySelector('.dropzone-title').textContent, 'No files attached to this result yet.');
+  assert.equal(li.querySelector('.dropzone-hint').textContent, NO_JWT_UP);
+  assert.equal(zone.listeners.size, 0); // no click, no drag — nothing to invite
+});
+
+test('33: an open dropzone is a button that says what to do with it', () => {
+  const h = load();
+  const li = h.fn.attDropzone();
+  const zone = li.querySelector('.attachment-dropzone');
+  assert.equal(zone.tagName, 'BUTTON');
+  assert.equal(zone.type, 'button');
+  assert.equal(zone.classList.contains('is-locked'), false);
+  assert.equal(li.querySelector('.dropzone-title').textContent, 'Drop a file here');
+  assert.equal(li.querySelector('.dropzone-hint').textContent, 'or click to browse — screenshots, logs, anything');
+  // Clicking it opens the same native picker the Attach button does.
+  fire(zone, 'click');
+  assert.equal(h.calls.picker, 1);
+});
+
+test('34: a dragged link or a selection carries no file, and is told so', async () => {
+  const h = load();
+  fire(h.zone(), 'drop', { dataTransfer: { files: [] } });
+  fire(h.zone(), 'drop', { dataTransfer: { types: ['text/uri-list'] } });
+  fire(h.zone(), 'drop', {}); // a drop with no dataTransfer at all
+  await settle();
+  assert.deepEqual(h.calls.lines.map((l) => l.text), Array(3).fill('That drop carried no file'));
+  assert.deepEqual(h.calls.lines.map((l) => l.cls), Array(3).fill('error'));
+  assert.deepEqual(h.calls.uploads, []);
+
+  // The same drive with a file in it does upload — otherwise the three rows above prove nothing.
+  const good = load();
+  fire(good.zone(), 'drop', { dataTransfer: { files: [file('a.png')] } });
+  await settle();
+  assert.deepEqual(good.calls.uploads.map((u) => u.name), ['a.png']);
+});
+
+test('35: a gate that closes mid-drag stops the drop — it is re-asked at drop time', async () => {
+  const h = load();
+  const zone = h.zone(); // built while the gate was open
+  h.record().lock = RUN_LOCK;
+  fire(zone, 'drop', { dataTransfer: { files: [file('a.png')] } });
+  await settle();
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: RUN_LOCK, cls: 'error' }]);
+  assert.deepEqual(h.calls.uploads, []);
+
+  // A session that expired mid-drag is the half only THIS gate catches: the upload loop re-asks
+  // recordWriteLock alone, so without the drop-time attUploadLock() the file would go up regardless.
+  const gone = load();
+  const zone2 = gone.zone();
+  gone.jwt(false);
+  fire(zone2, 'drop', { dataTransfer: { files: [file('a.png')] } });
+  await settle();
+  assert.deepEqual(gone.calls.lines, [{ id: 'test-status', text: NO_JWT_UP, cls: 'error' }]);
+  assert.deepEqual(gone.calls.uploads, []);
+});
+
+test('36: the highlight is counted in and out, so it does not flicker off over the icon', () => {
+  const h = load();
+  const zone = h.zone();
+  const over = () => zone.classList.contains('is-over');
+  assert.equal(over(), false);
+
+  fire(zone, 'dragenter');
+  fire(zone, 'dragenter'); // crossing into a child
+  fire(zone, 'dragleave'); // …and back out of it
+  assert.equal(over(), true);
+  fire(zone, 'dragleave');
+  assert.equal(over(), false);
+  // An unmatched leave must not push the count below zero, or the next enter would not light up.
+  fire(zone, 'dragleave');
+  fire(zone, 'dragenter');
+  assert.equal(over(), true);
+});
+
+test('37: a drop resets the count and clears the highlight even when it uploads nothing', () => {
+  const h = load();
+  const zone = h.zone();
+  const over = () => zone.classList.contains('is-over');
+
+  fire(zone, 'dragenter');
+  fire(zone, 'dragenter');
+  fire(zone, 'drop', { dataTransfer: { files: [] } }); // the error path
+  assert.equal(over(), false);
+  // Proof the count went to 0 rather than staying at 2: one enter now lights it, one leave clears it.
+  fire(zone, 'dragenter');
+  assert.equal(over(), true);
+  fire(zone, 'dragleave');
+  assert.equal(over(), false);
+
+  // The three preventDefaults the drag needs — without the dragover one the drop never fires.
+  assert.equal(fire(zone, 'dragenter').defaultPrevented, true);
+  const dt = { dropEffect: 'none' };
+  assert.equal(fire(zone, 'dragover', { dataTransfer: dt }).defaultPrevented, true);
+  assert.equal(dt.dropEffect, 'copy');
+  assert.equal(fire(zone, 'dragover', {}).defaultPrevented, true); // no dataTransfer: still no throw
+  assert.equal(fire(zone, 'drop', { dataTransfer: { files: [] } }).defaultPrevented, true);
+});
+
+// ---------- the list and the count chip (rows 38-42) ----------
+
+test('38: off the test screen the list is emptied and hidden, with no dropzone built for it', () => {
+  const h = load({ view: 'run', server: [{ name: 'a.png', url: 'U' }] });
+  h.list.append(el('li', { className: 'stale' }));
+  h.fn.renderAttachmentList();
+  assert.equal(h.list.childNodes.length, 0);
+  assert.equal(h.list.hidden, true);
+  assert.equal(h.list.querySelector('.attachment-dropzone'), null);
+  assert.deepEqual(h.calls.counters, []); // paintAttachmentCount(0) shows nothing
+
+  // On the test screen the very same rows are drawn and the list comes back.
+  const shown = load({ server: [{ name: 'a.png', url: 'U' }] });
+  shown.fn.renderAttachmentList();
+  assert.deepEqual(shown.names(), ['a.png']);
+  assert.equal(shown.list.hidden, false);
+});
+
+test('39: an empty result never collapses — the list becomes the drop target instead', () => {
+  const h = load();
+  h.fn.renderAttachmentList();
+  assert.equal(h.list.childNodes.length, 1);
+  assert.equal(h.list.children[0].className, 'attachment-empty');
+  assert.equal(h.list.querySelector('.attachment-dropzone').tagName, 'BUTTON');
+  assert.equal(h.list.hidden, false);
+  assert.equal(h.chip.hidden, true);
+
+  // One real file and the dropzone is gone — the tiles take its place.
+  h.fn.attRemember(7, { name: 'a.png', url: 'https://h/attachments/u1.png' });
+  h.fn.renderAttachmentList();
+  assert.equal(h.list.querySelector('.attachment-dropzone'), null);
+  assert.deepEqual(h.list.children.map((li) => li.className), ['file-tile-item']);
+  assert.deepEqual(h.calls.tiles.map((t) => t.group), ['result-attachments']);
+  // Each tile carries a bin beside it, never inside it — .file-tile is a <button> already.
+  assert.equal(h.list.children[0].querySelector('.attachment-del').tagName, 'BUTTON');
+});
+
+test('40: the previews are released before the children they belong to are dropped', () => {
+  const h = load({ server: [{ name: 'a.png', url: 'U' }] });
+  h.list.append(el('li', { className: 'stale' }));
+  h.fn.renderAttachmentList();
+  assert.equal(h.calls.releases.length, 1);
+  assert.equal(h.calls.releases[0].group, 'result-attachments');
+  // The old children were still standing when release ran; they are gone once it returned.
+  assert.deepEqual(h.calls.releases[0].kept, ['stale']);
+  assert.deepEqual(h.list.children.map((li) => li.className), ['file-tile-item']);
+
+  // A panel with no list at all returns before touching the group.
+  const bare = load();
+  bare.list.remove();
+  bare.fn.renderAttachmentList();
+  assert.deepEqual(bare.calls.releases, []);
+});
+
+test('41: an empty result has no count to report — the chip goes away and empties', () => {
+  const h = load();
+  h.fn.paintAttachmentCount(3);
+  assert.equal(h.chip.hidden, false);
+  assert.equal(h.chip.textContent, '3');
+
+  h.fn.paintAttachmentCount(0);
+  assert.equal(h.chip.hidden, true);
+  assert.equal(h.chip.textContent, '');
+  assert.deepEqual(h.calls.counters, [3]); // zero never reaches the counter paint
+
+  // A fold with no chip on it does not throw.
+  h.chip.remove();
+  h.fn.paintAttachmentCount(2);
+});
+
+test('42: a count the fold can show is painted the way every other head counts', () => {
+  const h = load();
+  h.fn.paintAttachmentCount(3);
+  assert.deepEqual(h.calls.counters, [3]);
+  assert.equal(h.chip.hidden, false);
+  // Rendering three rows paints the same three.
+  const rendered = load({ server: [{ name: 'a', url: 'A' }, { name: 'b', url: 'B' }, { name: 'c', url: 'C' }] });
+  rendered.fn.renderAttachmentList();
+  assert.deepEqual(rendered.calls.counters, [3]);
+  assert.equal(rendered.chip.hidden, false);
+});
+
+// ---------- picking a file (rows 43-45) ----------
+
+test('43: a disabled Attach button does not open the picker behind it', () => {
+  const h = load();
+  h.attachBtn.disabled = true;
+  h.fn.onAttachFileClick();
+  assert.equal(h.calls.picker, 0);
+
+  h.attachBtn.disabled = false;
+  h.fn.onAttachFileClick();
+  assert.equal(h.calls.picker, 1);
+
+  // Neither node present: no button to read, no input to click, and no throw.
+  const bare = load({ controls: false });
+  bare.fn.onAttachFileClick();
+  assert.equal(bare.calls.picker, 0);
+});
+
+test('44: the input is cleared before the upload starts, so the same file can be picked twice', async () => {
+  const h = load();
+  h.fn.initAttachments(); // driven through the real `change` listener, not by calling the handler
+  h.fileInput.files = [file('a.png')];
+  fire(h.fileInput, 'change');
+  await settle();
+  assert.equal(h.fileInput.value, '');
+  // A same-value input fires no change, so a clear that came after the upload would lose the repeat.
+  assert.deepEqual(h.calls.order.filter((x) => x.startsWith('value:') || x.startsWith('upload:')),
+    ['value:', 'upload:a.png']);
+  assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png']);
+});
+
+test('45: a picker closed with nothing chosen uploads nothing', async () => {
+  const h = load();
+  h.fn.initAttachments();
+  h.fileInput.files = [];
+  fire(h.fileInput, 'change');
+  await settle();
+  // The list can be absent from the event too — `input.files || []` is the whole guard.
+  h.fileInput.files = null;
+  fire(h.fileInput, 'change');
+  await settle();
+
+  assert.deepEqual(h.calls.uploads, []);
+  assert.deepEqual(h.calls.lines, []);
+  // The handler DID run both times — the clear is the proof, so this is not an empty assertion.
+  assert.deepEqual(h.calls.order, ['value:', 'value:']);
+});
+
+// ---------- the upload loop (rows 46-54) ----------
+
+test('46: one file uploads, is remembered against the result and lands on screen at once', async () => {
+  const h = load();
+  h.on.upload = async () => ({ url: 'https://h/attachments/u1.png' });
+  const f = file('a.png');
+
+  await h.fn.attUploadFiles([f]);
+  assert.equal(h.calls.uploads.length, 1);
+  assert.equal(h.calls.uploads[0].recordId, 7);
+  assert.equal(h.calls.uploads[0].name, 'a.png');
+  assert.equal(h.calls.uploads[0].file, f); // the File itself rides the call — it IS the Blob
+  assert.deepEqual(h.rows(), [{
+    name: 'a.png', url: 'https://h/attachments/u1.png', id: 'u1', type: '', display_url: '',
+  }]);
+  assert.equal(h.calls.releases.length, 1); // rendered once, for the one file
+  assert.deepEqual(h.names(), ['a.png']);
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: '1 file attached ✓', cls: 'ok' }]);
+
+  // An answer with no url at all is still remembered — the row is there, simply unaddressable.
+  const bare = load();
+  bare.on.upload = async () => undefined;
+  await bare.fn.attUploadFiles([file('b.png')]);
+  assert.deepEqual(bare.rows(), [{ name: 'b.png', url: '', id: '', type: '', display_url: '' }]);
+  assert.deepEqual(bare.calls.lines, [{ id: 'test-status', text: '1 file attached ✓', cls: 'ok' }]);
+});
+
+test('47: one file failing toasts that file and the rest still go', async () => {
+  const h = load();
+  h.on.upload = async (recordId, f) => {
+    if (f.name === 'a.png') throw new Error('413 too large');
+    return { url: 'https://h/attachments/u2.png' };
+  };
+  await h.fn.attUploadFiles([file('a.png'), file('b.png')]);
+  assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png', 'b.png']);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'a.png: upload failed — 413 too large', error: true }]);
+  assert.deepEqual(h.rows().map((r) => r.name), ['b.png']);
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: '1 of 2 files attached', cls: 'error' }]);
+
+  // Both landing reads as the plain success sentence — the row above is the difference.
+  const both = load();
+  await both.fn.attUploadFiles([file('a.png'), file('b.png')]);
+  assert.deepEqual(both.calls.lines, [{ id: 'test-status', text: '2 files attached ✓', cls: 'ok' }]);
+});
+
+test('48: a run finishing between two files stops at the boundary and reports both halves', async () => {
+  const h = load();
+  h.on.upload = async () => { h.record().lock = RUN_LOCK; return { url: 'https://h/attachments/u1.png' }; };
+  await h.fn.attUploadFiles([file('a.png'), file('b.png')]);
+  // The gate is re-asked before EACH file, so the second one is never started.
+  assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png']);
+  assert.deepEqual(h.calls.progress, ['Uploading a.png (1/2)…']);
+  assert.deepEqual(h.calls.lines, [{
+    id: 'test-status', text: `1 of 2 files attached — ${RUN_LOCK}`, cls: 'error',
+  }]);
+  assert.deepEqual(h.rows().map((r) => r.name), ['a.png']); // what did land stays on screen
+});
+
+test('49: a run already finished when the picker closes never starts a single upload', async () => {
+  const h = load();
+  h.record().lock = RUN_LOCK;
+  await h.fn.attUploadFiles([file('a.png')]);
+  assert.deepEqual(h.calls.uploads, []);
+  assert.deepEqual(h.calls.progress, []);
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: RUN_LOCK, cls: 'error' }]);
+  assert.equal(h.calls.actionsState, 1); // the button still comes back
+});
+
+test('50: the only file failing leaves the line blank — the toast is the whole report', async () => {
+  const h = load();
+  h.on.upload = fail('network down');
+  await h.fn.attUploadFiles([file('a.png')]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'a.png: upload failed — network down', error: true }]);
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: '', cls: '' }]);
+  assert.deepEqual(h.rows(), []);
+  assert.deepEqual(h.calls.releases, []); // nothing landed, so nothing was repainted
+});
+
+test('51: several files count themselves off; a single one has nothing to count', async () => {
+  const h = load();
+  await h.fn.attUploadFiles([file('a.png'), file('b.png'), file('c.png')]);
+  assert.deepEqual(h.calls.progress, [
+    'Uploading a.png (1/3)…', 'Uploading b.png (2/3)…', 'Uploading c.png (3/3)…',
+  ]);
+  assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: '3 files attached ✓', cls: 'ok' }]);
+
+  const one = load();
+  await one.fn.attUploadFiles([file('a.png')]);
+  assert.deepEqual(one.calls.progress, ['Uploading a.png…']);
+});
+
+test('52: with no saved result the loop never uploads blind', async () => {
+  const h = load();
+  h.replaceRecord(null);
+  await h.fn.attUploadFiles([file('a.png')]);
+  assert.deepEqual(h.calls.uploads, []);
+  assert.deepEqual(h.calls.progress, []);
+  assert.deepEqual(h.calls.lines, []);
+  assert.equal(h.calls.actionsState, 0); // it returns ahead of the try, so nothing is restored
+  assert.equal(h.attachBtn.disabled, false); // …and nothing was disabled to restore
+
+  const noId = load();
+  noId.replaceRecord({ name: 'a row with no result id yet' });
+  await noId.fn.attUploadFiles([file('a.png')]);
+  assert.deepEqual(noId.calls.uploads, []);
+});
+
+test('53: the Attach button is held down for the whole batch and always handed back', async () => {
+  const h = load();
+  await h.fn.attUploadFiles([file('a.png'), file('b.png')]);
+  assert.deepEqual(h.calls.uploads.map((u) => u.btnDisabled), [true, true]);
+  assert.equal(h.attachBtn.disabled, false);
+  assert.equal(h.calls.actionsState, 1);
+
+  // The same on the failing path: the button must not stay dead because an upload was refused.
+  const bad = load();
+  bad.on.upload = fail('nope');
+  await bad.fn.attUploadFiles([file('a.png')]);
+  assert.equal(bad.calls.uploads[0].btnDisabled, true);
+  assert.equal(bad.attachBtn.disabled, false);
+  assert.equal(bad.calls.actionsState, 1);
+
+  // And with no button in the DOM at all the batch still runs to the end.
+  const bare = load({ controls: false });
+  await bare.fn.attUploadFiles([file('a.png')]);
+  assert.equal(bare.calls.uploads.length, 1);
+  assert.equal(bare.calls.actionsState, 1);
+
+  // The `finally` is not decoration. A throw from OUTSIDE the per-file catch — here the toast layer
+  // itself — still hands the button back, and is not swallowed into a success sentence on the way.
+  const thrown = load();
+  thrown.on.progress = () => { throw new Error('toast layer gone'); };
+  const e = await rejection(thrown.fn.attUploadFiles([file('a.png')]));
+  assert.equal(e.message, 'toast layer gone');
+  assert.equal(thrown.attachBtn.disabled, false);
+  assert.equal(thrown.calls.actionsState, 1);
+  assert.deepEqual(thrown.calls.lines, []);
+  assert.deepEqual(thrown.calls.uploads, []);
+});
+
+test('54: a structural sync replacing the record mid-loop is still the row the gate is read from', async () => {
+  const h = load();
+  const original = h.record();
+  h.on.upload = async () => {
+    // What a poll's apply does: the row is REPLACED, not mutated — the loop's own reference goes stale.
+    h.replaceRecord({ id: 7, lock: RUN_LOCK });
+    return { url: 'https://h/attachments/u1.png' };
+  };
+  await h.fn.attUploadFiles([file('a.png'), file('b.png')]);
+  assert.equal(original.lock, undefined); // the object the loop opened with never learned of the lock
+  assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png']);
+  assert.deepEqual(h.calls.lines, [{
+    id: 'test-status', text: `1 of 2 files attached — ${RUN_LOCK}`, cls: 'error',
+  }]);
+});
+
+// ---------- the wiring (row 55) ----------
+
+test('55: the two listeners are registered, and a panel missing either node does not throw', async () => {
+  const h = load();
+  h.fn.initAttachments();
+  assert.equal(h.attachBtn.listeners.get('click').length, 1);
+  assert.equal(h.fileInput.listeners.get('change').length, 1);
+
+  // Driven, not counted: the click opens the picker and the change starts the upload.
+  fire(h.attachBtn, 'click');
+  assert.equal(h.calls.picker, 1);
+  h.fileInput.files = [file('a.png')];
+  fire(h.fileInput, 'change');
+  await settle();
+  assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png']);
+
+  const bare = load({ controls: false });
+  bare.fn.initAttachments(); // neither node in the DOM
+  assert.equal(bare.attachBtn.listeners.size, 0);
+  assert.equal(bare.fileInput.listeners.size, 0);
 });
