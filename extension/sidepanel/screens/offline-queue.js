@@ -2,7 +2,7 @@
 // 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
 /* global TestomatAPI, state, capabilities, hasChrome, hostOf, isReadonlyError, recordFor,
-   runRowEl, repaintRow, toast, writeStatus, runStatusTerminal, $, Tooltip */
+   runRowEl, repaintRow, toast, WriteCore, runStatusTerminal, $, Tooltip */
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
@@ -11,7 +11,7 @@ let queueDraining = false;  // FIFO, one drain at a time — no retry storm
 let queueRedrainRequested = false; // #192: a trigger that arrived mid-drain, honoured once after it
 let queueLastPass = false;         // the running pass is the last one — no more can be promised
 // e2e hook (storage.session `forceWriteFail`): null | 'network' | 'auth', kept
-// live via onChanged so writeStatus needs no per-call storage read.
+// live via onChanged so WriteCore.writeStatus needs no per-call storage read.
 let forceFail = null;
 
 const QUEUE_KEY = 'offlineQueue';
@@ -139,7 +139,7 @@ async function drainPass() {
     if (!queueEntryActive(snap)) continue; // the connection moved mid-drain — keep it for its own
     const record = (typeof recordFor === 'function' && recordFor(snap.recordId)) || { id: snap.recordId };
     try {
-      await writeStatus(record, snap.status, snap.comment, null, { noQueue: true });
+      await WriteCore.writeStatus(record, snap.status, snap.comment, null, { noQueue: true });
     } catch (e) {
       // #155: read-only is not a permanent failure of THIS entry — a role change
       // can still land it, so it keeps the queue like an offline failure does.

@@ -867,6 +867,9 @@
   <script src="core/env-info.js"></script>
   <script src="core/storage.js"></script>
   <script src="core/views.js"></script>
+  <!-- The one place a verdict becomes a request — the test view, the run rows and the queue
+       replay all call it. After core/views.js, before every screen that writes. -->
+  <script src="core/write-status.js"></script>
   <script src="core/project-switcher.js"></script>
   <!-- The header's surface switch — after core/views.js, whose toast it uses. -->
   <script src="core/view-switch.js"></script>

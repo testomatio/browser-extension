@@ -306,13 +306,15 @@ function load(opts = {}) {
     // The real core/format.js, recorded on the way through. The ARGUMENT is the point of these
     // rows: run-view holds SECONDS and has to multiply, so an unconverted 90 prints '0.09s'.
     Fmt: { humanDuration: (ms) => { calls.durations.push(ms); return Fmt.humanDuration(ms); } },
-    // screens/test-view.js:1584's own optimistic assign — without it a rollback row would pass
+    // core/write-status.js's own optimistic assign — without it a rollback row would pass
     // against a stub that never changed the record in the first place.
-    writeStatus: async (record, status, comment) => {
-      calls.writes.push({ id: record?.id, status, comment });
-      calls.order.push('write');
-      if (record) Object.assign(record, { status, message: comment });
-      return on.write(record, status);
+    WriteCore: {
+      writeStatus: async (record, status, comment) => {
+        calls.writes.push({ id: record?.id, status, comment });
+        calls.order.push('write');
+        if (record) Object.assign(record, { status, message: comment });
+        return on.write(record, status);
+      },
     },
     loadProjectInfo: async () => { calls.projectInfo += 1; calls.order.push('projectInfo'); return on.projectInfo(); },
     loadProjectUsers: async () => { calls.projectUsers += 1; calls.order.push('projectUsers'); return on.projectUsers(); },

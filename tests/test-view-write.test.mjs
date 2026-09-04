@@ -15,9 +15,16 @@
 // drives the same path the other way, so a row asserting "nothing happened" cannot pass against a
 // fixture where nothing could have happened anyway.
 // Run: node --test tests/test-view-write.test.mjs
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, fakeChrome, fakeClock, makeDocument, el, event, plain, settle, rejection } from './helpers/panel-harness.mjs';
+import { loadScreen, fakeChrome, fakeClock, makeDocument, el, event, plain, settle, rejection, ApiError } from './helpers/panel-harness.mjs';
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 
 const HOST = 'app.testomat.io';
 const LOCK = 'Run is finished — results are read-only';
@@ -303,6 +310,15 @@ function load(opts = {}) {
       updateTestMarker: () => { calls.markers += 1; },
     },
   };
+
+  // The REAL core/write-status.js, evaluated over these same stub objects. clickStatus's rows are
+  // about what the tester sees for a given SERVER answer, and a fake core between them would let a
+  // queued row pass against something that never queued. tests/write-status.test.mjs owns the core.
+  globals.WriteCore = runInContext(
+    `${readFileSync(join(CORE_SRC, 'write-status.js'), 'utf8')}\nWriteCore;`,
+    createContext({ ...globals, console, URL, Date, TestomatAPI: { ...globals.TestomatAPI, ApiError } }),
+    { filename: join(CORE_SRC, 'write-status.js') },
+  );
 
   const clock = fakeClock();
   const h = loadScreen('test-view', {
@@ -730,218 +746,6 @@ test('156: typing in the filter moves the cursor to the first match', () => {
   assert.deepEqual(h.optionIds(), ['1', '2']);
   assert.equal(h.activeOption(), 'assignee-opt-1');
 });
-
-// ---------- the write core (rows 76-87) ----------
-
-test('76: the write carries the four ids the server needs, and the merge keeps test_id', async () => {
-  const h = load();
-  const record = h.state.records[0];
-  h.on.setStatus = async () => ({ id: 7, test_id: 999, status: 'passed', 'finished-at': 'T' });
-  const saved = await h.fn.writeStatus(record, 'passed', 'note', null);
-  assert.deepEqual(h.calls.setStatus, [{
-    testrunId: 7, runId: 'r1', testId: 700, status: 'passed', message: 'note',
-  }]);
-  assert.equal(record.test_id, 700); // the row was opened BY id and keeps the test it belongs to
-  assert.equal(record.status, 'passed');
-  assert.equal(record.message, 'note');
-  assert.equal(record['finished-at'], 'T');
-  assert.equal(plain(saved).id, 7);
-});
-
-test('76b: the optimistic callback runs before the request, not after it', async () => {
-  const h = load();
-  await h.fn.writeStatus(h.state.records[0], 'passed', 'note', () => h.calls.order.push('optimistic'));
-  assert.deepEqual(h.calls.order.filter((s) => s === 'optimistic' || s === 'setStatus'),
-    ['optimistic', 'setStatus']);
-});
-
-test('77: a landed write spends its draft AND drops the queue entry it supersedes', async () => {
-  const h = load();
-  h.on.remove = async () => true;
-  await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null);
-  await settle();
-  assert.deepEqual(h.calls.removed, [7]);
-  assert.equal(h.calls.refreshUIs, 1);
-  // The store is screens/test-drafts.js's; what this write owes it is the call.
-  assert.deepEqual(h.calls.dropped, [7]);
-});
-
-test('77b: nothing queued for the row leaves the pending badge alone', async () => {
-  const h = load();
-  h.on.remove = async () => false;
-  await h.fn.writeStatus(h.state.records[0], 'passed', '', null);
-  assert.deepEqual(h.calls.removed, [7]);
-  assert.equal(h.calls.refreshUIs, 0);
-});
-
-test('77c: a replay does NOT drop the row\'s entry — the drain removes its own by queuedAt', async () => {
-  const h = load();
-  await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null, { noQueue: true });
-  await settle();
-  assert.deepEqual(h.calls.removed, []);
-  assert.deepEqual(h.calls.dropped, [7]); // the draft still goes
-});
-
-test('78: a queue removal that throws does not fail a status that is already saved', async () => {
-  const h = load();
-  h.on.remove = async () => { throw new Error('queue storage is gone'); };
-  const saved = await h.fn.writeStatus(h.state.records[0], 'passed', '', null);
-  assert.equal(plain(saved).status, 'passed');
-  assert.equal(h.calls.endWrites, 1);
-});
-
-test('79: a network failure queues the click, keeps the optimistic status and says nothing', async () => {
-  const h = load();
-  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
-  const res = await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null);
-  assert.deepEqual(plain(res), { queued: true, reason: 'network' });
-  assert.deepEqual(h.calls.enqueued, [{
-    recordId: 7, runId: 'r1', status: 'passed', comment: 'note', queuedAt: 1700000000000, reason: 'network',
-  }]);
-  assert.equal(h.state.records[0].status, 'passed'); // no rollback
-  assert.deepEqual(h.calls.toasts, []);
-  assert.deepEqual(h.calls.removed, []); // and nothing is dropped from the queue
-});
-
-test('79b: a REJECTED TOKEN queues under its own reason — it is not "offline"', async () => {
-  const h = load();
-  h.on.setStatus = async () => { throw new h.ApiError('auth', 403, 'token rejected'); };
-  const res = await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null);
-  assert.deepEqual(plain(res), { queued: true, reason: 'auth' });
-  assert.equal(h.calls.enqueued[0].reason, 'auth');
-});
-
-test('79c: a failure the queue does not take is rethrown, not swallowed', async () => {
-  const h = load();
-  h.on.setStatus = async () => { throw new h.ApiError('http', 500, 'server said no'); };
-  const e = await rejection(h.fn.writeStatus(h.state.records[0], 'passed', 'note', null));
-  assert.equal(e.message, 'server said no');
-  assert.deepEqual(h.calls.enqueued, []);
-});
-
-test('79d: a row with no id yet cannot be queued — there would be nothing to replay onto', async () => {
-  const h = load({ records: [rec(7, { id: null })] });
-  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
-  const e = await rejection(h.fn.writeStatus(h.state.records[0], 'passed', '', null));
-  assert.equal(e.kind, 'network');
-  assert.deepEqual(h.calls.enqueued, []);
-});
-
-test('80: a replay rethrows so its entry stays queued for the next drain', async () => {
-  const h = load();
-  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
-  const e = await rejection(h.fn.writeStatus(h.state.records[0], 'passed', 'note', null, { noQueue: true }));
-  assert.equal(e.kind, 'network');
-  assert.deepEqual(h.calls.enqueued, []);
-});
-
-test('81: the e2e force flag fires INSTEAD of the request, not after it', async () => {
-  const h = load();
-  h.on.forcedError = () => new h.ApiError('network', 0, 'forced offline (e2e)');
-  const res = await h.fn.writeStatus(h.state.records[0], 'passed', '', null);
-  assert.deepEqual(h.calls.setStatus, []);
-  assert.equal(plain(res).queued, true);
-  assert.equal(h.calls.enqueued[0].reason, 'network');
-});
-
-test('81b: …and with the flag down the real request goes out', async () => {
-  const h = load();
-  await h.fn.writeStatus(h.state.records[0], 'passed', '', null);
-  assert.equal(h.calls.setStatus.length, 1);
-});
-
-test('82: livesync is paused and released exactly once on every path', async () => {
-  const ok = load();
-  await ok.fn.writeStatus(ok.state.records[0], 'passed', '', null);
-  assert.deepEqual([ok.calls.beginWrites, ok.calls.endWrites], [1, 1]);
-
-  const thrown = load();
-  thrown.on.setStatus = async () => { throw new thrown.ApiError('http', 500, 'nope'); };
-  await rejection(thrown.fn.writeStatus(thrown.state.records[0], 'passed', '', null));
-  assert.deepEqual([thrown.calls.beginWrites, thrown.calls.endWrites], [1, 1]);
-
-  const queued = load();
-  queued.on.setStatus = async () => { throw new queued.ApiError('network', 0, 'offline'); };
-  await queued.fn.writeStatus(queued.state.records[0], 'passed', '', null);
-  assert.deepEqual([queued.calls.beginWrites, queued.calls.endWrites], [1, 1]);
-});
-
-test('83: a failed result carries the environment AND the log, in that order', async () => {
-  const h = load();
-  h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
-  await h.fn.writeEnvMeta(h.state.records[0], 'failed');
-  assert.deepEqual(h.calls.meta, [{
-    id: 7,
-    entries: [['URL', 'https://shop.test/cart'], ['Console & network log', 'https://files.test/log.txt']],
-  }]);
-});
-
-test('83b: a passed result never uploads a log', async () => {
-  const h = load();
-  h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
-  await h.fn.writeEnvMeta(h.state.records[0], 'passed');
-  assert.deepEqual(h.calls.logUploads, []);
-  assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['URL', 'https://shop.test/cart']] }]);
-});
-
-test('84: a proven degraded session writes no meta and does not even collect it', async () => {
-  const h = load({ jwtAvailable: false });
-  h.on.collectEnvMeta = async () => [['URL', 'u']];
-  await h.fn.writeEnvMeta(h.state.records[0], 'passed');
-  assert.deepEqual(h.calls.envMeta, []);
-  assert.deepEqual(h.calls.meta, []);
-});
-
-test('84b: a session still PROBING is not a gate', async () => {
-  const h = load({ jwtAvailable: 'unknown' });
-  h.on.collectEnvMeta = async () => [['URL', 'u']];
-  await h.fn.writeEnvMeta(h.state.records[0], 'passed');
-  assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['URL', 'u']] }]);
-});
-
-test('85: a locked result in the OPEN run writes no meta', async () => {
-  const h = load({ lock: LOCK });
-  h.on.collectEnvMeta = async () => [['URL', 'u']];
-  await h.fn.writeEnvMeta(h.state.records[0], 'passed');
-  assert.deepEqual(h.calls.meta, []);
-});
-
-test('85b: …but a replay into another, still-live run keeps writing its meta', async () => {
-  const h = load({ lock: LOCK, records: [] }); // the record belongs to a run that is not open here
-  h.on.collectEnvMeta = async () => [['URL', 'u']];
-  await h.fn.writeEnvMeta({ id: 42 }, 'passed');
-  assert.deepEqual(h.calls.meta, [{ id: 42, entries: [['URL', 'u']] }]);
-});
-
-test('85c: a row with no result id yet writes nothing — the meta keys hang off that id', async () => {
-  const h = load();
-  h.on.collectEnvMeta = async () => [['URL', 'u']];
-  await h.fn.writeEnvMeta({ id: null }, 'passed');
-  await h.fn.writeEnvMeta(null, 'passed');
-  assert.deepEqual(h.calls.envMeta, []);
-  assert.deepEqual(h.calls.meta, []);
-});
-
-test('86: nothing to say is no request — both toggles off is the common case', async () => {
-  const h = load();
-  h.on.collectEnvMeta = async () => [];
-  await h.fn.writeEnvMeta(h.state.records[0], 'passed');
-  assert.deepEqual(h.calls.meta, []);
-});
-
-test('86b: …and the log alone is still worth a request when env-info is off', async () => {
-  const h = load();
-  h.on.collectEnvMeta = async () => [];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
-  await h.fn.writeEnvMeta(h.state.records[0], 'failed');
-  assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['Console & network log', 'https://files.test/log.txt']] }]);
-});
-
-// #107: an offline replay is written from whatever tab is open NOW, so the environment and the
-// console log attached to it are not the ones the tester recorded the result in.
-test.todo('87: a replayed failure should not attach the CURRENT tab\'s environment (#107)');
 
 // ---------- status click and write state (rows 88-95) ----------
 
