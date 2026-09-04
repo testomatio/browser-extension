@@ -1320,17 +1320,9 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-test.todo('11 — TODO(issue): a body a recorded page made enormous does not land whole in the comment', () => {
-  const h = load();
-  const body = 'x'.repeat(2 * 1024 * 1024);
-  const snippet = h.fn.evEntrySnippet(net({ bodySnippet: body }));
-  // Today: snippet.length is just over 2 MB.
-  assert.ok(snippet.length < body.length, `${snippet.length} characters reached the comment`);
-});
-
 // 15: uploadEvidenceLog passes `snap.status || {}`, so a snapshot that carries no status writes the
 // literal string `undefined` into a file that is then uploaded to the server.
-test.todo('15 — TODO(issue): a snapshot with no window still writes a number into the uploaded .txt', () => {
+test.todo('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
   const h = load();
   const txt = h.fn.evBuildTxt('Run A', 'Test B', [], {});
   // Today: 'Window: last undefineds · 0 entries · …'.
@@ -1339,7 +1331,7 @@ test.todo('15 — TODO(issue): a snapshot with no window still writes a number i
 
 // 17: PRIVACY.md promises URL trimming and never exempts this file, but the .txt carries the whole
 // request URL, query string and all — straight to the server, beside the result.
-test.todo('17 — TODO(issue): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
+test.todo('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
   const h = load();
   const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })], { windowSec: 60 });
   // Today: the whole URL, query included, is written into the file.
@@ -1348,7 +1340,7 @@ test.todo('17 — TODO(issue): the uploaded .txt trims a request URL to its path
 
 // 21: the comment above evShortUrl says an unparseable input "comes back as it came", but `new URL`
 // parses a data: URL happily and the scheme is then silently dropped from the host-less branch.
-test.todo('21 — TODO(issue): a data: URL on the card keeps the scheme that says what it is', () => {
+test.todo('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
   const h = load();
   h.evUi.tabUrl = `${SITE}/cart`;
   // Today: 'text/plain,hi' — indistinguishable from a path on the site under test.
@@ -1358,7 +1350,7 @@ test.todo('21 — TODO(issue): a data: URL on the card keeps the scheme that say
 // 23: the panel says it mirrors the recorder's clamp, and the recorder guards with `!= null` before
 // clamping. This one does not, and state.settings starts life as null (core/state.js), so an
 // unconfigured panel tells the tester it keeps ten seconds while the recorder keeps sixty.
-test.todo('23 — TODO(issue): a panel with no settings loaded yet quotes the recorder\'s 60s, not 10s', () => {
+test.todo('23 (#264): a panel with no settings loaded yet quotes the recorder\'s 60s, not 10s', () => {
   const h = load({ settings: null });
   assert.equal(h.fn.evWindowSeconds(), 60);
   h.state.settings = { evidenceWindowSec: null };
@@ -1367,14 +1359,14 @@ test.todo('23 — TODO(issue): a panel with no settings loaded yet quotes the re
 
 // 39 and 58 are one bug: both toasts report a failure and neither is styled as one, so they read as
 // ordinary confirmations in the same place a success would appear.
-test.todo('39 — TODO(issue): a recorder that refused is toasted as an error, not as a confirmation', async () => {
+test.todo('39 (#267): a recorder that refused is toasted as an error, not as a confirmation', async () => {
   const h = load({ reply: () => ({ ok: false, error: 'x' }) });
   await h.fn.onEvidenceToggle();
   await settle();
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
 });
 
-test.todo('58 — TODO(issue): a log that could not attach is toasted as an error, not as a confirmation', async () => {
+test.todo('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
   const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
   await h.fn.uploadEvidenceLog({ id: '900' });
   assert.deepEqual(h.calls.toasts, [
@@ -1385,7 +1377,7 @@ test.todo('58 — TODO(issue): a log that could not attach is toasted as an erro
 // 39c: the start path reads `r.unrecordable` one line above the `!r` guard the stop path gets, so a
 // worker that answered nothing — which is what chrome.runtime.sendMessage resolves to when no
 // listener replied — reaches the tester as a raw TypeError instead of the sentence written for it.
-test.todo('39c — TODO(issue): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
+test.todo('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
   const h = load({ reply: () => undefined });
   await h.fn.onEvidenceToggle();
   await settle();
