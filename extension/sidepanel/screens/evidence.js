@@ -3,7 +3,7 @@
 // recorder is the source of truth.
 
 /* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
-   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection */
+   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection, envTrimUrl */
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
@@ -107,12 +107,13 @@ function evIcon(e) {
   return e.level === 'warning' ? { name: 'warning', kind: 'warning' } : { name: 'error', kind: 'error' };
 }
 
-// Readable .txt artifact (header + Console + Network sections) for auto-attach.
+// Readable .txt artifact (header + Console + Network sections) for auto-attach. UPLOADED onto the
+// result, so every address in it goes through envTrimUrl — a query string carries tokens (PRIVACY.md).
 function evBuildTxt(runTitle, testTitle, entries, status) {
   const lines = [];
   lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
   lines.push(`Recorded tab: ${status.tabTitle || '—'}`);
-  if (status.tabUrl) lines.push(`URL: ${status.tabUrl}`);
+  if (status.tabUrl) lines.push(`URL: ${envTrimUrl(status.tabUrl)}`);
   // A status with no window would write "last undefineds" into a file that is uploaded onto
   // the result: the panel's own kept window stands in, the way every other field here falls back.
   const win = Number.isFinite(status.windowSec) ? status.windowSec : evWindowSeconds();
@@ -132,7 +133,7 @@ function evBuildTxt(runTitle, testTitle, entries, status) {
   for (const e of nets) {
     const rt = e.resourceType ? ` [${e.resourceType}]` : '';
     const err = e.errorText ? ` — ${e.errorText}` : '';
-    lines.push(`[${evTime(e.ts)}] ${evNetStatus(e)} ${e.method} ${e.url}${rt}${err}`);
+    lines.push(`[${evTime(e.ts)}] ${evNetStatus(e)} ${e.method} ${envTrimUrl(e.url)}${rt}${err}`);
     // The captured response body, indented under its request.
     if (e.bodySnippet) {
       for (const bl of e.bodySnippet.split('\n')) lines.push(`    ${bl}`);

@@ -12,9 +12,20 @@
 // Rows 1-64 are the ticket's; a lettered suffix is the companion case that drives the same path the
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
 // Run: node --test tests/evidence.test.mjs
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+
+// The REAL trim from core/env-info.js, not a look-alike: PRIVACY.md's promise is that file's
+// wording, and a stub would let row 17 pass against a marker the panel never writes.
+// CORE_SRC points the suite at a mutated COPY of core/, so a falsification run never edits it.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
+const envTrimUrl = runInNewContext(`${readFileSync(join(CORE_SRC, 'env-info.js'), 'utf8')}\nenvTrimUrl;`, { URL });
 
 // evTime reads getHours/getMinutes/getSeconds — LOCAL time. Pinned here so the ticket's own UTC
 // stamps are the ones asserted; the row also carries a clock-agnostic form beside them.
@@ -169,6 +180,7 @@ function load(opts = {}) {
       calls.disabledAt.push(node.evidenceToggle ? node.evidenceToggle.disabled : null);
       return o.site;
     }),
+    envTrimUrl,
     Tooltip: { set: () => {} },
     HoverCard: { attach: () => { calls.order.push('card.attach'); return card; } },
     // shared/empty-state.js's shape, cut to what this screen asks of it.
@@ -405,6 +417,22 @@ test('16: a body the tester switched off is named as switched off, not as an emp
   // A request with neither a body nor the flag gets no line under it at all.
   const bare = h.fn.evBuildTxt('R', 'T', [net({ url: 'https://x/y' })], { windowSec: 60 });
   assert.ok(bare.endsWith(`== Network (1) ==\n[${AT}] 500 GET https://x/y\n`), bare);
+});
+
+test('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
+  const h = load();
+  const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })],
+    { tabUrl: `${SITE}/reset?token=abc123`, windowSec: 60 });
+  // This file is uploaded onto the result, where everyone with project access reads it.
+  assert.ok(!txt.includes('token=abc123'), txt);
+  // …and what stands in its place still names the request, marked as cut.
+  assert.ok(txt.includes(`URL: ${SITE}/reset (query trimmed)`), txt);
+  assert.ok(txt.includes(`500 GET ${SITE}/pay (query trimmed)`), txt);
+  // A URL with nothing to cut is written whole, with no marker hung on it.
+  const clean = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay` })], { tabUrl: `${SITE}/cart`, windowSec: 60 });
+  assert.ok(clean.includes(`URL: ${SITE}/cart\n`), clean);
+  assert.ok(clean.includes(`500 GET ${SITE}/pay\n`), clean);
+  assert.ok(!clean.includes('query trimmed'), clean);
 });
 
 // ---------- what the hover card says (rows 18-22) ----------
@@ -1333,15 +1361,6 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 17: PRIVACY.md promises URL trimming and never exempts this file, but the .txt carries the whole
-// request URL, query string and all — straight to the server, beside the result.
-test.todo('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
-  const h = load();
-  const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })], { windowSec: 60 });
-  // Today: the whole URL, query included, is written into the file.
-  assert.ok(!txt.includes('token=abc123'), txt);
-});
-
 // 21: the comment above evShortUrl says an unparseable input "comes back as it came", but `new URL`
 // parses a data: URL happily and the scheme is then silently dropped from the host-less branch.
 test.todo('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
