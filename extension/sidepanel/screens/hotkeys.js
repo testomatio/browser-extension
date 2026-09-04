@@ -202,6 +202,7 @@ async function attachScreenshotAnnotated() {
     // One plaque at a time: the warning IS the message here, so it stands in place of the
     // "Annotating…" step — the annotator itself is on the page, where the panel says nothing.
     if (fullPage && resp.viewportOnly) toast('Full page needs the debugger, which this page blocks — captured the viewport.', { ms: 8000 });
+    else if (fullPage && resp.heightClipped) toast('This page is taller than a screenshot can be — the shot stops at the full-page limit.', { ms: 8000 });
     else progressToast('Annotating…');
     const annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
     if (!annotated) { hideToast(); return; } // Discard — no upload, no state change
