@@ -118,7 +118,8 @@ const PriorityControl = (() => {
     return {
       wrap,
       getPriority: () => btn.dataset.priority,
-      // Programmatic set (e2e / edit preselect): always marks dirty, never opens the menu.
+      // The e2e hook's set, like its setTitle and setMarkdown: always marks dirty, never opens
+      // the menu. Not a preselect — an editor's starting value arrives as this function's argument.
       setPriority: (p) => {
         if (!PriorityIcons.ORDER.includes(p)) return;
         current = p;
