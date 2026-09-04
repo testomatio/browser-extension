@@ -394,6 +394,9 @@
     const draftKey = editorDraftKey(editing ? { test: uid } : { suite });
     let saving = false;
     let done = false;        // saved → the read-only view took over this page
+    // The id the first Save got. A second Save updates that test instead of creating another,
+    // which is what lets a half-written Save be retried at all.
+    let savedId = null;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
     const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
@@ -1079,12 +1082,16 @@
         if (!paramsWrite) return null;
         // The update deliberately omits `suite_id` — sending it would MOVE the test
         // (contract m3), and this editor changes its text, not where it lives.
-        const written = editing
-          ? await TestomatAPI.updateTest(uid, { title: t, description, priority })
+        // A test this editor already created is UPDATED by the retry below — writing it again
+        // would leave two tests behind.
+        const target = savedId || (editing ? uid : null);
+        const written = target
+          ? await TestomatAPI.updateTest(target, { title: t, description, priority })
           : await TestomatAPI.createTest({ title: t, suite_id: suite, description, priority });
         // Editing, the uid is known before the request and stays the uid whatever the
         // response echoes back.
-        const id = (written && written.id) || (editing ? uid : null);
+        const id = (written && written.id) || target;
+        savedId = id;
         // Best-effort: a failed upload toasts but never fails Save, and the shots that did
         // NOT land stay staged, so a second Save retries exactly them.
         let shotError = null;
@@ -1105,9 +1112,14 @@
           pendingShots.splice(0, pendingShots.length, ...kept);
           renderShotPreview();
         }
-        // Same best-effort contract as the uploads: the test is saved either way, and a parameter
-        // that could not be written is said in the toast instead of failing the Save.
+        // The test itself is saved either way; the parameters leg is best-effort, as the uploads are.
         const paramsError = id ? await paramsCtl.commit(id, paramsWrite) : null;
+        // What did not land is still only in this grid: hold the editor, its draft and the dirty
+        // flag, so a second Save sends exactly those rows.
+        if (paramsError) {
+          showToast(`Saved — parameters couldn't be written (${paramsError})`, { error: true });
+          return null;
+        }
         clearDirty();
         if (ctx === 'panel') removeEditorDraft(draftKey);
         // For a create, `test: {}` is not a missing record: it is the `manual` kind
@@ -1122,7 +1134,6 @@
             ? `Saved — ${shotFailed} screenshots couldn't attach (${shotError})`
             : `Saved — the screenshot couldn't attach (${shotError})`, { error: true });
         }
-        else if (paramsError) showToast(`Saved — parameters couldn't be written (${paramsError})`, { error: true });
         else showToast('Saved ✓');
         return id;
       } catch (e) {
