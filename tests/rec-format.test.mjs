@@ -20,7 +20,9 @@ const source = readFileSync(SRC, 'utf8');
 const ctx = createContext({});
 runInContext(readFileSync(join(repoRoot, 'extension/editor/md-sections.js'), 'utf8'), ctx);
 const RecFormat = runInContext(`${source}\nRecFormat;`, ctx);
-const { splitRecorded, insertRecorded, polishedSection, asExpected, parsePolishedItems, serverMessage } = RecFormat;
+const {
+  stepsHeading, splitRecorded, insertRecorded, polishedSection, asExpected, parsePolishedItems, serverMessage,
+} = RecFormat;
 
 // Values cross back from the vm realm, where Array/Object have their own prototypes: compare
 // them as plain JSON rather than by identity.
@@ -30,12 +32,16 @@ const START = '<!-- ![START polished_steps]! -->';
 const END = '<!-- ![END polished_steps]! -->';
 
 test('the module publishes exactly the surface editor.js destructures', () => {
+  // `stepsHeading` joined the surface with #246: rec-session names the section ONCE per call and
+  // hands the same name to `insertRecorded`, so its count and the insert cannot disagree.
   assert.deepEqual(Object.keys(RecFormat).sort(), [
     'STEPS_OPTS', 'asExpected', 'insertRecorded', 'parsePolishedItems',
-    'polishedSection', 'serverMessage', 'splitRecorded',
+    'polishedSection', 'serverMessage', 'splitRecorded', 'stepsHeading',
   ]);
   assert.deepEqual(plain(RecFormat.STEPS_OPTS), { ordered: true });
   assert.equal(asExpected('**Expected:** y'), 'Expected: y');
+  assert.equal(stepsHeading('### Кроки\n\n1. Відкрити\n'), 'Кроки');
+  assert.equal(stepsHeading('# T\n'), 'Steps'); // a body with no steps section at all
 });
 
 // ===================== splitRecorded: entries → items =======================
@@ -67,7 +73,23 @@ test('4: falsy text is dropped, and an entry with no text at all does not throw'
   });
 });
 
-// Case 5, the double prefix, is a shipped bug (#245) — the test.todo at the end of this file.
+// The prefix is the panel's own wording, so a tester types it as often as not. It is written in
+// ONE place (`asExpected`) and stripped first, however it was emphasised or bulleted.
+test('5 (#245): an entry that already says "Expected:" is not prefixed twice', () => {
+  const parts = splitRecorded([{ text: 'A' }, { kind: 'expected', text: 'Expected: y' }], false);
+  assert.deepEqual(plain(parts.steps), [{ text: 'A', subs: ['Expected: y'] }]);
+  // Every spelling #245 lists, on the step branch and on the leadSubs branch alike.
+  for (const typed of ['Expected: y', 'expected: y', '**Expected:** y', '- Expected: y', '*Expected*  y']) {
+    assert.deepEqual(
+      plain(splitRecorded([{ text: 'A' }, { kind: 'expected', text: typed }], false).steps[0].subs),
+      ['Expected: y'],
+    );
+    assert.deepEqual(plain(splitRecorded([{ kind: 'expected', text: typed }], true).leadSubs), ['Expected: y']);
+  }
+  // …and an expected result with nothing to attach to still goes in bare: it becomes a bullet
+  // under `### Expected`, which carries no prefix to double in the first place.
+  assert.deepEqual(plain(splitRecorded([{ kind: 'expected', text: 'Expected: y' }], false).expected), ['Expected: y']);
+});
 
 // ===================== insertRecorded: items → markdown =====================
 
@@ -100,7 +122,25 @@ test('9: nothing recorded leaves the body byte for byte as it was', () => {
   assert.equal(insertRecorded(body, { steps: [], expected: [], leadSubs: [] }), body);
 });
 
-// Case 10, the English heading appended to a Ukrainian body (#246), is the second test.todo below.
+// shared/markdown.js renders a list as the STEPS when its heading matches `step|крок`; writing
+// has to know the same two words, or a Ukrainian test grows a second section instead of a step.
+test('10 (#246): a recorded step joins the Ukrainian ### Кроки section', () => {
+  assert.equal(
+    insertRecorded(md('### Кроки', '', '1. Відкрити', ''), splitRecorded([{ text: 'Клік' }], false)),
+    md('### Кроки', '', '1. Відкрити', '2. Клік', ''),
+  );
+  // The heading the caller names wins over the one the body would suggest — rec-session resolves
+  // it once, before the insert, so its item count and this write cannot name different sections.
+  assert.equal(
+    insertRecorded(md('### Кроки', '', '1. Відкрити', ''), splitRecorded([{ text: 'Клік' }], false), 'Steps'),
+    md('### Кроки', '', '1. Відкрити', '', '### Steps', '', '1. Клік'),
+  );
+  // A body with no steps section of any name still opens the English one, as it always did.
+  assert.equal(
+    insertRecorded('# T\n', splitRecorded([{ text: 'Click A' }], false)),
+    md('# T', '', '### Steps', '', '1. Click A'),
+  );
+});
 
 // ===================== polishedSection: answer → section ====================
 
@@ -199,23 +239,3 @@ test('27: precedence is error, then details, then message', () => {
   assert.equal(serverMessage({ message: '{"details":["d"],"message":"M"}' }), 'd');
 });
 
-// ===================== shipped bugs, carried over unfixed ===================
-
-// 5: the recorder's own `Expected: ` prefix is added on top of one the entry already carries.
-// splitRecorded writes the prefix by hand while parsePolishedItems routes through asExpected,
-// which strips a leading `expected:` first; the fix is to route both through asExpected.
-test.todo('5 (#245): an entry that already says "Expected:" is not prefixed twice', () => {
-  // Today: subs === ['Expected: Expected: y'].
-  const parts = splitRecorded([{ text: 'A' }, { kind: 'expected', text: 'Expected: y' }], false);
-  assert.deepEqual(plain(parts.steps), [{ text: 'A', subs: ['Expected: y'] }]);
-});
-
-// 10: insertRecorded hard-codes the English 'Steps' heading, while shared/markdown.js reads
-// `step|крок`, so a Ukrainian test grows a second, English section instead of gaining a step.
-test.todo('10 (#246): a recorded step joins the Ukrainian ### Кроки section', () => {
-  // Today: '### Кроки\n\n1. Відкрити\n\n### Steps\n\n1. Клік'.
-  assert.equal(
-    insertRecorded(md('### Кроки', '', '1. Відкрити', ''), splitRecorded([{ text: 'Клік' }], false)),
-    md('### Кроки', '', '1. Відкрити', '2. Клік', ''),
-  );
-});

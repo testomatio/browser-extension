@@ -9,6 +9,14 @@ const RecFormat = (() => {
   // wrote around the list stays as it is.
   const STEPS_OPTS = { ordered: true };
 
+  // The one place that prefix is written: a tester who typed `Expected:` themselves — bulleted,
+  // emphasised or in any case — must not be handed a second one.
+  const asExpected = (s) => `Expected: ${String(s).replace(/^[\s*_-]*expected[*_\s]*:?[*_\s]*/i, '').trim()}`;
+
+  // The heading the recorded steps join: whatever this body already calls its steps section, so
+  // a test written in Ukrainian keeps its own `### Кроки`, and `Steps` when it has none.
+  const stepsHeading = (md) => MdSections.findHeading(md, MdSections.STEPS_HEADING) || 'Steps';
+
   // #78/#91: an expected result belongs to the step it followed, as the `- Expected: …`
   // sub-bullet the panel renders inline (sidepanel/screens/test-view.js `extractExpected`).
   function splitRecorded(entries, attachToPrior) {
@@ -19,16 +27,20 @@ const RecFormat = (() => {
       const text = (e && e.text) || '';
       if (!text) continue;
       if (e.kind !== 'expected') { steps.push({ text, subs: [] }); continue; }
-      if (steps.length) steps[steps.length - 1].subs.push(`Expected: ${text}`);
-      else if (attachToPrior) leadSubs.push(`Expected: ${text}`);
-      else expected.push(text);
+      if (steps.length) steps[steps.length - 1].subs.push(asExpected(text));
+      else if (attachToPrior) leadSubs.push(asExpected(text));
+      else expected.push(text); // its own `### Expected` bullet, written with no prefix at all
     }
     return { steps, expected, leadSubs };
   }
 
-  function insertRecorded(md, { steps, expected, leadSubs }) {
+  // `heading` is resolved by the caller when it has to name the same section twice (rec-session
+  // counts the items there BEFORE this insert); on its own the body decides.
+  function insertRecorded(md, { steps, expected, leadSubs }, heading = stepsHeading(md)) {
     let out = md;
-    if (steps.length || leadSubs.length) out = MdSections.insert(out, 'Steps', steps, { ...STEPS_OPTS, leadSubs });
+    if (steps.length || leadSubs.length) out = MdSections.insert(out, heading, steps, { ...STEPS_OPTS, leadSubs });
+    // `Expected` stays English on purpose: nothing in the extension reads that section back — the
+    // panel reads the `- Expected: …` sub-bullets above — and it only opens with no step before it.
     if (expected.length) out = MdSections.insert(out, 'Expected', expected.map((t) => ({ text: t, subs: [] })), { ordered: false });
     return out;
   }
@@ -44,8 +56,6 @@ const RecFormat = (() => {
     const b = raw.indexOf(POLISH_END);
     return a !== -1 && b > a ? raw.slice(a + POLISH_START.length, b) : raw;
   }
-
-  const asExpected = (s) => `Expected: ${String(s).replace(/^[\s*_-]*expected[*_\s]*:?[*_\s]*/i, '').trim()}`;
 
   // `N. sentence`, each with any number of `Expected: …` sub-lines under it, bulleted or not and
   // emphasised or not — the prompt asks the model for `*Expected*:` (#65), a tester writes `- `.
@@ -72,5 +82,8 @@ const RecFormat = (() => {
     return '';
   }
 
-  return { STEPS_OPTS, splitRecorded, insertRecorded, polishedSection, asExpected, parsePolishedItems, serverMessage };
+  return {
+    STEPS_OPTS, stepsHeading, splitRecorded, insertRecorded,
+    polishedSection, asExpected, parsePolishedItems, serverMessage,
+  };
 })();

@@ -17,6 +17,10 @@ const MdSections = (() => {
 
   const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+  // A "Steps"-like heading, in the two languages a test body is written in here. shared/markdown.js
+  // keeps its own copy: the panel never loads this file, and this file must not need showdown.
+  const STEPS_HEADING = /step|крок/i;
+
   // Whatever sits inside ``` or ~~~ is prose: a `- flag` line there is not a step to be
   // numbered, and a `# note` is not the heading that ends the section.
   function fencedLines(lines) {
@@ -64,6 +68,22 @@ const MdSections = (() => {
       (it.subs || []).forEach((s) => out.push(`${subPad(style.indent, marker)}- ${s}`));
     });
     return out;
+  }
+
+  /**
+   * The name this body already gives a section, for a caller that knows the section by pattern
+   * rather than by name (`### Кроки` is the steps list too) — or null when it has none. What
+   * comes back is what `slice` then looks for: no `#`s, no trailing space and no CRLF `\r`.
+   */
+  function findHeading(md, re) {
+    const lines = String(md == null ? '' : md).split('\n');
+    const fenced = fencedLines(lines);
+    for (let i = 0; i < lines.length; i++) {
+      if (fenced[i] || !HEAD_RE.test(lines[i])) continue;
+      const text = lines[i].replace(/^#{1,6}\s+/, '').replace(/\s+$/, '');
+      if (re.test(text)) return text;
+    }
+    return null;
   }
 
   /**
@@ -185,5 +205,5 @@ const MdSections = (() => {
     return { md: out.join('\n'), items, touched };
   }
 
-  return { slice, items: itemsOf, hasItems, insert, replaceItems };
+  return { STEPS_HEADING, findHeading, slice, items: itemsOf, hasItems, insert, replaceItems };
 })();

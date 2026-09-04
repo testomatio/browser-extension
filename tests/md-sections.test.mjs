@@ -392,6 +392,53 @@ test('a heading underlined with dashes is not a section the recorder can find', 
   assert.equal(MdSections.slice(md('### Steps', '1. Open the site'), 'Steps', STEPS).hIdx, 0);
 });
 
+// ---- #246: the caller knows the steps section by pattern, not by name ----
+
+test('findHeading returns the name this body gives the steps section, in either language (#246)', () => {
+  const H = MdSections.STEPS_HEADING;
+  assert.equal(MdSections.findHeading(md('### Steps', '', '1. Open the site', ''), H), 'Steps');
+  assert.equal(MdSections.findHeading(md('### Кроки', '', '1. Відкрити', ''), H), 'Кроки');
+  // The heading's own words come back whole, at any level and in any case.
+  assert.equal(MdSections.findHeading(md('## Кроки тесту', '1. A'), H), 'Кроки тесту');
+  assert.equal(MdSections.findHeading(md('# STEPS', '1. A'), H), 'STEPS');
+  // The first one wins — the same one insert and slice then work on.
+  assert.equal(MdSections.findHeading(md('### Steps', '1. A', '### Кроки', '1. B'), H), 'Steps');
+});
+
+test('findHeading has nothing to return for a body with no such section (#246)', () => {
+  const H = MdSections.STEPS_HEADING;
+  assert.equal(MdSections.findHeading(md('# Login', '', 'Some description.', '', '### Expected', '- ok'), H), null);
+  assert.equal(MdSections.findHeading('', H), null);
+  assert.equal(MdSections.findHeading(null, H), null);
+  // A heading inside a code fence is markdown the tester pasted, not this test's steps section.
+  const fenced = md('# Login', '', '```md', '### Steps', '1. an example', '```', '', '### Кроки', '', '1. Відкрити');
+  assert.equal(MdSections.findHeading(fenced, H), 'Кроки');
+  assert.equal(MdSections.findHeading(md('# Login', '', '```md', '### Steps', '```'), H), null);
+});
+
+test('a heading findHeading returns is exactly what slice then looks for (#246)', () => {
+  const H = MdSections.STEPS_HEADING;
+  // Round trip: the `#`s, the padding and the `\r` a CRLF body leaves behind are all off it, and
+  // a bracket in the name is escaped by slice rather than read as a pattern.
+  const bodies = [
+    md('### Кроки', '', '1. Відкрити', ''),
+    md('##   Steps  ', '', '1. Open the site', ''),
+    '### Кроки\r\n\r\n1. Відкрити\r\n',
+    md('# Steps (v2)', '', '1. Open the site', ''),
+  ];
+  for (const body of bodies) {
+    const heading = MdSections.findHeading(body, H);
+    const cut = MdSections.slice(body, heading, STEPS);
+    assert.equal(cut.hIdx, 0, heading);
+    assert.equal(cut.items.length, 1, heading);
+  }
+  // …so the step lands in the section that was already there, and no second one is opened.
+  assert.equal(
+    MdSections.insert(bodies[0], MdSections.findHeading(bodies[0], H), [step('Клік')], STEPS),
+    md('### Кроки', '', '1. Відкрити', '2. Клік', ''),
+  );
+});
+
 test('the section ends at the next heading, or at the end of the body', () => {
   const cut = MdSections.slice(md('### Steps', '1. A', '### Next', 'x'), 'Steps', STEPS);
   assert.equal(cut.hIdx, 0);
