@@ -455,7 +455,7 @@
     titleInput.rows = 1;
     titleInput.placeholder = 'Test case title';
     titleInput.value = title || '';
-    titleInput.addEventListener('input', () => { clearTitleError(); onEdited(); });
+    titleInput.addEventListener('input', () => { clearTitleError(); syncSaveEnabled(); onEdited(); });
     // Enter moves to the body: a title is one line of text, and a stray newline in it
     // would travel to the API.
     titleInput.addEventListener('keydown', (e) => {
@@ -705,6 +705,11 @@
     saveBtn.className = 'btn primary';
     saveBtn.textContent = 'Save';
     saveBtn.addEventListener('click', () => { save(); });
+    // A title is required, so Save is not offered without one — the same rule quick add follows.
+    // Also what re-arms the button after a save attempt, in place of a bare `disabled = false`.
+    function syncSaveEnabled() {
+      saveBtn.disabled = saving || done || !titleInput.value.trim();
+    }
 
     const cancelBtn = document.createElement('button');
     cancelBtn.id = 'tc-cancel';
@@ -1015,6 +1020,7 @@
     attachBtn.addEventListener('click', attachScreenshot);
     renderShotPreview(); // a restored draft arrives with its strip already full
     rec.refresh();
+    syncSaveEnabled(); // a create opens with no title, so Save opens greyed out
 
     // ---- parameters: what the test already has (#5) --------------------------
     // Session-only, so basic mode drops the block whole rather than offering a grid that could not
@@ -1141,7 +1147,7 @@
         return null;
       } finally {
         saving = false;
-        saveBtn.disabled = false;
+        syncSaveEnabled(); // never back over an empty title
         saveBtn.textContent = 'Save';
       }
     }
@@ -1239,7 +1245,7 @@
         if (previewing) renderPreviewInto(previewPane, editor.getValue());
       },
       getTitle: () => titleInput.value,
-      setTitle: (t) => { titleInput.value = t; clearTitleError(); onEdited(); },
+      setTitle: (t) => { titleInput.value = t; clearTitleError(); syncSaveEnabled(); onEdited(); },
       getPriority: () => priorityCtrl.getPriority(),
       setPriority: (p) => priorityCtrl.setPriority(p),
       // The parameters grid as data: `{headers, rows:[{id, cells}], removed}`.
