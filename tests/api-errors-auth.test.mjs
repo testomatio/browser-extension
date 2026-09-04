@@ -298,16 +298,90 @@ test('35: once read-only is proven, opting out of the probe does not opt out of 
   assert.equal(h.calls.length, 1);
 });
 
-test('36: a minted key that answers 401 stays cached, and nothing retries', async () => {
+test('36: a minted key that answers 401 is dropped, re-minted and retried — ONCE', async () => {
   const h = load().configure({ apiToken: JWT });
   h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
   h.route('/api/v2/', fail(401));
   assert.equal((await rejection(h.mod.validate())).kind, 'auth');
-  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
-  // E-P1-4 OPEN: no rotation, so the second call re-uses the key the server just rejected
-  assert.equal(h.matching('/api/projects/p1').length, 1);
+  // One mint for the first try, one for the retry — and then it gives up rather than loop.
+  assert.equal(h.matching('/api/projects/p1').length, 2);
   assert.equal(h.matching('/api/v2/').length, 2);
-  h.matching('/api/v2/').forEach((c) => assert.equal(c.headers.Authorization, `Bearer ${V2KEY}`));
+  h.clear();
+  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
+  assert.equal(h.matching('/api/v2/').length, 2); // the next call is a fresh try, not a longer loop
+});
+
+test('36a: a rotated key: the first refusal is invisible, the write lands on the fresh key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  // The owner rotated it: KEY1 is dead, whatever is minted next works.
+  h.route('/api/v2/', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(401) : ok({ data: {} })));
+  await h.inner.request('/tests', { method: 'POST', body: { a: 1 } });
+  assert.equal(minted, 2);
+  assert.deepEqual(h.matching('/api/v2/').map((c) => c.headers.Authorization),
+    ['Bearer KEY1', 'Bearer KEY2']);
+  assert.equal(h.mod.readonlyAccess(), false); // the retry's 2xx clears the flag as any other would
+});
+
+test('36b: a 403 the corroboration CLEARS rotates too — one route refused can be a dead key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('per_page=1', ok({ data: [] }));   // the plain read is fine: NOT read-only
+  h.route('/tests', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(403) : ok({ data: {} })));
+  await h.inner.request('/tests');
+  assert.equal(minted, 2);
+  assert.deepEqual(h.matching('/api/v2/p1/tests').map((c) => c.headers.Authorization),
+    ['Bearer KEY1', 'Bearer KEY2']);
+  assert.equal(h.matching('per_page=1').length, 1); // the corroboration ran BEFORE the rotation
+});
+
+test('36b2: a read-only project keeps its verdict — the corroboration outranks the rotation', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', fail(403));
+  const e = await rejection(h.mod.validate());
+  assert.equal(e.kind, 'readonly');
+  assert.equal(h.matching('/api/projects/p1').length, 1); // no key churn on a read-only project
+  assert.equal(h.matching('remint').length, 0);           // `remint` is ours, never a query param
+});
+
+test('36c: three routes refused at once on a minted key still share ONE corroboration read', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('per_page=1', fail(403));
+  h.route('/api/v2/', fail(403));
+  const errs = await Promise.all(['/a', '/b', '/c'].map((p) => rejection(h.inner.request(p))));
+  errs.forEach((e) => assert.equal(e.kind, 'readonly'));
+  assert.equal(h.matching('per_page=1').length, 1); // the shared in-flight promise is untouched
+});
+
+test('36d: the corroboration probe does NOT re-mint, whatever it is answered', async () => {
+  const h = load().configure({ apiToken: JWT });
+  let minted = 0;
+  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('/api/v2/', fail(403)); // the probe is refused too, so it must not start its own rotation
+  await rejection(h.inner.request('/a'));
+  assert.equal(minted, 1);
+});
+
+test('36e: a General token is not ours to rotate — nothing is dropped, nothing retries', async () => {
+  const h = load().configure(); // apiToken: TOKEN, used as the v2 bearer directly
+  h.reply(fail(401));
+  assert.equal((await rejection(h.mod.validate())).kind, 'auth');
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.matching('/api/projects/').length, 0);
+});
+
+test('36f: deleteAttachment keeps its two legs — the v2 403 is the route, not the key', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', fail(403));
+  h.route('/api/p1/attachments/', { status: 204 });
+  assert.equal(await h.mod.deleteAttachment('t1', 'a1'), null);
+  assert.equal(h.matching('/api/v2/').length, 1); // no rotation retry rode along
+  assert.notEqual(h.mod.readonlyAccess(), true);
 });
 
 test('37: a base URL with no scheme throws a RAW TypeError, with no kind on it', async () => {
