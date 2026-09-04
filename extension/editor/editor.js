@@ -1,7 +1,7 @@
 // TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
 // in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
 
-/* global TestomatAPI, Handoff, OverType, Md, MdSections, RecFormat, EditorIcons, ParamsGrid, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, Dropdown, EmptyState, Sk, ImgHydrate, PanelLink, ShotStore */
+/* global TestomatAPI, Handoff, OverType, Md, MdSections, RecFormat, EditorIcons, ParamsGrid, EditorDraft, defaultToolbarButtons, Icons, PriorityIcons, TestType, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, Dropdown, EmptyState, Sk, ImgHydrate, PanelLink */
 (() => {
   'use strict';
 
@@ -215,31 +215,8 @@
     toastTimer = setTimeout(() => { el.hidden = true; el.setAttribute('role', 'status'); }, 3500);
   }
 
-  // ---- panel-ctx unsaved-edit persistence (data-loss guard) ----------------
-  // Closing a side panel tears the page down with no native unload prompt (beforeunload
-  // can't show a dialog there and doesn't fire reliably), so the dirty draft is persisted.
-  const editorDraftKey = ({ suite, test }) => (test
-    ? `editorDraft:test:${test}`
-    : `editorDraft:suite:${suite}`);
-  function hasSession() {
-    return typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session;
-  }
-  async function readEditorDraft(key) {
-    if (!hasSession()) return null;
-    try { const o = await chrome.storage.session.get(key); return (o && o[key]) || null; } catch { return null; }
-  }
-  function removeEditorDraft(key) {
-    ShotStore.del(key); // the shots are this draft's, and nothing else would ever come back for them
-    if (!hasSession()) return;
-    try { chrome.storage.session.remove(key); } catch { /* best effort */ }
-  }
-  // A restored draft's shots, and how many are gone — its own count is what knows they existed.
-  async function readDraftShots(draft, key) {
-    const had = Number(draft && draft.shots) || 0;
-    if (!had) return { shots: [], lost: 0 };
-    const shots = await ShotStore.get(key);
-    return { shots, lost: Math.max(0, had - shots.length) };
-  }
+  // The unsaved draft and the dirty tracking around it live in draft.js, with its own test file.
+  const { editorDraftKey, readEditorDraft, removeEditorDraft, readDraftShots, makeDirtyTracker } = EditorDraft;
 
   // ---- config: same settings the panel persists --------------------------
   // `chrome.storage` is torn out from under a page whose extension reloaded or updated
@@ -745,12 +722,10 @@
     const draftKey = editorDraftKey(editing ? { test: uid } : { suite });
     let saving = false;
     let done = false;        // saved → the read-only view took over this page
-    let dirty = false;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
     const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
-    let shotsRev = 0;      // the strip's revision…
-    let shotsWritten = -1; // …and the one the store holds: ten JPEGs per typing pause is too many
+    let shotsRev = 0; // the strip's revision: the tracker writes the pictures only when it moves
     let recording = false;
     let recPollTimer = null;
     let recEnding = false;   // guards the drain against a poll/stop race
@@ -777,56 +752,27 @@
     // What we last wrote into those items — the only texts a replacement is allowed to touch.
     const recWritten = () => (recPolished ? recPolishedItems : recRawItems);
 
-    // Dirty tracking is centralized so the tab-ctx `beforeunload` guard mirrors it —
-    // registered only while dirty; panel ctx persists to storage.session instead.
-    const beforeUnloadHandler = (e) => { e.preventDefault(); e.returnValue = ''; };
-    function markDirty() {
-      if (dirty) return;
-      dirty = true;
-      if (ctx === 'tab') window.addEventListener('beforeunload', beforeUnloadHandler);
-    }
-    function clearDirty() {
-      if (!dirty) return;
-      dirty = false;
-      // Kill the scheduled persist too, or a throttled write still in flight re-creates
-      // the draft milliseconds after this removed it.
-      clearTimeout(persistTimer);
-      if (ctx === 'tab') window.removeEventListener('beforeunload', beforeUnloadHandler);
-      if (ctx === 'panel') removeEditorDraft(draftKey);
-    }
-
-    let persistTimer = null;
-    function persistDraftNow() {
-      if (ctx !== 'panel' || !hasSession()) return;
-      const draft = {
-        title: titleInput.value,
-        markdown: editor.getValue(),
-        priority: priorityCtrl.getPriority(),
-        suite: suite || null, test: uid || null, ts: Date.now(),
-        shots: pendingShots.length, // a count costs nothing, and outlives a store that lost them
-      };
-      // Only once the grid knows what the server holds (#5): a draft written before that read lands
-      // would restore an empty grid over real parameters.
-      const grid = paramsCtl.draft();
-      if (grid) draft.params = grid;
-      // #23: the recording itself — its entries (packets included) and where its items are —
-      // so a reopened panel can still polish it, or put it back.
-      if (recEntries.length) {
-        draft.recording = {
+    // The tracker owns `dirty`, the throttled write and the tab-ctx `beforeunload` guard; the
+    // getters are how it reaches the controls below, which are built long after it.
+    const { markDirty, clearDirty, schedulePersist, onEdited, isDirty } = makeDirtyTracker({
+      ctx,
+      draftKey,
+      read: {
+        title: () => titleInput.value,
+        markdown: () => editor.getValue(),
+        priority: () => priorityCtrl.getPriority(),
+        suite: () => suite || null,
+        test: () => uid || null,
+        params: () => paramsCtl.draft(),
+        recording: () => ({
           entries: recEntries, start: recStart, count: recCount,
           polished: recPolished, rawItems: recRawItems, polishedItems: recPolishedItems,
-        };
-      }
-      try { chrome.storage.session.set({ [draftKey]: draft }); } catch { /* best effort */ }
-      // …and the pictures, far too big for the draft itself — only when the strip actually moved.
-      if (shotsWritten !== shotsRev) { shotsWritten = shotsRev; ShotStore.put(draftKey, pendingShots); }
-    }
-    function schedulePersist() {
-      if (ctx !== 'panel') return;
-      clearTimeout(persistTimer);
-      persistTimer = setTimeout(persistDraftNow, 400);
-    }
-    function onEdited() { markDirty(); schedulePersist(); scheduleStripRefresh(); }
+        }),
+        shots: () => pendingShots,
+        shotsRev: () => shotsRev,
+        stripRefresh: () => scheduleStripRefresh(),
+      },
+    });
 
     const host = rootEl();
     host.replaceChildren();
@@ -1875,7 +1821,7 @@
     function requestBack(to = goHome) {
       leaveTo = to;
       if (recording) { runExclusive(() => finishRecording('Recording stopped')); return; }
-      if (dirty) openGuard(); else navigateBack();
+      if (isDirty()) openGuard(); else navigateBack();
     }
 
     // Built in BOTH contexts: Cancel is an in-page leave in a tab too, and `beforeunload`
