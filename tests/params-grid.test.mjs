@@ -182,12 +182,10 @@ test('47: in basic mode plan() is an empty plan, never a refusal', () => {
   });
 });
 
-// 48 and 49 are the two names plan() does not check; the todos for them are at the end of the file.
-
-test('48/49 (today): a duplicate name and a name outside [\\w-] are both saved as typed', () => {
-  const dup = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
-  assert.deepEqual(plain(dup.ctl.plan()).headers, ['email', 'email']);
-  assert.equal(dup.error().hidden, true);
+// 48, the duplicate name, is the check #112 adds below (58-60). 49, a name outside [\w-], stays
+// allowed on purpose: #244 escaped the name in params.js, so `price(usd)` resolves and refusing it
+// would take away a column testers can use today.
+test('49 (today): a name outside [\\w-] is saved as typed, and #112 leaves it that way', () => {
   const odd = mount({ seed: { headers: ['price(usd)', 'a)'], rows: [['9', 'b']] } });
   assert.deepEqual(plain(odd.ctl.plan()).headers, ['price(usd)', 'a)']);
   assert.equal(odd.error().hidden, true);
@@ -200,6 +198,49 @@ test('50: Save writes the trimmed name, while the grid keeps what the tester typ
   assert.deepEqual(p.writes, [{ kind: 'create', id: null, cells: ['v'] }]);
   assert.deepEqual(plain(g.ctl.get()).headers, [' email ']);
   assert.deepEqual(plain(g.ctl.get()).rows, [{ id: null, cells: [' v '] }]);
+});
+
+// ===================== #112: two columns may not share a name ==============
+
+test('58 (#112): two columns with the same name are refused, pointing at the second', () => {
+  const g = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
+  assert.equal(g.ctl.plan(), null);
+  assert.equal(g.error().textContent, 'Two parameters have the same name');
+  assert.equal(g.error().hidden, false);
+  assert.equal(g.open(), true);
+  assert.equal(g.document.activeElement, g.cell('head', 1));
+  // The second of the PAIR, not the last column: a, b, a points at index 2.
+  const three = mount({ seed: { headers: ['a', 'b', 'a'], rows: [['1', '2', '3']] } });
+  assert.equal(three.ctl.plan(), null);
+  assert.equal(three.document.activeElement, three.cell('head', 2));
+});
+
+test('59 (#112): the names are compared trimmed, and case tells two of them apart', () => {
+  // What Save would write is what is compared: ' email ' and 'email' are one name.
+  const same = mount({ seed: { headers: [' email ', 'email'], rows: [['a', 'b']] } });
+  assert.equal(same.ctl.plan(), null);
+  assert.equal(same.error().textContent, 'Two parameters have the same name');
+  // The server keeps the case and nothing downstream folds it, so these are two parameters.
+  const cased = mount({ seed: { headers: ['email', 'Email'], rows: [['a', 'b']] } });
+  assert.deepEqual(plain(cased.ctl.plan()).headers, ['email', 'Email']);
+  assert.equal(cased.error().hidden, true);
+});
+
+test('60 (#112): a repeat cannot hide behind a column nobody filled in', () => {
+  // A NAMED column travels even with nothing under it (43 drops only the unnamed ones), so the
+  // second `a` is written to the test and has to be refused.
+  const unused = mount({ seed: { headers: ['a', 'a'], rows: [['1', '']] } });
+  assert.equal(unused.ctl.plan(), null);
+  assert.equal(unused.error().textContent, 'Two parameters have the same name');
+  // Blank names are never a duplicate pair: with nothing in them the grid is an empty plan…
+  const spare = mount({ seed: { headers: ['', ''], rows: [] } });
+  assert.deepEqual(plain(spare.ctl.plan()), {
+    headers: [], headersChanged: false, writes: [], deletes: [],
+  });
+  // …and with a value under one, it is the nameless refusal that speaks first.
+  const used = mount({ seed: { headers: ['', ''], rows: [['1', '']] } });
+  assert.equal(used.ctl.plan(), null);
+  assert.equal(used.error().textContent, 'Name the parameters first');
 });
 
 // ===================== commit(): best-effort, first message wins ============

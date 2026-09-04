@@ -261,6 +261,10 @@ const ParamsGrid = (() => {
       const kept = headers.slice(0, width);
       const unnamed = kept.findIndex((h) => !h);
       if (unnamed !== -1) { showError('Every parameter needs a name', unnamed); return null; }
+      // `${name}` resolves to the FIRST column of that name, so a second one is values nobody can
+      // reach. Points at the second occurrence — that is the one the tester has to rename.
+      const twice = kept.findIndex((h, i) => kept.indexOf(h) !== i);
+      if (twice !== -1) { showError('Two parameters have the same name', twice); return null; }
       const writes = rows.map((r) => ({
         kind: r.id ? 'update' : 'create', id: r.id, cells: r.cells.slice(0, width),
       })).filter((w) => w.kind === 'create' || !sameCells(baseRows.get(w.id), w.cells));
