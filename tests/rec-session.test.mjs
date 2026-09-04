@@ -95,6 +95,7 @@ function open({
 
   const ctx = createContext({
     console,
+    URL,   // a browser global the editor page has; the url trim in the prompt is built on it
     setTimeout: clock.setTimeout,
     clearTimeout: clock.clearTimeout,
     setInterval: clock.setInterval,
@@ -468,21 +469,31 @@ test('94: a polish keeps the recorder\'s own texts, so Undo has somewhere to go 
   assert.equal(env.session.isPolished(), false);
 });
 
-// D P2-10, still open — the todo is the INTENDED behaviour, not today's.
-test.todo('95 (#253): undo with every step hand-edited says so instead of silently relabelling', async () => {
+// D P2-10, fixed in #253.
+test('95 (#253): undo with every step hand-edited says so instead of silently relabelling', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button']);
+  env.session.setPolishOn(true);
   env.answerWith(() => Promise.resolve(POLISHED('1. Save the form')));
   await env.session.polish();
   env.setBody(env.body().replace('1. Save the form', '1. My own words'));
   const before = env.body();
   env.session.undo();
-  assert.equal(env.body(), before); // nothing was put back — and today nothing says so
-  assert.ok(env.toastText().includes('Nothing to put back — these steps were edited by hand'));
+  assert.equal(env.body(), before); // nothing was put back, and it says so
+  const last = env.toasts[env.toasts.length - 1];
+  assert.equal(last.msg, 'Nothing to put back — these steps were edited by hand');
+  assert.equal(last.error, false); // a refusal, not a failure
+  // The polish did not come undone, so neither the flag nor the button pretends it did.
+  assert.equal(env.session.isPolished(), true);
+  assert.equal(env.lastPolish().label, 'Undo polish');
+  // …and the draft a reopen restores says the same, with the recorder's sentence still in it.
+  const d = plain(env.session.draftShape());
+  assert.equal(d.polished, true);
+  assert.deepEqual(d.rawItems.map((i) => i.text), ['Click the Save button']);
 });
 
-// D P2-11, still open (same issue as 95).
-test.todo('96 (#253): polish → undo → polish → undo still reaches the recorder\'s original wording', async () => {
+// D P2-11, fixed in #253 (same issue as 95).
+test('96 (#253): polish → undo → polish → undo still reaches the recorder\'s original wording', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button', 'Type admin into Login']);
   env.answerWith(() => Promise.resolve(POLISHED('1. Save the form', '2. Sign in as admin')));
@@ -490,11 +501,21 @@ test.todo('96 (#253): polish → undo → polish → undo still reaches the reco
   // The tester rewrites one of the two polished steps by hand, then undoes the polish.
   env.setBody(env.body().replace('2. Sign in as admin', '2. Log in as the admin user'));
   env.session.undo();
-  // `recRawItems` is now what the BODY holds, so step 2's recorded sentence is already gone.
+  // `recRawItems` is the recorder's own wording for the life of the recording — the skipped
+  // item's edit is in the body, not filed away as something the recorder wrote.
   assert.deepEqual(
     plain(env.session.draftShape()).rawItems.map((i) => i.text),
     ['Click the Save button', 'Type admin into Login'],
   );
+  assert.ok(env.body().includes('1. Click the Save button'));
+  assert.ok(env.body().includes('2. Log in as the admin user'));
+  // The draft is what a close and reopen hands back, so the second round is walked from there.
+  const back = open({ body: env.body(), recorded: plain(env.session.draftShape()) });
+  back.answerWith(() => Promise.resolve(POLISHED('1. Save the form', '2. Sign in as admin')));
+  await back.session.polish();
+  back.session.undo();
+  assert.ok(back.body().includes('Type admin into Login'));
+  // …and in this session too, without ever closing it.
   await env.session.polish();
   env.session.undo();
   assert.ok(env.body().includes('Type admin into Login'));
@@ -549,7 +570,7 @@ test('99: a manual note folds onto the step it followed, and a second one joins 
   assert.ok(lines.includes('2. raw: Click Close'));
 });
 
-test('100: the Open step is the only place a url is written down — and it arrives already trimmed', async () => {
+test('100 (#254): the Open step is the only place a url is written down, and the prompt cuts it', async () => {
   const env = open();
   await recordAndStop(env, [step('Open https://x.io/reset'), step('Click Save')]);
   env.answerWith(() => Promise.resolve({}));
@@ -557,13 +578,38 @@ test('100: the Open step is the only place a url is written down — and it arri
   const msg = env.apiCalls[0][0];
   assert.ok(msg.includes('after: url="https://x.io/reset"'));
   assert.ok(!msg.includes('token='));
-  // A P0-1: the trim itself is NOT here. `srOpenUrl` (shared/step-rec-core.js, #116) does it in the
-  // worker — and skips it when the full-URL setting is on, which is #254: this is that leak.
-  const leak = open();
-  await recordAndStop(leak, [step('Open https://x.io/reset?token=abc#f')]);
-  leak.answerWith(() => Promise.resolve({}));
-  await leak.session.polish();
-  assert.ok(leak.apiCalls[0][0].includes('after: url="https://x.io/reset?token=abc#f"'));
+  // A P0-1: `srOpenUrl` (shared/step-rec-core.js, #116) trims what is RECORDED, in the worker, and
+  // honours the full-URL setting — never change that here. The outbound prompt trims regardless.
+  const full = open();
+  await recordAndStop(full, [step('Open https://x.io/reset?token=abc#f')]);
+  full.answerWith(() => Promise.resolve({}));
+  await full.session.polish();
+  const out = full.apiCalls[0][0];
+  assert.ok(out.includes('after: url="https://x.io/reset"'));
+  assert.ok(!out.includes('token='));
+  // …and the setting still governs the body: the step keeps the url the tester asked to record.
+  assert.ok(full.body().includes('Open https://x.io/reset?token=abc#f'));
+});
+
+test('100b (#254): the `raw:` sentence is trimmed too, not only `after: url=`', async () => {
+  const env = open();
+  await recordAndStop(env, [
+    step('Open https://x.io/#/board/1?token=abc'),
+    step('Open the settings menu'),
+    step('Click Save'),
+  ]);
+  env.answerWith(() => Promise.resolve({}));
+  await env.session.polish();
+  const msg = env.apiCalls[0][0];
+  const lines = msg.split('\n');
+  // A `#/…` route is the page (srOpenUrl's rule), so it stays — its own query is what goes.
+  assert.ok(lines.includes('1. raw: Open https://x.io/#/board/1'));
+  assert.ok(lines.includes('   after: url="https://x.io/#/board/1" title="unchanged" toast="" dialog="" state="" counter=""'));
+  assert.ok(!msg.includes('token='));
+  assert.ok(!msg.includes('#/board/1?'));
+  // Not every `Open …` is a url: a sentence that has none goes through whole.
+  assert.ok(lines.includes('2. raw: Open the settings menu'));
+  assert.ok(lines.includes('3. raw: Click Save'));
 });
 
 test('101: no packet carried a page, so the prompt has no PAGE line to write', async () => {
