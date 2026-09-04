@@ -469,7 +469,7 @@ test('94: a polish keeps the recorder\'s own texts, so Undo has somewhere to go 
 });
 
 // D P2-10, still open — the todo is the INTENDED behaviour, not today's.
-test.todo('95: TODO undo with every step hand-edited should say so instead of silently relabelling', async () => {
+test.todo('95 (#253): undo with every step hand-edited says so instead of silently relabelling', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button']);
   env.answerWith(() => Promise.resolve(POLISHED('1. Save the form')));
@@ -482,7 +482,7 @@ test.todo('95: TODO undo with every step hand-edited should say so instead of si
 });
 
 // D P2-11, still open (same issue as 95).
-test.todo('96: TODO polish → undo → polish → undo must still reach the recorder\'s original wording', async () => {
+test.todo('96 (#253): polish → undo → polish → undo still reaches the recorder\'s original wording', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button', 'Type admin into Login']);
   env.answerWith(() => Promise.resolve(POLISHED('1. Save the form', '2. Sign in as admin')));
@@ -557,8 +557,8 @@ test('100: the Open step is the only place a url is written down — and it arri
   const msg = env.apiCalls[0][0];
   assert.ok(msg.includes('after: url="https://x.io/reset"'));
   assert.ok(!msg.includes('token='));
-  // A P0-1: the trim itself is NOT here. `srOpenUrl` (shared/step-rec-core.js, #116) does it in
-  // the worker, and this line is only as safe as the sentence it is handed.
+  // A P0-1: the trim itself is NOT here. `srOpenUrl` (shared/step-rec-core.js, #116) does it in the
+  // worker — and skips it when the full-URL setting is on, which is #254: this is that leak.
   const leak = open();
   await recordAndStop(leak, [step('Open https://x.io/reset?token=abc#f')]);
   leak.answerWith(() => Promise.resolve({}));
