@@ -293,9 +293,9 @@ test('polish keeps a bullet list a bullet list', () => {
 
 // ---- #146: the edges the 16 cases above do not reach ----
 
-// A tester whose editor saves CRLF: the steps already in the section are invisible, so the
-// recorder starts numbering at 1 again. Masked in the app only because OverType normalises CRLF.
-test.todo('a body saved with Windows line endings keeps the steps it already had (#146)', () => {
+// A tester whose editor saves CRLF: the steps already in the section are read, so the recorder
+// numbers on from them. In the app OverType normalises CRLF; a file the module is handed does not.
+test('a body saved with Windows line endings keeps the steps it already had (#146)', () => {
   const lf = md('### Steps', '', '1. Open the site', '');
   assert.equal(
     MdSections.insert(lf, 'Steps', [step('Click Login')], STEPS),
@@ -305,6 +305,10 @@ test.todo('a body saved with Windows line endings keeps the steps it already had
   assert.equal(MdSections.hasItems(crlf, 'Steps', STEPS), true);
   assert.deepEqual(plain(MdSections.items(crlf, 'Steps', STEPS).map((it) => it.text)), ['Open the site']);
   assert.match(MdSections.insert(crlf, 'Steps', [step('Click Login')], STEPS), /2\. Click Login/);
+  // …and an expected result under a CRLF step is that step's, not a second step of its own.
+  const subbed = '### Steps\r\n\r\n1. Open the site\r\n   - Expected: the home page\r\n';
+  assert.deepEqual(plain(MdSections.items(subbed, 'Steps', STEPS).map((it) => it.subs)),
+    [['Expected: the home page']]);
 });
 
 // An expected result recorded before its step exists has nothing to hang on and is dropped.

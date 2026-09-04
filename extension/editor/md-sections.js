@@ -8,8 +8,10 @@
 // `- Expected: …` lines under it (#78). Ordered items are `N.` or `N)`, bullets `-`, `*`, `+`.
 
 const MdSections = (() => {
-  const ITEM_RE = /^(\s*)(?:(\d+)([.)])|([-*+]))\s+(.*\S.*)$/;
-  const SUB_RE = /^\s{2,}[-*+]\s+(.*\S.*)$/; // indented bullet = a sub-line of the item above
+  // `\r?$`: a body saved with CRLF keeps its steps — `.` does not match the `\r` a split on `\n`
+  // leaves behind, while HEAD_RE's `\s*$` swallows it, so the heading was found and its items lost.
+  const ITEM_RE = /^(\s*)(?:(\d+)([.)])|([-*+]))\s+(.*\S.*)\r?$/;
+  const SUB_RE = /^\s{2,}[-*+]\s+(.*\S.*)\r?$/; // indented bullet = a sub-line of the item above
   const HEAD_RE = /^#{1,6}\s+\S/;
   const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
 
