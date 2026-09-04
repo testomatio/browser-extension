@@ -653,6 +653,39 @@ test('W74: a refused metrics call is no clip, and no throw', async () => {
   assert.equal(await h.api.fullPageClip(7), null);
 });
 
+// #112: past Chromium's 16384px texture ceiling the compose cannot succeed, so an unbounded clip
+// asks for a shot that comes back as a generic failure. Cut it, and say the shot was cut.
+test('W74b: a page taller than a screenshot can be is cut at the ceiling, and the clip says so', async () => {
+  const h = load();
+  h.hooks.dbgSend = () => ({ res: { cssContentSize: { width: 1280, height: 40000 } } });
+  assert.deepEqual(plain(await h.api.fullPageClip(7)), {
+    x: 0, y: 0, width: 1280, height: 16384, scale: 1, heightClipped: true,
+  });
+});
+
+test('W74c: a page that ends exactly at the ceiling is taken whole, and says nothing', async () => {
+  const h = load();
+  h.hooks.dbgSend = () => ({ res: { cssContentSize: { width: 1280, height: 16384 } } });
+  assert.deepEqual(plain(await h.api.fullPageClip(7)), { x: 0, y: 0, width: 1280, height: 16384, scale: 1 });
+});
+
+test('W74d: the cut reaches the panel the way the viewport downgrade does, and Chrome is asked only for what it can give', async () => {
+  const tall = (h, height) => {
+    h.hooks.dbgSend = (cmd) => (cmd === 'Page.getLayoutMetrics'
+      ? { res: { cssContentSize: { width: 1280, height } } }
+      : { res: { data: 'full' } });
+  };
+  const h = load();
+  tall(h, 40000);
+  assert.equal((await h.api.captureShot({ beyondViewport: true })).heightClipped, true);
+  const shot = h.named('debugger.sendCommand').find((a) => a[1] === 'Page.captureScreenshot');
+  // The whole point: the clip Chrome is handed stops at the ceiling, and carries nothing else.
+  assert.deepEqual(plain(shot[2].clip), { x: 0, y: 0, width: 1280, height: 16384, scale: 1 });
+  const control = load(); // the same shot of a page inside the ceiling is not reported as cut
+  tall(control, 4000);
+  assert.equal((await control.api.captureShot({ beyondViewport: true })).heightClipped, false);
+});
+
 // ================== the double-compose trim (trimToDocument) ================
 
 const trim = async (h, bmp, clip) => {
