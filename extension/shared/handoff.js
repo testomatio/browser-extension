@@ -51,6 +51,11 @@ const Handoff = (() => {
     // `projectToken` is optional: the session can read a project's key itself, so a host that
     // holds one only saves the panel a round trip.
     if (!doc?.baseUrl || !doc.projectId || !doc.jwt) return null;
+    // https only, the same refusal Save gives a typed address: the session token below and every
+    // call after it would otherwise go out in clear text.
+    let scheme;
+    try { scheme = new URL(doc.baseUrl).protocol; } catch { return null; }
+    if (scheme !== 'https:') return null;
     return { ...doc, app: String(doc.app || '').trim(), at: Number(doc.at) || 0 };
   }
 
@@ -82,8 +87,12 @@ const Handoff = (() => {
   // pointing at an account token has to CLEAR a session handed over earlier, or a Save would keep
   // authenticating as whoever the host was.
   function configure(settings) {
-    TestomatAPI.configure(settings);
     const h = settings?.handoff ? offer() : null;
+    // The host's project key is memory-only too (PRIVACY.md), so connect() leaves it out of what it
+    // saves and it is merged back in here, from the offer, next to the session it came with.
+    TestomatAPI.configure(h?.projectToken
+      ? { ...settings, projectToken: h.projectToken, projectTokenFor: h.projectId }
+      : settings);
     TestomatAPI.useHandoffSession(h?.jwt || null);
   }
 
@@ -104,11 +113,10 @@ const Handoff = (() => {
       ...prior,
       baseUrl: h.baseUrl,
       projectId: h.projectId,
-      // Optional, and only ever a shortcut past the first key read. Named with its project so a
-      // switch elsewhere mints that project's key instead of sending this one where it means
-      // nothing — and so it still opens this project once the session is gone.
-      projectToken: h.projectToken,
-      projectTokenFor: h.projectToken ? h.projectId : undefined,
+      // The host's project key is never written down (PRIVACY.md): configure() merges it back from
+      // the offer. Named here so an older one is cleared rather than left over a newer project.
+      projectToken: undefined,
+      projectTokenFor: undefined,
       handoff: true,
       // Kept because the card outlives the file: a host that has closed its browser is exactly
       // when the tester most needs to be told whose session just ended.

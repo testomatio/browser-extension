@@ -202,12 +202,12 @@ function renderConnectionSource(on) {
       + 'open the run from there to come back.';
     return;
   }
-  // The file is gone, so that browser was closed. Its project token was saved and still opens
-  // THIS project; every other one needs a token of the tester's own.
-  const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session. This project still opens`;
+  // The file is gone, so that browser was closed — and nothing of its was written down, so
+  // there is no project left that it still opens.
+  const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session`;
   line.textContent = state.settings.apiToken
-    ? `${ended}, and everything else uses your own sign-in.`
-    : `${ended}. Authorize above to reach the others.`;
+    ? `${ended}. Everything now uses your own sign-in.`
+    : `${ended}. Authorize above to keep working.`;
 }
 
 // The full form has NO token field — a saved credential can be neither edited nor

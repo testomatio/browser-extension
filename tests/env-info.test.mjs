@@ -105,15 +105,23 @@ test('#153-9: a login baked into the address is dropped, and the note is a littl
   assert.equal(bare().envTrimUrl('https://u:p@a.io/x'), 'https://a.io/x (query trimmed)');
 });
 
-test('#153-10: an internal browser page comes out as the word "null"', () => {
-  // Today's real answer. Unreachable in the panel (only readable http(s) tabs get this far), but
-  // wrong on its face — the desired reading is the todo below.
-  assert.equal(bare().envTrimUrl('chrome://extensions'), 'null (query trimmed)');
-  // …and one whose path is not slash-led glues straight onto that word.
-  assert.equal(bare().envTrimUrl('about:blank'), 'nullblank (query trimmed)');
+test('#153-10: a scheme with no origin of its own is handed back untouched', () => {
+  // `origin` is the string "null" for every one of these, so there is nothing to rebuild from.
+  const e = bare();
+  assert.equal(e.envTrimUrl('file:///c/tmp/report.html'), 'file:///c/tmp/report.html');
+  assert.equal(e.envTrimUrl('data:text/html,x'), 'data:text/html,x');
+  // …while an address that does have one is still rebuilt off it.
+  assert.equal(e.envTrimUrl('https://a.io/reset?token=abc'), 'https://a.io/reset (query trimmed)');
 });
 
-test.todo('#153-10b: an internal browser page should keep its own name, not become "null"');
+test('#153-10b: an internal browser page keeps its own name and does not become "null"', () => {
+  // Unreachable from the panel today (only readable http(s) tabs get this far), and wrong on its
+  // face: `chrome://extensions` read back as "null", `about:blank` as "nullblank".
+  const e = bare();
+  assert.equal(e.envTrimUrl('chrome://extensions'), 'chrome://extensions');
+  assert.equal(e.envTrimUrl('about:blank'), 'about:blank');
+  assert.doesNotMatch(e.envTrimUrl('chrome://extensions'), /null|query trimmed/);
+});
 
 test('#153-11: something that is not an address at all is handed back untouched', () => {
   const e = bare();

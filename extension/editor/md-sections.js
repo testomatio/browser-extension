@@ -8,8 +8,10 @@
 // `- Expected: …` lines under it (#78). Ordered items are `N.` or `N)`, bullets `-`, `*`, `+`.
 
 const MdSections = (() => {
-  const ITEM_RE = /^(\s*)(?:(\d+)([.)])|([-*+]))\s+(.*\S.*)$/;
-  const SUB_RE = /^\s{2,}[-*+]\s+(.*\S.*)$/; // indented bullet = a sub-line of the item above
+  // `\r?$`: a body saved with CRLF keeps its steps — `.` does not match the `\r` a split on `\n`
+  // leaves behind, while HEAD_RE's `\s*$` swallows it, so the heading was found and its items lost.
+  const ITEM_RE = /^(\s*)(?:(\d+)([.)])|([-*+]))\s+(.*\S.*)\r?$/;
+  const SUB_RE = /^\s{2,}[-*+]\s+(.*\S.*)\r?$/; // indented bullet = a sub-line of the item above
   const HEAD_RE = /^#{1,6}\s+\S/;
   const FENCE_RE = /^\s*(`{3,}|~{3,})(.*)$/;
 
@@ -112,7 +114,8 @@ const MdSections = (() => {
     // decides where the new section joins the document.
     if (cut.hIdx === -1) {
       const block = [`### ${heading}`, '', ...render(list, cut.style)];
-      return `${String(md).replace(/\s+$/, '')}\n\n${block.join('\n')}`;
+      // `cut.lines` is the body slice() normalised: a missing one joins onto '', not onto "null".
+      return `${cut.lines.join('\n').replace(/\s+$/, '')}\n\n${block.join('\n')}`;
     }
     const lines = cut.lines.slice();
     const last = cut.items[cut.items.length - 1];
@@ -127,7 +130,12 @@ const MdSections = (() => {
     // the tester wrote there, and the section's own trailing blanks stay where they are.
     let at = cut.end;
     while (at > cut.hIdx + 1 && !lines[at - 1].trim()) at--;
-    lines.splice(at, 0, '', ...render(list, cut.style));
+    // With no step before them, `leadSubs` belong to the FIRST of the new ones: an expected result
+    // with nothing above it describes the step that follows.
+    const head = leadSubs.length
+      ? [{ ...list[0], subs: [...leadSubs, ...(list[0].subs || [])] }, ...list.slice(1)]
+      : list;
+    lines.splice(at, 0, '', ...render(head, cut.style));
     return lines.join('\n');
   }
 

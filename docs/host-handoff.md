@@ -22,7 +22,8 @@ The host writes `handoff.json` into the extension folder (next to
 ```
 
 `baseUrl`, `projectId` and `jwt` are required; a file missing any of them is
-ignored. Two credentials, because the panel talks to two APIs: `projectToken`
+ignored, as is one whose `baseUrl` is not `https://` — the same refusal Save
+gives a typed address, since the credentials below travel over it. Two credentials, because the panel talks to two APIs: `projectToken`
 is what `/api/v2` takes, `jwt` is a web session for the routes v2 lacks.
 `runUrl` is optional; with one, the panel opens that run. `at` is
 milliseconds since the epoch and has to grow on every push. `app` is shown
@@ -33,9 +34,10 @@ every process on the machine, and these are credentials.
 
 ## Rules the panel follows
 
-- Only `projectToken` and the project are stored; the `jwt` is held in
-  memory and re-read from the file, exactly like the one `POST /api/login`
-  returns.
+- Only the instance and the project are stored. Neither credential is: the
+  `jwt` and the `projectToken` are both held in memory and re-read from the
+  file, exactly like the session `POST /api/login` returns. PRIVACY.md says
+  project keys are memory-only, and a handed-over one is no exception.
 - The file has to stay for as long as the connection should work. Whoever
   wrote it deletes it — closing the browser it launched is the usual moment.
 - **Disconnect** marks that `at` as answered instead of deleting a file it
@@ -60,9 +62,9 @@ the panel a round trip, and nothing more. `jwt` is what the offer is really
 made of.
 
 Because a session reaches every project, the switcher stays open. It closes
-in one case: the host has closed its browser, taking the session with it, and
-the tester never signed in themselves — then the stored `projectToken` still
-opens that one project and Settings says so.
+in one case: the host has closed its browser, taking the file — and with it
+both credentials — and the tester never signed in themselves. Nothing of the
+handoff is left to work with, and Settings says so.
 
 Signing in over a handed-off connection replaces it outright, session
 included.

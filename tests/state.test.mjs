@@ -507,17 +507,24 @@ test('#154-37: a request that never reached the server writes a red line under t
   assert.deepEqual(routed(h), { ...NOTHING, lines: [['runs-status', 'Failed to fetch', 'error']] });
 });
 
-test('#154-38: a failure with no field to sit under is toasted as plain news, not as an error',
-  () => {
-    const h = connected();
-    h.fn.handleApiError(new Error('boom'), null);
-    // One argument: today the red variant is never asked for. See the todo below.
-    assert.deepEqual(routed(h), { ...NOTHING, toasts: [['boom']] });
-    h.fn.handleApiError({ toString: () => 'odd' }, null);
-    assert.deepEqual(plain(h.spies.toast.calls), [['boom'], ['odd']], 'even a bare value is toasted');
-  });
+test('#154-38: a failure with no field to sit under is toasted instead', () => {
+  const h = connected();
+  h.fn.handleApiError(new Error('boom'), null);
+  assert.deepEqual(routed(h), { ...NOTHING, toasts: [['boom', { error: true }]] });
+  h.fn.handleApiError({ toString: () => 'odd' }, null);
+  assert.deepEqual(plain(h.spies.toast.calls),
+    [['boom', { error: true }], ['odd', { error: true }]], 'even a bare value is toasted');
+});
 
-test.todo('#154-38b: a genuine failure should toast in the error style, not as ordinary news');
+test('#154-38b: a genuine failure toasts in the error style, not as ordinary news', () => {
+  const h = connected();
+  h.fn.handleApiError(new Error('boom'), null);
+  // The red variant: the alert icon and role="alert", the same as every sibling branch asks for.
+  assert.deepEqual(plain(h.spies.toast.calls[0][1]), { error: true });
+  // Not glued onto everything that comes through: a read-only refusal is still no error at all.
+  h.fn.handleApiError({ kind: 'readonly' }, null);
+  assert.equal(h.spies.toast.count(), 1);
+});
 
 test('#154-39: a panel that lost its settings is treated exactly like an expired session', () => {
   const h = connected();
