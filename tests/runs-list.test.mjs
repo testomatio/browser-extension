@@ -655,3 +655,495 @@ test('71: a folder already read is not read again when the tester opens it a sec
   await settle();
   assert.deepEqual(h.apiNames(), []);
 });
+
+// ---------- the URL and id parsers — the security seam (rows 21-28, 72-73) ----------
+
+test('21: a value with a space in it is never treated as a link — it is what the tester typed', () => {
+  const h = load();
+  assert.equal(h.fn.looksLikeRunUrl('a b/projects/x/runs/1'), false);
+  assert.equal(h.fn.looksLikeRunUrl('/projects/x/runs/1'), true);
+  assert.equal(h.fn.looksLikeRunUrl('https://x'), true);
+  assert.equal(h.fn.looksLikeRunUrl(''), false);
+  assert.equal(h.fn.looksLikeRunUrl('Nightly regression'), false);
+});
+
+test('22: the folder shape is read first, so /runs/groups/12 is a folder and not a run called "groups"', () => {
+  const h = load();
+  assert.deepEqual(plain(h.fn.parseRunUrlParts(`${HOST}/projects/abc/runs/groups/12`)),
+    { host: HOST, projectId: 'abc', kind: 'group', id: '12' });
+  // Without the groups segment the SAME path is a run, so the order above is a decision.
+  assert.deepEqual(plain(h.fn.parseRunUrlParts(`${HOST}/projects/abc/runs/12`)),
+    { host: HOST, projectId: 'abc', kind: 'run', id: '12' });
+});
+
+test('23: the web app’s "Copy url" slugs the run segment, and the panel cuts it back to the id', () => {
+  const h = load();
+  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc/runs/9f8e7d6c-my-title').id, '9f8e7d6c');
+  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc/runs/9f8e7d6c').id, '9f8e7d6c');
+});
+
+test('24: something that is not a URL, and a project link with no run in it, resolve to nothing', () => {
+  const h = load();
+  assert.equal(h.fn.parseRunUrlParts('not a url'), null);
+  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc'), null);
+  assert.equal(h.fn.parseRunUrlParts(''), null);
+  assert.equal(h.fn.parseRunUrlParts(null), null);
+});
+
+test('25: a run link on a FOREIGN host is never resolved against the project this panel is connected to', () => {
+  const h = load();
+  assert.equal(h.fn.parseRunsUrl(`https://evil.example/projects/${PROJECT}/runs/9f8e7d6c`), null);
+  // The identical path on the CONFIGURED host does resolve, so the null above is the host check.
+  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`)),
+    { kind: 'run', id: '9f8e7d6c' });
+});
+
+test('26: the right host with the wrong project is not this panel’s run either', () => {
+  const h = load();
+  assert.equal(h.fn.parseRunsUrl(`${BASE}/projects/someone-else/runs/9f8e7d6c`), null);
+  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/groups/12`)),
+    { kind: 'group', id: '12' });
+});
+
+test('27: a panel whose own base URL will not parse resolves nothing — never a bare-host match', () => {
+  const h = load({ settings: { baseUrl: 'not a url', projectId: PROJECT } });
+  assert.equal(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`), null);
+  // The same link with the base URL repaired resolves, so the branch above was really reached.
+  h.state.settings = { baseUrl: BASE, projectId: PROJECT };
+  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`)),
+    { kind: 'run', id: '9f8e7d6c' });
+});
+
+test('28: a bare run id is 6 to 12 hex characters, case-blind — anything else is a title search', () => {
+  const h = load();
+  assert.equal(h.lex.looksLikeRunId('9F8E7D6C'), true);
+  assert.equal(h.lex.looksLikeRunId('abcde'), false);          // five is too short
+  assert.equal(h.lex.looksLikeRunId('zzzzzz'), false);         // six, but not hex
+  assert.equal(h.lex.looksLikeRunId('1234567890123'), false);  // thirteen is too long
+  assert.equal(h.lex.looksLikeRunId('  9f8e7d  '), true);      // a trimmed paste still reads
+});
+
+test('72: a bare id can never look like a link, so the two jobs of the one field cannot collide', () => {
+  const h = load();
+  for (const id of ['9f8e7d', '9F8E7D6C', 'abcdef012345']) {
+    assert.equal(h.lex.looksLikeRunId(id), true);
+    assert.equal(h.fn.looksLikeRunUrl(id), false);
+  }
+  // And a link is never mistaken for an id.
+  assert.equal(h.lex.looksLikeRunId(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`), false);
+});
+
+test('73: a link copied from deep inside a run still opens the run, and the id survives the query', () => {
+  const h = load();
+  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c/tests/42`).id, '9f8e7d6c');
+  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c?tab=all#top`).id, '9f8e7d6c');
+  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/groups/12/whatever`).kind, 'group');
+});
+
+// ---------- the two jobs of the search field (rows 29-32, 74-77) ----------
+
+test('29: paste and drop arrive carrying an inputType; a typed character does not', () => {
+  const h = load();
+  assert.equal(h.lex.isPasteInput({ inputType: 'insertFromPasteAsQuotation' }), true);
+  assert.equal(h.lex.isPasteInput({ inputType: 'insertFromPaste' }), true);
+  assert.equal(h.lex.isPasteInput({ inputType: 'insertFromDrop' }), true);
+  assert.equal(h.lex.isPasteInput({ inputType: 'insertText' }), false);
+  assert.equal(h.lex.isPasteInput({}), false);
+  assert.equal(h.lex.isPasteInput(null), false);
+});
+
+test('30: a URL TYPED into the field is not a search and does not navigate — half of one is not a link', () => {
+  const h = load({ search: 'nigh' });
+  h.state.runsSearch = 'nigh';
+  h.node.search.addEventListener('input', h.fn.onRunsSearch);
+  h.stubRenderList();
+  h.type(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`);
+  assert.equal(h.state.runsSearch, '');        // the URL is never used as a title filter
+  assert.equal(h.calls.renders, 1);            // the list did re-render — 'nigh' had matched rows
+  assert.deepEqual(h.apiNames(), []);          // …and nothing was opened
+  assert.equal(h.node.searchClear.hidden, false);
+});
+
+test('31: the same URL PASTED opens the run it names', async () => {
+  const h = load();
+  h.node.search.addEventListener('input', h.fn.onRunsSearch);
+  h.stubRenderList();
+  h.on.getRun = async () => ({ id: '9f8e7d6c', clean_title: 'Nightly' });
+  h.paste(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`);
+  await settle();
+  assert.deepEqual(h.calls.api, [['getRun', '9f8e7d6c']]);
+  assert.deepEqual(h.calls.opened, [['9f8e7d6c', 'Nightly']]);
+  assert.equal(h.state.runsSearch, '');
+});
+
+test('32: Enter on a bare id opens that run and stops the field from doing anything else', async () => {
+  const h = load();
+  h.node.search.addEventListener('keydown', h.fn.onRunsSearchKeydown);
+  h.on.getRun = async () => ({ id: '9f8e7d', title: 'By id' });
+  h.node.search.value = '  9f8e7d  ';
+  const ev = fire(h.node.search, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, true);
+  await settle();
+  assert.deepEqual(h.calls.api, [['getRun', '9f8e7d']]);  // trimmed
+  assert.deepEqual(h.calls.opened, [['9f8e7d', 'By id']]);
+});
+
+test('74: Enter on a plain title, and any other key, leave the field alone', async () => {
+  const h = load();
+  h.node.search.addEventListener('keydown', h.fn.onRunsSearchKeydown);
+  h.node.search.value = 'nightly regression';
+  assert.equal(fire(h.node.search, 'keydown', { key: 'Enter' }).defaultPrevented, false);
+  h.node.search.value = '9f8e7d';
+  assert.equal(fire(h.node.search, 'keydown', { key: 'a' }).defaultPrevented, false);
+  await settle();
+  assert.deepEqual(h.apiNames(), []);
+});
+
+test('75: Enter on a pasted URL opens it too, without waiting for a second paste event', async () => {
+  const h = load();
+  h.node.search.addEventListener('keydown', h.fn.onRunsSearchKeydown);
+  h.stubRenderList();
+  h.node.search.value = `${BASE}/projects/${PROJECT}/runs/groups/12`;
+  const ev = fire(h.node.search, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, true);
+  await settle();
+  assert.deepEqual(h.calls.shows, ['runs']);  // the folder path shows the list before anything fails
+});
+
+test('76: clearing the field empties the search, hides the clear button and puts the caret back', () => {
+  const h = load({ search: 'nightly' });
+  h.state.runsSearch = 'nightly';
+  h.node.searchClear.hidden = false;
+  h.stubRenderList();
+  h.fn.clearRunsSearch();
+  assert.equal(h.state.runsSearch, '');
+  assert.equal(h.node.search.value, '');
+  assert.equal(h.node.searchClear.hidden, true);
+  assert.equal(h.calls.renders, 1);
+  assert.equal(h.doc.activeElement, h.node.search);
+});
+
+test('77: the field is re-read FROM state, because a project switch clears the query behind its back', () => {
+  const h = load({ search: 'nightly' });
+  h.node.search.value = 'nightly';
+  h.node.searchClear.hidden = false;
+  h.state.runsSearch = '';          // what resetProjectScopedState does
+  h.fn.syncRunsSearchInput();
+  assert.equal(h.node.search.value, '');
+  assert.equal(h.node.searchClear.hidden, true);
+  // Coming back to the screen with a live query puts it back in the field and shows the clear.
+  h.state.runsSearch = 'smoke';
+  h.fn.syncRunsSearchInput();
+  assert.equal(h.node.search.value, 'smoke');
+  assert.equal(h.node.searchClear.hidden, false);
+});
+
+// ---------- opening what was pasted (rows 33-37, 78-82) ----------
+
+const notFound = (h) => new h.ApiError('notfound', 404, 'Not Found');
+const offline = (h) => new h.ApiError('network', 0, 'Failed to fetch');
+
+test('33: an id that names no run leaves the tester on the list, told so on the list’s own line', async () => {
+  const h = load();
+  h.on.getRun = async () => { throw notFound(h); };
+  assert.equal(await h.fn.openParsedRunTarget({ kind: 'run', id: 'deadbeef' }), false);
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
+  assert.deepEqual(h.calls.toasts, []);   // a toast is wiped by the next one; the line is not
+  assert.deepEqual(h.calls.opened, []);
+  // The same miss while the tester is NOT on the runs list can only be a toast — a line on a
+  // hidden view would be invisible.
+  h.state.view = 'test';
+  h.calls.lines.length = 0;
+  assert.equal(await h.fn.openParsedRunTarget({ kind: 'run', id: 'deadbeef' }), false);
+  assert.deepEqual(h.calls.lines, []);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Run not found', opts: { error: true } }]);
+});
+
+test('34: a run that could not be READ says why — a dropped connection is not "Run not found"', async () => {
+  const h = load();
+  h.on.getRun = async () => { throw offline(h); };
+  assert.equal(await h.fn.openParsedRunTarget({ kind: 'run', id: '9f8e7d6c' }), false);
+  assert.deepEqual(h.calls.apiErrors, [{ kind: 'network', message: 'Failed to fetch', id: 'runs-status' }]);
+  assert.deepEqual(h.toastMsgs(), []);
+  assert.deepEqual(h.calls.opened, []);
+});
+
+test('35: a run that lives on another host sends the tester to Settings, and says which two hosts', async () => {
+  const h = load();
+  assert.equal(await h.fn.openRunFromUrl('https://other.testomat.io/projects/abc/runs/9f8e7d6c'), true);
+  assert.equal(h.calls.settingsForms, 1);
+  assert.deepEqual(h.calls.shows, ['settings']);
+  assert.deepEqual(h.lastLine('settings-status'), {
+    id: 'settings-status',
+    text: `This panel is connected to ${HOST}, and that run lives on other.testomat.io — connect to it to open the run here`,
+    cls: 'error',
+  });
+  assert.deepEqual(h.apiNames(), []);   // nothing is read from a host we are not connected to
+});
+
+test('36: a run in a project the tester has no access to is refused, and no project is switched', async () => {
+  const h = load({ projects: [{ id: PROJECT }] });
+  assert.equal(await h.fn.openRunFromUrl(`${BASE}/projects/stranger/runs/9f8e7d6c`), false);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'No access to project stranger', opts: { error: true } }]);
+  assert.deepEqual(h.calls.switches, []);
+  assert.deepEqual(h.apiNames(), []);
+});
+
+test('37: a run in another project the tester DOES have switches project first, then opens the run', async () => {
+  const h = load({ projects: [{ id: PROJECT }, { id: 'other-project' }] });
+  h.on.getRun = async () => ({ id: '9f8e7d6c', clean_title: 'Nightly' });
+  assert.equal(await h.fn.openRunFromUrl(`${BASE}/projects/other-project/runs/9f8e7d6c`), true);
+  assert.deepEqual(h.calls.switches, ['other-project']);
+  assert.deepEqual(h.calls.opened, [['9f8e7d6c', 'Nightly']]);
+  assert.deepEqual(h.calls.order.filter((s) => ['switch', 'getRun', 'openRun'].includes(s)),
+    ['switch', 'getRun', 'openRun']);
+});
+
+test('78: a pasted FOLDER link lands on the runs list before anything can fail, and reports landing', async () => {
+  const h = load({ dashItems: [group('12')] });
+  h.on.dashboard = async () => ({ items: [group('12')], page: 1, total: 1, totalPages: 1 });
+  assert.equal(await h.fn.openParsedRunTarget({ kind: 'group', id: '12' }), true);
+  assert.deepEqual(h.calls.shows, ['runs']);
+  assert.deepEqual(h.calls.opened, []);   // a folder is not a run view
+});
+
+test('79: a pasted value the panel cannot resolve is reported without a single request going out', async () => {
+  const h = load();
+  h.node.search.value = 'https://evil.example/projects/abc/runs/9f8e7d6c';
+  await h.fn.openRunsSearchUrl();
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
+  assert.deepEqual(h.apiNames(), []);
+  // The same field holding a link this panel DOES own reads the run, so the silence above is a guard.
+  h.node.search.value = `${BASE}/projects/${PROJECT}/runs/9f8e7d6c`;
+  await h.fn.openRunsSearchUrl();
+  assert.deepEqual(h.apiNames(), ['getRun']);
+});
+
+test('80: "Run in Extension" carrying something that is not a link lands the panel nowhere', async () => {
+  const h = load();
+  assert.equal(await h.fn.openRunFromUrl('not a url'), false);
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
+  assert.deepEqual(h.calls.shows, []);
+});
+
+test('81: a panel not connected anywhere yet is asked to connect to the host the link names', async () => {
+  const h = load({ settings: { baseUrl: '', projectId: '' } });
+  assert.equal(await h.fn.openRunFromUrl(`${BASE}/projects/abc/runs/9f8e7d6c`), true);
+  assert.deepEqual(h.lastLine('settings-status'), {
+    id: 'settings-status',
+    text: `Connect this panel to ${HOST} to open that run here`,
+    cls: 'error',
+  });
+});
+
+test('82: an empty project list on boot means "not read yet", so the projects are re-read before refusing', async () => {
+  const h = load({ projects: [] });
+  h.on.refreshProjects = async () => [{ id: 'other-project' }];
+  h.on.getRun = async () => ({ id: '9f8e7d6c', title: 'Nightly' });
+  assert.equal(await h.fn.openRunFromUrl(`${BASE}/projects/other-project/runs/9f8e7d6c`), true);
+  assert.equal(h.calls.projectRefreshes, 1);
+  assert.deepEqual(h.calls.switches, ['other-project']);
+  // With the list already in memory the re-read is skipped.
+  const h2 = load({ projects: [{ id: 'other-project' }] });
+  h2.on.getRun = async () => ({ id: '9f8e7d6c', title: 'Nightly' });
+  await h2.fn.openRunFromUrl(`${BASE}/projects/other-project/runs/9f8e7d6c`);
+  assert.equal(h2.calls.projectRefreshes, 0);
+});
+
+// ---------- finding a run by its id (rows 38-43, 83-85) ----------
+// fakeClock.tick() AWAITS each callback, so a probe whose read is deliberately left hanging is
+// ticked WITHOUT awaiting and joined once the answer has landed.
+
+test('38: typing on restarts the wait, and once the read is out a repeat of the same id is a no-op', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.fn.syncRunIdProbe('9f8e7d');
+  assert.deepEqual(h.clock.arms(), [500]);
+  const first = h.clock.armed[0].id;
+  h.fn.syncRunIdProbe('9f8e7d');
+  assert.deepEqual(h.clock.arms(), [500, 500]);  // debounced: re-armed, not doubled
+  assert.equal(h.clock.count(), 1);
+  assert.ok(h.clock.cleared.includes(first));
+  // The wait elapses and the read goes out; now the same query really is a no-op.
+  const gate = deferred();
+  h.on.getRun = () => gate.promise;
+  const fired = h.clock.tick();
+  assert.deepEqual(h.apiNames(), ['getRun']);
+  h.fn.syncRunIdProbe('9f8e7d');
+  assert.equal(h.clock.count(), 0);
+  assert.deepEqual(h.clock.arms(), [500, 500]);  // no third arming
+  gate.resolve({ id: '9f8e7d' });
+  await fired;
+  assert.deepEqual(h.apiNames(), ['getRun']);
+});
+
+test('39: deleting the id back out of the field drops the wait, and the read already out is stranded', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.fn.syncRunIdProbe('9f8e7d');
+  h.fn.syncRunIdProbe(null);
+  assert.equal(h.clock.count(), 0);
+  await h.clock.tick();
+  assert.deepEqual(h.apiNames(), []);          // the armed read never went out
+  // And the same with the read already on the wire: the answer that lands afterwards is dropped.
+  const gate = deferred();
+  h.on.getRun = () => gate.promise;
+  h.fn.syncRunIdProbe('9f8e7d');
+  const fired = h.clock.tick();
+  h.state.runsSearch = '9f8e7d';
+  assert.ok(h.lex.runIdProbeFor('9f8e7d'));    // it IS on the wire
+  h.fn.syncRunIdProbe(null);
+  assert.equal(h.lex.runIdProbeFor('9f8e7d'), null);
+  gate.resolve({ id: '9f8e7d', title: 'Nightly' });
+  await fired;
+  assert.equal(h.lex.runIdProbeFor('9f8e7d'), null);
+  assert.equal(h.calls.renders, 0);
+});
+
+test('40: an answer that lands after the tester moved on is discarded — query, project and token all', async () => {
+  // (a) the query moved on: the run is never written into the probe, so no row can be painted from it
+  const a = load();
+  a.stubRenderList();
+  a.state.runsSearch = '9f8e7d';
+  const gateA = deferred();
+  a.on.getRun = () => gateA.promise;
+  a.fn.syncRunIdProbe('9f8e7d');
+  const firedA = a.clock.tick();
+  a.state.runsSearch = 'nightly';
+  gateA.resolve({ id: '9f8e7d', title: 'Nightly' });
+  await firedA;
+  assert.deepEqual(plain(a.lex.runIdProbeFor('9f8e7d')), { query: '9f8e7d', epoch: 1, pending: true, run: null });
+  assert.equal(a.calls.renders, 0);
+
+  // (b) the project switched under it — the epoch voids the record whatever it holds
+  const b = load();
+  b.stubRenderList();
+  b.state.runsSearch = '9f8e7d';
+  const gateB = deferred();
+  b.on.getRun = () => gateB.promise;
+  b.fn.syncRunIdProbe('9f8e7d');
+  const firedB = b.clock.tick();
+  b.state.projectEpoch = 2;
+  gateB.resolve({ id: '9f8e7d' });
+  await firedB;
+  assert.equal(b.lex.runIdProbeFor('9f8e7d'), null);
+  assert.equal(b.calls.renders, 0);
+
+  // (c) a newer read for a different id took the token: the first answer is dropped whole
+  const d = load();
+  d.stubRenderList();
+  d.state.runsSearch = 'aaaaaa';
+  const gateD = deferred();
+  d.on.getRun = () => gateD.promise;
+  d.fn.syncRunIdProbe('aaaaaa');
+  const firedD = d.clock.tick();
+  d.state.runsSearch = 'bbbbbb';
+  d.fn.syncRunIdProbe('bbbbbb');
+  gateD.resolve({ id: 'aaaaaa', title: 'First' });
+  await firedD;
+  assert.equal(d.lex.runIdProbeFor('aaaaaa'), null);
+  assert.equal(d.calls.renders, 0);
+
+  // (d) nothing moved: the same drive DOES remember and repaint, so the three drops above are re-checks.
+  const c = load();
+  c.stubRenderList();
+  c.state.runsSearch = '9f8e7d';
+  c.on.getRun = async () => ({ id: '9f8e7d', title: 'Nightly' });
+  c.fn.syncRunIdProbe('9f8e7d');
+  await c.clock.tick();
+  assert.equal(plain(c.lex.runIdProbeFor('9f8e7d')).run.title, 'Nightly');
+  assert.equal(c.calls.renders, 1);
+});
+
+test('41: a dropped connection is not an answer — the id stays retryable and nothing is painted', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.state.runsSearch = '9f8e7d';
+  h.on.getRun = async () => { throw offline(h); };
+  h.fn.syncRunIdProbe('9f8e7d');
+  await h.clock.tick();
+  assert.equal(h.lex.runIdProbeFor('9f8e7d'), null);
+  assert.equal(h.calls.renders, 0);
+  assert.deepEqual(h.toastMsgs(), []);           // quiet: it fires on a keystroke pause
+  // …and asking again really does read again, which is what "retryable" means.
+  h.fn.syncRunIdProbe('9f8e7d');
+  assert.equal(h.clock.count(), 1);
+  await h.clock.tick();
+  assert.deepEqual(h.apiNames(), ['getRun', 'getRun']);
+});
+
+test('42: an id no run in the project answers is remembered, and the empty state says exactly that', async () => {
+  const h = load({ search: '9f8e7d6c', dashItems: [run('r1', { title: 'Alpha' })] });
+  h.state.runsSearch = '9f8e7d6c';
+  h.on.getRun = async () => { throw notFound(h); };
+  h.fn.renderDashboard();
+  assert.equal(h.calls.empties.at(-1).text, 'Nothing in the loaded runs matches what you typed.');
+  await h.clock.tick();
+  assert.deepEqual(plain(h.lex.runIdProbeFor('9f8e7d6c')), { query: '9f8e7d6c', epoch: 1, pending: false, run: null });
+  assert.equal(h.calls.empties.at(-1).text,
+    'Nothing loaded matches what you typed, and no run in the project has this id.');
+  assert.equal(h.calls.empties.at(-1).title, 'No runs match');
+  assert.equal(h.calls.empties.at(-1).live, true);
+});
+
+test('43: a run found by its id is shown under a "Found by id" label even when the chip would hide it', async () => {
+  const h = load({ filter: 'failed', search: '9f8e7d6c', dashItems: [run('r1', { title: 'Alpha', status: 'passed' })] });
+  h.state.runsSearch = '9f8e7d6c';
+  h.on.getRun = async () => ({ id: '9f8e7d6c', title: 'Nightly', status: 'passed' });
+  h.fn.renderDashboard();
+  assert.deepEqual(h.rowIds(), [null]);          // only the no-match plaque so far
+  await h.clock.tick();
+  const rows = h.node.list.children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].className, 'found-by-id');
+  assert.equal(rows[0].textContent, 'Found by id');
+  assert.equal(rows[1].dataset.runId, '9f8e7d6c');
+  // The id line is the only thing on the row naming what was asked for.
+  assert.ok(rows[1].querySelectorAll('.meta').some((n) => n.textContent === '9f8e7d6c'));
+  // A row NOT found by id carries no such line, so the assertion above is about `showId`.
+  assert.deepEqual(h.fn.runRow(run('r1')).querySelectorAll('.meta'), []);
+});
+
+test('83: a probe answered before the project switched is never reused for the project after it', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.state.runsSearch = '9f8e7d';
+  h.on.getRun = async () => ({ id: '9f8e7d', title: 'Nightly' });
+  h.fn.syncRunIdProbe('9f8e7d');
+  await h.clock.tick();
+  assert.ok(h.lex.runIdProbeFor('9f8e7d'));
+  h.state.projectEpoch = 2;
+  assert.equal(h.lex.runIdProbeFor('9f8e7d'), null);
+  // …so the next render arms a fresh read rather than repainting the other project's answer.
+  h.fn.syncRunIdProbe('9f8e7d');
+  assert.equal(h.clock.count(), 1);
+});
+
+test('84: only an id-shaped query is probed, and it is probed trimmed', () => {
+  const h = load();
+  h.state.runsSearch = '  9f8e7d  ';
+  assert.equal(h.lex.runsSearchRunId(), '9f8e7d');
+  h.state.runsSearch = 'nightly';
+  assert.equal(h.lex.runsSearchRunId(), null);
+  h.state.runsSearch = '';
+  assert.equal(h.lex.runsSearchRunId(), null);
+});
+
+test('85: the no-match plaque offers exactly the constraints that are on, and its buttons undo them', () => {
+  const h = load({ search: 'zzz', filter: 'failed' });
+  h.state.runsSearch = 'zzz';
+  h.stubRenderList();
+  const both = h.fn.runsNoMatchEmpty();
+  assert.deepEqual(both.querySelectorAll('.empty-actions button').map((b) => b.textContent),
+    ['Clear search', 'Show all runs']);
+  fire(both.querySelectorAll('.empty-actions button')[1], 'click');
+  assert.equal(h.state.runsFilter, 'all');
+  fire(both.querySelectorAll('.empty-actions button')[0], 'click');
+  assert.equal(h.state.runsSearch, '');
+  // With only the chip on there is nothing to clear, and the sentence changes with it.
+  h.state.runsFilter = 'failed';
+  const chipOnly = h.fn.runsNoMatchEmpty();
+  assert.deepEqual(chipOnly.querySelectorAll('.empty-actions button').map((b) => b.textContent), ['Show all runs']);
+  assert.equal(h.calls.empties.at(-1).text, 'Nothing loaded so far carries this status.');
+  assert.equal(h.calls.empties.at(-1).icon, 'filter_alt_off');
+});
