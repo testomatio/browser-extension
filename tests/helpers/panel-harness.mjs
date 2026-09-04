@@ -153,6 +153,55 @@ export function fakeWindow() {
   };
 }
 
+// ---------- BEGIN #159 — a controllable clock and a settable visibilityState ----------
+
+// A REAL interval keeps the node test process alive for its whole period; these fire only when a
+// test calls tick(). Same shape core-harness.mjs proves: callbacks held, clear() really unregisters.
+export function fakeClock() {
+  let nextId = 1;
+  const live = new Map();  // id -> { fn, ms, repeat }
+  const armed = [];        // every arming in order: { id, ms, repeat }
+  const cleared = [];      // every id handed to clearInterval / clearTimeout, whether armed or not
+
+  const arm = (fn, ms, repeat) => {
+    const id = nextId;
+    nextId += 1;
+    const t = { id, fn, ms: Number(ms) || 0, repeat };
+    live.set(id, t);
+    armed.push({ id: t.id, ms: t.ms, repeat });
+    return id;
+  };
+  const disarm = (id) => { cleared.push(id); live.delete(id); };
+
+  return {
+    live,
+    armed,
+    cleared,
+    // Spliced into the sandbox by loadScreen — the four names a screen reaches for.
+    timers: {
+      setInterval: (fn, ms) => arm(fn, ms, true),
+      clearInterval: disarm,
+      setTimeout: (fn, ms) => arm(fn, ms, false),
+      clearTimeout: disarm,
+    },
+    // How many timers are armed right now: a screen that re-arms without clearing shows up as 2.
+    count: () => live.size,
+    // The period the live timer carries — the rate-limit rows need the number, not "a timer exists".
+    ms: () => (live.size ? [...live.values()][0].ms : null),
+    // Every period ever armed, so a re-arm is visible even when it lands on the same number.
+    arms: () => armed.map((a) => a.ms),
+    // Fire each live timer once, oldest first; a one-shot unregisters the way a real one does.
+    tick: async () => {
+      for (const t of [...live.values()]) {
+        if (!t.repeat) live.delete(t.id);
+        await t.fn();
+      }
+    },
+  };
+}
+
+// ---------- END #159 ----------
+
 // ---------- the loader ----------
 
 // `exported` names the screen's published `const` — the trailing completion expression. `globals` is
@@ -163,14 +212,21 @@ export function loadScreen(name, opts = {}) {
     globals = {},
     ids = [],
     now,
+    clock = null,          // #159: a fakeClock() whose timers replace the realm's
+    visibility = 'visible', // #159: mini-dom has no visibilityState; the poll gate reads one
     store = fakeChrome(opts),
     document: doc = makeDocument(ids),
     window: win = fakeWindow(),
   } = opts;
 
+  // #159: without it the gate silently takes its "no such property" branch and passes for the
+  // wrong reason — the same trap this file already documents for `URL`.
+  if (doc.visibilityState === undefined) doc.visibilityState = visibility;
+
   const sandbox = {
     console, URL, document: doc, window: win, chrome: store.chrome,
     setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    ...(clock ? clock.timers : {}),
     ...globals,
     // Whatever else a test puts on TestomatAPI, ApiError stays the real constructor.
     TestomatAPI: { ...(globals.TestomatAPI || {}), ApiError },
@@ -186,5 +242,9 @@ export function loadScreen(name, opts = {}) {
   const context = createContext(sandbox);
   const screen = runInContext(exported ? `${source}\n${exported};` : source, context, { filename: file });
 
-  return { screen, fn: sandbox, sandbox, doc, window: win, store, ApiError, plain, settle, rejection };
+  return {
+    screen, fn: sandbox, sandbox, doc, window: win, store, ApiError, plain, settle, rejection, clock,
+    // #159: changing the value and firing the event are the one act a browser performs.
+    visibility: (value) => { doc.visibilityState = value; doc.dispatchEvent(event(doc, 'visibilitychange')); },
+  };
 }
