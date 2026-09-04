@@ -210,6 +210,7 @@ export function loadState(opts = {}) {
     spies[name] = spy(opts.impl?.[name]);
     sandbox[name] = spies[name];
   }
+  Object.assign(sandbox, opts.globals || {}); // anything else the panel's other files publish
 
   const file = CORE_MODULES.state;
   // The `const`s are lexical, so the script's completion value is how they cross back; `peek` is
