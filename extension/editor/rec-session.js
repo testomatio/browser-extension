@@ -4,7 +4,10 @@
 
 /* global MdSections, RecFormat, ensureSiteAccess */
 const RecSession = (() => {
-  const { STEPS_OPTS, splitRecorded, insertRecorded, polishedSection, parsePolishedItems, serverMessage } = RecFormat;
+  const {
+    STEPS_OPTS, stepsHeading, splitRecorded, insertRecorded,
+    polishedSection, parsePolishedItems, serverMessage,
+  } = RecFormat;
 
   // BLIND: the recorded tab moved to a page Chrome keeps extensions off (chrome://, the
   // Web Store, another extension); the worker revives the recording when it comes back.
@@ -134,22 +137,25 @@ const RecSession = (() => {
 
     function insertRaw(entries) {
       const md = editor.getValue();
-      const parts = splitRecorded(entries, recStepInserted && MdSections.hasItems(md, 'Steps', STEPS_OPTS));
+      // Looked up ONCE and handed to every step below: the count taken before the insert has to
+      // name the same section the insert then writes into, whatever this body calls it.
+      const heading = stepsHeading(md);
+      const parts = splitRecorded(entries, recStepInserted && MdSections.hasItems(md, heading, STEPS_OPTS));
       if (!parts.steps.length && !parts.expected.length && !parts.leadSubs.length) return false;
       // #23: where this recording's own items begin — counted in the list BEFORE the insert.
-      if (recStart === -1 && parts.steps.length) recStart = MdSections.items(md, 'Steps', STEPS_OPTS).length;
-      setMarkdown(insertRecorded(md, parts));
+      if (recStart === -1 && parts.steps.length) recStart = MdSections.items(md, heading, STEPS_OPTS).length;
+      setMarkdown(insertRecorded(md, parts, heading));
       if (parts.steps.length) recStepInserted = true;
       recAnyInserted = true;
-      readRecItems();
+      readRecItems(heading);
       return true;
     }
 
     // The recording's items as they now stand: its span in the list, and the raw texts a
     // replacement is allowed to overwrite (nothing else in the body is ever touched).
-    function readRecItems() {
+    function readRecItems(heading) {
       if (recStart === -1) return;
-      const existing = MdSections.items(editor.getValue(), 'Steps', STEPS_OPTS);
+      const existing = MdSections.items(editor.getValue(), heading, STEPS_OPTS);
       recCount = Math.max(0, existing.length - recStart);
       recRawItems = existing.slice(recStart).map((it) => ({ text: it.text, subs: (it.subs || []).slice() }));
     }
@@ -171,10 +177,11 @@ const RecSession = (() => {
         if (!items.length) throw new Error('nothing came back');
         // The raw texts are captured BEFORE the write, so Undo has somewhere to go back to.
         const raw = recRawItems.map((it) => (it ? { text: it.text, subs: it.subs.slice() } : null));
-        const done = MdSections.replaceItems(editor.getValue(), 'Steps', STEPS_OPTS, {
+        const body = editor.getValue();
+        const done = MdSections.replaceItems(body, stepsHeading(body), STEPS_OPTS, {
           start: recStart, count: recCount, next: items, written: recWritten(),
         });
-        if (done.md !== editor.getValue()) setMarkdown(done.md);
+        if (done.md !== body) setMarkdown(done.md);
         recRawItems = raw;
         recPolishedItems = done.items;
         recPolished = true;
@@ -192,13 +199,14 @@ const RecSession = (() => {
     // Back to the sentences the recorder wrote — item by item, and never over one the tester
     // has since rewritten.
     function undoPolish() {
-      const done = MdSections.replaceItems(editor.getValue(), 'Steps', STEPS_OPTS, {
+      const body = editor.getValue();
+      const done = MdSections.replaceItems(body, stepsHeading(body), STEPS_OPTS, {
         start: recStart, count: recCount, next: recRawItems, written: recWritten(),
       });
       // Every item is the tester's own now: nothing went back, so nothing about the polish moves.
       // `recRawItems` is never re-derived here — a skipped item would file the edit away as ours.
       if (!done.touched) { showToast('Nothing to put back — these steps were edited by hand'); return; }
-      if (done.md !== editor.getValue()) setMarkdown(done.md);
+      if (done.md !== body) setMarkdown(done.md);
       recPolished = false;
       updatePolishBtn();
       onPersist();
@@ -243,7 +251,8 @@ const RecSession = (() => {
       const page = (withPage && withPage.ctx.page) || null;
       const out = [`TEST: ${getTitle().replace(/\s+/g, ' ').trim()}`];
       if (page && (page.title || page.url)) out.push(`PAGE: ${page.title || ''} | ${page.url || ''}`);
-      const before = MdSections.items(editor.getValue(), 'Steps', STEPS_OPTS).slice(0, Math.max(0, recStart));
+      const body = editor.getValue();
+      const before = MdSections.items(body, stepsHeading(body), STEPS_OPTS).slice(0, Math.max(0, recStart));
       if (before.length) {
         out.push('EXISTING STEPS (written before the recording — keep their wording, do not repeat them):');
         before.forEach((it, i) => out.push(`${i + 1}. ${it.text}`));

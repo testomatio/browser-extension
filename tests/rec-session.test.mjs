@@ -235,6 +235,43 @@ test('77: a live insert puts the caret back where the tester left it', async () 
   assert.ok(away.edits.includes(away.body()));
 });
 
+// ---- #246: a body written in Ukrainian is ONE recording, not a second section ----
+
+test('a recording joins the ### Кроки the tester already wrote (#246)', async () => {
+  const env = open({ body: '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n' });
+  await record(env, ['Click Save']);
+  assert.equal(env.body(), '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n2. Click Save\n');
+  assert.ok(!env.body().includes('### Steps')); // no second, English list numbering from 1 again
+  // The span is read off THAT section: the hand-written step is context, the recorded one is ours.
+  const d = plain(env.session.draftShape());
+  assert.equal(d.start, 1);
+  assert.equal(d.count, 1);
+  assert.deepEqual(d.rawItems.map((i) => i.text), ['Click Save']);
+  // …so the expected result that follows attaches to the step, instead of opening `### Expected`.
+  env.pull({ recording: true, count: 2, entries: [{ kind: 'expected', text: 'форма зникає' }] });
+  await env.session.poll();
+  assert.ok(env.body().includes('2. Click Save\n   - Expected: форма зникає'));
+  assert.ok(!env.body().includes('### Expected'));
+});
+
+test('polish and undo reach the steps recorded into a ### Кроки body (#246)', async () => {
+  const env = open({ body: '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n' });
+  await recordAndStop(env, ['Click Save']);
+  // Teaching the insert the heading but not the bookkeeping is the silent failure: recCount lands
+  // on 0, hasRecording() goes false, and the polish button simply is not offered.
+  assert.equal(env.session.hasRecording(), true);
+  env.session.setPolishOn(true);
+  assert.equal(env.lastPolish().hidden, false);
+  env.answerWith(() => Promise.resolve(POLISHED('1. Save the form')));
+  await env.session.polish();
+  // The step written by hand goes out as context and stays put; the recorded one is rewritten.
+  assert.ok(env.apiCalls[0][0].includes('1. Відкрити сайт'));
+  assert.equal(env.body(), '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n2. Save the form\n');
+  env.session.undo();
+  assert.equal(env.body(), '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n2. Click Save\n');
+  assert.equal(env.session.isPolished(), false);
+});
+
 // ---- 78-81: the record button's words. The module decides them; renderEditor paints them ----
 
 test('78: while polishing the record button says so, is disabled, and hides Continue', async () => {
