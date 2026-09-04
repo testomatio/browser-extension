@@ -284,14 +284,21 @@ function captureVisibleNow(tab) {
 
 // #158: `Page.getLayoutMetrics`'s cssContentSize as an explicit clip (origin 0,0 is document-relative)
 // fences the shot to ONE page; the clip `scale` MULTIPLIES the device scale factor, so 1 is no resize.
+// Chromium's maximum texture dimension: past it the compose cannot succeed, so a taller page is
+// cut here and the clip says it was cut — the alternative is a capture that fails with no reason.
+const FULLPAGE_MAX_HEIGHT = 16384;
+
 async function fullPageClip(tabId) {
   try {
     const m = await dbgSendCmd(tabId, 'Page.getLayoutMetrics');
     const cs = m && (m.cssContentSize || m.contentSize);
     const width = Math.floor(cs?.width || 0);
-    const height = Math.floor(cs?.height || 0);
-    if (!(width > 0 && height > 0)) return null;
-    return { x: 0, y: 0, width, height, scale: 1 };
+    const full = Math.floor(cs?.height || 0);
+    if (!(width > 0 && full > 0)) return null;
+    const height = Math.min(full, FULLPAGE_MAX_HEIGHT);
+    const clip = { x: 0, y: 0, width, height, scale: 1 };
+    if (height < full) clip.heightClipped = true;
+    return clip;
   } catch { return null; }
 }
 
@@ -310,7 +317,8 @@ async function shootViaDebugger(tabId, beyondViewport) {
   try {
     if (beyondViewport) clip = await fullPageClip(tabId);
     const shotParams = { format: 'jpeg', quality: 80, captureBeyondViewport: !!beyondViewport };
-    if (clip) shotParams.clip = clip;
+    // By field: `heightClipped` is ours to carry, not a Page.Viewport the protocol asked for.
+    if (clip) shotParams.clip = { x: clip.x, y: clip.y, width: clip.width, height: clip.height, scale: clip.scale };
     res = await dbgSendCmd(tabId, 'Page.captureScreenshot', shotParams);
   } finally { if (!shared) await dbgDetach(tabId); }
   return { res, clip };
@@ -389,7 +397,7 @@ async function captureShot({ beyondViewport = false } = {}) {
     }
   }
   const out = await trimToDocument(`data:image/jpeg;base64,${shot.res.data}`, shot.clip);
-  return { dataUrl: out.dataUrl, tabId, trimmed: out.trimmed, framesMoved };
+  return { dataUrl: out.dataUrl, tabId, trimmed: out.trimmed, framesMoved, heightClipped: !!shot.clip?.heightClipped };
 }
 
 // ============================ Step recorder ================================
@@ -677,7 +685,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     captureShot({ beyondViewport: !!msg.fullPage })
       .then((r) => sendResponse({
         ok: true, dataUrl: r.dataUrl, tabId: r.tabId, viewportOnly: !!r.viewportOnly, trimmed: !!r.trimmed,
-        framesMoved: r.framesMoved || 0,
+        heightClipped: !!r.heightClipped, framesMoved: r.framesMoved || 0,
       }))
       // `needsGrant`: the failure a toolbar click fixes — the panel pends the retry on it.
       .catch((e) => sendResponse({ ok: false, error: String(e?.message || e), needsGrant: !!e?.needsGrant }));
