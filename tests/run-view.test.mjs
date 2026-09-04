@@ -435,14 +435,21 @@ function load(opts = {}) {
   };
 }
 
-// The offline queue's «queued» marker, which is the ONLY `.badge` a run row ever carries
-// (screens/offline-queue.js:215) and so the only thing flashRowSaved can find. `offsetWidth` is its
-// reflow read, and the one seam that says WHEN the flash ran relative to the repaint.
-function addBadge(h, li) {
-  const badge = el('span', { className: 'badge' });
-  Object.defineProperty(badge, 'offsetWidth', { get: () => { h.calls.order.push('flash'); return 1; } });
-  li.append(badge);
-  return badge;
+// The row's own status mark is what the flash lands on (#274) — every row has one, so the
+// confirmation is no longer conditional on a marker that may not be there. repaintRow REPLACES that
+// mark, so the seam wraps the row's own lookup rather than one node, and `offsetWidth` — the flash's
+// reflow read — says WHEN it ran relative to the repaint.
+function flashTarget(h, li) {
+  const find = li.querySelector.bind(li);
+  li.querySelector = (sel) => {
+    const node = find(sel);
+    if (sel === '.row-status' && node && !node.flashSeam) {
+      node.flashSeam = true;
+      Object.defineProperty(node, 'offsetWidth', { get: () => { h.calls.order.push('flash'); return 1; } });
+    }
+    return node;
+  };
+  return () => li.querySelector('.row-status');
 }
 
 // ---------- the write gate: three reasons, ranked (rows 7-13, 66-71) ----------
@@ -1692,12 +1699,12 @@ test('116: the row is claimed and the spinner painted in the click\'s own turn, 
 
 test('42: a write that lands repaints the row, flashes it, then moves every counter — in that order', async () => {
   const { h, li, record, btn } = written();
-  const badge = addBadge(h, li);
+  const mark = flashTarget(h, li);
   h.calls.order.length = 0;
   await h.fn.writeRowStatus(record, 'passed', li);
   assert.deepEqual(h.calls.order, ['lock-read', 'write', 'lock-read', 'flash', 'progress', 'chips', 'lock-read']);
   assert.equal(li.querySelector('.row-status').dataset.status, 'passed');
-  assert.ok(badge.classList.contains('saved-flash'));
+  assert.ok(mark().classList.contains('saved-flash'));
   assert.deepEqual(h.clock.arms(), [1000], 'and it un-flashes a second later');
   assert.equal(h.fraction(), '1/2');
   assert.deepEqual(h.chipCounts(), ['2', '1', '0', '0', '1']);
@@ -1709,14 +1716,14 @@ test('42: a write that lands repaints the row, flashes it, then moves every coun
 
 test('43: a write that only QUEUED repaints the row but does not tell the tester it saved', async () => {
   const { h, li, record } = written();
-  const badge = addBadge(h, li);
+  const mark = flashTarget(h, li);
   h.on.write = async () => ({ queued: true });
   h.calls.order.length = 0;
   await h.fn.writeRowStatus(record, 'passed', li);
   assert.equal(li.querySelector('.row-status').dataset.status, 'passed', 'repainted');
   assert.deepEqual(h.calls.decorated.slice(-1), ['1'], 'and the queued marker re-applied');
   assert.equal(h.calls.order.includes('flash'), false);
-  assert.equal(badge.classList.contains('saved-flash'), false);
+  assert.equal(mark().classList.contains('saved-flash'), false);
   assert.deepEqual(h.clock.arms(), [], 'no un-flash timer either');
   // Row 42 flashed the identical badge on the identical row, so this absence is the `queued` branch.
 });
@@ -2215,29 +2222,37 @@ test('131: Finish waits while an inline write is still in flight, and goes on th
   assert.equal(h.calls.sleeps.length, 1, 'and it stops the moment the write lands');
 });
 
-// ---------- the shipped bugs (rows 4, 45, 46, 47, 52, 53, 64, 65) ----------
-// Each body asserts what the panel SHOULD do; each fails against the shipped file today.
+// ---------- the bugs these tests found (rows 4, 45, 46, 47, 52, 53, 64, 65) ----------
+// Five of them are fixed in this PR and read as rules; the three still deferred name their issue.
 
-// 4: a `running` row is counted by nothing but `all` (runStatusCounts, 894-901), so the chips can
-// sum to less than the total the All chip shows and the tester cannot find the missing row.
-test.todo('4 (TODO(issue)): the status chips add up to the All chip, running rows included', () => {
+// 4 (#273): a running row used to be counted by nothing but All, so the chips summed to less than
+// the total and no chip could show that row. It counts as Pending now — it has no result yet.
+test('4 (#273): the status chips add up to the All chip, running rows included', () => {
   const h = load({
     records: [rec(1, { status: 'passed' }), rec(2, { status: 'failed' }),
       rec(3, { status: 'pending' }), rec(4, { status: 'running' })],
   });
   const c = plain(h.fn.runStatusCounts());
-  // Today: { all: 4, passed: 1, failed: 1, skipped: 0, untested: 1 } — the parts sum to 3.
   assert.equal(c.passed + c.failed + c.skipped + c.untested, c.all);
+  assert.equal(c.untested, 2); // the pending one and the running one
+  // …and the chip that counts it can also SHOW it, which is the half a count alone would not prove.
+  h.state.runFilter = 'untested';
+  assert.deepEqual(h.state.records.filter(h.lex.matchesRunFilter).map((r) => String(r.id)), ['3', '4']);
 });
 
-// 45: flashRowSaved looks for a `.badge`, and testRow (1107-1127) builds `.status-icon`, `.example`
-// and `.btn` — never one. The only `.badge` on a run row is the offline queue's «queued» marker,
-// which is exactly the case line 1222 skips the flash for, so the green flash is dead code.
-test.todo('45 (TODO(issue)): a row the tester just marked flashes to say it saved', async () => {
+// 45 (#274): the flash looked for a `.badge`, which a run row never carries — the only one that ever
+// appears is the queue's «queued» marker, and that is the case the caller skips. It lands on the
+// row's own status mark now, so every saved row is confirmed.
+test('45 (#274): a row the tester just marked flashes to say it saved', async () => {
   const { h, li, record } = written();
   await h.fn.writeRowStatus(record, 'passed', li);
-  // Today: li.querySelector('.badge') is null and flashRowSaved returns before touching anything.
   assert.ok(li.querySelector('.saved-flash'), 'nothing on the row was flashed');
+
+  // A write that only QUEUED is still not a save, so it is still not flashed.
+  const queued = written();
+  queued.h.on.write = async () => ({ queued: true });
+  await queued.h.fn.writeRowStatus(queued.record, 'passed', queued.li);
+  assert.equal(queued.li.querySelector('.saved-flash'), null);
 });
 
 // 46: STATUS_ICON.skipped and NEUTRAL_ICON are the same glyph, so skipped and pending differ by
@@ -2247,24 +2262,32 @@ test.todo('46 (#115): skipped and pending are told apart by their shape, not onl
   assert.notEqual(h.fn.statusIcon('skipped').dataset.icon, h.fn.statusIcon('pending').dataset.icon);
 });
 
-// 47: updateRunActions (384) compares state.runStatus to 'running' literally, while normStatus folds
-// launching into running everywhere else — so the pill says "running" and Finish is simply absent.
-test.todo('47 (TODO(issue)): a launching run is a running run, and can be finished', () => {
+// 47 (#275): updateRunActions compared state.runStatus to 'running' literally while the rest of the
+// file folds launching into running, so the pill named the state and Finish was simply absent.
+test('47 (#275): a launching run is a running run, and can be finished', () => {
   const h = load({ runStatus: 'launching', jwtAvailable: true });
   h.fn.paintRunState();
   assert.equal(h.node.runState.textContent, 'launching');
   h.fn.updateRunActions();
-  // Today: hidden, because only the literal 'running' counts here.
   assert.equal(h.node.btnFinishRun.hidden, false);
+
+  // A finished run is still not offered it, so the row above is not asserting a button always shown.
+  const done = load({ runStatus: 'finished', jwtAvailable: true });
+  done.fn.updateRunActions();
+  assert.equal(done.node.btnFinishRun.hidden, true);
 });
 
-// 52: settlePendingWrites (417-421) polls 200 × 25 ms and then gives up, so a save still in flight
-// after five seconds is overrun by the finish PUT and the run is closed around it.
-test.todo('52 (TODO(issue)): finishing waits for a pending save instead of giving up after 5s', async () => {
-  const h = load({ saving: true });
-  await h.fn.settlePendingWrites();
-  // Today: it returns after 200 sleeps of 25 ms with state.saving still true, and finishRun goes on.
-  assert.equal(h.state.saving, false, `gave up after ${h.calls.sleeps.length} × 25 ms`);
+// 52 (#276): the wait still gives up after 200 × 25 ms, but it now SAYS so — a finished run takes no
+// more writes, so closing the run over a save still in flight lost the result the tester had marked.
+test('52 (#276): a save still in flight stops the finish instead of being closed over', async () => {
+  const stuck = load({ saving: true });
+  assert.equal(await stuck.fn.settlePendingWrites(), false,
+    `gave up after ${stuck.calls.sleeps.length} × 25 ms and said so`);
+
+  // Nothing pending: it answers true, so the false above is a report and not a constant.
+  const clear = load();
+  assert.equal(await clear.fn.settlePendingWrites(), true);
+  assert.equal(clear.calls.sleeps.length, 0);
 });
 
 // 53: three copies of `(a, b) => a.id > b.id ? 1 : -1` compare ids as TEXT (run-view.js:182 and
@@ -2291,16 +2314,21 @@ test.todo('64 (#109): a test row and a suite head can be reached and opened from
   assert.equal(head.listeners.has('keydown'), true);
 });
 
-// 65: onRunSearch (1041-1045) rebuilds every section on every keystroke, with no debounce — five
-// characters typed into a 400-row run is five full rebuilds of the list.
-test.todo('65 (TODO(issue)): typing into the search does not rebuild the whole list per keystroke', () => {
+// 65 (#277): onRunSearch rebuilt every section on every keystroke — five characters typed into a
+// 400-row run was five full rebuilds. The redraw waits for the typing to stop; the clear button,
+// which is cheap, does not.
+test('65 (#277): typing into the search does not rebuild the whole list per keystroke', async () => {
   const h = load({ records: Array.from({ length: 400 }, (_, i) => rec(i + 1, { suite_title: 'A' })) });
   h.calls.order.length = 0;
+  const rebuilds = () => h.calls.order.filter((s) => s === 'sections').length;
   for (const q of ['c', 'ch', 'che', 'chec', 'check']) {
     h.node.runSearch.value = q;
     h.fn.onRunSearch();
+    assert.equal(h.node.runSearchClear.hidden, false); // the cheap half stays immediate
   }
-  // Today: 5.
-  assert.ok(h.calls.order.filter((s) => s === 'sections').length < 5,
-    `${h.calls.order.filter((s) => s === 'sections').length} rebuilds for 5 keystrokes`);
+  assert.equal(rebuilds(), 0, 'nothing is redrawn while the tester is still typing');
+
+  await h.clock.tick(); // …and once they stop, the list is rebuilt ONCE for all five keystrokes
+  assert.equal(rebuilds(), 1);
+  assert.deepEqual(h.clock.arms(), [250, 250, 250, 250, 250], 'each keystroke re-armed the one timer');
 });
