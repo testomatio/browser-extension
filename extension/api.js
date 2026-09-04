@@ -6,13 +6,14 @@
 // the tester signs in once and v2 keys are minted, never typed. A handed-off config
 // (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
+/* global ApiErrors, ApiTransport, ApiPaging, ApiPeople, ApiNormalize, ApiAssets */
+
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
   // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
   // the project's own credential, and nothing here needs them to outlive the panel.
   const v2Keys = new Map();
-  // Bucket URLs the INSTANCE signed for us: off-instance, but named by it and not by document data.
-  const signedAssets = new Set();
+  const { signedAssets } = ApiAssets;
   // The live session. Memory-only: it is either adopted from the tester's stored credential or
   // exchanged from their General token, and neither is worth a second copy on disk.
   let jwt = null;
@@ -26,19 +27,11 @@ const TestomatAPI = (() => {
   // company-readonly account, archived project), while a rejected token is a 401 instead.
   let readonly = 'unknown'; // 'unknown' until a v2 call answers | true | false
   // The host, so a tester reading either verdict below knows WHICH server refused them.
-  const instanceHost = () => { try { return new URL(cfg.baseUrl).host; } catch { return 'the web app'; } };
-  const READONLY_MESSAGE = (status) =>
-    `Your access to this project is read-only — ${instanceHost()} answered ${status} to a plain read too`;
-  const ROUTE_REFUSED = (status) =>
-    `${instanceHost()} refused this request (${status}) — the project itself still reads fine`;
+  const instanceHost = () => ApiErrors.instanceHost(cfg?.baseUrl);
+  const READONLY_MESSAGE = (status) => ApiErrors.readonlyMessage(instanceHost(), status);
+  const ROUTE_REFUSED = (status) => ApiErrors.routeRefused(instanceHost(), status);
 
-  class ApiError extends Error {
-    constructor(kind, status, detail) {
-      super(detail || kind);
-      this.kind = kind; // unconfigured | network | auth | readonly | notfound | http
-      this.status = status;
-    }
-  }
+  const { ApiError, toError } = ApiErrors;
 
   function configure(c) {
     const next = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
@@ -98,26 +91,7 @@ const TestomatAPI = (() => {
     return key;
   }
 
-  // A request that never answers hangs the panel for its whole life, holding every write flag with it.
-  const REQUEST_TIMEOUT_MS = 30000;
-  // Minutes, not seconds: a 50 MB recording on a slow link, or server-side model work, needs them.
-  const LONG_TIMEOUT_MS = 300000;
-
-  async function rawFetch(url, { timeout = REQUEST_TIMEOUT_MS, signal, ...opts } = {}) {
-    const budget = AbortSignal.timeout(timeout);
-    // Without AbortSignal.any the caller's own signal wins: cancelling has no other way to happen.
-    const combined = !signal ? budget
-      : (typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, budget]) : signal);
-    try {
-      return await fetch(url, { ...opts, signal: combined });
-    } catch {
-      // A timeout wears the SAME network error a dead link does, so the offline queue still takes the click.
-      if (budget.aborted) {
-        throw new ApiError('network', 0, `No answer in ${Math.round(timeout / 1000)}s — the request timed out`);
-      }
-      throw new ApiError('network', 0, 'Network error');
-    }
-  }
+  const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;
 
   function guardConfigured() {
     if (!cfg?.baseUrl || !hasCredential() || !cfg?.projectId) {
@@ -132,19 +106,6 @@ const TestomatAPI = (() => {
     if (!cfg?.baseUrl || !(cfg?.apiToken || handedJwt)) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
-  }
-
-  async function toError(res) {
-    if (res.status === 401 || res.status === 403) {
-      return new ApiError('auth', res.status, 'Token invalid or has no access');
-    }
-    if (res.status === 404) {
-      // Valid token without project membership also yields 404 (research R6).
-      return new ApiError('notfound', 404, 'Not found — or no access to this project');
-    }
-    let detail = '';
-    try { detail = JSON.stringify(await res.json()); } catch { /* empty body */ }
-    return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 
   // The cheapest read v2 has — validate()'s own call, shared so the corroboration cannot drift from it.
@@ -192,30 +153,8 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  // Drain EVERY page of a v2 index. 100 is what we ASK for, never a promise: sibling routes are
-  // capped at 30 and 50, and a stop measured against our own number ends the drain on page 1.
-  const PAGE_GUARD = 1000;
-  async function pagedData(path, query = {}) {
-    const all = [];
-    let pageSize = null; // the SERVER's page size: `meta.per_page`, else the first page's own length
-    for (let page = 1; page <= PAGE_GUARD; page++) {
-      const res = await request(path, { query: { ...query, page, per_page: 100 } });
-      const items = res?.data || [];
-      all.push(...items);
-      const meta = res?.meta || {};
-      // The server's own account of the drain, wherever it keeps one.
-      if (meta.has_more === false) return all;
-      if (Number.isFinite(meta.total_pages) && page >= meta.total_pages) return all;
-      if (Number.isFinite(meta.total) && all.length >= meta.total) return all;
-      if (Number.isFinite(meta.per_page)) pageSize = meta.per_page;
-      else if (pageSize === null && items.length) pageSize = items.length;
-      // Only THEN a short page, and short against the size the server actually paged with.
-      if (pageSize !== null && items.length < pageSize) return all;
-      if (!items.length) return all; // a page past the end, whatever `has_more` claimed
-    }
-    // Returning the pile here would grade a truncated run as a whole one.
-    throw new ApiError('http', 0, `${path} is too long to drain — over ${PAGE_GUARD} pages`);
-  }
+  const { drain, pageResult, PAGE_GUARD, DASH_KEYS, GROUP_KEYS } = ApiPaging;
+  const pagedData = (path, query) => drain(request, path, query);
 
   const validate = () => request('/runs', RUNS_PING);
   // #110: `render_index` caps per_page at 100 (default 30) and answers meta {total, page, per_page}.
@@ -239,18 +178,8 @@ const TestomatAPI = (() => {
   const getTest = (id) => request(`/tests/${encodeURIComponent(id)}`).then((r) => r?.data);
 
   // ---- TC Studio (M3) — suites + per-suite tests + create/update ----
-  // GET /suites/tree (JWT) answers a BARE ARRAY of roots — no `data` envelope, camelCase keys, children
-  // nested inline, leaves without a `children` key. A raw v2 token on this route answers 403.
-  function normSuiteNode(n) {
-    return {
-      id: n.id,
-      title: n.title || '',
-      file_type: n.fileType === 'folder' ? 'folder' : 'file',
-      test_count: n.testCount ?? 0,
-      emoji: n.emoji || null,
-      children: (n.children || []).map(normSuiteNode),
-    };
-  }
+  const { normSuiteNode, orderSuiteTree, normDashRun, normDashGroup, testrunExampleOf } = ApiNormalize;
+
   async function getSuiteTree() {
     const roots = await jwtRequest('/suites/tree');
     return Array.isArray(roots) ? roots.map(normSuiteNode) : [];
@@ -273,16 +202,6 @@ const TestomatAPI = (() => {
     );
     rest.forEach(take);
     return positions;
-  }
-  // Every level in the web's order — `position` ascending, ties and unknown ids as the server sent them (#26).
-  function orderSuiteTree(nodes, positions) {
-    const pos = (n) => {
-      const p = positions.get(String(n.id));
-      return Number.isFinite(p) ? p : 0;
-    };
-    return (nodes || [])
-      .map((n) => ({ ...n, children: orderSuiteTree(n.children, positions) }))
-      .sort((a, b) => pos(a) - pos(b));
   }
   // The tree as the Tests tab and the pickers draw it. /suites/tree orders by `abs_position`, which the
   // web's drag-reorder leaves stale on the shifted siblings, so the rows are re-sorted by `position` —
@@ -468,42 +387,7 @@ const TestomatAPI = (() => {
     });
   }
 
-  // ---- dashboard parity (JWT, project base) — Phase 3 ----
-  // The web endpoint unions top-level runs + root rungroups and applies the `.branched` scope v2
-  // lacks. Attributes are dasherized; `env` on children arrives as an array (["Chrome"]).
-  const normEnv = (env) => (Array.isArray(env) ? env.filter(Boolean).join(', ') : env || '');
-
-  function normDashRun(node) {
-    const a = node.attributes || {};
-    return {
-      type: 'run', id: node.id, status: a.status, title: a.title,
-      kind: a.kind, env: normEnv(a.env), rungroup_id: a['rungroup-id'] || null,
-    };
-  }
-  function normDashGroup(node) {
-    const a = node.attributes || {};
-    return {
-      type: 'rungroup', id: node.id, status: a.status, title: a.title,
-      kind: a.kind, runs_count: a['runs-count'] ?? null, tests_count: a['tests-count'] ?? null,
-      archived_at: a['archived-at'] || null,
-      // Folder emoji: the v2 `/rungroups` row carries it; where this leg does not, null keeps the glyph.
-      emoji: a.emoji || null,
-    };
-  }
-
   // ---- paged list results (#110) ------------------------------------------
-  // Three meta dialects, verified live on prod: /runs/dashboard camelCase, perPage HARDCODED 30 (param
-  // ignored); /runs?group_id= snake_case, per_page honoured (default 50); /rungroups?groupId= fixed at 30.
-  const pageResult = (items, page, meta, keys) => ({
-    items,
-    page: Number(meta?.[keys.page] ?? page) || page,
-    perPage: meta?.[keys.perPage] != null ? Number(meta[keys.perPage]) : null,
-    total: meta?.[keys.total] != null ? Number(meta[keys.total]) : null,
-    totalPages: meta?.[keys.totalPages] != null ? Number(meta[keys.totalPages]) : null,
-  });
-  const DASH_KEYS = { page: 'page', perPage: 'perPage', total: 'totalCount', totalPages: 'totalPages' };
-  const GROUP_KEYS = { page: 'page', perPage: 'per_page', total: 'num', totalPages: 'total_pages' };
-
   async function fetchDashboardPage(page = 1) {
     const doc = await jwtRequest(`/runs/dashboard?page=${encodeURIComponent(page)}`);
     const items = (doc?.data || []).map((n) => (n.type === 'rungroup' ? normDashGroup(n) : normDashRun(n)));
@@ -619,156 +503,11 @@ const TestomatAPI = (() => {
     return all;
   }
 
-  // The fields v2 does not serialize at all, in ONE read: substatus counters (#109, keyed by the RAW
-  // reply string), ci-build-url/duration/launched-at/finished-at (#112), is-archived (#186).
-  function runInfoOf(doc) {
-    const attrs = doc?.data?.attributes || {};
-    const raw = attrs['substatuses-counts'];
-    let substatusCounts = null; // null (not {}) = the payload carries no counters at all
-    if (raw && typeof raw === 'object') {
-      substatusCounts = {};
-      for (const [key, val] of Object.entries(raw)) {
-        const n = Number(val);
-        if (key && Number.isFinite(n) && n > 0) substatusCounts[key] = n;
-      }
-    }
-    return {
-      substatusCounts,
-      status: attrs.status || null,
-      // null (not false) when omitted, so a write response cannot silently unlock an archived run.
-      isArchived: attrs['is-archived'] == null ? null : !!attrs['is-archived'],
-      ciBuildUrl: attrs['ci-build-url'] || null,
-      duration: Number(attrs.duration) || 0, // seconds (RunSerializer), 0 while unfinished
-      launchedAt: attrs['launched-at'] || null,
-      finishedAt: attrs['finished-at'] || null,
-      ...runPeopleOf(doc),
-    };
-  }
-
-  // WHO — executed-by / created-by, read DEFENSIVELY: a person reaches this payload as a string, as a
-  // record, or as a relationship into `included`, and no contract pins which. Absent → null.
-  const PERSON_KEYS = {
-    executedBy: ['executed-by', 'launched-by', 'user'],
-    createdBy: ['created-by', 'author', 'owner'],
-  };
-
-  // A `{name, email}` out of whatever `value` is, or null.
-  function personOf(value) {
-    if (!value) return null;
-    if (typeof value === 'string') {
-      const s = value.trim();
-      if (!s) return null;
-      return s.includes('@') ? { name: '', email: s } : { name: s, email: '' };
-    }
-    if (typeof value !== 'object') return null;
-    const a = value.attributes || value; // a JSON:API resource, or a flat record
-    const name = String(a.name || a.username || a.title || '').trim();
-    const email = String(a.email || '').trim();
-    return name || email ? { name, email } : null;
-  }
-
-  // A resource out of `included`, by its {type, id} reference.
-  const includedRef = (doc, ref) =>
-    (ref && (doc?.included || []).find((n) => n.type === ref.type && String(n.id) === String(ref.id))) || null;
-
-  // The `included` user a relationship points at, by {type, id}.
-  function includedPerson(doc, rel) {
-    const ref = rel?.data;
-    if (!ref || Array.isArray(ref)) return null;
-    return personOf(includedRef(doc, ref));
-  }
-
-  // Everyone a single value names — a person, a list, a JSON:API reference, or a list of those.
-  function peopleOf(doc, value) {
-    const list = Array.isArray(value) ? value : (value == null ? [] : [value]);
-    return list.map((v) => personOf(v) || personOf(includedRef(doc, v))).filter(Boolean);
-  }
-
-  // Safety net for key spellings we have not measured. A name-matching key can hold two things that
-  // are NOT people: a setting ("assign-mode":"none" once drew a tester "none") and the word for nobody.
-  const SETTING_KEY = /(strategy|mode|policy|method|kind|type|option|enabled|state|status|auto|allow)/i;
-  const NOBODY = /^(none|nobody|no[-_\s]?one|unassigned|not[-_\s]?assigned|n\/?a|null|nil|false|true|any|all|auto|everyone|manual)$/i;
-  function peopleByKey(doc, pattern) {
-    const attrs = doc?.data?.attributes || {};
-    const rels = doc?.data?.relationships || {};
-    const out = [];
-    const seen = new Set();
-    const take = (people) => {
-      for (const p of people) {
-        // Address-less and with no letter in the "name": a bare id, not a person.
-        if (!p.email && !/\p{L}/u.test(p.name)) continue;
-        // …and neither is the payload's word for nobody; a real person keeps their address.
-        if (!p.email && NOBODY.test(p.name.trim())) continue;
-        const key = (p.email || p.name).toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(p);
-      }
-    };
-    for (const [key, value] of Object.entries(attrs)) {
-      if (pattern.test(key) && !/(^|[-_])ids?$|count/i.test(key) && !SETTING_KEY.test(key)) {
-        take(peopleOf(doc, value));
-      }
-    }
-    for (const [key, rel] of Object.entries(rels)) {
-      if (pattern.test(key) && !SETTING_KEY.test(key)) take(peopleOf(doc, rel?.data));
-    }
-    return out;
-  }
-
-  // The run's OWN assignees — NOT the same set as the people its tests are assigned to.
-  // undefined (not []) when the payload says nothing, so a merge cannot blank an earlier read.
-  function runAssigneesOf(doc) {
-    const found = peopleByKey(doc, /assign/i);
-    return found.length ? found : undefined;
-  }
-
-  // Fallback patterns for the two single people, used only where the named spellings found nobody.
-  const PERSON_PATTERNS = {
-    executedBy: /^(executed|launched|started|ran)([-_]?by)?$|^user$/i,
-    createdBy: /^(created[-_]?by|creator|author|owner)$/i,
-  };
-
-  function runPeopleOf(doc) {
-    const attrs = doc?.data?.attributes || {};
-    const rels = doc?.data?.relationships || {};
-    const people = {};
-    for (const [field, keys] of Object.entries(PERSON_KEYS)) {
-      let found = null;
-      for (const key of keys) {
-        found = personOf(attrs[key]) || includedPerson(doc, rels[key]);
-        if (found) break;
-      }
-      if (!found) [found] = peopleByKey(doc, PERSON_PATTERNS[field]);
-      // These are MERGED over the open run's info, so a write response that omits people must not blank it.
-      if (found) people[field] = found;
-    }
-    const assignees = runAssigneesOf(doc);
-    if (assignees) people.assignees = assignees;
-    return people;
-  }
+  const { runInfoOf } = ApiPeople;
 
   const getRunInfo = (runId) => jwtRequest(`/runs/${encodeURIComponent(runId)}`).then(runInfoOf);
 
   // ---- parametrized run rows (#52) — JSON:API only ----
-  // `attributes.example` is the ARRAY of values, positional to `attributes.test.params`. A plain
-  // OBJECT (param → value) is taken defensively, its own keys being the names then. null = not one.
-  function testrunExampleOf(attrs) {
-    const raw = attrs?.example;
-    if (Array.isArray(raw)) {
-      const values = raw.map((v) => String(v ?? '')); // numbers and booleans come through as values
-      if (!values.some((v) => v !== '')) return null;
-      const params = attrs?.test?.params;
-      return { values, params: Array.isArray(params) ? params.map(String) : null };
-    }
-    if (raw && typeof raw === 'object') {
-      const entries = Object.entries(raw).filter(([, v]) => v != null && String(v) !== '');
-      if (!entries.length) return null;
-      return { values: entries.map(([, v]) => String(v)), params: entries.map(([k]) => String(k)) };
-    }
-    return null;
-  }
-
   // The example values of a run's rows, keyed by testrun id — what tells N same-titled rows of a
   // parametrized test apart. v2 `/testruns` serializes neither, so this is the only source.
   async function listTestrunExamples(runId) {
@@ -900,47 +639,16 @@ const TestomatAPI = (() => {
     return jwtRequest(`/attachments/${id}`, { method: 'DELETE' });
   }
 
-  // #21: on a private bucket the server presigns only the first artifacts of a result and flags the
-  // rest `needs_presign` — this mints the signed URL for one of those, on demand.
-  async function presignArtifact(url) {
-    const doc = await jwtRequest('/artifacts/presign', { method: 'POST', body: { url } });
-    const signed = (doc && doc.url) || '';
-    if (signed) signedAssets.add(signed); // the instance vouched for this host; fetchAsset checks here
-    return signed;
-  }
-
-  // ---- product assets (description images, result attachments) -------------
-  // #205: content URLs come both absolute (`<instance>/attachments/{uid}.png`) and ROOT-RELATIVE
-  // (`/rails/active_storage/…`) — a relative one resolves against the INSTANCE, never the document.
-  function assetUrl(raw) {
-    const base = cfg?.baseUrl ? `${cfg.baseUrl}/` : '';
-    try { return new URL(String(raw), base || undefined).toString(); } catch { return ''; }
-  }
-
-  // SECURITY: the JWT rides along ONLY for the configured instance — a presigned bucket link carries
-  // its own signature. `instanceOnly` refuses off-instance URLs: authored markdown can plant a beacon.
-  // On BY DEFAULT: a host named in server data — an avatar, an attachment — gets no request unless
-  // the instance signed for it itself. What the instance's own storage does with a 302 is its call.
-  async function fetchAsset(raw, { instanceOnly = true } = {}) {
-    const url = assetUrl(raw);
-    if (!url) throw new ApiError('http', 0, 'Unresolvable asset URL');
-    const ours = !!cfg?.baseUrl && (url === cfg.baseUrl || url.startsWith(`${cfg.baseUrl}/`));
-    const allowed = ours || signedAssets.has(url);
-    if (instanceOnly && !allowed) throw new ApiError('http', 0, 'Off-instance asset refused');
-    const doGet = () => rawFetch(url, {
-      credentials: 'omit',
-      headers: ours && jwt ? { Authorization: `Bearer ${jwt}` } : undefined,
-      timeout: LONG_TIMEOUT_MS, // the asset itself, same size as the upload that made it
-    });
-    // Basic mode (no session) still tries: a signed bucket link needs no login at all.
-    if (ours && !jwt && jwtAvailable !== false) await login().catch(() => {});
-    let res = await doGet();
-    if (ours && jwt && (res.status === 401 || res.status === 403)) {
-      await login().catch(() => {});
-      res = await doGet();
-    }
-    return res;
-  }
+  // The live session these three read: cfg's base URL, the JWT in hand and the login that mints it.
+  const { assetUrl, fetchAsset, presignArtifact } = ApiAssets.create({
+    baseUrl: () => cfg?.baseUrl,
+    jwt: () => jwt,
+    jwtAvailable: () => jwtAvailable,
+    login,
+    jwtRequest,
+    rawFetch,
+    timeout: LONG_TIMEOUT_MS,
+  });
 
   return {
     configure, useHandoffSession, validate, listRuns, listRunGroups, countRuns, getRun, listTestruns,
