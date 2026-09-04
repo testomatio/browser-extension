@@ -1,7 +1,6 @@
 // The editor's recording session (IIFE global `RecSession`): the transport to the worker, where a
-// recording's items sit in the body, and the AI polish that rewrites them once, at Stop.
-// No DOM of its own — it decides what the record and polish controls say and hands that to `ui`,
-// which is the only half that touches the page.
+// recording's items sit in the body, and the AI polish that rewrites them once, at Stop. No DOM of
+// its own — it decides what the two controls say and hands that to `ui`, which paints it.
 
 /* global MdSections, RecFormat, ensureSiteAccess */
 const RecSession = (() => {

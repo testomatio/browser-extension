@@ -916,7 +916,7 @@
         },
         polishRow: (hidden) => { polishLabel.hidden = hidden; },
         polishSwitch: (on) => { polishInput.checked = on; },
-        // The textarea only while the caret is actually in it: an insert (#160) lands mid-typing.
+        // The textarea only while the caret is actually in it: an insert lands mid-typing.
         caret: () => {
           const ta = editHost.querySelector('.overtype-input');
           return ta && document.activeElement === ta ? ta : null;
