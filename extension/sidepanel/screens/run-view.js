@@ -304,6 +304,7 @@ const TERMINAL_RUN_STATUS = new Set(['passed', 'failed', 'terminated', 'finished
 const runStatusTerminal = (s) => TERMINAL_RUN_STATUS.has(String(s || '').toLowerCase());
 
 const RUN_LOCK_REASON = 'Run is finished — results are read-only';
+const RUN_LIVE_STATUSES = new Set(['running', 'launching']);
 
 function runFinished() {
   if (runStatusTerminal(state.runStatus)) return true;
@@ -381,7 +382,9 @@ function updateRunActions() {
   const btn = $('btn-finish-run');
   if (!btn) return;
   const jwt = TestomatAPI.jwtAvailable(); // 'unknown' | true | false
-  const running = state.runStatus === 'running' && !runFinished() && !runArchived();
+  // `launching` is a running run here as it is everywhere else in this file — a run that is still
+  // starting is exactly the one a tester wants to be able to stop.
+  const running = RUN_LIVE_STATUSES.has(state.runStatus) && !runFinished() && !runArchived();
   // Degraded stays VISIBLE but disabled-with-reason, so the lost capability is legible.
   btn.hidden = !running || jwt === 'unknown';
   const degraded = running && jwt === false;
@@ -418,6 +421,8 @@ async function settlePendingWrites() {
   await Promise.resolve(stepWriteChain).catch(() => {});
   for (let i = 0; i < 200 && (state.saving || state.inlineWrites > 0); i++) await sleep(25);
   await Promise.resolve(stepWriteChain).catch(() => {});
+  // Answering false is the point: a finished run takes no more writes, so closing over one loses it.
+  return !state.saving && state.inlineWrites <= 0;
 }
 
 // Deliberately NOT runWriteLock(), which would also bar an automated run: the
@@ -443,7 +448,10 @@ async function finishRun() {
   if (btn) btn.disabled = true;
   progressToast('Finishing run…');
   try {
-    await settlePendingWrites();
+    if (!await settlePendingWrites()) {
+      toast('A result is still saving — try Finish run again in a moment', { error: true });
+      return;
+    }
     // The finish PUT answers with the updated run, so Run info needs no re-read.
     applyRunInfo(TestomatAPI.runInfoOf(await TestomatAPI.finishRun(state.runId)));
     // v2 run counts lag (async) — re-read testruns as the authoritative source.
@@ -891,16 +899,20 @@ const RUN_FILTER_KEYS = new Set(RUN_STATUS_FILTERS.map(([k]) => k));
 // Only the three that ARE a result are coloured; All and Pending stay neutral.
 const RUN_FILTER_TINT = { passed: 'passed', failed: 'failed', skipped: 'skipped' };
 
+// A row the runner is still executing answers `running`, which has no chip: counted nowhere, it made
+// the chips add up to less than All and left the row reachable only from All.
+const chipStatusOf = (r) => {
+  const s = displayStatus(r);
+  return RUN_FILTER_KEYS.has(s) ? s : 'untested';
+};
+
 function runStatusCounts() {
   const counts = { all: state.records.length, passed: 0, failed: 0, skipped: 0, untested: 0 };
-  for (const r of state.records) {
-    const s = displayStatus(r);
-    if (counts[s] !== undefined) counts[s] += 1;
-  }
+  for (const r of state.records) counts[chipStatusOf(r)] += 1;
   return counts;
 }
 
-const matchesRunFilter = (r) => state.runFilter === 'all' || displayStatus(r) === state.runFilter;
+const matchesRunFilter = (r) => state.runFilter === 'all' || chipStatusOf(r) === state.runFilter;
 
 // #52: the row's `{ values, params }`, keyed by RECORD id — a v2 record's numeric id indexes the
 // JSON:API map's string keys unchanged. null for a plain test, and for every row in basic mode.
@@ -1038,16 +1050,23 @@ function syncRunSearch() {
   if (clear) clear.hidden = state.runSearch === '';
 }
 
+// The list is rebuilt whole, so a run of a few hundred tests cannot afford one rebuild per keystroke.
+// The clear button stays immediate — that part is cheap and the field must not feel unresponsive.
+const RUN_SEARCH_MS = 250;
+let runSearchTimer = null;
+
 function onRunSearch() {
   state.runSearch = $('run-search').value;
   $('run-search-clear').hidden = state.runSearch.trim() === '';
-  renderRunSections();
+  clearTimeout(runSearchTimer);
+  runSearchTimer = setTimeout(renderRunSections, RUN_SEARCH_MS);
 }
 
 function clearRunSearch() {
   $('run-search').value = '';
   state.runSearch = '';
   $('run-search-clear').hidden = true;
+  clearTimeout(runSearchTimer); // one deliberate act, not typing — and no stale redraw behind it
   renderRunSections();
   $('run-search').focus();
 }
@@ -1127,7 +1146,7 @@ function testRow(r) {
 }
 
 // The values one example row was run with (#52); the names ride the tooltip, positional to them.
-// NOT a `.badge`: flashRowSaved owns that class and would flash this green on every write.
+// Not the status mark: flashRowSaved flashes THAT on every write, and this is not a result.
 function exampleChip(r) {
   const example = exampleOf(r);
   if (!example?.values?.length) return null;
@@ -1178,7 +1197,7 @@ function setRowButtonsBusy(li, busy) {
 
 // The class is toggled off first so a rapid re-write restarts the flash.
 function flashRowSaved(li) {
-  const badge = li.querySelector('.badge');
+  const badge = li.querySelector('.row-status');
   if (!badge) return;
   badge.classList.remove('saved-flash');
   void badge.offsetWidth; // reflow → restart the animation
