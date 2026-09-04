@@ -1147,3 +1147,753 @@ test('85: the no-match plaque offers exactly the constraints that are on, and it
   assert.equal(h.calls.empties.at(-1).text, 'Nothing loaded so far carries this status.');
   assert.equal(h.calls.empties.at(-1).icon, 'filter_alt_off');
 });
+
+// ---------- loading the list and the descendant counts (rows 7-12, 94-96) ----------
+
+test('7: no web session behind the panel degrades to the two v2 reads, and says the counts are complete', async () => {
+  const h = load({ jwt: false, listMode: 'v2' });
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw offline(h); };
+  h.on.listRuns = async () => ({ data: [run('r1')], meta: { page: 1, per_page: 10, total: 20 } });
+  h.on.listRunGroups = async () => ({ data: [group('g1')], meta: { page: 1, per_page: 10, total: 5 } });
+  await h.fn.loadRuns();
+  assert.equal(h.state.listMode, 'v2');
+  assert.deepEqual(plain(h.state.v2RunsPaging), { page: 1, perPage: 10, total: 20, totalPages: 2 });
+  assert.deepEqual(plain(h.state.v2GroupsPaging), { page: 1, perPage: 10, total: 5, totalPages: 1 });
+  assert.deepEqual(plain(h.state.listPaging), { page: 1, total: 25, totalPages: 2, loading: false });
+  assert.equal(h.state.descendantsSettled, true);   // the flat list is already whole
+  assert.equal(h.sandbox.capabilities.jwt, false);
+  assert.equal(h.calls.capabilities, 1);
+  assert.deepEqual(h.apiNames(), ['fetchDashboardPage', 'listRuns', 'listRunGroups']);
+});
+
+test('8: a genuine failure under a working session is surfaced, not quietly degraded', async () => {
+  const h = load({ jwt: true, listMode: 'dashboard' });
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw offline(h); };
+  const e = await h.rejection(h.fn.loadRuns());
+  assert.equal(e.kind, 'network');
+  assert.deepEqual(h.apiNames(), ['fetchDashboardPage']);   // no degraded read behind the tester's back
+  assert.equal(h.sandbox.capabilities.jwt, null);
+});
+
+test('9: a project switched mid-read throws the answer away — the other project’s rows never land', async () => {
+  const h = load({ listMode: 'v2', dashItems: [run('old')] });
+  h.stubRenderList();
+  h.on.dashboard = async () => { h.state.projectEpoch = 2; return { items: [run('r1')], page: 1, total: 1, totalPages: 1 }; };
+  await h.fn.loadRuns();
+  assert.equal(h.state.listMode, 'v2');
+  assert.deepEqual(h.state.dashItems.map((it) => it.id), ['old']);
+  assert.equal(h.calls.capabilities, 0);
+  // The v2 leg guards the same way…
+  const v = load({ jwt: false, listMode: 'dashboard', lastRuns: [run('old')] });
+  v.stubRenderList();
+  v.on.dashboard = async () => { throw offline(v); };
+  v.on.listRuns = async () => { v.state.projectEpoch = 2; return { data: [run('r1')] }; };
+  await v.fn.loadRuns();
+  assert.equal(v.state.listMode, 'dashboard');
+  assert.deepEqual(v.state.lastRuns.map((r) => r.id), ['old']);
+  // …and with the project standing still the identical drive DOES write, so both are real guards.
+  const ok = load({ listMode: 'v2' });
+  ok.stubRenderList();
+  ok.on.dashboard = async () => ({ items: [run('r1')], page: 1, total: 1, totalPages: 1 });
+  await ok.fn.loadRuns();
+  assert.equal(ok.state.listMode, 'dashboard');
+  assert.deepEqual(ok.state.dashItems.map((it) => it.id), ['r1']);
+  assert.equal(ok.calls.capabilities, 1);
+  // The proven session also warms the two caches a run view would otherwise repaint a round trip in.
+  assert.equal(ok.calls.projectInfo, 1);
+  assert.equal(ok.calls.projectUsers, 1);
+});
+
+test('10: a nested-count batch a fresh load supersedes leaves no in-flight counter behind', async () => {
+  const h = load({ dashItems: [group('g1')] });
+  h.stubRenderList();
+  const gate = deferred();
+  h.on.nested = () => gate.promise;
+  const stranded = h.fn.loadDescendantRuns();
+  assert.equal(h.state.descInFlight, 1);
+  assert.equal(h.state.descendantsSettled, false);
+  // A fresh load supersedes it: the token bump and the counter reset are the same statement pair,
+  // so the strand's skipped decrement cannot take the NEW load's count down with it.
+  h.on.dashboard = async () => ({ items: [group('g1')], page: 1, total: 1, totalPages: 1 });
+  h.on.nested = async () => [run('r1')];
+  await h.fn.loadRuns();
+  await settle();
+  assert.equal(h.state.descInFlight, 0);
+  assert.equal(h.state.descendantsSettled, true);
+  gate.resolve([run('stale')]);
+  await stranded;
+  await settle();
+  assert.equal(h.state.descInFlight, 0);
+  assert.deepEqual(h.state.descendantRuns.g1.map((r) => r.id), ['r1']);  // the strand wrote nothing
+});
+
+test('11: one folder whose count could not be read makes every chip a lower bound, and says so on hover', async () => {
+  const h = load({ dashItems: [group('g1'), group('g2')] });
+  h.stubRenderList();
+  h.on.nested = async (id) => { if (id === 'g2') throw offline(h); return [run('r1')]; };
+  await h.fn.loadDescendantRuns();
+  assert.deepEqual(plain(h.state.descendantRuns.g2), []);
+  assert.equal(h.state.descendantsPartial, true);
+  assert.equal(h.state.descendantsSettled, true);
+  h.state.lastRuns = [run('r1')];
+  h.fn.renderFilterChips();
+  assert.equal(h.chipCount('all'), '1+');
+  assert.equal(h.node.filter.dataset.tip, 'Some run counts couldn’t load — Refresh to complete them');
+  // With both legs answering there is no "+" and no tip, so the two above are the failure's mark.
+  const ok = load({ dashItems: [group('g1')], lastRuns: [run('r1')] });
+  ok.stubRenderList();
+  ok.on.nested = async () => [run('r1')];
+  await ok.fn.loadDescendantRuns();
+  ok.fn.renderFilterChips();
+  assert.equal(ok.chipCount('all'), '1');
+  assert.equal(ok.node.filter.dataset.tip, undefined);
+});
+
+test('12: with no folder left to count the counts are settled at once — unless a batch is still out', async () => {
+  const h = load({ dashItems: [run('r1')] });
+  h.stubRenderList();
+  h.state.descendantsSettled = false;
+  await h.fn.loadDescendantRuns();
+  assert.equal(h.state.descendantsSettled, true);
+  assert.deepEqual(h.apiNames(), []);
+
+  // …and with one batch still on the wire it waits for it rather than declaring the counts whole.
+  const w = load({ dashItems: [group('g1'), group('g2')] });
+  w.stubRenderList();
+  const gate = deferred();
+  w.on.nested = async (id) => (id === 'g2' ? gate.promise : [run('r1')]);
+  const batch = w.fn.loadDescendantRuns();
+  await settle();
+  w.state.dashItems = [group('g1')];   // the re-read came back without g2
+  await w.fn.loadDescendantRuns();
+  assert.equal(w.state.descendantsSettled, false);
+  assert.equal(w.state.descInFlight, 1);
+  gate.resolve([]);
+  await batch;
+  assert.equal(w.state.descendantsSettled, true);
+});
+
+test('94: a v2 server that answers with no data envelope at all yields empty lists, not a throw', async () => {
+  const h = load();
+  h.on.listRuns = async () => null;
+  h.on.listRunGroups = async () => ({});
+  const out = await h.fn.fetchRunsData(1);
+  assert.deepEqual(plain(out.runs), []);
+  assert.deepEqual(plain(out.groups), []);
+  assert.deepEqual(plain(out.runsCursor), { page: 1, perPage: 1, total: null, totalPages: null });
+  assert.deepEqual(h.calls.api, [['listRuns', 1], ['listRunGroups', 1]]);
+});
+
+test('95: the Runs tab chip counts the PROJECT’s runs, and simply stays absent when that read fails', async () => {
+  const h = load();
+  h.on.countRuns = async () => 80;
+  await h.fn.loadRunsCount(1);
+  assert.deepEqual(h.calls.tabCounts, [['runs', 80]]);
+  // A project switched under the read paints nothing…
+  h.on.countRuns = async () => { h.state.projectEpoch = 2; return 5; };
+  await h.fn.loadRunsCount(1);
+  assert.deepEqual(h.calls.tabCounts, [['runs', 80]]);
+  // …and neither does a failure, which is swallowed rather than toasted.
+  h.state.projectEpoch = 1;
+  h.on.countRuns = async () => { throw offline(h); };
+  await h.fn.loadRunsCount(1);
+  assert.deepEqual(h.calls.tabCounts, [['runs', 80]]);
+  assert.deepEqual(h.toastMsgs(), []);
+});
+
+test('96: the New run link follows the connected host and project, and hides when there is neither', () => {
+  const h = load({ settings: { baseUrl: BASE, projectId: 'my project' } });
+  h.fn.renderNewRunLink();
+  assert.equal(h.node.newRun.href, `${BASE}/projects/my%20project/runs/new`);
+  assert.equal(h.node.newRun.hidden, false);
+  h.state.settings = { baseUrl: BASE, projectId: '' };
+  h.fn.renderNewRunLink();
+  assert.equal(h.node.newRun.getAttribute('href'), null);
+  assert.equal(h.node.newRun.hidden, true);
+});
+
+// ---------- Load more, folder contents and Refresh (rows 51-57, 86-93) ----------
+
+test('51: under a search the Load more row admits how much of the list was actually searched', () => {
+  const h = load({ search: 'nightly' });
+  h.state.runsSearch = 'nightly';
+  const li = h.fn.loadMoreRow({ remaining: 5, total: 80, loaded: 30, onClick: () => {} });
+  assert.equal(li.querySelector('.load-more-text').textContent, 'Load more (5 more)');
+  assert.equal(li.querySelector('.load-more-note').textContent, '30 of 80 loaded');
+  // The status chip alone is a constraint too, and the label can be overridden per folder.
+  h.state.runsSearch = '';
+  h.state.runsFilter = 'failed';
+  const chipOnly = h.fn.loadMoreRow({ remaining: 0, total: 80, loaded: 30, label: 'More runs', onClick: () => {} });
+  assert.equal(chipOnly.querySelector('.load-more-text').textContent, 'More runs');
+  assert.equal(chipOnly.querySelector('.load-more-note').textContent, '30 of 80 loaded');
+});
+
+test('52: with nothing filtered there is nothing to admit — and an unknown total states no fraction', () => {
+  const h = load();
+  const plainRow = h.fn.loadMoreRow({ remaining: 5, total: 80, loaded: 30, onClick: () => {} });
+  assert.equal(plainRow.querySelector('.load-more-note'), null);
+  assert.equal(plainRow.querySelector('.load-more-text').textContent, 'Load more (5 more)');
+  // A constraint IS on but the server never said how many there are.
+  h.state.runsFilter = 'failed';
+  assert.equal(h.fn.loadMoreRow({ remaining: 5, total: null, loaded: 30, onClick: () => {} })
+    .querySelector('.load-more-note'), null);
+});
+
+test('86: a Load more press that is still running says so, and its spinner classes stay separate tokens', () => {
+  const h = load();
+  let clicked = 0;
+  const li = h.fn.loadMoreRow({ remaining: 0, loading: true, loaded: 30, total: 80, onClick: () => { clicked += 1; } });
+  const btn = li.querySelector('button');
+  assert.equal(li.querySelector('.load-more-text').textContent, 'Loading…');
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.dataset.loading, 'true');
+  // Icons.el feeds these to classList.add one by one; a joined 'spin load-more-spinner' would throw.
+  assert.deepEqual(h.calls.icons.at(-1), { name: 'progress_activity', size: 14, cls: ['spin', 'load-more-spinner'] });
+  // An idle row draws no spinner at all, and its button really calls back — without opening the row.
+  const idle = h.fn.loadMoreRow({ remaining: 3, loaded: 30, total: 80, onClick: () => { clicked += 1; } });
+  assert.equal(idle.querySelector('button').disabled, false);
+  assert.equal(idle.querySelector('.md-icon'), null);
+  const ev = fire(idle.querySelector('button'), 'click');
+  assert.equal(clicked, 1);
+  assert.equal(ev.propagationStopped, true);
+});
+
+test('53: when only the runs have another page the folders endpoint is left alone entirely', async () => {
+  const h = load({
+    listMode: 'v2',
+    lastRuns: [run('r1')],
+    lastGroups: [group('g1')],
+    v2RunsPaging: { page: 1, perPage: 1, total: 3, totalPages: 3 },
+    v2GroupsPaging: { page: 1, perPage: 1, total: 1, totalPages: 1 },
+  });
+  h.stubRenderList();
+  h.on.listRuns = async () => ({ data: [run('r2')], meta: { page: 2, per_page: 1, total: 3 } });
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(h.apiNames(), ['listRuns']);
+  assert.deepEqual(plain(h.state.v2GroupsPaging), { page: 1, perPage: 1, total: 1, totalPages: 1 });
+  assert.deepEqual(idsOf(h.state.lastRuns), ['r1', 'r2']);
+  assert.deepEqual(plain(h.state.v2RunsPaging), { page: 2, perPage: 1, total: 3, totalPages: 3 });
+  // With BOTH sources holding a tail both are read, so the single name above is a decision.
+  h.state.v2GroupsPaging = { page: 1, perPage: 1, total: 4, totalPages: 4 };
+  h.on.listRunGroups = async () => ({ data: [group('g2')], meta: { page: 2, per_page: 1, total: 4 } });
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(h.apiNames(), ['listRuns', 'listRuns', 'listRunGroups']);
+  assert.deepEqual(idsOf(h.state.lastGroups), ['g1', 'g2']);
+});
+
+test('54: a Load more that fails puts the button back and says why, marked as an error', async () => {
+  const h = load({ dashItems: [run('r1')], listPaging: { page: 1, total: 80, totalPages: 3, loading: false } });
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw offline(h); };
+  await h.fn.loadMoreRuns();
+  assert.equal(h.state.listPaging.loading, false);
+  assert.deepEqual(plain(h.state.listPaging), { page: 1, total: 80, totalPages: 3, loading: false });
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load more runs: Failed to fetch', opts: { error: true } }]);
+  assert.deepEqual(h.state.dashItems.map((it) => it.id), ['r1']);   // nothing half-appended
+  assert.equal(h.calls.renders, 2);                                  // spinner up, then spinner down
+});
+
+test('87: a Load more page in dashboard mode appends its rows and then counts the folders it brought', async () => {
+  const h = load({ dashItems: [run('r1')], listPaging: { page: 1, total: 3, totalPages: 2, loading: false } });
+  h.stubRenderList();
+  h.on.dashboard = async () => ({ items: [run('r2'), group('g1')], page: 2, total: 3, totalPages: 2 });
+  h.on.nested = async () => [run('r3')];
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(idsOf(h.state.dashItems), ['r1', 'r2', 'g1']);
+  assert.deepEqual(plain(h.state.listPaging), { page: 2, total: 3, totalPages: 2, loading: false });
+  assert.deepEqual(h.apiNames(), ['fetchDashboardPage', 'fetchGroupRunsNested']);
+  assert.deepEqual(h.state.descendantRuns.g1.map((r) => r.id), ['r3']);
+});
+
+test('88: a second press while a page is on the wire, or one with no page left, does nothing at all', async () => {
+  const h = load({ dashItems: [run('r1')], listPaging: { page: 1, total: 80, totalPages: 3, loading: true } });
+  h.stubRenderList();
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(h.apiNames(), []);
+  h.state.listPaging = { page: 3, total: 80, totalPages: 3, loading: false };
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(h.apiNames(), []);
+  // …and with a page left and nothing in flight the same call DOES read.
+  h.state.listPaging = { page: 1, total: 80, totalPages: 3, loading: false };
+  await h.fn.loadMoreRuns();
+  assert.deepEqual(h.apiNames(), ['fetchDashboardPage']);
+});
+
+test('55: a folder whose contents could not be read caches empty and complains exactly once', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.on.subgroups = async () => { throw offline(h); };
+  h.on.children = async () => { throw offline(h); };
+  await h.fn.loadGroupContents('g1');
+  assert.deepEqual(plain(h.state.subgroupsCache.g1), []);
+  assert.deepEqual(plain(h.state.childrenCache.g1), []);
+  assert.equal('g1' in h.state.loadingGroup, false);
+  // ONE toast for two failed legs — and it carries no error mark, unlike every other failure toast
+  // in this file. See the TODO(issue) row below.
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load some group contents', opts: undefined }]);
+  assert.deepEqual(plain(h.state.groupPaging.g1), {
+    subsPage: 1, subsTotal: null, subsTotalPages: null,
+    runsPage: 1, runsTotal: null, runsTotalPages: null, runsPerPage: null, loading: false,
+  });
+  // One leg answering still caches the other as empty and still toasts once…
+  const one = load();
+  one.stubRenderList();
+  one.on.subgroups = async () => page([group('g2')]);
+  one.on.children = async () => { throw offline(one); };
+  await one.fn.loadGroupContents('g1');
+  assert.deepEqual(one.state.subgroupsCache.g1.map((g) => g.id), ['g2']);
+  assert.deepEqual(plain(one.state.childrenCache.g1), []);
+  assert.equal(one.toastMsgs().length, 1);
+  // …and with both answering there is no toast, so the complaint is a real signal.
+  const ok = load();
+  ok.stubRenderList();
+  await ok.fn.loadGroupContents('g1');
+  assert.deepEqual(ok.toastMsgs(), []);
+});
+
+test.todo('55b: the "Could not load some group contents" toast carries no { error: true } — TODO(issue)');
+
+test('56: access turning read-only mid-session repaints the lockout instead of reporting a failed refresh', async () => {
+  const h = load({ dashItems: [run('r1')] });
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw new h.ApiError('readonly', 403, 'Read only'); };
+  await h.fn.refreshRuns();
+  assert.equal(h.calls.capabilities, 1);
+  assert.deepEqual(h.calls.toasts, []);
+  assert.deepEqual(h.calls.lines, []);
+  assert.deepEqual(h.state.dashItems.map((it) => it.id), ['r1']);   // the previous list stays
+});
+
+test('57: any other failed refresh leaves the previous list up and says so on the line and in a toast', async () => {
+  const h = load({ dashItems: [run('r1')] });
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw offline(h); };
+  await h.fn.refreshRuns();
+  assert.equal(h.calls.capabilities, 0);
+  assert.deepEqual(h.lastLine('runs-status'),
+    { id: 'runs-status', text: 'Refresh failed: Failed to fetch', cls: 'error' });
+  // The LINE is marked as an error and the toast beside it is not. See the TODO(issue) row below.
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Refresh failed: Failed to fetch', opts: undefined }]);
+  assert.deepEqual(h.state.dashItems.map((it) => it.id), ['r1']);
+  // A refresh that succeeds says nothing at all, so the two above are the failure's own marks.
+  const ok = load({ dashItems: [run('r1')] });
+  ok.stubRenderList();
+  ok.on.dashboard = async () => ({ items: [run('r2')], page: 1, total: 1, totalPages: 1 });
+  await ok.fn.refreshRuns();
+  assert.deepEqual(ok.calls.toasts, []);
+  assert.deepEqual(ok.state.dashItems.map((it) => it.id), ['r2']);
+});
+
+test.todo('57b: the "Refresh failed" toast carries no { error: true } while its own status line does — TODO(issue)');
+
+test('89: opening a folder reads both its halves once, marks it loading meanwhile, and keeps both cursors', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.on.subgroups = async () => page([group('g2')]);
+  h.on.children = async () => ({ items: [run('r1')], page: 1, total: 4, totalPages: 2, perPage: 2 });
+  const opening = h.fn.loadGroupContents('g1');
+  assert.equal(h.state.loadingGroup.g1, true);
+  await opening;
+  assert.equal('g1' in h.state.loadingGroup, false);
+  assert.deepEqual(h.state.subgroupsCache.g1.map((g) => g.id), ['g2']);
+  assert.deepEqual(h.state.childrenCache.g1.map((r) => r.id), ['r1']);
+  assert.deepEqual(plain(h.state.groupPaging.g1), {
+    subsPage: 1, subsTotal: 1, subsTotalPages: 1,
+    runsPage: 1, runsTotal: 4, runsTotalPages: 2, runsPerPage: 2, loading: false,
+  });
+  await h.fn.loadGroupContents('g1');
+  assert.deepEqual(h.apiNames(), ['fetchGroupSubgroups', 'fetchGroupChildren']);  // not read twice
+});
+
+test('90: a folder’s Load more advances both halves and hands the server back the page size it stated', async () => {
+  const h = load({
+    subgroupsCache: { g1: [group('a')] },
+    childrenCache: { g1: [run('r1')] },
+    groupPaging: {
+      g1: {
+        subsPage: 1, subsTotal: 2, subsTotalPages: 2,
+        runsPage: 1, runsTotal: 4, runsTotalPages: 2, runsPerPage: 2, loading: false,
+      },
+    },
+  });
+  h.stubRenderList();
+  h.on.subgroups = async () => ({ items: [group('b')], page: 2, total: 2, totalPages: 2 });
+  h.on.children = async () => ({ items: [run('r2')], page: 2, total: 4, totalPages: 2, perPage: 2 });
+  await h.fn.loadMoreGroup('g1');
+  assert.deepEqual(h.calls.api, [['fetchGroupSubgroups', 'g1', 2], ['fetchGroupChildren', 'g1', 2, 2]]);
+  assert.deepEqual(idsOf(h.state.subgroupsCache.g1), ['a', 'b']);
+  assert.deepEqual(idsOf(h.state.childrenCache.g1), ['r1', 'r2']);
+  assert.equal(h.state.groupPaging.g1.loading, false);
+  // Both halves are now on their last page, so pressing again does nothing.
+  await h.fn.loadMoreGroup('g1');
+  assert.equal(h.calls.api.length, 2);
+});
+
+test('91: a folder’s Load more that fails puts its button back and marks the toast as an error', async () => {
+  const h = load({
+    childrenCache: { g1: [run('r1')] },
+    groupPaging: {
+      g1: { subsPage: 1, subsTotalPages: 1, runsPage: 1, runsTotal: 4, runsTotalPages: 2, runsPerPage: 2, loading: false },
+    },
+  });
+  h.stubRenderList();
+  h.on.children = async () => { throw offline(h); };
+  await h.fn.loadMoreGroup('g1');
+  assert.equal(h.state.groupPaging.g1.loading, false);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load more runs: Failed to fetch', opts: { error: true } }]);
+  assert.deepEqual(h.state.childrenCache.g1.map((r) => r.id), ['r1']);
+});
+
+test('92: a folder has more when EITHER half has, and the remainder is the two added together', () => {
+  const h = load({
+    subgroupsCache: { g1: [group('a')] },
+    childrenCache: { g1: [run('r1'), run('r2')] },
+  });
+  assert.equal(h.fn.groupHasMore('never-opened'), false);
+  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 1, runsPage: 1, runsTotalPages: 1, subsTotal: 1, runsTotal: 2 };
+  assert.equal(h.fn.groupHasMore('g1'), false);
+  assert.equal(h.fn.groupRemainder('g1'), 0);
+  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 3, runsPage: 1, runsTotalPages: 1, subsTotal: 5, runsTotal: 2 };
+  assert.equal(h.fn.groupHasMore('g1'), true);
+  assert.equal(h.fn.groupRemainder('g1'), 4);              // 5-1 subgroups, 2-2 runs
+  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 1, runsPage: 1, runsTotalPages: 9, subsTotal: null, runsTotal: 6 };
+  assert.equal(h.fn.groupHasMore('g1'), true);
+  assert.equal(h.fn.groupRemainder('g1'), 4);              // an unknown half counts as nothing left
+  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 2, runsPage: 1, runsTotalPages: 2, subsTotal: null, runsTotal: null };
+  assert.equal(h.fn.groupRemainder('g1'), null);           // neither total known: no number to state
+  assert.equal(h.fn.groupRemainder('never-opened'), null);
+});
+
+test('93: the Load more row stays up while its own press is running, even on the last page', () => {
+  const h = load({ dashItems: [run('r1')], listPaging: { page: 2, total: 2, totalPages: 2, loading: true } });
+  h.fn.renderTopLoadMore(h.node.list);
+  assert.equal(h.node.list.querySelectorAll('.load-more').length, 1);
+  assert.equal(h.node.list.querySelector('.load-more-text').textContent, 'Loading…');
+  // Idle and out of pages, it is not drawn at all.
+  h.state.listPaging = { page: 2, total: 2, totalPages: 2, loading: false };
+  h.node.list.replaceChildren();
+  h.fn.renderTopLoadMore(h.node.list);
+  assert.deepEqual(h.node.list.querySelectorAll('.load-more'), []);
+});
+
+// ---------- the expansion walk and the pasted folder link (rows 58-64, 101-108) ----------
+
+test('58: pulling pages to find a sub-folder gives up after 50 rather than pulling for ever', async () => {
+  const paged = (over = {}) => ({
+    subsPage: 1, subsTotal: 999, subsTotalPages: 999,
+    runsPage: 1, runsTotal: null, runsTotalPages: null, runsPerPage: null, loading: false, ...over,
+  });
+  const h = load({ subgroupsCache: { g1: [group('a')] }, groupPaging: { g1: paged() } });
+  h.stubRenderList();
+  let reads = 0;
+  h.on.subgroups = async (id, p) => { reads += 1; return { items: [group(`x${p}`)], page: p, total: 999, totalPages: 999 }; };
+  await h.fn.ensureSubgroupLoaded('g1', 'never-there');
+  assert.equal(reads, 50);
+  // The same server WITH the child on page 3 stops the moment its row exists.
+  const found = load({ subgroupsCache: { g1: [group('a')] }, groupPaging: { g1: paged() } });
+  found.stubRenderList();
+  let hits = 0;
+  found.on.subgroups = async (id, p) => {
+    hits += 1;
+    return { items: [group(p === 3 ? 'target' : `x${p}`)], page: p, total: 999, totalPages: 999 };
+  };
+  await found.fn.ensureSubgroupLoaded('g1', 'target');
+  assert.equal(hits, 2);
+  // …and a child already in the cache costs no read at all.
+  const there = load({ subgroupsCache: { g1: [group('target')] }, groupPaging: { g1: paged() } });
+  there.stubRenderList();
+  await there.fn.ensureSubgroupLoaded('g1', 'target');
+  assert.deepEqual(there.apiNames(), []);
+});
+
+test('59: a folder the tester had open that is no longer anywhere in the tree is forgotten and saved', async () => {
+  const h = load({
+    dashItems: [group('g1')],
+    expandedGroups: ['g1', 'gone'],
+    subgroupsCache: { g1: [] },
+    childrenCache: { g1: [] },
+  });
+  h.stubRenderList();
+  await h.fn.ensureExpandedChildrenLoaded();
+  assert.deepEqual([...h.state.expandedGroups], ['g1']);
+  assert.equal(h.calls.persists, 1);
+  // With nothing to prune it is not persisted again — a save on every render would be a write storm.
+  await h.fn.ensureExpandedChildrenLoaded();
+  assert.equal(h.calls.persists, 1);
+  // A NESTED folder is reachable through its parent's cache, so it survives the same walk.
+  h.state.subgroupsCache = { g1: [group('sub')], sub: [] };
+  h.state.childrenCache = { g1: [], sub: [] };
+  h.state.expandedGroups = ['g1', 'sub'];
+  await h.fn.ensureExpandedChildrenLoaded();
+  assert.deepEqual([...h.state.expandedGroups], ['g1', 'sub']);
+  assert.equal(h.calls.persists, 1);
+});
+
+test('60: a folder link for a folder that is not in the list stops looking once the list is exhausted', async () => {
+  const h = load({ dashItems: [group('other')], listPaging: { page: 1, total: 1, totalPages: 1, loading: false } });
+  h.stubRenderList();
+  assert.equal(await h.fn.ensureTopLevelGroupLoaded('g1'), false);
+  assert.deepEqual(h.apiNames(), []);
+  // A folder already on screen costs nothing either.
+  assert.equal(await h.fn.ensureTopLevelGroupLoaded('other'), true);
+  assert.deepEqual(h.apiNames(), []);
+  // …and with a page still to come it DOES pull, which is what makes the false above a decision.
+  h.state.listPaging = { page: 1, total: 2, totalPages: 2, loading: false };
+  h.on.dashboard = async () => ({ items: [group('g1')], page: 2, total: 2, totalPages: 2 });
+  assert.equal(await h.fn.ensureTopLevelGroupLoaded('g1'), true);
+  // One page pulled, then it stops — the nested counts behind it are that page's own business.
+  assert.deepEqual(h.apiNames().filter((n) => n === 'fetchDashboardPage'), ['fetchDashboardPage']);
+});
+
+test('61: a pasted folder link beats the live filter and search, opens the chain root-first and flashes the row', async () => {
+  const h = load({ filter: 'failed', search: 'nightly' });
+  h.state.runsSearch = 'nightly';
+  h.node.search.value = 'nightly';
+  h.on.dashboard = async () => ({ items: [group('g1')], page: 1, total: 1, totalPages: 1 });
+  h.on.getRunGroup = async () => ({ path: ['g1'] });
+  h.on.subgroups = async (id) => (id === 'g1' ? page([group('g2')]) : page([]));
+  await h.fn.openGroupFromUrl('g2');
+  assert.equal(h.state.runsFilter, 'all');
+  assert.equal(h.state.runsSearch, '');
+  assert.equal(h.node.search.value, '');
+  assert.deepEqual([...h.state.expandedGroups], ['g1', 'g2']);   // the root before the leaf
+  assert.equal(h.state.highlightedGroup, 'g2');
+  assert.equal(h.groupRowFor('g2').classList.contains('group-highlight'), true);
+  assert.deepEqual(h.calls.scrolls.at(-1), { block: 'center' });
+});
+
+test('62: a folder link for a row that did not render leaves no flash pointing at nothing', () => {
+  const h = load({ dashItems: [group('g1')] });
+  h.fn.renderDashboard();
+  h.fn.highlightGroup('not-rendered');
+  assert.equal(h.state.highlightedGroup, null);
+  assert.equal(h.clock.count(), 0);
+  // A row that IS on screen is flashed, so the null above is a miss and not a dead function.
+  h.fn.highlightGroup('g1');
+  assert.equal(h.state.highlightedGroup, 'g1');
+  assert.equal(h.clock.count(), 1);
+});
+
+test('63: the flash is state-driven, so it survives a re-render — and it lets go after 2500 ms', async () => {
+  const h = load({ dashItems: [group('g1')] });
+  h.fn.renderDashboard();
+  h.fn.highlightGroup('g1');
+  const first = h.groupRowFor('g1');
+  assert.equal(first.classList.contains('group-highlight'), true);
+  assert.deepEqual(h.clock.arms(), [2500]);
+  h.fn.renderDashboard();
+  assert.notEqual(h.groupRowFor('g1'), first);                       // a brand-new row object…
+  assert.equal(h.groupRowFor('g1').classList.contains('group-highlight'), true);  // …still flashing
+  await h.clock.tick();
+  assert.equal(h.state.highlightedGroup, null);
+  assert.equal(h.groupRowFor('g1').classList.contains('group-highlight'), false);
+  // A second paste re-arms rather than stacking a second timer on the same row.
+  h.fn.highlightGroup('g1');
+  h.fn.highlightGroup('g1');
+  assert.equal(h.clock.count(), 1);
+  assert.deepEqual(h.clock.arms(), [2500, 2500, 2500]);
+});
+
+test.todo('64: run rows and folder heads carry no tabindex, no role and no keydown — the list is '
+  + 'mouse-only. Not asserted here: it would pin the gap in place. Blocked on #109.');
+
+test('101: in the degraded v2 mode there is nothing nested to hydrate, so the walk returns at once', async () => {
+  const h = load({ listMode: 'v2', expandedGroups: ['gone'], dashItems: [] });
+  h.stubRenderList();
+  await h.fn.ensureExpandedChildrenLoaded();
+  assert.deepEqual([...h.state.expandedGroups], ['gone']);   // not pruned
+  assert.equal(h.calls.persists, 0);
+  assert.equal(h.calls.renders, 0);                          // not even a render
+  // In dashboard mode the same call prunes and repaints.
+  h.state.listMode = 'dashboard';
+  await h.fn.ensureExpandedChildrenLoaded();
+  assert.deepEqual([...h.state.expandedGroups], []);
+  assert.equal(h.calls.persists, 1);
+  assert.equal(h.calls.renders, 1);
+});
+
+test('102: expanding a chain never lists a folder twice, and in v2 mode it repaints instead of reading', async () => {
+  const h = load({ expandedGroups: ['g1'], subgroupsCache: { g1: [] }, childrenCache: { g1: [] } });
+  h.stubRenderList();
+  await h.fn.expandGroupChain(['g1']);
+  assert.deepEqual([...h.state.expandedGroups], ['g1']);
+  assert.deepEqual(h.apiNames(), []);
+  const v = load({ listMode: 'v2' });
+  v.stubRenderList();
+  await v.fn.expandGroupChain(['g1']);
+  assert.deepEqual([...v.state.expandedGroups], ['g1']);
+  assert.deepEqual(v.apiNames(), []);      // v2 folders are flat: nothing to read
+  assert.equal(v.calls.renders, 2);        // the level's render, then the chain's own
+});
+
+test('103: a folder link that cannot even load the list reports the read’s own reason', async () => {
+  const h = load();
+  h.stubRenderList();
+  h.on.dashboard = async () => { throw offline(h); };
+  await h.fn.openGroupFromUrl('g1');
+  assert.deepEqual(h.calls.shows, ['runs']);
+  assert.deepEqual(h.calls.apiErrors, [{ kind: 'network', message: 'Failed to fetch', id: 'runs-status' }]);
+  assert.deepEqual(h.toastMsgs(), []);
+});
+
+test('104: a folder link naming a folder the project does not have says so; a broken read says why', async () => {
+  const h = load();
+  h.on.dashboard = async () => ({ items: [group('other')], page: 1, total: 1, totalPages: 1 });
+  h.on.getRunGroup = async () => { throw notFound(h); };
+  await h.fn.openGroupFromUrl('g1');
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
+  assert.deepEqual(h.calls.apiErrors, []);
+  const e = load();
+  e.on.dashboard = async () => ({ items: [group('other')], page: 1, total: 1, totalPages: 1 });
+  e.on.getRunGroup = async () => { throw offline(e); };
+  await e.fn.openGroupFromUrl('g1');
+  assert.deepEqual(e.calls.apiErrors, [{ kind: 'network', message: 'Failed to fetch', id: 'runs-status' }]);
+});
+
+test('105: in the degraded v2 mode there is no nested lookup — an unknown folder is simply not found', async () => {
+  const h = load({ jwt: false, listMode: 'v2' });
+  h.on.dashboard = async () => { throw offline(h); };
+  h.on.listRunGroups = async () => ({ data: [group('other')] });
+  await h.fn.openGroupFromUrl('nope');
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
+  assert.equal(h.apiNames().includes('getRunGroup'), false);
+});
+
+test('106: a folder link for a ROOT folder opens it without asking the server where it sits', async () => {
+  const h = load();
+  h.on.dashboard = async () => ({ items: [group('g1')], page: 1, total: 1, totalPages: 1 });
+  await h.fn.openGroupFromUrl('g1');
+  assert.deepEqual([...h.state.expandedGroups], ['g1']);
+  assert.equal(h.state.highlightedGroup, 'g1');
+  assert.equal(h.apiNames().includes('getRunGroup'), false);
+});
+
+test('107: an archived folder is not found by id either, so a link to one is never opened', () => {
+  const h = load({ listMode: 'v2', lastGroups: [group('g1', { archived_at: 'x' }), group('g2')] });
+  assert.equal(h.fn.findGroupById('g1'), undefined);
+  assert.equal(h.fn.findGroupById('g2').id, 'g2');
+  // In dashboard mode the lookup reads dashItems, and a RUN with that id is not a folder.
+  const d = load({ dashItems: [run('g2'), group('g3')] });
+  assert.equal(d.fn.findGroupById('g2'), undefined);
+  assert.equal(d.fn.findGroupById('g3').id, 'g3');
+});
+
+test('108: the reachable folders are the list’s own plus every sub-folder any open folder brought in', () => {
+  const h = load({ dashItems: [group('g1'), run('r1')], subgroupsCache: { g1: [group('g2')] } });
+  assert.deepEqual([...h.fn.reachableGroupIds()].sort(), ['g1', 'g2']);
+  h.state.subgroupsCache = {};
+  assert.deepEqual([...h.fn.reachableGroupIds()].sort(), ['g1']);
+});
+
+// ---------- opening the screen, and the empty project (rows 97-100, 109-110) ----------
+
+test('97: coming back to the Runs tab paints the rows already in memory and re-reads behind them', async () => {
+  const h = load({ dashItems: [run('r1')] });
+  h.stubRenderList();
+  h.on.dashboard = async () => ({ items: [run('r1')], page: 1, total: 1, totalPages: 1 });
+  await h.fn.openRunsView();
+  await settle();
+  assert.deepEqual(h.calls.skeleton, []);                    // nothing is blanked for a re-read
+  assert.deepEqual(h.calls.shows, ['runs']);
+  const at = (s) => h.calls.order.indexOf(s);
+  assert.ok(at('show:runs') < at('gate'));                   // the rows go up BEFORE the lock probe
+  assert.ok(at('gate') < at('fetchDashboardPage'));
+  assert.equal(h.calls.gates, 1);
+  assert.deepEqual(h.calls.tabCounts, [['runs', 0]]);
+});
+
+test('98: a first open draws the placeholder and settles the read-only probe before asking for any run', async () => {
+  const h = load({ dashItems: [] });
+  h.stubRenderList();
+  h.on.dashboard = async () => ({ items: [run('r1')], page: 1, total: 1, totalPages: 1 });
+  await h.fn.openRunsView();
+  assert.deepEqual(h.calls.skeleton, [['show', 'runs'], ['hide', 'runs']]);
+  const at = (s) => h.calls.order.indexOf(s);
+  assert.ok(at('gate') < at('fetchDashboardPage'));
+  assert.ok(h.calls.lines.some((l) => l.id === 'runs-status' && l.text === 'Loading runs…'));
+  assert.deepEqual(idsOf(h.state.dashItems), ['r1']);
+});
+
+test('99: a locked project replaces what is up and never asks for the list at all', async () => {
+  const back = load({ dashItems: [run('r1')], gate: true });
+  back.stubRenderList();
+  await back.fn.openRunsView();
+  assert.equal(back.calls.blocks, 1);
+  assert.deepEqual(back.calls.skeleton, []);
+  assert.equal(back.apiNames().includes('fetchDashboardPage'), false);
+  assert.deepEqual(idsOf(back.state.dashItems), ['r1']);     // nothing blanked for the lockout
+  // On a FIRST open the placeholder comes down before the blocking panel goes up.
+  const first = load({ gate: true });
+  first.stubRenderList();
+  await first.fn.openRunsView();
+  assert.equal(first.calls.blocks, 1);
+  assert.deepEqual(first.calls.skeleton, [['show', 'runs'], ['hide', 'runs']]);
+  assert.deepEqual(first.apiNames(), []);
+  const at = (s) => first.calls.order.indexOf(s);
+  assert.ok(at('gate') < at('block'));
+});
+
+test('100: a project with no runs at all offers the two ways in — start one, or paste a link to one', () => {
+  const h = load();
+  h.fn.renderRunsEmptyCta(h.node.list);
+  assert.equal(h.calls.empties.at(-1).title, 'No runs yet');
+  const link = h.node.list.querySelector('a.btn.primary');
+  assert.equal(link.href, `${BASE}/projects/my-project/runs/new`);
+  assert.equal(link.target, '_blank');
+  assert.equal(link.rel, 'noopener noreferrer');
+  const paste = h.node.list.querySelectorAll('button').find((b) => b.textContent === 'Paste a run URL');
+  fire(paste, 'click');
+  assert.equal(h.doc.activeElement, h.node.search);
+  assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: '', cls: '' });
+  // Not connected anywhere yet: there is nowhere to send them, so only the paste button is offered.
+  h.state.settings = {};
+  h.fn.renderRunsEmptyCta(h.node.list);
+  assert.equal(h.node.list.querySelector('a.btn.primary'), null);
+  assert.equal(h.node.list.querySelectorAll('button').length, 1);
+});
+
+test('109: the chip narrows a folder’s own runs, and a folder left with none of them drops out', () => {
+  const h = load({ listMode: 'v2', filter: 'failed' });
+  h.fn.renderRuns(
+    [run('r1', { rungroup_id: 'g1', status: 'failed' }), run('r2', { rungroup_id: 'g1', status: 'passed' })],
+    [group('g1'), group('g2')],
+  );
+  assert.deepEqual(h.rowIds(), ['g1']);
+  assert.deepEqual(h.kidsOf(h.groupRowFor('g1')).children.map((li) => li.dataset.runId), ['r1']);
+  // With the chip off both folders and both runs come back.
+  h.state.runsFilter = 'all';
+  h.fn.renderRuns(
+    [run('r1', { rungroup_id: 'g1', status: 'failed' }), run('r2', { rungroup_id: 'g1', status: 'passed' })],
+    [group('g1'), group('g2')],
+  );
+  assert.deepEqual(h.rowIds(), ['g1', 'g2']);
+  assert.deepEqual(h.kidsOf(h.groupRowFor('g1')).children.map((li) => li.dataset.runId), ['r1', 'r2']);
+});
+
+test('110: a page whose runs toolbar is not in the DOM yet is left alone rather than thrown over', () => {
+  const bare = load({ without: ['runs-filter', 'runs-search', 'btn-new-run'], search: 'nightly' });
+  bare.state.runsSearch = 'nightly';
+  bare.fn.renderFilterChips();
+  bare.fn.syncRunsSearchInput();
+  bare.fn.renderNewRunLink();
+  assert.equal(bare.calls.fits, 0);
+  assert.deepEqual(bare.calls.counters, []);
+  // The field without its clear button is a separate guard: the value still lands.
+  const noClear = load({ without: ['runs-search-clear'], search: '' });
+  noClear.state.runsSearch = 'nightly';
+  noClear.fn.syncRunsSearchInput();
+  assert.equal(noClear.node.search.value, 'nightly');
+  // With the whole toolbar present the same three calls all do their work.
+  const full = load({ search: '' });
+  full.state.runsSearch = 'nightly';
+  full.fn.renderFilterChips();
+  full.fn.syncRunsSearchInput();
+  full.fn.renderNewRunLink();
+  assert.equal(full.calls.fits, 1);
+  assert.equal(full.calls.counters.length, 6);
+  assert.equal(full.node.search.value, 'nightly');
+  assert.equal(full.node.searchClear.hidden, false);
+  assert.equal(full.node.newRun.hidden, false);
+});
