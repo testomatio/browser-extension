@@ -17,6 +17,9 @@ function envFullUrlEnabled(settings) {
 function envTrimUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return raw; }
+  // A scheme with no real origin (chrome://, about:, file:) reads back as the string "null":
+  // there is nothing to rebuild from, so the address is handed over as it is.
+  if (!u.origin || u.origin === 'null') return raw;
   const trimmed = `${u.origin}${u.pathname}`;
   return trimmed === u.href ? trimmed : `${trimmed} (query trimmed)`;
 }
