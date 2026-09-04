@@ -1,14 +1,10 @@
 // The test-parameters grid (IIFE global `ParamsGrid`): the model a seed is squared off into, and
 // the folded control that renders it. The read-only table under a test stays in the editor.
 
-/* global Icons, Tooltip, TestomatAPI */
+/* global EditorIcons, Tooltip, TestomatAPI */
 const ParamsGrid = (() => {
   // The same icon names editor.js uses, resolved by shared/icons.js.
-  const ICON_CLOSE = 'close';
-  const ICON_ADD = 'add';
-  const ICON_MINUS = 'remove';
-  const ICON_FOLD = 'chevron_right';
-  const icon = (name, size = 20) => Icons.markup(name, size);
+  const { icon, ICON_CLOSE, ICON_ADD, ICON_MINUS, ICON_FOLD } = EditorIcons;
 
   // ---- test parameters (#5) ------------------------------------------------
   // A test's parameters are COLUMN NAMES (`params` on the test) over example ROWS (one record each,

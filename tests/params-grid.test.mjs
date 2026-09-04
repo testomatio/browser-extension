@@ -15,6 +15,9 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 // the shipped module and risk leaving it edited.
 const SRC = process.env.PGRID_SRC || join(repoRoot, 'extension/editor/params-grid.js');
 const source = readFileSync(SRC, 'utf8');
+// The glyph names the grid draws through, evaluated into the same context editor.html loads them
+// into — a stub here would let the two drift without a test noticing.
+const iconsSource = readFileSync(join(repoRoot, 'extension/editor/editor-icons.js'), 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -42,6 +45,7 @@ function load({ fails = () => null } = {}) {
       deleteExample: (...a) => call('deleteExample', ...a),
     },
   });
+  runInContext(iconsSource, ctx);
   const ParamsGrid = runInContext(`${source}\nParamsGrid;`, ctx);
   return { ParamsGrid, document, calls, tips };
 }
