@@ -175,6 +175,11 @@ function matchesSelector(node, sel, scope) {
 // The two attribute names a browser mirrors onto a differently-named property.
 const REFLECT = { id: 'id', class: 'className' };
 
+// `dataset` IS the data-* attributes, both ways, which is what makes `input[data-col="0"]` findable
+// after `el.dataset.col = 0` — the editor's parameters grid addresses its cells that way.
+const dataName = (key) => `data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+const dataKey = (name) => name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+
 // A property stands in for a reflected attribute: el('a', { href: '#' }) has to answer `a[href]`.
 function reflected(node, name) {
   if (STRUCT.has(name) || !Object.hasOwn(node, name)) return null;
@@ -419,8 +424,19 @@ class MiniElement extends MiniParent {
   constructor(tag) {
     super();
     this.tagName = String(tag).toUpperCase();
-    // A proxy, not a plain object: the real dataset stringifies on write and answers `delete`.
-    this.#data = new Proxy({}, { set: (t, k, v) => { t[k] = String(v); return true; } });
+    // A proxy over the attribute map, not a plain object: the real dataset stringifies on write,
+    // answers `delete`, and is the same storage `[data-col]` and getAttribute read.
+    const keys = () => [...this.#attrs.keys()].filter((n) => n.startsWith('data-'));
+    this.#data = new Proxy({}, {
+      get: (t, k) => (typeof k === 'string' ? this.#attrs.get(dataName(k)) : undefined),
+      set: (t, k, v) => { this.#attrs.set(dataName(k), String(v)); return true; },
+      deleteProperty: (t, k) => { this.#attrs.delete(dataName(k)); return true; },
+      has: (t, k) => this.#attrs.has(dataName(k)),
+      ownKeys: () => keys().map(dataKey),
+      getOwnPropertyDescriptor: (t, k) => (this.#attrs.has(dataName(k))
+        ? { value: this.#attrs.get(dataName(k)), writable: true, enumerable: true, configurable: true }
+        : undefined),
+    });
   }
 
   get dataset() { return this.#data; }
