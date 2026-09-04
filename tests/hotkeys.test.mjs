@@ -819,13 +819,23 @@ test('40: a shot that lands is remembered, repainted and confirmed, in that orde
   ]);
 });
 
-test('40b: an upload the server refuses is named, and the gate state is restored either way', async () => {
+test('40b: an upload that fails keeps the drawing, names the failure, and restores the gate (#260)', async () => {
   const h = load({ upload: () => { throw new Error('413 too large'); } });
   await h.fn.attachScreenshotAnnotated();
   assert.deepEqual(h.calls.toasts, [{ msg: 'Upload failed: 413 too large', error: true }]);
   assert.deepEqual(h.calls.attRemember, []);
   assert.equal(h.calls.renderAttachmentList, 0);
   assert.equal(h.calls.updateTestActionsState, 1); // the finally runs whatever happened above it
+  // The drawing survives the blip that lost the upload — same slot, same Save button as a refusal.
+  assert.equal(h.saveShown(), true);
+  await h.fn.savePendingAnnotation();
+  assert.deepEqual(h.anchors, [{ href: 'blob:panel/1', download: `panel-annotated-55-${NOW}.jpg` }]);
+
+  // A failure BEFORE the annotator ran has no drawing to keep, so no Save is offered.
+  const early = load({ capture: { ok: true, dataUrl: SHOT, tabId: 7 }, annotated: () => { throw new Error('annotator died'); } });
+  await early.fn.attachScreenshotAnnotated();
+  assert.deepEqual(early.calls.toasts, [{ msg: 'Upload failed: annotator died', error: true }]);
+  assert.equal(early.saveShown(), false);
   // A response with no url at all is still remembered, under an empty one.
   const bare = load({ upload: null });
   await bare.fn.attachScreenshotAnnotated();
