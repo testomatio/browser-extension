@@ -962,3 +962,692 @@ test('88a: the test view reuses the same counts line, into its own band', () => 
   assert.deepEqual(h.node.testProgress.querySelectorAll('.counts-part').map((p) => p.textContent), ['1 passed']);
 });
 
+
+// ---------- the Run info model (rows 14-21, 89-90) ----------
+
+test('14: the v2 detail is kept verbatim — the authoritative count, and only plans that NAME one', () => {
+  const h = load();
+  const info = plain(h.fn.runInfoFromDetail({
+    total_tests: 12, tests_count: 9, env: 'chrome, firefox',
+    plans: [{ title: 'P' }, 77], description: '  hi  ',
+  }));
+  assert.deepEqual(info, {
+    status: null, testsCount: 12, createdAt: null, description: 'hi',
+    envs: ['chrome', 'firefox'], plans: ['P'],
+  });
+});
+
+test('14a: a payload that says nothing about people leaves those keys OFF, never null', () => {
+  const h = load();
+  const bare = plain(h.fn.runInfoFromDetail({ tests_count: 3, status: 'running', created_at: 'x' }));
+  assert.deepEqual(Object.keys(bare).sort(), ['createdAt', 'description', 'status', 'testsCount']);
+  // Named, and the three land — so the absence above is a decision, not an empty payload path.
+  const full = plain(h.fn.runInfoFromDetail({
+    tests_count: 3, executed_by: 'ann@x.io', author: 'Bo', assigned_to: 'cy@x.io',
+  }));
+  assert.deepEqual(full.executedBy, { name: '', email: 'ann@x.io' });
+  assert.deepEqual(full.createdBy, { name: 'Bo', email: '' });
+  assert.deepEqual(full.assignees, [{ name: '', email: 'cy@x.io' }]);
+});
+
+test('15: env arrives as a list on one route and a comma string on another — both come back a list', () => {
+  const h = load();
+  assert.deepEqual(plain(h.fn.envList(['x', null, '  '])), ['x']);
+  assert.deepEqual(plain(h.fn.envList('a, b ,')), ['a', 'b']);
+  assert.deepEqual(plain(h.fn.envList(null)), []);
+  assert.deepEqual(plain(h.fn.envList('')), []);
+});
+
+test('15a: a plan is whatever names it; a bare id contributes nothing rather than "4831"', () => {
+  const h = load();
+  assert.deepEqual(plain(h.fn.planList([' Smoke ', { clean_title: 'Reg' }, { name: 'N' }, 4831, null])),
+    ['Smoke', 'Reg', 'N']);
+  assert.deepEqual(plain(h.fn.planList({ title: 'One' })), ['One'], 'a lone plan is not a list yet');
+  assert.deepEqual(plain(h.fn.planList(null)), []);
+});
+
+test('16: the id list and the mode setting are not people, and neither is the word `none`', () => {
+  const h = load();
+  const out = plain(h.fn.flatPeople({
+    assignee_ids: [3, 7], assign_mode: 'none', assigned_to: 'Ольга', assignees: ['none', 'bob@x.io'],
+  }, /assign/));
+  assert.deepEqual(out, [{ name: 'Ольга', email: '' }, { name: '', email: 'bob@x.io' }]);
+});
+
+test('16a: a key the pattern does not name is skipped whatever it holds', () => {
+  const h = load();
+  assert.deepEqual(plain(h.fn.flatPeople({ owner: 'Ann' }, /assign/)), []);
+  assert.deepEqual(plain(h.fn.flatPeople({ owner: 'Ann' }, /owner/)), [{ name: 'Ann', email: '' }]);
+  assert.deepEqual(plain(h.fn.flatPeople(null, /assign/)), []);
+});
+
+test('17: a stamp is printed in the viewer\'s PROFILE zone, in the web\'s own wording', () => {
+  const h = load();
+  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'UTC'), 'Sep 3, 2026 2:05 PM');
+  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'America/New_York'), 'Sep 3, 2026 10:05 AM');
+});
+
+test('18: a zone the profile made up falls back to the machine\'s, rather than throwing the row away', () => {
+  const h = load();
+  // The machine zone is pinned to Asia/Tokyo at the top of this file, so the fallback is legible.
+  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'Not/AZone'), 'Sep 3, 2026 11:05 PM');
+  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', null), 'Sep 3, 2026 11:05 PM');
+});
+
+test('19: an unparseable stamp is no row at all, and neither is a missing one', () => {
+  const h = load();
+  assert.equal(h.fn.formatTimeIn('not a date', 'UTC'), null);
+  assert.equal(h.fn.runInfoTime(null), null);
+  assert.equal(h.fn.runInfoTime(''), null);
+  assert.equal(h.fn.runInfoTime('not a date'), null);
+});
+
+test('19a: a stamp that DOES parse carries the raw ISO beside the printed text', () => {
+  const h = load({ timezone: 'UTC' });
+  const span = h.fn.runInfoTime('2026-09-03T14:05:00Z');
+  assert.equal(span.className, 'run-info-time');
+  assert.equal(span.textContent, 'Sep 3, 2026 2:05 PM');
+  assert.equal(span.dataset.time, '2026-09-03T14:05:00Z', 'zone- and locale-free');
+  assert.equal(span.dataset.tip, '2026-09-03T14:05:00Z');
+});
+
+test('20: a CI build URL is http(s) or it is not a link — the regression lock on the scheme', () => {
+  const h = load();
+  for (const url of ['javascript:alert(1)', 'data:text/html,x', '//evil', 'ftp://x/y', '', null, 5]) {
+    assert.equal(h.fn.ciBuildLink(url), null, String(url));
+  }
+});
+
+test('21: a padded https URL is trimmed, opened in a new tab and never printed as the label', () => {
+  const h = load();
+  const a = h.fn.ciBuildLink('  https://ci.example/build/9  ');
+  assert.equal(a.href, 'https://ci.example/build/9');
+  assert.equal(a.target, '_blank');
+  assert.equal(a.rel, 'noopener noreferrer');
+  assert.equal(a.dataset.tip, 'https://ci.example/build/9', 'the raw URL is the tooltip');
+  assert.ok(a.textContent.startsWith('Open CI build'), a.textContent);
+  assert.equal(a.querySelector('.link-out-icon').dataset.icon, 'open_in_new');
+  assert.equal(a.textContent.includes('ci.example'), false, 'and never the label');
+});
+
+test('89: a tag list is pills with the whole string on each tooltip; an empty list is no row', () => {
+  const h = load();
+  assert.equal(h.fn.runInfoTags([]), null);
+  const box = h.fn.runInfoTags(['chrome', 'a-very-long-environment-name']);
+  assert.equal(box.className, 'env-tags');
+  assert.deepEqual(box.children.map((p) => p.className), ['badge env', 'badge env']);
+  assert.deepEqual(box.children.map((p) => p.dataset.tip), ['chrome', 'a-very-long-environment-name']);
+});
+
+test('90: the status cell normalises the colour key but prints the word the server sent', () => {
+  const h = load();
+  const span = h.fn.runInfoStatus('launching');
+  assert.equal(span.dataset.status, 'running');
+  assert.equal(span.textContent, 'launching');
+});
+
+// ---------- the Run info rows (rows 22-28, 91-96) ----------
+
+// state.runInfo is what runInfoRows reads; everything below states it directly.
+const withInfo = (info, over = {}) => load({ runInfo: info, timezone: 'UTC', ...over });
+const labelled = (h) => Object.fromEntries(h.fn.runInfoRows()
+  .map(([label, value]) => [label, typeof value === 'string' ? value : value.textContent]));
+
+test('22: the card prints the SERVER\'s total, not the number of rows loaded into the panel', () => {
+  const h = withInfo({ testsCount: 180 }, { records: Array.from({ length: 50 }, (_, i) => rec(i + 1)) });
+  assert.equal(labelled(h).Tests, '180');
+  // …and never below the checklist: a run created moments ago has rows the count has not caught up to.
+  h.state.runInfo = { testsCount: 0 };
+  assert.equal(labelled(h).Tests, '50');
+});
+
+test('23: duration arrives in SECONDS and is handed to humanDuration in milliseconds', () => {
+  const h = withInfo({ duration: 90 });
+  assert.equal(labelled(h).Duration, '1m 30s');
+  assert.deepEqual(h.calls.durations, [90000]);
+});
+
+test('24: a run still going has no duration to print', () => {
+  const h = withInfo({ duration: 0 });
+  assert.equal('Duration' in labelled(h), false);
+  assert.deepEqual(h.calls.durations, []);
+});
+
+test('25: a finished run shows the executed span, and no separate Started row beside it', () => {
+  const h = withInfo({ launchedAt: '2026-09-03T14:05:00Z', finishedAt: '2026-09-03T14:35:00Z' });
+  const rows = labelled(h);
+  assert.equal(rows.Executed, 'Sep 3, 2026 2:05 PM→Sep 3, 2026 2:35 PM');
+  assert.equal('Started' in rows, false);
+  // A live run has only the start, which is the row the span replaced.
+  h.state.runInfo = { launchedAt: '2026-09-03T14:05:00Z' };
+  const live = labelled(h);
+  assert.equal(live.Started, 'Sep 3, 2026 2:05 PM');
+  assert.equal('Executed' in live, false);
+});
+
+test('26: "Created by <person>, <date>" is ONE row — the date does not repeat itself below', () => {
+  const h = withInfo({ createdBy: { name: 'Ann', email: 'ann@x.io' }, createdAt: '2026-09-03T14:05:00Z' });
+  const rows = labelled(h);
+  assert.equal(rows['Created by'], 'AnnSep 3, 2026 2:05 PM');
+  assert.equal('Created' in rows, false);
+  // Nobody named → the date alone, under its own label.
+  h.state.runInfo = { createdAt: '2026-09-03T14:05:00Z' };
+  const anon = labelled(h);
+  assert.equal(anon.Created, 'Sep 3, 2026 2:05 PM');
+  assert.equal('Created by' in anon, false);
+});
+
+test('27: a description is server data, printed as text — no element comes out of it', () => {
+  const h = withInfo({ description: '<script>alert(1)</script>' });
+  h.fn.renderRunInfo();
+  const dd = h.infoValue('Description');
+  assert.equal(dd.querySelectorAll('script').length, 0);
+  assert.equal(dd.textContent, '<script>alert(1)</script>');
+  assert.ok(dd.classList.contains('run-info-desc'));
+  assert.ok(dd.querySelector('.run-info-desc-text').classList.contains('is-clamped'));
+});
+
+test('28: one person named twice is one cell — the key is the ADDRESS, whatever its case', () => {
+  const h = withInfo({ assignees: ['Bob@X.io'] }, { records: [rec(1, { assigned_to: { name: 'Bob', email: 'bob@x.io' } })] });
+  const box = h.fn.runInfoAssignees();
+  assert.deepEqual(box.children.map((c) => c.textContent), ['Bob']);
+  assert.equal(box.children[0].dataset.email, 'Bob@X.io', 'the first spelling seen is the one kept');
+});
+
+test('28a: the ticket\'s "one by email, one by name" is TWO cells — the key is not a human', () => {
+  // Following the code, not row 28's wording: `(u.email || u.name).toLowerCase()` cannot know that
+  // 'Bob' and 'bob@x.io' are the same tester, and the comment above it says "keyed by address".
+  const h = withInfo({ assignees: ['Bob'] }, { records: [rec(1, { assigned_to: 'bob@x.io' })] });
+  assert.deepEqual(h.fn.runInfoAssignees().children.map((c) => c.textContent), ['Bob', 'bob']);
+});
+
+test('28b: nobody assigned anywhere is no row at all', () => {
+  const h = withInfo({}, { records: [rec(1)] });
+  assert.equal(h.fn.runInfoAssignees(), null);
+  assert.equal('Assigned to' in labelled(h), false);
+});
+
+test('91: a person named only by address is resolved through the project members for their name', () => {
+  const h = withInfo({ executedBy: 'ann@x.io' }, { members: { 'ann@x.io': { name: 'Ann Lee', email: 'ann@x.io' } } });
+  assert.equal(labelled(h)['Executed by'], 'Ann Lee');
+  // What the PAYLOAD said wins over the members map.
+  h.state.runInfo = { executedBy: { name: 'A. Lee', email: 'ann@x.io' } };
+  assert.equal(labelled(h)['Executed by'], 'A. Lee');
+  // Nobody in the map and no name: the address's local part, the way the assignee chip falls back.
+  const bare = withInfo({ executedBy: 'zoe@x.io' });
+  assert.equal(labelled(bare)['Executed by'], 'zoe');
+  assert.equal(bare.fn.runInfoUser(null), null);
+});
+
+test('92: the card\'s rows come out in the web\'s own order', () => {
+  const h = withInfo({
+    status: 'passed', duration: 90, testsCount: 4, envs: ['chrome'], plans: ['Smoke'],
+    launchedAt: '2026-09-03T14:05:00Z', finishedAt: '2026-09-03T14:35:00Z',
+    executedBy: 'ann@x.io', assignees: ['bo@x.io'], ciBuildUrl: 'https://ci.example/9',
+    createdBy: 'Cy', createdAt: '2026-09-01T10:00:00Z', description: 'why',
+  });
+  // Spread first: the array comes out of the vm realm with its own prototype, which deepEqual reads.
+  assert.deepEqual([...h.fn.runInfoRows()].map(([label]) => label), [
+    'Status', 'Duration', 'Tests', 'Environment', 'Test plan', 'Executed',
+    'Executed by', 'Assigned to', 'Build URL', 'Created by', 'Description',
+  ]);
+});
+
+test('96: a description too tall for its clamp grows a Show more, and the button says which way', () => {
+  const h = withInfo({ description: 'a very long session report' });
+  h.fn.renderRunInfo();
+  const text = h.node.runInfoBody.querySelector('.run-info-desc-text');
+  assert.equal(h.node.runInfoBody.querySelector('.run-info-desc-more'), null, 'it fits, so no button');
+  text.scrollHeight = 400; // what a browser would measure for a report that overflows its clamp
+  text.clientHeight = 60;
+  h.fn.paintRunInfo();
+  const more = h.node.runInfoBody.querySelector('.run-info-desc-more');
+  assert.equal(more.textContent, 'Show more');
+  assert.equal(more.getAttribute('aria-expanded'), 'false');
+  fire(more, 'click');
+  assert.equal(more.textContent, 'Show less');
+  assert.equal(more.getAttribute('aria-expanded'), 'true');
+  assert.equal(text.classList.contains('is-clamped'), false);
+  fire(more, 'click');
+  assert.equal(more.textContent, 'Show more');
+  assert.ok(text.classList.contains('is-clamped'));
+  // A second measure does not stack a second button on top of the first.
+  h.fn.paintRunInfo();
+  assert.equal(h.node.runInfoBody.querySelectorAll('.run-info-desc-more').length, 1);
+});
+
+test('96a: a closed card measures nothing — a hidden body has no layout to read', () => {
+  const h = withInfo({ description: 'x' });
+  h.fn.renderRunInfo();
+  h.fn.toggleRunInfo(); // closed
+  const text = h.node.runInfoBody.querySelector('.run-info-desc-text');
+  text.scrollHeight = 400;
+  text.clientHeight = 60;
+  h.fn.paintRunInfo();
+  assert.equal(h.node.runInfoBody.querySelector('.run-info-desc-more'), null);
+});
+
+test('93: a run whose meta never loaded gets no empty card — the section hides itself', () => {
+  const h = withInfo({});
+  h.fn.renderRunInfo();
+  assert.equal(h.node.runInfo.hidden, true);
+  assert.deepEqual(h.infoRows(), []);
+  // One field is enough to bring it back, so the hide is about content and not about the call.
+  h.state.runInfo = { status: 'running' };
+  h.fn.renderRunInfo();
+  assert.equal(h.node.runInfo.hidden, false);
+  assert.deepEqual(h.infoLabels(), ['Status']);
+});
+
+test('94: the disclosure remembers the tester\'s choice, and says so to a reader', () => {
+  const h = withInfo({ status: 'running' });
+  h.fn.renderRunInfo();
+  assert.equal(h.node.runInfoHead.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.node.runInfoBody.hidden, false);
+  h.fn.toggleRunInfo();
+  assert.equal(h.node.runInfoHead.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.node.runInfoBody.hidden, true);
+  assert.equal(h.calls.persists, 1, 'and the choice outlives this panel');
+  h.fn.toggleRunInfo();
+  assert.equal(h.node.runInfoBody.hidden, false);
+  assert.equal(h.calls.persists, 2);
+});
+
+test('95: a page without the card is not an error — the test view shares this file', () => {
+  const h = withInfo({ status: 'running' }, { without: ['run-info', 'run-info-body', 'run-info-head'] });
+  assert.doesNotThrow(() => h.fn.renderRunInfo());
+  assert.doesNotThrow(() => h.fn.paintRunInfo());
+});
+
+// ---------- selection, search and suites (rows 29-36, 97-106) ----------
+
+test('29: a numeric row id finds its string-keyed example values, and the query is trimmed and folded', () => {
+  const h = load({ runExamples: { 5: { values: ['ru', 'UA'] } }, runSearch: ' UA ' });
+  assert.equal(h.fn.matchesRunSearch({ id: 5 }), true);
+  h.state.runSearch = 'de';
+  assert.equal(h.fn.matchesRunSearch({ id: 5 }), false, 'a value nothing carries does not match');
+});
+
+test('29a: the title and the suite title are searched too, both case-blind', () => {
+  const h = load({ runSearch: 'CHECK' });
+  assert.equal(h.fn.matchesRunSearch({ id: 1, test_title: 'checkout works' }), true);
+  assert.equal(h.fn.matchesRunSearch({ id: 1, suite_title: 'Checkout' }), true);
+  assert.equal(h.fn.matchesRunSearch({ id: 1, test_title: 'login' }), false);
+  assert.equal(h.fn.matchesRunSearch({ id: 1 }), false, 'a row with no text at all matches nothing');
+});
+
+test('30: an empty search is not a filter — every row stays', () => {
+  const h = load({ runSearch: '' });
+  assert.equal(h.fn.matchesRunSearch({ id: 1 }), true);
+  assert.equal(h.fn.matchesRunSearch({ id: 2, test_title: 'anything' }), true);
+  h.state.runSearch = '   ';
+  assert.equal(h.fn.matchesRunSearch({ id: 1 }), true, 'and neither is whitespace');
+});
+
+test('31: suites section in first-appearance order, with the bare rows under their own sentinel', () => {
+  const h = load({
+    records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: null }),
+      rec(3, { suite_title: 'A' }), rec(4, { suite_title: 'B' })],
+  });
+  const secs = plain(h.fn.suiteSections());
+  assert.deepEqual(secs.map((s) => s.key), ['A', '__none__', 'B']);
+  assert.deepEqual(secs.map((s) => s.title), ['A', null, 'B']);
+  assert.deepEqual(secs.map((s) => s.rows.map((r) => r.id)), [[1, 3], [2], [4]]);
+  // …and the sentinel is drawn as "No suite" rather than printed raw.
+  h.fn.renderRunSections();
+  assert.deepEqual(h.sectionKeys(), ['A', '__none__', 'B']);
+  assert.deepEqual(h.sectionTitles(), ['A', 'No suite', 'B']);
+});
+
+test('97: a suite title the server sent as an empty string is a bare row too', () => {
+  const h = load();
+  assert.equal(h.lex.suiteKeyOf({ suite_title: 'A' }), 'A');
+  assert.equal(h.lex.suiteKeyOf({ suite_title: '' }), '__none__');
+  assert.equal(h.lex.suiteKeyOf({}), '__none__');
+});
+
+test('32: a suite called `constructor` answers with its own mark, and `toString` with none', () => {
+  const h = load();
+  h.state.suiteEmoji = h.fn.indexSuiteEmoji([{ title: 'constructor', emoji: '🔥' }], Object.create(null));
+  assert.equal(h.lex.suiteEmojiOf('constructor'), '🔥');
+  assert.equal(h.lex.suiteEmojiOf('toString'), null);
+  // The shipped path builds the null-prototype map itself — same answer.
+  h.fn.rememberSuiteEmoji([{ title: 'constructor', emoji: '🔥' }]);
+  assert.equal(h.lex.suiteEmojiOf('toString'), null);
+  assert.equal(h.lex.suiteEmojiOf(''), null);
+  assert.equal(h.lex.suiteEmojiOf('constructor'), '🔥');
+});
+
+test('33: only a title that CARRIES a mark is written, so a later duplicate still lands', () => {
+  const h = load();
+  const into = h.fn.indexSuiteEmoji([{ title: 'Checkout' }, { title: 'Checkout', emoji: '🛒' }], Object.create(null));
+  assert.equal(into.Checkout, '🛒');
+  // First-wins otherwise: two marks for one title keep the first.
+  const twice = h.fn.indexSuiteEmoji([{ title: 'C', emoji: '🛒' }, { title: 'C', emoji: '🔥' }], Object.create(null));
+  assert.equal(twice.C, '🛒');
+});
+
+test('33a: the index descends the whole tree, and no tree at all is an empty index', () => {
+  const h = load();
+  const into = h.fn.indexSuiteEmoji([{ title: 'Root', children: [{ title: 'Leaf', emoji: '🍃' }] }], Object.create(null));
+  assert.deepEqual({ ...into }, { Leaf: '🍃' });
+  assert.deepEqual({ ...h.fn.indexSuiteEmoji(null, Object.create(null)) }, {});
+});
+
+test('34: a mark the project took away disappears — the index is replaced, not merged', () => {
+  const h = load();
+  h.fn.rememberSuiteEmoji([{ title: 'Checkout', emoji: '🛒' }, { title: 'Login', emoji: '🔑' }]);
+  assert.equal(h.lex.suiteEmojiOf('Checkout'), '🛒');
+  h.fn.rememberSuiteEmoji([{ title: 'Login', emoji: '🔑' }]);
+  assert.equal(h.lex.suiteEmojiOf('Checkout'), null);
+  assert.equal(h.lex.suiteEmojiOf('Login'), '🔑');
+});
+
+test('35: a filter key nobody knows falls back to All — and that IS a change, so it repaints', () => {
+  const h = load({ runFilter: 'failed', records: [rec(1)] });
+  h.calls.order.length = 0;
+  h.fn.setRunFilter('bogus');
+  assert.equal(h.state.runFilter, 'all');
+  assert.equal(h.calls.order.filter((s) => s === 'sections').length, 1);
+  assert.equal(h.calls.fitChips, 1);
+});
+
+test('36: choosing the chip that is already on is an early return — nothing repaints', () => {
+  const h = load({ runFilter: 'failed', records: [rec(1)] });
+  h.calls.order.length = 0;
+  h.fn.setRunFilter('failed');
+  assert.deepEqual(h.calls.order, []);
+  assert.equal(h.calls.fitChips, 0);
+  // A different key from the same state DOES repaint, so the silence above is the guard talking.
+  h.fn.setRunFilter('passed');
+  assert.equal(h.state.runFilter, 'passed');
+  assert.equal(h.calls.order.filter((s) => s === 'sections').length, 1);
+});
+
+test('98: All matches everything; a status chip matches what the row DISPLAYS, pending included', () => {
+  const h = load({ runFilter: 'all' });
+  assert.equal(h.lex.matchesRunFilter({ status: 'running' }), true);
+  h.state.runFilter = 'untested';
+  assert.equal(h.lex.matchesRunFilter({ status: 'pending' }), true);
+  assert.equal(h.lex.matchesRunFilter({}), true, 'no status at all is untested too');
+  assert.equal(h.lex.matchesRunFilter({ status: 'passed' }), false);
+  h.state.runFilter = 'passed';
+  assert.equal(h.lex.matchesRunFilter({ status: 'passed' }), true);
+});
+
+test('99: a row has to survive BOTH constraints — the filter and the search together', () => {
+  const h = load({ runFilter: 'failed', runSearch: 'checkout' });
+  const hit = { id: 1, status: 'failed', test_title: 'checkout works' };
+  assert.equal(h.lex.rowVisible(hit), true);
+  assert.equal(h.lex.rowVisible({ ...hit, status: 'passed' }), false, 'the filter alone can drop it');
+  assert.equal(h.lex.rowVisible({ ...hit, test_title: 'login' }), false, 'and so can the search');
+});
+
+test('100: the traversal order is the SECTION order, and the visible sequence applies both filters', () => {
+  const h = load({
+    records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'B', status: 'passed' }),
+      rec(3, { suite_title: 'A', status: 'passed' })],
+  });
+  assert.deepEqual([...h.lex.orderedRecords()].map((r) => r.id), [1, 3, 2], 'grouped, not id order');
+  assert.deepEqual([...h.lex.visibleRecords()].map((r) => r.id), [1, 3, 2]);
+  h.state.runFilter = 'passed';
+  assert.deepEqual([...h.lex.visibleRecords()].map((r) => r.id), [3, 2]);
+});
+
+test('101: a plain row has no example values to search — the chip and the lookup are both empty', () => {
+  const h = load({ runExamples: { 5: { values: ['ru'] } } });
+  assert.equal(h.lex.exampleOf({ id: 5 }).values[0], 'ru');
+  assert.equal(h.lex.exampleOf({ id: 6 }), null);
+  assert.equal(h.fn.exampleChip({ id: 6 }), null);
+  assert.equal(h.fn.exampleChip({ id: 7 }), null);
+});
+
+test('102: the chips are updated in place, never rebuilt — the counts move under the tester\'s eye', () => {
+  const h = load({ records: [rec(1, { status: 'passed' }), rec(2), rec(3, { status: 'failed' })] });
+  h.fn.renderRunFilterChips();
+  assert.deepEqual(h.chipLabels(), ['all', 'passed', 'failed', 'skipped', 'untested']);
+  assert.deepEqual(h.chipCounts(), ['3', '1', '1', '0', '1']);
+  const first = h.node.runFilter.querySelector('[data-filter="all"]');
+  assert.equal(first.getAttribute('aria-pressed'), 'true');
+  assert.ok(first.classList.contains('selected'));
+  h.state.records[1].status = 'passed';
+  h.fn.renderRunFilterChips();
+  assert.equal(h.node.runFilter.querySelector('[data-filter="all"]'), first, 'the same node, repainted');
+  assert.deepEqual(h.chipCounts(), ['3', '2', '1', '0', '0']);
+  assert.equal(h.calls.fitChips, 2);
+});
+
+test('102a: clicking a chip is what changes the filter — the listener is registered once', () => {
+  const h = load({ records: [rec(1, { status: 'failed' })] });
+  h.fn.renderRunFilterChips();
+  h.fn.renderRunFilterChips(); // a poll tick: no second listener may pile up
+  const failed = h.node.runFilter.querySelector('[data-filter="failed"]');
+  assert.equal(failed.listeners.get('click').length, 1);
+  fire(failed, 'click');
+  assert.equal(h.state.runFilter, 'failed');
+  assert.equal(failed.getAttribute('aria-pressed'), 'true');
+  assert.equal(h.node.runFilter.querySelector('[data-filter="all"]').getAttribute('aria-pressed'), 'false');
+});
+
+test('102b: a screen with no chip bar is not an error — the counts simply have nowhere to go', () => {
+  const h = load({ without: ['run-filter'] });
+  assert.doesNotThrow(() => h.fn.renderRunFilterChips());
+  assert.equal(h.calls.fitChips, 0);
+});
+
+test('103: the search field is written only when it disagrees, so typing is never interrupted', () => {
+  const h = load({ runSearch: 'check' });
+  h.node.runSearch.value = 'chec'; // mid-keystroke
+  h.fn.syncRunSearch();
+  assert.equal(h.node.runSearch.value, 'check');
+  assert.equal(h.node.runSearchClear.hidden, false);
+  h.state.runSearch = '';
+  h.fn.syncRunSearch();
+  assert.equal(h.node.runSearch.value, '');
+  assert.equal(h.node.runSearchClear.hidden, true);
+});
+
+test('104: Clear empties the field and the state, hides itself, repaints and takes the caret back', () => {
+  const h = load({ runSearch: 'check', records: [rec(1)] });
+  h.node.runSearch.value = 'check';
+  h.calls.order.length = 0;
+  h.fn.clearRunSearch();
+  assert.equal(h.node.runSearch.value, '');
+  assert.equal(h.state.runSearch, '');
+  assert.equal(h.node.runSearchClear.hidden, true);
+  assert.equal(h.calls.order.filter((s) => s === 'sections').length, 1);
+  assert.equal(h.doc.activeElement, h.node.runSearch);
+});
+
+test('104a: typing keeps the RAW value in state but hides Clear for whitespace alone', () => {
+  const h = load({ records: [rec(1)] });
+  h.node.runSearch.value = '  check  ';
+  h.fn.onRunSearch();
+  assert.equal(h.state.runSearch, '  check  ', 'raw — matchesRunSearch trims it itself');
+  assert.equal(h.node.runSearchClear.hidden, false);
+  h.node.runSearch.value = '   ';
+  h.fn.onRunSearch();
+  assert.equal(h.state.runSearch, '   ');
+  assert.equal(h.node.runSearchClear.hidden, true);
+});
+
+test('105: the suite marks come off the Tests tab first, and the server tree replaces them after', async () => {
+  const h = load({ tcSuites: [{ title: 'Checkout', emoji: '🛒' }], records: [rec(1, { suite_title: 'Checkout' })] });
+  h.on.getSuiteTree = async () => [{ title: 'Checkout', emoji: '🔥' }];
+  h.fn.renderRunSections();
+  await h.fn.loadSuiteEmoji('r1');
+  assert.equal(h.lex.suiteEmojiOf('Checkout'), '🔥', 'the server tree wins in the end');
+  assert.equal(h.node.runTests.querySelector('.suite-head .file-icon').dataset.emoji, '🔥');
+});
+
+test('105a: a failed tree read leaves the mark drawn from the Tests tab standing', async () => {
+  const h = load({ tcSuites: [{ title: 'Checkout', emoji: '🛒' }], records: [rec(1, { suite_title: 'Checkout' })] });
+  h.on.getSuiteTree = async () => { throw new Error('offline'); };
+  h.fn.renderRunSections();
+  await h.fn.loadSuiteEmoji('r1');
+  assert.equal(h.lex.suiteEmojiOf('Checkout'), '🛒');
+  assert.equal(h.node.runTests.querySelector('.suite-head .file-icon').dataset.emoji, '🛒');
+});
+
+test('105b: a tree that lands after the tester left the run is dropped, not painted', async () => {
+  const h = load({ records: [rec(1, { suite_title: 'Checkout' })] });
+  h.on.getSuiteTree = async () => { h.state.runId = 'r2'; return [{ title: 'Checkout', emoji: '🔥' }]; };
+  h.fn.renderRunSections();
+  await h.fn.loadSuiteEmoji('r1');
+  assert.equal(h.state.suiteEmoji, null);
+  assert.equal(h.node.runTests.querySelector('.suite-head .file-icon').dataset.emoji, undefined);
+});
+
+test('106: a repaint that changes nothing leaves the icon node alone', () => {
+  const h = load({ suiteEmoji: { Checkout: '🛒' }, records: [rec(1, { suite_title: 'Checkout' })] });
+  h.fn.renderRunSections();
+  const before = h.node.runTests.querySelector('.suite-head .file-icon');
+  assert.equal(before.dataset.emoji, '🛒');
+  h.fn.paintSuiteEmoji();
+  assert.equal(h.node.runTests.querySelector('.suite-head .file-icon'), before, 'same node');
+  // A mark that MOVED swaps the node, so the identity above is a decision and not a dead call.
+  h.state.suiteEmoji = { Checkout: '🔥' };
+  h.fn.paintSuiteEmoji();
+  const after = h.node.runTests.querySelector('.suite-head .file-icon');
+  assert.notEqual(after, before);
+  assert.equal(after.dataset.emoji, '🔥');
+});
+
+// ---------- what a row says (rows 37-39, 107-114) ----------
+
+test('37: the custom status rides the mark\'s tooltip, and a token-only panel never sees it', () => {
+  const h = load({ jwt: true });
+  assert.equal(h.fn.statusTip({ status: 'failed', substatus: ' Needs investigation ' }),
+    'failed · Needs investigation');
+  h.sandbox.capabilities.jwt = false;
+  assert.equal(h.fn.statusTip({ status: 'failed', substatus: ' Needs investigation ' }), 'failed');
+});
+
+test('37a: an untested row is tipped with the word a person reads, not this file\'s key', () => {
+  const h = load();
+  assert.equal(h.fn.statusTip({ status: 'pending' }), 'pending');
+  assert.equal(h.fn.statusTip({}), 'pending');
+  assert.equal(h.fn.statusTip(null), 'pending');
+});
+
+test('38: a row with no title says which test it is, and falls back to a word when it cannot', () => {
+  const h = load();
+  assert.equal(h.lex.rowTitle({ test_id: 9 }), 'Test 9');
+  assert.equal(h.lex.rowTitle({}), 'Untitled test');
+  assert.equal(h.lex.rowTitle({ test_title: 'Checkout', test_id: 9 }), 'Checkout');
+});
+
+test('39: the example chip shows the values and hangs the parameter names on the tooltip', () => {
+  const h = load({ runExamples: { 5: { values: ['ru', 'UA'], params: ['lang', 'country'] } } });
+  const chip = h.fn.exampleChip({ id: 5 });
+  assert.equal(chip.className, 'example');
+  assert.equal(chip.textContent, 'ru, UA');
+  assert.equal(chip.dataset.tip, 'lang: ru · country: UA');
+  // Misaligned names cannot be paired positionally, so the tooltip falls back to the values.
+  h.state.runExamples = { 5: { values: ['ru', 'UA'], params: ['lang'] } };
+  assert.equal(h.fn.exampleChip({ id: 5 }).dataset.tip, 'ru, UA');
+  h.state.runExamples = { 5: { values: ['ru', 'UA'] } };
+  assert.equal(h.fn.exampleChip({ id: 5 }).dataset.tip, 'ru, UA');
+});
+
+test('107: the mark is the LABEL, so a pending row carries data-status="pending", not "untested"', () => {
+  const h = load();
+  const mark = h.fn.statusMark({ id: 1, status: 'pending' });
+  assert.equal(mark.dataset.status, 'pending');
+  assert.ok(mark.classList.contains('row-status'));
+  assert.equal(mark.dataset.tip, 'pending');
+  assert.equal(h.fn.statusMark({ id: 1, status: 'passed' }).dataset.status, 'passed');
+});
+
+test('108: the three write buttons carry their labels, and the row\'s own status is the active one', () => {
+  const h = load({ runStatus: 'running' });
+  const li = h.fn.testRow(rec(1, { status: 'failed' }));
+  const btns = li.querySelectorAll('.row-actions .row-st');
+  assert.deepEqual(btns.map((b) => b.dataset.status), ['passed', 'failed', 'skipped']);
+  assert.deepEqual(btns.map((b) => b.getAttribute('aria-label')), ['Mark passed', 'Mark failed', 'Mark skipped']);
+  assert.deepEqual(btns.map((b) => b.dataset.tip), ['Mark passed', 'Mark failed', 'Mark skipped']);
+  assert.deepEqual(btns.map((b) => b.classList.contains('active')), [false, true, false]);
+  assert.deepEqual(btns.map((b) => b.disabled), [false, false, false]);
+});
+
+test('108a: a locked run draws the same row dead, with the reason where the label was', () => {
+  const h = load({ runStatus: 'finished' });
+  const btns = h.fn.testRow(rec(1)).querySelectorAll('.row-actions .row-st');
+  assert.deepEqual(btns.map((b) => b.disabled), [true, true, true]);
+  assert.deepEqual([...new Set(btns.map((b) => b.dataset.tip))], [FINISHED]);
+});
+
+test('109: a row carries its record id, its marks and its example — and opens the test when clicked', () => {
+  const h = load({ runExamples: { 1: { values: ['ru'] } }, runStatus: 'running' });
+  const li = h.fn.testRow(rec(1, { priority: 'high', automated: true, suite_title: 'A' }));
+  assert.equal(li.className, 'test-row');
+  assert.equal(li.dataset.recordId, '1');
+  assert.equal(li.querySelector('.title').textContent, 'Test 1');
+  assert.equal(li.querySelector('.prio').dataset.prio, 'high');
+  assert.equal(li.querySelector('.type-mark').dataset.kind, 'automated');
+  assert.equal(li.querySelector('.example').textContent, 'ru');
+  assert.deepEqual(h.calls.decorated, ['1'], 'the queued marker is re-applied on every render');
+  fire(li, 'click');
+  assert.deepEqual(h.calls.opened, [1]);
+});
+
+test('110: the lock un-paints too — a run that reopened restores each button\'s own label', () => {
+  const h = load({ runStatus: 'finished', records: [rec(1)] });
+  h.fn.renderRunSections();
+  const li = h.node.runTests.querySelector('li.test-row');
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true]);
+  h.state.runStatus = 'running';
+  h.fn.applyRowLock(li);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.dataset.tip),
+    ['Mark passed', 'Mark failed', 'Mark skipped']);
+});
+
+test('111: releasing a busy row must never re-enable a LOCKED one', () => {
+  const h = load({ runStatus: 'running', records: [rec(1)] });
+  h.fn.renderRunSections();
+  const li = h.node.runTests.querySelector('li.test-row');
+  h.fn.setRowButtonsBusy(li, true);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true]);
+  h.fn.setRowButtonsBusy(li, false);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
+  // The same release under a lock leaves them dead — the lock outranks the busy flag.
+  h.state.runStatus = 'finished';
+  h.fn.setRowButtonsBusy(li, false);
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true]);
+});
+
+test('112: a row is found by its record id however the caller spelled it', () => {
+  const h = load({ records: [rec(1), rec(2)] });
+  h.fn.renderRunSections();
+  assert.equal(h.fn.runRowEl(2).dataset.recordId, '2');
+  assert.equal(h.fn.runRowEl('2').dataset.recordId, '2');
+  assert.equal(h.fn.runRowEl(9), null);
+});
+
+test('113: a repaint swaps the mark, moves the active button and re-asserts the lock', () => {
+  const h = load({ runStatus: 'running', records: [rec(1)] });
+  h.fn.renderRunSections();
+  const li = h.node.runTests.querySelector('li.test-row');
+  assert.equal(li.querySelector('.row-status').dataset.status, 'pending');
+  h.state.records[0].status = 'passed';
+  h.state.records[0].substatus = 'Flaky';
+  h.fn.repaintRow(li, h.state.records[0]);
+  assert.equal(li.querySelector('.row-status').dataset.status, 'passed');
+  assert.equal(li.querySelector('.row-status').dataset.tip, 'passed · Flaky');
+  assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.classList.contains('active')),
+    [true, false, false]);
+  assert.deepEqual(h.calls.decorated, ['1', '1']);
+});
+
+test('114: the suite fraction counts what is DONE in that suite, pending excluded', () => {
+  const h = load({
+    records: [rec(1, { suite_title: 'A', status: 'passed' }), rec(2, { suite_title: 'A' }),
+      rec(3, { suite_title: 'B', status: 'failed' })],
+  });
+  h.fn.renderRunSections();
+  assert.deepEqual(h.node.runTests.querySelectorAll('.suite-frac').map((f) => f.textContent), ['1/2', '1/1']);
+  h.state.records[1].status = 'skipped';
+  h.fn.refreshSuiteFraction(h.node.runTests.querySelector('li.test-row'));
+  assert.deepEqual(h.node.runTests.querySelectorAll('.suite-frac').map((f) => f.textContent), ['2/2', '1/1']);
+});
