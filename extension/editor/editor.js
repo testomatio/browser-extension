@@ -365,7 +365,7 @@
   const { buildParamsControl } = ParamsGrid;
 
   // The read-only view of a test lives in view.js, which has its own test file.
-  const { renderView, appendParamsTable } = EditorView;
+  const { renderView } = EditorView;
   // The page chrome the view borrows, and the three members that read module state HERE:
   // they are handed over to be called, never copied into the module.
   const VIEW_SHELL = {
