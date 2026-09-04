@@ -1,7 +1,7 @@
 // Core state: the shared app-state object, the DOM/record helpers, the JWT
 // capability gate (session probe, project info + members cache), handleApiError.
 
-/* global TestomatAPI */
+/* global TestomatAPI, CommentDrafts */
 
 const $ = (id) => document.getElementById(id);
 const views = ['settings', 'pick', 'runs', 'tcstudio', 'tclist', 'promote', 'run', 'test'];
@@ -216,7 +216,8 @@ function resetProjectScopedState() {
   // Guarded: core/views.js loads after this module.
   if (typeof resetTabCounts === 'function') resetTabCounts();
   // An unsent comment is keyed by a testrun id, which means nothing in the next project.
-  if (typeof dropAllCommentDrafts === 'function') dropAllCommentDrafts();
+  // Guarded for the same reason as above: screens/test-drafts.js loads after this module.
+  if (typeof CommentDrafts !== 'undefined') CommentDrafts.dropAll();
   if (typeof syncStop === 'function') syncStop(); // no poll for the closed run
 }
 

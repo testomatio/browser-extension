@@ -78,7 +78,6 @@ function load(opts = {}) {
     hasChrome: true,
     lock: '',             // recordWriteLock()'s answer
     hidden: [],           // ids rowVisible() answers false for
-    drafts: undefined,    // seeds chrome.storage.session.commentDrafts
     users: [],            // usersList
     replies: {},          // runRepliesFor(status)
     dropdown: true,       // a panel where initSubstatusDropdown already ran
@@ -132,19 +131,11 @@ function load(opts = {}) {
 
   // chrome.storage.session's writer half: the harness's fake reads only, and every draft row is
   // asserted on what the mirror actually wrote.
-  const store = fakeChrome({ session: o.drafts === undefined ? {} : { commentDrafts: o.drafts } });
-  const sess = store.session;
-  store.chrome.storage.session.set = async (arg) => {
-    store.calls.push({ area: 'session', op: 'set', arg: plain(arg), raw: arg });
-    Object.assign(sess, plain(arg)); // a JSON copy, the way real storage serialises
-  };
-  store.chrome.storage.session.remove = async (arg) => {
-    store.calls.push({ area: 'session', op: 'remove', arg: plain(arg), raw: arg });
-    for (const k of [].concat(arg)) delete sess[k];
-  };
+  const store = fakeChrome();
 
   const calls = {
     order: [],
+    dropped: [],      // CommentDrafts.drop(recordId) — screens/test-drafts.js owns the rest
     toasts: [],
     lines: [],          // { id, text, tone }
     apiErrors: [],
@@ -300,6 +291,9 @@ function load(opts = {}) {
       assignTestrun: async (id, v) => { calls.assign.push({ id, value: v }); return on.assignTestrun(id, v); },
       setTestrunMeta: async (id, entries) => { calls.meta.push({ id, entries: plain(entries) }); return on.setTestrunMeta(id, entries); },
     },
+    // The draft store moved to screens/test-drafts.js, which has its own suite; here the write
+    // only owes it a call, so the stub records that and nothing else.
+    CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },
     OfflineQueue: {
       forcedError: () => on.forcedError(),
       qualifies: (e) => on.qualifies(e),
@@ -319,7 +313,7 @@ function load(opts = {}) {
     now: o.now,
     // Every name below is a lexical `const`/`let` — invisible as a sandbox property, reachable only
     // off the completion value. The mutable ones are getters or a test snapshots the load-time value.
-    exported: `({ draftText, draftRunId, ASSIGN_GATE_REASON,
+    exported: `({ ASSIGN_GATE_REASON,
       stepWriteChain: () => stepWriteChain,
       assigneeActiveId: () => assigneeActiveId })`,
   });
@@ -340,8 +334,6 @@ function load(opts = {}) {
       node.testSteps.append(li);
       return { li, ctrl, title: 'Open the site', pos: 0, index: 0, kind: 'step', state: 'unset', ...over };
     },
-    drafts: () => sess.commentDrafts,
-    sets: () => store.ops('session', 'set').map((c) => c.arg.commentDrafts),
     // What the tester sees under the cursor in the listbox.
     activeOption: () => node.assigneeList.querySelector('.active')?.id ?? null,
     optionIds: () => node.assigneeList.children.map((li) => li.dataset.userId),
@@ -349,173 +341,6 @@ function load(opts = {}) {
     writeState: () => node.testStatus.dataset.write,
   };
 }
-
-// ---------- comment drafts: what the tester was half-way through typing (rows 1-17) ----------
-
-test('1: a saved draft is one storage write and comes back tagged with its run', async () => {
-  const h = load();
-  await h.fn.saveCommentDraft(7, 'repro steps', 42);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), { 7: { text: 'repro steps', runId: '42' } });
-  assert.equal(h.store.ops('session', 'set').length, 1);
-  assert.deepEqual(h.sets(), [{ 7: { text: 'repro steps', runId: '42' } }]);
-});
-
-test('2: saving an empty box DELETES the row rather than storing an empty draft', async () => {
-  const h = load({ drafts: { 7: { text: 'half a sentence', runId: 'r1' } } });
-  await h.fn.saveCommentDraft(7, '', 42);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
-  assert.deepEqual(h.sets(), [{}]);
-});
-
-test('2b: …and anything else on the same row overwrites it', async () => {
-  const h = load({ drafts: { 7: { text: 'half a sentence', runId: 'r1' } } });
-  await h.fn.saveCommentDraft(7, 'the rest of it', 42);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), { 7: { text: 'the rest of it', runId: '42' } });
-});
-
-test('3: whitespace is kept VERBATIM — only the write trims', async () => {
-  const h = load();
-  await h.fn.saveCommentDraft(7, '  ', 42);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), { 7: { text: '  ', runId: '42' } });
-});
-
-test('4: no record id is a no-op, not a row under "null"', async () => {
-  const h = load();
-  await h.fn.saveCommentDraft(null, 'x', 1);
-  assert.deepEqual(h.store.calls, []);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
-});
-
-test('5: no run id stores an UNTAGGED draft — null, not the string "null"', async () => {
-  const h = load();
-  await h.fn.saveCommentDraft(7, 'x', null);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), { 7: { text: 'x', runId: null } });
-});
-
-test('6: a legacy bare-string row still restores, and answers NO run', () => {
-  const h = load();
-  assert.equal(h.lex.draftText('bare string'), 'bare string');
-  assert.equal(h.lex.draftRunId('bare string'), null);
-  // …the tagged shape beside it, so the two branches are told apart.
-  assert.equal(h.lex.draftText({ text: 'tagged', runId: 42 }), 'tagged');
-  assert.equal(h.lex.draftRunId({ text: 'tagged', runId: 42 }), '42');
-  assert.equal(h.lex.draftText(undefined), null);
-});
-
-test('7: a result that already carries a message keeps it — the draft does not overwrite', async () => {
-  const h = load({ drafts: { 7: { text: 'unsent', runId: 'r1' } } });
-  h.node.testComment.value = 'already sent';
-  await h.fn.restoreCommentDraft({ id: 7, message: 'already sent' });
-  assert.equal(h.node.testComment.value, 'already sent');
-  assert.deepEqual(h.store.calls, []); // it never even reads storage
-});
-
-test('7b: …the same result with no message of its own gets the draft back', async () => {
-  const h = load({ drafts: { 7: { text: 'unsent', runId: 'r1' } } });
-  await h.fn.restoreCommentDraft({ id: 7 });
-  assert.equal(h.node.testComment.value, 'unsent');
-});
-
-test('8: an absent draft answers null, never "" — it must not blank the box', async () => {
-  const h = load({ drafts: { 9: { text: 'another test', runId: 'r1' } } });
-  h.node.testComment.value = 'typed just now';
-  await h.fn.restoreCommentDraft({ id: 7 });
-  assert.equal(h.node.testComment.value, 'typed just now');
-});
-
-test('9: paging away mid-read leaves the next test\'s box alone', async () => {
-  const h = load({ drafts: { 7: { text: 'unsent', runId: 'r1' } } });
-  const done = h.fn.restoreCommentDraft({ id: 7 });
-  h.state.currentRecordId = 8; // the tester moved on while storage answered
-  await done;
-  assert.equal(h.node.testComment.value, '');
-});
-
-test('10: the prune drops only THIS run\'s rows whose result is gone', async () => {
-  const h = load({
-    records: [rec(8)],
-    drafts: { 7: { text: 'a', runId: '42' }, 8: { text: 'b', runId: '99' }, 9: 'legacy' },
-  });
-  await h.fn.pruneCommentDrafts(42);
-  // 8 belongs to another run, 9 is untagged and belongs to no run at all.
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), { 8: { text: 'b', runId: '99' }, 9: 'legacy' });
-  assert.deepEqual(h.sets(), [{ 8: { text: 'b', runId: '99' }, 9: 'legacy' }]);
-});
-
-test('11: a prune with nothing stale writes nothing at all', async () => {
-  const h = load({ records: [rec(7)], drafts: { 7: { text: 'a', runId: '42' } } });
-  await h.fn.pruneCommentDrafts(42);
-  assert.deepEqual(h.store.ops('session', 'set'), []);
-  // …and an empty store short-circuits before the run id is even considered.
-  const empty = load({ drafts: {} });
-  await empty.fn.pruneCommentDrafts(42);
-  assert.deepEqual(empty.store.ops('session', 'set'), []);
-});
-
-test('12: storage that throws leaves an empty cache — a draft never fails an open', async () => {
-  const h = load({ drafts: { 7: { text: 'a', runId: 'r1' } } });
-  h.store.fails.sessionGet = new Error('session storage is gone');
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
-  // …and the open goes on: a restore over that cache is silent, not a rejection.
-  await h.fn.restoreCommentDraft({ id: 7 });
-  assert.equal(h.node.testComment.value, '');
-});
-
-test('13: no chrome at all answers {} and persists nothing', async () => {
-  const h = load({ hasChrome: false, drafts: { 7: { text: 'a', runId: 'r1' } } });
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
-  await h.fn.saveCommentDraft(7, 'x', 1);
-  assert.deepEqual(h.store.calls, []);
-});
-
-test('14: the map is seeded once — a reopened panel must not write over the drafts already there', async () => {
-  const h = load({ drafts: { 7: { text: 'a', runId: 'r1' } } });
-  const [a, b] = await Promise.all([h.fn.loadCommentDrafts(), h.fn.loadCommentDrafts()]);
-  assert.equal(h.store.ops('session', 'get').length, 1); // one read for two concurrent callers
-  assert.equal(a, b);
-  assert.equal(await h.fn.loadCommentDrafts(), a);       // …and none at all once it has settled
-  assert.equal(h.store.ops('session', 'get').length, 1);
-  assert.deepEqual(plain(a), { 7: { text: 'a', runId: 'r1' } });
-});
-
-test('15: a burst of typing is ONE write, and only after the debounce', async () => {
-  const h = load();
-  h.node.testComment.value = 'rep';
-  h.fn.onCommentInput();
-  h.node.testComment.value = 'repro steps';
-  h.fn.onCommentInput();
-  assert.deepEqual(h.store.ops('session', 'set'), []);
-  assert.equal(h.clock.count(), 1); // the first arming was cleared, not left behind
-  assert.deepEqual(h.clock.arms(), [400, 400]);
-  await h.clock.tick();
-  await settle();
-  assert.deepEqual(h.sets(), [{ 7: { text: 'repro steps', runId: 'r1' } }]);
-});
-
-test('16: a keystroke in the NEXT test commits the previous test\'s pending draft', async () => {
-  const h = load();
-  h.node.testComment.value = 'for seven';
-  h.fn.onCommentInput();
-  h.state.currentRecordId = 8;
-  h.node.testComment.value = 'for eight';
-  h.fn.onCommentInput();
-  await settle();
-  // Committed, not cancelled: record 7's text is already in storage before any timer ran.
-  assert.deepEqual(h.sets(), [{ 7: { text: 'for seven', runId: 'r1' } }]);
-  await h.clock.tick();
-  await settle();
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {
-    7: { text: 'for seven', runId: 'r1' }, 8: { text: 'for eight', runId: 'r1' },
-  });
-});
-
-test('17: dropping every draft settles the read already on the wire first', async () => {
-  const h = load({ drafts: { 7: { text: 'a', runId: 'r1' }, 8: 'legacy' } });
-  h.fn.loadCommentDrafts();               // in flight, deliberately not awaited
-  await h.fn.dropAllCommentDrafts();
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
-  assert.deepEqual(h.store.ops('session', 'remove').map((c) => c.arg), ['commentDrafts']);
-});
 
 // ---------- step writes: the ring control (rows 57-62) ----------
 
@@ -931,13 +756,14 @@ test('76b: the optimistic callback runs before the request, not after it', async
 });
 
 test('77: a landed write spends its draft AND drops the queue entry it supersedes', async () => {
-  const h = load({ drafts: { 7: { text: 'note', runId: 'r1' } } });
+  const h = load();
   h.on.remove = async () => true;
   await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null);
   await settle();
   assert.deepEqual(h.calls.removed, [7]);
   assert.equal(h.calls.refreshUIs, 1);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {});
+  // The store is screens/test-drafts.js's; what this write owes it is the call.
+  assert.deepEqual(h.calls.dropped, [7]);
 });
 
 test('77b: nothing queued for the row leaves the pending badge alone', async () => {
@@ -949,11 +775,11 @@ test('77b: nothing queued for the row leaves the pending badge alone', async () 
 });
 
 test('77c: a replay does NOT drop the row\'s entry — the drain removes its own by queuedAt', async () => {
-  const h = load({ drafts: { 7: { text: 'note', runId: 'r1' } } });
+  const h = load();
   await h.fn.writeStatus(h.state.records[0], 'passed', 'note', null, { noQueue: true });
   await settle();
   assert.deepEqual(h.calls.removed, []);
-  assert.deepEqual(plain(await h.fn.loadCommentDrafts()), {}); // the draft still goes
+  assert.deepEqual(h.calls.dropped, [7]); // the draft still goes
 });
 
 test('78: a queue removal that throws does not fail a status that is already saved', async () => {
