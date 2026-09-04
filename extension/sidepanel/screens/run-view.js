@@ -2,7 +2,7 @@
 // status chips, search, suite sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast */
+   progressToast, Fmt */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -806,8 +806,8 @@ function runInfoRows() {
   const finished = runInfoTime(info.finishedAt);
   const rows = [];
   if (info.status) rows.push(['Status', runInfoStatus(info.status)]);
-  // Duration is SECONDS here (RunSerializer), ms in humanDuration; 0 while unfinished.
-  if (info.duration > 0) rows.push(['Duration', humanDuration(info.duration * 1000)]);
+  // Duration is SECONDS here (RunSerializer), ms in Fmt.humanDuration; 0 while unfinished.
+  if (info.duration > 0) rows.push(['Duration', Fmt.humanDuration(info.duration * 1000)]);
   // Never below the checklist: the server's count trails the rows after a run is created.
   const tests = Math.max(Number(info.testsCount) || 0, state.records.length);
   if (tests > 0) rows.push(['Tests', String(tests)]);
