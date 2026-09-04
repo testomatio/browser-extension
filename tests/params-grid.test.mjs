@@ -489,21 +489,6 @@ test('57: a draft outranks the server read — only the baseline is taken from i
   assert.equal(fresh.open(), true);
 });
 
-// ===================== what #112 will add, carried over unfixed =============
-
-// 48: `params.js` resolves both `${email}` occurrences to the FIRST column (tests/params.test.mjs
-// P13), so the second column's values are unreachable and the tester is never told.
-test.todo('48 (#112): two columns with the same name are refused before Save', () => {
-  const g = mount({ seed: { headers: ['email', 'email'], rows: [['a@x', 'b@x']] } });
-  assert.equal(g.ctl.plan(), null);
-  assert.equal(g.error().textContent, 'Two parameters have the same name');
-  assert.equal(g.document.activeElement, g.cell('head', 1));
-});
-
-// 49: #192 said such a name breaks substitution downstream. It no longer does — #244 escapes the
-// name in params.js and `${price(usd)}` resolves (P7). What is left is only the missing check.
-test.todo('49 (#112): a column name outside [\\w-] is refused before Save', () => {
-  const g = mount({ seed: { headers: ['price(usd)'], rows: [['9']] } });
-  assert.equal(g.ctl.plan(), null);
-  assert.equal(g.document.activeElement, g.cell('head', 0));
-});
+// 48 is done: two columns of the same name are refused, case 58 above. 49 was dropped — #244
+// escaped the name in params.js, so `${price(usd)}` resolves (P7) and a rule against it would take
+// away a name testers can use. Case 57b below pins that such a name still saves.
