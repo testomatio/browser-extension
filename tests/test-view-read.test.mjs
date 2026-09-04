@@ -251,6 +251,8 @@ function load(opts = {}) {
     persistSession: () => {},
     toast: () => {},
     TestomatAPI: {
+      // The real one resolves a root-relative asset path against the instance (api/assets.js:15).
+      assetUrl: (raw) => { try { return new URL(String(raw), 'https://app.testomat.io/').toString(); } catch { return ''; } },
       presignArtifact: async (url) => {
         calls.presigns.push(url);
         return typeof o.presign === 'function' ? o.presign(url) : o.presign;
@@ -819,6 +821,10 @@ test('126: a pending result, or none at all, hides the whole card and takes the 
     assert.equal(h.node['test-result-row'].hidden, true);
     assert.equal(h.node['tab-test-summary'].querySelectorAll('.status-dot').length, 0);
     assert.equal(h.calls.empties.at(-1).title, 'Nothing reported yet');
+    // Every group the card was holding goes with it — a failure body's images included.
+    for (const g of ['summary-shots', 'summary-artifacts', 'summary-failure']) {
+      assert.ok(h.calls.releases.includes(g), g);
+    }
   }
 });
 
@@ -876,23 +882,34 @@ test('130: a human\'s message is Markdown, appended as nodes under the sections 
   assert.equal(h.node['summary-failure'].hidden, false);
 });
 
-// 131: every other Md.render site hydrates the body first (renderSteps :365-368, editor.js:140,805).
-// This one appends it raw. The manifest's `img-src 'self' data: blob:` blocks the request, so the
-// tester sees a broken box where the other bodies show the "Open image" link — and this surface has
-// no check of its own at all.
-test.todo('131: a remote image in a manual failure message is hydrated like every other body', () => {
-  const h = load({ md: { 'it broke\n\n![px](https://evil.test/px.png)': MD.remoteImage } });
-  h.fn.renderSummaryFailure({ status: 'failed', message: 'it broke\n\n![px](https://evil.test/px.png)' });
-  // Today: neither call happens and the <img> keeps its third-party src.
-  assert.equal(h.calls.hydrates.length, 1);
-  assert.deepEqual(h.node['summary-message'].querySelectorAll('img[src]').map((i) => i.getAttribute('src')), []);
+// 131: a manual body goes through the same hydrate every other Md.render site uses (renderSteps
+// :365-368, editor.js:140,805) — the CSP allows no remote <img>, so an unhydrated one is a broken box.
+const FAIL_MSG = 'it broke\n\n![px](https://evil.test/px.png)';
+
+test('131: a remote image in a manual failure message is hydrated like every other body', () => {
+  const h = load({ md: { [FAIL_MSG]: MD.remoteImage } });
+  h.fn.renderSummaryFailure({ status: 'failed', message: FAIL_MSG });
+  // Its own group: summary-shots is released when the step tree repaints, which would revoke
+  // these while the failure body is still on screen.
+  assert.deepEqual(h.calls.hydrates, ['summary-failure']);
+  // Freed before the new body is built, so the previous message's object URLs never outlive it.
+  assert.deepEqual(h.calls.order.filter((o) => o === 'hydrate' || o === 'release:summary-failure'),
+    ['release:summary-failure', 'hydrate']);
 });
 
-test('131a: the raw src does reach the document today — the row above is the gap', () => {
-  const h = load({ md: { 'it broke\n\n![px](https://evil.test/px.png)': MD.remoteImage } });
-  h.fn.renderSummaryFailure({ status: 'failed', message: 'it broke\n\n![px](https://evil.test/px.png)' });
+test('131a: the body it holds is released before the next one replaces it', () => {
+  const h = load({ md: { [FAIL_MSG]: MD.remoteImage } });
+  h.fn.renderSummaryFailure({ status: 'failed', message: FAIL_MSG });
+  h.calls.releases.length = 0;
+  h.fn.renderSummaryFailure({ status: 'failed', message: FAIL_MSG });
+  assert.ok(h.calls.releases.includes('summary-failure'));
+});
+
+test('131b: an AUTOMATED body is not markdown, so it is neither rendered nor hydrated', () => {
+  const h = load();
+  h.fn.renderSummaryFailure({ status: 'failed', automated: true, message: '  expected 1\n  got 2  ' });
   assert.deepEqual(h.calls.hydrates, []);
-  assert.equal(h.node['summary-message'].querySelector('img').getAttribute('src'), 'https://evil.test/px.png');
+  assert.equal(h.node['summary-message'].textContent, 'expected 1\n  got 2'); // trimmed, not reflowed
 });
 
 test('132: a message of nothing but spaces hides the section and paints no title', () => {
@@ -1058,22 +1075,30 @@ test('140: a refusal is remembered as a refusal, and the raw row keeps the link 
 
 // ===================== links, the viewer and the tiles (rows 141-146, 159) =====================
 
-// 141: the url is server data and reaches href with no scheme check. ciBuildLink (run-view.js:679-682)
-// refuses the same kind of value on the same kind of element, and says why. The panel's own
-// `script-src 'self'` is what stops a javascript: href here — this call site checks nothing.
-test.todo('141: an attachment url that is not http(s) never becomes an href', () => {
+// 141: the url is server data, so it is resolved and then checked — the same rule ciBuildLink
+// (run-view.js:679-682) applies to the same kind of value on the same kind of element.
+test('141: an attachment url that is not http(s) never becomes an href', () => {
   const h = load();
   const link = h.fn.attachmentLink({ name: 'a', url: 'javascript:alert(1)' });
-  // Today: <a href="javascript:alert(1)">a</a>.
-  assert.ok(!/^javascript:/i.test(link.getAttribute('href') || ''), link.getAttribute('href'));
-  assert.equal(link.textContent, 'a'); // however it is refused, the name is still shown
+  assert.equal(link.tagName, 'SPAN');
+  assert.equal(link.getAttribute('href'), null);
+  assert.equal(link.textContent, 'a'); // refused, but the name is still shown
 });
 
-test('141a: today it is built as an anchor carrying that href — the row above is the gap', () => {
+test('141a: an ordinary address is still an anchor that opens safely', () => {
   const h = load();
-  const link = h.fn.attachmentLink({ name: 'a', url: 'javascript:alert(1)' });
+  const link = h.fn.attachmentLink({ name: 'a', url: 'https://app.testomat.io/f.png' });
   assert.equal(link.tagName, 'A');
-  assert.equal(link.getAttribute('href'), 'javascript:alert(1)');
+  assert.equal(link.getAttribute('href'), 'https://app.testomat.io/f.png');
+  assert.equal(link.getAttribute('rel'), 'noopener noreferrer');
+});
+
+test('141b: a ROOT-RELATIVE address resolves against the instance instead of the extension', () => {
+  const h = load();
+  const link = h.fn.attachmentLink({ name: 'a', url: '/rails/active_storage/x.png' });
+  // Unresolved it would have pointed at chrome-extension://<id>/rails/… — a dead link.
+  assert.equal(link.tagName, 'A');
+  assert.equal(link.getAttribute('href'), 'https://app.testomat.io/rails/active_storage/x.png');
 });
 
 test('142: a row with no address is a span, so there is nothing to click', () => {

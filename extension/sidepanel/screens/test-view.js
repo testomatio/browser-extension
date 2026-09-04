@@ -5,12 +5,13 @@
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
    ImgHydrate, progressToast, hideToast */
 
-// Object-URL groups (shared/img-hydrate.js) — four, because each is repainted
+// Object-URL groups (shared/img-hydrate.js) — five, because each is repainted
 // and released on its own occasion.
 const IMG_GROUP_DESC = 'test-description';
 const IMG_GROUP_SHOTS = 'summary-shots';
 const IMG_GROUP_ATTS = 'result-attachments';
 const IMG_GROUP_ARTIFACTS = 'summary-artifacts';
+const IMG_GROUP_FAILURE = 'summary-failure';
 
 // ---------- test view ----------
 
@@ -565,6 +566,7 @@ function hideResultSummary() {
   summaryStepsFetch = null;
   ImgHydrate.release(IMG_GROUP_SHOTS);
   ImgHydrate.release(IMG_GROUP_ARTIFACTS);
+  ImgHydrate.release(IMG_GROUP_FAILURE);
   syncSummaryStepsTools();
 }
 
@@ -631,6 +633,7 @@ function renderSummaryFailure(attrs) {
   if (!wrap || !out) return;
   const message = typeof attrs.message === 'string' ? attrs.message.trim() : '';
   wrap.hidden = !message;
+  ImgHydrate.release(IMG_GROUP_FAILURE); // the <img>s about to be dropped own these
   out.replaceChildren();
   if (!message) return;
   const failed = attrs.status === 'failed';
@@ -641,6 +644,9 @@ function renderSummaryFailure(attrs) {
     out.textContent = message; // pre-wrap; reporter output is not markdown
   } else {
     const tmp = Md.render(message); // shared/markdown.js — parse + sanitize
+    // Hydrate BEFORE the body reaches the document, like every other Md.render site:
+    // the CSP allows no remote <img>, so an unhydrated one is a broken box.
+    ImgHydrate.hydrate(IMG_GROUP_FAILURE, tmp);
     // `.sections`: headings inside the panel's chrome render as muted labels.
     out.classList.add('markdown', 'sections');
     out.append(...tmp.childNodes);
@@ -853,10 +859,21 @@ async function attachmentSrc(att) {
 // file-type icon there, so the file itself only ever comes from `url`.
 const attachmentHref = (att) => (isImageAttachment(att) ? att?.display_url || att?.url : att?.url) || '';
 
+// An href out of server data, resolved then checked: attachment urls come root-relative too, and
+// a relative one resolves against chrome-extension://. `javascript:` is the hole it must not open.
+const linkHref = (raw) => {
+  const url = typeof raw === 'string' ? raw.trim() : '';
+  if (!url) return '';
+  const abs = typeof TestomatAPI !== 'undefined' && TestomatAPI.assetUrl
+    ? TestomatAPI.assetUrl(url) : url;
+  return /^https?:\/\//i.test(abs) ? abs : '';
+};
+
 function attachmentLink(att) {
-  const el = document.createElement(att?.url ? 'a' : 'span');
+  const url = linkHref(att?.url);
+  const el = document.createElement(url ? 'a' : 'span');
   el.className = 'summary-step-att-link';
-  if (att?.url) { el.href = att.url; el.target = '_blank'; el.rel = 'noopener noreferrer'; }
+  if (url) { el.href = url; el.target = '_blank'; el.rel = 'noopener noreferrer'; }
   el.textContent = att?.name || 'attachment';
   el.title = el.textContent;
   return el;
