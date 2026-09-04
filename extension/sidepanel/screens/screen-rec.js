@@ -2,7 +2,7 @@
 // upload of the file the worker parks when it stops. The worker owns the capture, this owns the JWT.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
-   updateTestActionsState, attRemember, renderAttachmentList, progressToast, hideToast */
+   TestGates, attRemember, renderAttachmentList, progressToast, hideToast */
 
 const SREC_COMMAND = 'toggle-screen-recording';
 // One token per panel document: the worker's claim keeps two open panels off the same upload.
@@ -145,7 +145,7 @@ async function srecAttach(file) {
     toast(`${file.name}: upload failed, ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
     srecBusy = false;
-    updateTestActionsState();
+    TestGates.update();
     srecRefresh();
   }
 }

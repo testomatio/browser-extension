@@ -1,9 +1,9 @@
 // Local-file attachments on a test result (#107). A picked File IS a Blob, so it
-// rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
+// rides TestomatAPI.uploadAttachment; the button's gate lives in test-gates.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
-   updateTestActionsState, Tooltip, ImgHydrate, TestSummary,
-   svgIcon, confirmDialog, baseUrlHost, paintCounter */
+   TestGates, Tooltip, ImgHydrate, TestSummary,
+   svgIcon, confirmDialog, paintCounter */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -92,10 +92,13 @@ function attDeleteBtn(a) {
 // confirm dialog is interactive and the run can finish under it (#187, the upload's rule).
 function attDeleteLock(a) {
   const record = recordFor(state.currentRecordId);
-  if (!record || !record.id) return 'No saved result yet';
+  // The sentences are shared (screens/test-gates.js); the ORDER is this path's own — a result that
+  // does not exist yet is answered before a lock, and the missing id after both.
+  const copy = TestGates.gateReason({ need: 'delete' });
+  if (!record || !record.id) return copy.noResult;
   const lock = recordWriteLock(record);
   if (lock) return lock;
-  if (TestomatAPI.jwtAvailable() === false) return `Deleting needs an active ${baseUrlHost()} web login — sign in there, then Refresh`;
+  if (TestomatAPI.jwtAvailable() === false) return copy.degraded;
   if (!a.id) return 'This file carries no id here — remove it in the web app';
   return '';
 }
@@ -136,17 +139,16 @@ async function onDeleteAttachment(a) {
 // ---- the empty state: a drop target ---------------------------------------
 
 // '' = a file can be attached right now, else why not. The SAME three reasons the
-// Attach file button is gated on (test-view.js owns that copy) — the dropzone must
-// never invite a drop the upload would then refuse.
+// Attach file button is gated on (screens/test-gates.js owns that copy) — the dropzone
+// must never invite a drop the upload would then refuse.
 function attUploadLock() {
   const record = recordFor(state.currentRecordId);
-  if (!record?.id) return 'No saved result yet — files attach to a test result';
+  const copy = TestGates.gateReason({ need: 'file' });
+  if (!record?.id) return copy.noResult;
   const lock = recordWriteLock(record);
   if (lock) return lock;
   // 'unknown' is still probing and must never gate (#107).
-  if (TestomatAPI.jwtAvailable() === false) {
-    return `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`;
-  }
+  if (TestomatAPI.jwtAvailable() === false) return copy.degraded;
   return '';
 }
 
@@ -285,7 +287,7 @@ async function attUploadFiles(files) {
       }
     }
   } finally {
-    updateTestActionsState(); // restore the gate-driven disabled state
+    TestGates.update(); // restore the gate-driven disabled state
   }
   const noun = files.length === 1 ? 'file' : 'files';
   // A lock that landed mid-pick reports BOTH halves.

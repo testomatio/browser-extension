@@ -10,8 +10,9 @@ import assert from 'node:assert/strict';
 import { loadScreen, makeDocument, el, fire, plain, settle, rejection } from './helpers/panel-harness.mjs';
 
 const HOST = 'app.testomat.io';
-// The four gate sentences, spelled here exactly as the screen spells them: this file and
-// test-view.js keep separate copies, and pinning them is what stops the wording drifting again.
+// The four gate sentences, spelled here exactly as the tester reads them. The screen no longer keeps
+// its own copies — it asks screens/test-gates.js, loaded for real below — so these literals are what
+// says the shared helper still answers this caller with the wording it had.
 const NO_RESULT_DEL = 'No saved result yet';
 const NO_RESULT_UP = 'No saved result yet — files attach to a test result';
 const NO_JWT_DEL = `Deleting needs an active ${HOST} web login — sign in there, then Refresh`;
@@ -108,9 +109,6 @@ function load(opts = {}) {
       calls.lines.push({ id, text, cls });
     },
     progressToast: (msg) => { calls.progress.push(msg); on.progress(msg); },
-    // The real one re-drives the gate, which is what puts the Attach button back — a stub that only
-    // counted could not tell a restored button from one left disabled for good.
-    updateTestActionsState: () => { calls.actionsState += 1; attachBtn.disabled = false; },
     Tooltip: { set: (node, tip) => { tips.set(node, tip); } },
     ImgHydrate: {
       release: (group) => {
@@ -134,7 +132,6 @@ function load(opts = {}) {
       calls.confirms.push({ message, label });
       return on.confirm(message, label);
     },
-    baseUrlHost: () => HOST,
     paintCounter: (node, n) => { calls.counters.push(n); node.textContent = String(n); },
     TestomatAPI: {
       jwtAvailable: () => o.jwt,
@@ -150,6 +147,15 @@ function load(opts = {}) {
       },
     },
   };
+
+  // The REAL screens/test-gates.js, which owns the copy both lock functions below refuse with: a
+  // stub repeating the same strings could not tell a shared sentence from a copy that drifted back.
+  // `update` stays the fixture's, because what matters here is that it puts the Attach button back —
+  // a stub that only counted could not tell a restored button from one left disabled for good.
+  const gates = loadScreen('test-gates', {
+    globals: { baseUrlHost: () => HOST }, document: makeDocument([]), exported: 'TestGates',
+  }).screen;
+  globals.TestGates = { ...gates, update: () => { calls.actionsState += 1; attachBtn.disabled = false; } };
 
   const h = loadScreen('attachments', { globals, document: doc });
 
@@ -299,6 +305,10 @@ test('16: with no saved result there is nothing to delete from', () => {
   assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
   h.replaceRecord({ name: 'a row with no result id yet' });
   assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
+  // …and it is asked BEFORE the lock, the opposite order to the attach buttons': a run that finished
+  // without ever giving this row a result has nothing to delete from, whatever else is also true.
+  h.replaceRecord({ name: 'no result id yet', lock: RUN_LOCK });
+  assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
 });
 
 test('17: a finished run outranks every other reason', () => {
@@ -445,6 +455,9 @@ test('29: with no saved result there is nothing for a file to attach to', () => 
   h.replaceRecord(null);
   assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
   h.replaceRecord({ name: 'no id yet' });
+  assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
+  // Before the lock here too — row 30 is the same pair the other way round, on a row that HAS one.
+  h.replaceRecord({ name: 'no id yet', lock: RUN_LOCK });
   assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
 });
 

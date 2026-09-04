@@ -164,8 +164,11 @@ function load(opts = {}) {
     toast: (msg, tOpts) => { calls.toasts.push({ msg, ...(tOpts || {}) }); calls.order.push('toast'); },
     progressToast: (msg) => { calls.progress.push(msg); calls.order.push('progress'); },
     hideToast: () => { calls.hideToast += 1; calls.order.push('hideToast'); },
-    updateTestActionsState: () => { calls.updateTestActionsState += 1; calls.order.push('updateTestActionsState'); },
-    fullPageCaptureEnabled: () => o.fullPage,
+    // Both live in screens/test-gates.js now; the counter keeps the name the rows below read.
+    TestGates: {
+      update: () => { calls.updateTestActionsState += 1; calls.order.push('updateTestActionsState'); },
+      fullPageCaptureEnabled: () => o.fullPage,
+    },
     resolveSiteTab: async (args) => { calls.resolveSiteTab.push(plain(args)); calls.order.push('resolveSiteTab'); return o.site; },
     CaptureAnnotate: {
       ensureCapturePermission: async () => { calls.perms += 1; calls.order.push('perm'); return o.perm; },
