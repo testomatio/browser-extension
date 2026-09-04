@@ -397,9 +397,11 @@ async function onEvidenceToggle() {
       // to belong to would be the very thing this scoping removes.
       if (state.view !== 'test' || state.currentRecordId == null) { toast('Open a test to record its console & network log'); return; }
       r = await evStartRecording();
-      if (r.unrecordable) { toast(r.unrecordable); return; }
+      if (r.unrecordable) { toast(r.unrecordable, { error: true }); return; }
     }
-    if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`); await refreshEvidenceStatus(); return; }
+    // Both are refusals: in the confirmation style they read as "done" in the very place
+    // `Recording stopped` appears, and a reader's screen reader would wait instead of interrupt.
+    if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`, { error: true }); await refreshEvidenceStatus(); return; }
     applyEvidenceStatus(r.status);
     // #123: in-page instrumentation, so Chrome shows no "…is debugging this
     // browser" bar and DevTools may stay open.
@@ -652,7 +654,7 @@ async function uploadEvidenceLog(record) {
     return url;
   } catch (e) {
     // Non-fatal: the status write already succeeded — only the log couldn't attach.
-    toast(`Test marked failed — the console & network log couldn't attach (${e.message})`);
+    toast(`Test marked failed — the console & network log couldn't attach (${e.message})`, { error: true });
     return '';
   }
 }

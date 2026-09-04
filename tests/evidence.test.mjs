@@ -703,7 +703,7 @@ test('35: Rec off the test view, or with no testrun to belong to, says so and st
 test('36: a page Chrome keeps extensions off is named, and the button comes back', async () => {
   const h = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
   await h.fn.onEvidenceToggle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
   assert.deepEqual(h.types(), []);
   assert.equal(h.store.ops('local', 'set').length, 0); // not even the body-capture flag was written
   assert.deepEqual(h.calls.disabledAt, [true]);        // held down while the resolver ran…
@@ -747,15 +747,31 @@ test('39: a recorder that refuses says why and then re-reads the truth from the 
   const h = load({ reply: () => ({ ok: false, error: 'x' }) });
   await h.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x' }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
   assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
   // A STOP the worker never answered is named too, rather than passing for a success.
   const gone = load({ reply: () => undefined });
   gone.evUi.recording = true;
   await gone.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(gone.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
+  assert.deepEqual(gone.calls.toasts, [{ msg: 'Recorder: unavailable', error: true }]);
   assert.deepEqual(gone.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
+});
+
+test('39 (#267): a recorder that refused is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  // Was the ordinary confirmation style, in the very place a success is announced.
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
+  // A page Chrome keeps extensions off is the same news, and carries the same flag.
+  const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await off.fn.onEvidenceToggle();
+  assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
+  // …while a start that WORKED stays a plain confirmation: the flag is the failure's, not the flow's.
+  const ok = load({ reply: () => ({ ok: true, status: RECORDING }) });
+  await ok.fn.onEvidenceToggle();
+  assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
 });
 
 test('39c: an unanswered START leaks its TypeError into the toast — today\'s wording, pinned', async () => {
@@ -880,7 +896,7 @@ test('43: an automatic start is silent in both outcomes — a toast on every tes
   assert.deepEqual(blocked.types(), []);
   // The tester's OWN click on that same page does say it — the silence belongs to the auto-start.
   await blocked.fn.onEvidenceToggle();
-  assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+  assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
 });
 
 test('44: a poll that finds the tester gone clears the chip FIRST and only then tells the worker', async () => {
@@ -1212,18 +1228,36 @@ test('58: an upload that fails is non-fatal — the status write already landed'
   const broke = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
   assert.equal(await broke.fn.uploadEvidenceLog({ id: '900' }), '');
   assert.deepEqual(broke.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)" },
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
   ]);
 
   const silent = load({ reply: recorded, upload: () => ({}) });
   assert.equal(await silent.fn.uploadEvidenceLog({ id: '900' }), '');
   assert.deepEqual(silent.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)" },
+    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)", error: true },
   ]);
   // A landing upload says nothing at all: the sentence is the failure's, not the flow's.
   const ok = load({ reply: recorded });
   assert.equal(await ok.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
   assert.deepEqual(ok.calls.toasts, []);
+});
+
+test('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
+  await h.fn.uploadEvidenceLog({ id: '900' });
+  // The status write landed and the evidence did not — the sentence saying so used to look
+  // exactly like the sentences that mean everything went fine.
+  assert.deepEqual(h.calls.toasts, [
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
+  ]);
+  // Those sentences are still unflagged: the upload that landed says nothing at all…
+  const ok = load({ reply: recorded });
+  await ok.fn.uploadEvidenceLog({ id: '900' });
+  assert.deepEqual(ok.calls.toasts, []);
+  // …and the one confirmation this screen does print stays a confirmation.
+  const attached = load();
+  attached.fn.attachEvidenceEntry(con());
+  assert.deepEqual(attached.calls.toasts, [{ msg: ATTACHED }]);
 });
 
 // ---------- wiring, messaging and the card (rows 60-64) ----------
@@ -1384,23 +1418,6 @@ test.todo('23 (#264): a panel with no settings loaded yet quotes the recorder\'s
   assert.equal(h.fn.evWindowSeconds(), 60);
   h.state.settings = { evidenceWindowSec: null };
   assert.equal(h.fn.evWindowSeconds(), 60);
-});
-
-// 39 and 58 are one bug: both toasts report a failure and neither is styled as one, so they read as
-// ordinary confirmations in the same place a success would appear.
-test.todo('39 (#267): a recorder that refused is toasted as an error, not as a confirmation', async () => {
-  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
-  await h.fn.onEvidenceToggle();
-  await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
-});
-
-test.todo('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
-  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
-  await h.fn.uploadEvidenceLog({ id: '900' });
-  assert.deepEqual(h.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
-  ]);
 });
 
 // 39c: the start path reads `r.unrecordable` one line above the `!r` guard the stop path gets, so a
