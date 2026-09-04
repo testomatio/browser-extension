@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary */
+/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta */
 
 // ---------- init ----------
 
@@ -88,8 +88,8 @@ async function init() {
   $('fullpage-test').addEventListener('change', (e) => setFullPageCapture(e.target.checked));
   $('btn-finish-run').addEventListener('click', finishRun);
   $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
-  initSubstatusDropdown();
-  initAssigneeDropdown();
+  TestMeta.initSubstatus();
+  TestMeta.initAssignee();
   $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure);
   for (const key of ['failure', 'artifacts', 'meta', 'steps']) {
     $(`summary-${key}-head`).addEventListener('click', () => TestSummary.toggleDisclosure(key));

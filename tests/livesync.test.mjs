@@ -118,7 +118,9 @@ function load(opts = {}) {
     renderTestProgress: () => { calls.renderTestProgress += 1; },
     renderRunInfo: () => { calls.renderRunInfo += 1; },
     applyRunLock: () => { calls.applyRunLock += 1; },
-    applyAssigneeGate: (rec) => { calls.applyAssigneeGate.push(rec ? String(rec.id) : rec); },
+    // #153's gate moved to screens/test-meta.js; livesync only asks it to re-run after a
+    // colleague's write, so the stub records the ask and tests/test-meta.test.mjs owns the rule.
+    TestMeta: { applyAssigneeGate: (rec) => { calls.applyAssigneeGate.push(rec ? String(rec.id) : rec); } },
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     toast: (msg) => { calls.toasts.push(msg); },
     refreshRunInfo: async (runId) => { calls.refreshRunInfo.push(String(runId)); return o.runInfoChanged; },
