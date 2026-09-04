@@ -21,15 +21,13 @@ import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, fakeChrome, fakeClock, makeDocument, el, event, plain, settle, rejection, ApiError } from './helpers/panel-harness.mjs';
+import { loadScreen, fakeChrome, fakeClock, makeDocument, el, plain, settle, rejection, ApiError } from './helpers/panel-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 
 const HOST = 'app.testomat.io';
 const LOCK = 'Run is finished — results are read-only';
-const ASSIGN_GATE = "Can't re-assign already marked test";
-const NONE = '— none —';
 
 // The three attach gates, verbatim. The recorder's two use commas where the others use em dashes;
 // that drift is the reason these are strings in the test and not a template.
@@ -64,8 +62,6 @@ const NODES = [
   ['button', 'btn-attach-file'], ['p', 'attach-file-reason', true],
   ['button', 'btn-screen-rec'], ['p', 'screen-rec-reason', true],
   ['ul', 'attachment-list', true], ['div', 'test-steps'],
-  ['div', 'test-substatus', true], ['span', 'test-substatus-mark', true],
-  ['div', 'test-assignee', true], ['p', 'assignee-reason', true],
   ['button', 'attachments-head'], ['div', 'attachments-body'],
   ['span', 'test-position'], ['button', 'btn-prev-test'], ['button', 'btn-next-test'],
   ['button', 'tab-test-desc'], ['button', 'tab-test-status'], ['button', 'tab-test-summary'],
@@ -85,9 +81,7 @@ function load(opts = {}) {
     hasChrome: true,
     lock: '',             // recordWriteLock()'s answer
     hidden: [],           // ids rowVisible() answers false for
-    users: [],            // usersList
-    replies: {},          // runRepliesFor(status)
-    dropdown: true,       // a panel where initSubstatusDropdown already ran
+    dropdown: true,       // a panel where TestMeta.initSubstatus already ran
     stepButtons: 0,       // `.step-state` circles inside #test-steps
     probe: null,          // run-view's runStateProbe
     comment: '',
@@ -108,34 +102,6 @@ function load(opts = {}) {
   for (let i = 0; i < o.stepButtons; i += 1) {
     node.testSteps.append(el('button', { className: 'btn icon size-xs step-state' }));
   }
-  // The assignee listbox is a real subtree: onAssigneeDocClick asks the wrapper whether the click
-  // landed inside it, so a flat fixture would answer "outside" for every option.
-  const dd = el('div', { id: 'assignee-dd' });
-  const trigger = el('button', { id: 'assignee-trigger' });
-  const value = el('span', { id: 'assignee-value' });
-  const menu = el('div', { id: 'assignee-menu' });
-  menu.hidden = true;
-  const filter = el('input', { id: 'assignee-filter', value: '' });
-  const list = el('ul', { id: 'assignee-list' });
-  const empty = el('div', { id: 'assignee-empty' });
-  empty.hidden = true;
-  trigger.append(value);
-  menu.append(filter, list, empty);
-  dd.append(trigger, menu);
-  node.testAssignee.append(dd, node.assigneeReason);
-  Object.assign(node, { assigneeDd: dd, assigneeTrigger: trigger, assigneeValue: value,
-    assigneeMenu: menu, assigneeFilter: filter, assigneeList: list, assigneeEmpty: empty });
-
-  // scrollIntoView is the one member mini-dom does not have that this screen calls, and the cursor
-  // rows go through it on every move.
-  const create = doc.createElement.bind(doc);
-  doc.createElement = (tag) => {
-    const made = create(tag);
-    made.scrollIntoView = () => {};
-    return made;
-  };
-  for (const n of Object.values(node)) n.scrollIntoView = () => {};
-
   // chrome.storage.session's writer half: the harness's fake reads only, and every draft row is
   // asserted on what the mirror actually wrote.
   const store = fakeChrome();
@@ -157,19 +123,16 @@ function load(opts = {}) {
     runViews: [],
     attachmentLists: 0,
     summary: [],        // TestSummary.render / .hide / .refresh
+    metaPaints: [],     // TestMeta's four repaints, in order
     markers: 0,
     refreshUIs: 0,
     setStatus: [],
     setStep: [],
-    substatus: [],      // { op, id, value }
-    assign: [],         // { id, value }
     meta: [],           // { id, entries }
     enqueued: [],
     removed: [],
     envMeta: [],        // every collectEnvMeta(settings)
     logUploads: [],
-    ddOptions: [],      // { options, value }
-    ddValues: [],
     probes: 0,          // awaitRunState()
   };
 
@@ -178,9 +141,6 @@ function load(opts = {}) {
   const on = {
     setStatus: async (payload) => ({ id: payload.testrunId, status: payload.status }),
     setStep: async () => ({}),
-    setSubstatus: async () => ({}),
-    clearSubstatus: async () => ({}),
-    assignTestrun: async () => ({}),
     setTestrunMeta: async () => ({}),
     forcedError: () => null,
     // offline-queue.js:30's own rule, verbatim: only a network error or a rejected token queues.
@@ -205,18 +165,8 @@ function load(opts = {}) {
   };
 
   // The substatus control the screen reaches for by id — the Dropdown's public face, not its DOM.
-  const control = {
-    trigger: el('button', { id: 'substatus-select' }),
-    disabled: false,
-    value: '',
-    options: [],
-    setOptions: (next, sOpts = {}) => {
-      control.options = plain(next);
-      calls.ddOptions.push({ options: plain(next), value: sOpts.value });
-      if ('value' in sOpts) control.value = sOpts.value;
-    },
-    setValue: (v) => { control.value = v; calls.ddValues.push(v); },
-  };
+  // Only the lock still reaches it from here; the writes moved to tests/test-meta.test.mjs.
+  const control = { trigger: el('button', { id: 'substatus-select' }), disabled: false };
 
   const rowVisible = (r) => !o.hidden.includes(String(r?.id));
 
@@ -224,7 +174,6 @@ function load(opts = {}) {
     state,
     capabilities: { jwt: o.jwt, readonly: false },
     hasChrome: o.hasChrome,
-    usersList: o.users,
     $: (id) => doc.getElementById(id),
     show: (view) => { calls.order.push(`show:${view}`); },
     toast: (msg, tOpts) => { calls.toasts.push(tOpts ? { msg, ...tOpts } : { msg }); calls.order.push('toast'); },
@@ -256,19 +205,11 @@ function load(opts = {}) {
     svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
     statusIcon: (s) => el('span', { className: 'md-icon', dataset: { icon: s } }),
     renderAttachmentList: () => { calls.attachmentLists += 1; },
-    runRepliesFor: (status) => o.replies[status] || [],
     collectEnvMeta: async (settings) => { calls.envMeta.push(plain(settings)); return on.collectEnvMeta(settings); },
     uploadEvidenceLog: async (record) => { calls.logUploads.push(record?.id ?? null); return on.uploadEvidenceLog(record); },
     // run-view.js's pair: the run's archived answer, which may still be in flight when a click lands.
     runStateProbe: o.probe,
     awaitRunState: async () => { calls.probes += 1; calls.order.push('probe'); return on.awaitRunState(); },
-    Icons: {
-      el: (name, size = 16, ...cls) => {
-        const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
-        n.classList.add(...cls.filter(Boolean));
-        return n;
-      },
-    },
     // The real one writes data-tip on the node it is given (shared/tooltip.js:257,267); a recorder
     // alone could not tell a tip that landed on the right element from one that went nowhere.
     Tooltip: {
@@ -277,13 +218,6 @@ function load(opts = {}) {
         return n;
       },
       get: (n) => (n && n.dataset ? (n.dataset.tip || '') : ''),
-    },
-    UserCell: {
-      cell: (user) => {
-        const box = el('span', { className: 'user-cell', dataset: { email: user?.email || '' } });
-        box.textContent = user?.name || user?.email || '';
-        return box;
-      },
     },
     Dropdown: {
       of: (id) => (id === 'substatus-select' && o.dropdown ? control : null),
@@ -294,9 +228,6 @@ function load(opts = {}) {
       jwtAvailable: () => o.jwtAvailable,
       setStatus: async (payload) => { calls.setStatus.push(plain(payload)); calls.order.push('setStatus'); return on.setStatus(payload); },
       setStep: async (id, body) => { calls.setStep.push({ id, body: plain(body) }); calls.order.push('setStep'); return on.setStep(id, body); },
-      setSubstatus: async (id, v) => { calls.substatus.push({ op: 'set', id, value: v }); return on.setSubstatus(id, v); },
-      clearSubstatus: async (id) => { calls.substatus.push({ op: 'clear', id, value: null }); return on.clearSubstatus(id); },
-      assignTestrun: async (id, v) => { calls.assign.push({ id, value: v }); return on.assignTestrun(id, v); },
       setTestrunMeta: async (id, entries) => { calls.meta.push({ id, entries: plain(entries) }); return on.setTestrunMeta(id, entries); },
     },
     // The draft store moved to screens/test-drafts.js, which has its own suite; here the write
@@ -308,6 +239,14 @@ function load(opts = {}) {
       render: () => { calls.summary.push('render'); },
       hide: () => { calls.summary.push('hide'); },
       refresh: () => { calls.summary.push('refresh'); calls.order.push('refreshSummary'); },
+    },
+    // And for the custom status and the assignee (screens/test-meta.js, tests/test-meta.test.mjs):
+    // a landed verdict only asks them to repaint and to re-gate, so the stub records the ask.
+    TestMeta: {
+      renderSubstatus: () => { calls.metaPaints.push('substatus'); },
+      renderSubstatusMark: () => { calls.metaPaints.push('mark'); },
+      renderAssignee: () => { calls.metaPaints.push('assignee'); },
+      applyAssigneeGate: (r) => { calls.metaPaints.push(`gate:${r?.status ?? ''}`); },
     },
     OfflineQueue: {
       forcedError: () => on.forcedError(),
@@ -337,9 +276,7 @@ function load(opts = {}) {
     now: o.now,
     // Every name below is a lexical `const`/`let` — invisible as a sandbox property, reachable only
     // off the completion value. The mutable ones are getters or a test snapshots the load-time value.
-    exported: `({ ASSIGN_GATE_REASON,
-      stepWriteChain: () => stepWriteChain,
-      assigneeActiveId: () => assigneeActiveId })`,
+    exported: '({ stepWriteChain: () => stepWriteChain })',
   });
 
   // nextTest calls openTestView, a declaration in this same file — so the seam is the sandbox
@@ -358,9 +295,6 @@ function load(opts = {}) {
       node.testSteps.append(li);
       return { li, ctrl, title: 'Open the site', pos: 0, index: 0, kind: 'step', state: 'unset', ...over };
     },
-    // What the tester sees under the cursor in the listbox.
-    activeOption: () => node.assigneeList.querySelector('.active')?.id ?? null,
-    optionIds: () => node.assigneeList.children.map((li) => li.dataset.userId),
     lastLine: () => calls.lines[calls.lines.length - 1] ?? null,
     writeState: () => node.testStatus.dataset.write,
   };
@@ -456,305 +390,6 @@ test('62b: …and a REJECTED first write still lets the second one through', asy
   assert.deepEqual(h.calls.setStep.map((c) => c.body.title), ['one', 'two']);
 });
 
-// ---------- assignee and substatus writes (rows 63-75, 157-158) ----------
-
-test('63: a custom status is written and shown before the server answers', async () => {
-  const h = load({ records: [rec(7, { status: 'failed' })], replies: { failed: ['Needs investigation'] } });
-  const done = h.fn.onSubstatusChange('Needs investigation');
-  assert.equal(h.state.records[0].substatus, 'Needs investigation'); // optimistic
-  assert.equal(h.node.testSubstatusMark.textContent, 'Needs investigation');
-  await done;
-  assert.deepEqual(h.calls.substatus, [{ op: 'set', id: 7, value: 'Needs investigation' }]);
-  assert.equal(h.calls.beginWrites, 1);
-  assert.equal(h.calls.endWrites, 1);
-});
-
-test('64: the empty row is how a custom status comes back OFF', async () => {
-  const h = load({ records: [rec(7, { status: 'failed', substatus: 'Needs investigation' })] });
-  await h.fn.onSubstatusChange('');
-  assert.deepEqual(h.calls.substatus, [{ op: 'clear', id: 7, value: null }]);
-  assert.equal(h.state.records[0].substatus, '');
-});
-
-test('65: a second change while the first is in flight is ignored, and the face re-synced', async () => {
-  const h = load({ records: [rec(7, { status: 'failed' })] });
-  const held = deferred();
-  h.on.setSubstatus = async () => held.promise;
-  const first = h.fn.onSubstatusChange('Needs investigation');
-  await settle();
-  const second = h.fn.onSubstatusChange('Blocked');
-  await settle();
-  assert.deepEqual(h.calls.substatus.map((c) => c.value), ['Needs investigation']);
-  assert.deepEqual(h.calls.ddValues, ['Needs investigation']); // put back to what the record holds
-  held.resolve({});
-  await Promise.all([first, second]);
-});
-
-test('66: a locked result refuses the change and re-syncs the face', async () => {
-  const h = load({ lock: LOCK, records: [rec(7, { status: 'failed', substatus: 'Blocked' })] });
-  await h.fn.onSubstatusChange('Needs investigation');
-  assert.deepEqual(h.calls.substatus, []);
-  assert.deepEqual(h.calls.ddValues, ['Blocked']);
-  assert.equal(h.state.records[0].substatus, 'Blocked');
-});
-
-test('67: an expired token rolls the custom status back and speaks on the LINE, not a toast', async () => {
-  const h = load({ records: [rec(7, { status: 'failed', substatus: 'Blocked' })] });
-  h.on.setSubstatus = async () => { throw new h.ApiError('auth', 401, 'token rejected'); };
-  await h.fn.onSubstatusChange('Needs investigation');
-  assert.equal(h.state.records[0].substatus, 'Blocked');
-  assert.deepEqual(h.calls.ddValues, ['Blocked']);
-  assert.deepEqual(h.calls.authLines, ['test-status']);
-  assert.deepEqual(h.calls.toasts, []);
-});
-
-test('67b: …every other failure is a toast, and no auth line', async () => {
-  const h = load({ records: [rec(7, { status: 'failed', substatus: 'Blocked' })] });
-  h.on.setSubstatus = async () => { throw new h.ApiError('http', 500, 'server said no'); };
-  await h.fn.onSubstatusChange('Needs investigation');
-  assert.equal(h.state.records[0].substatus, 'Blocked');
-  assert.deepEqual(h.calls.authLines, []);
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Custom status not saved: server said no', error: true }]);
-});
-
-test('68: assigning writes the member id and shows the member\'s EMAIL straight away', async () => {
-  const h = load({ users: [{ id: '12', name: 'Ann', email: 'A@x.io' }] });
-  const done = h.fn.onAssigneeChange('12');
-  assert.equal(h.state.records[0].assigned_to, 'A@x.io'); // the shape the v2 read echoes back
-  assert.equal(h.node.assigneeTrigger.disabled, true);
-  await done;
-  assert.deepEqual(h.calls.assign, [{ id: 7, value: '12' }]);
-  assert.equal(h.node.assigneeTrigger.dataset.userId, '12');
-  assert.equal(h.node.assigneeTrigger.disabled, false);
-  assert.equal(h.node.assigneeTrigger.classList.contains('saved-flash'), true);
-  await h.clock.tick();
-  assert.equal(h.node.assigneeTrigger.classList.contains('saved-flash'), false);
-});
-
-test('68b: a rejected assign puts the previous member back and toasts', async () => {
-  const h = load({
-    users: [{ id: '12', name: 'Ann', email: 'A@x.io' }, { id: '9', name: 'Bo', email: 'b@x.io' }],
-    records: [rec(7, { assigned_to: 'b@x.io' })],
-  });
-  h.on.assignTestrun = async () => { throw new h.ApiError('http', 500, 'nope'); };
-  await h.fn.onAssigneeChange('12');
-  assert.equal(h.state.records[0].assigned_to, 'b@x.io');
-  assert.equal(h.node.assigneeTrigger.dataset.userId, '9');
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Assignee not saved: nope', error: true }]);
-});
-
-test('69: the empty value UNASSIGNS — a null id and a null email', async () => {
-  const h = load({
-    users: [{ id: '12', name: 'Ann', email: 'A@x.io' }],
-    records: [rec(7, { assigned_to: 'A@x.io' })],
-  });
-  await h.fn.onAssigneeChange('');
-  assert.deepEqual(h.calls.assign, [{ id: 7, value: null }]);
-  assert.equal(h.state.records[0].assigned_to, null);
-});
-
-test('70: picking the member who already holds it writes nothing', async () => {
-  const h = load({
-    users: [{ id: '12', name: 'Ann', email: 'A@x.io' }],
-    records: [rec(7, { assigned_to: 'a@X.io' })], // the same address, cased the other way
-  });
-  await h.fn.onAssigneeChange('12');
-  assert.deepEqual(h.calls.assign, []);
-});
-
-test('71: a row that already has a verdict is no longer re-assignable', async () => {
-  const h = load({ users: [{ id: '12', name: 'Ann', email: 'A@x.io' }], records: [rec(7, { status: 'failed' })] });
-  await h.fn.onAssigneeChange('12');
-  assert.deepEqual(h.calls.assign, []);
-  assert.equal(h.node.assigneeTrigger.disabled, true);
-  assert.equal(h.node.assigneeReason.textContent, ASSIGN_GATE);
-  assert.equal(h.node.assigneeReason.hidden, false);
-  assert.equal(h.node.assigneeTrigger.dataset.tip, ASSIGN_GATE);
-});
-
-test('72: the echoed email maps back to a member id, case-insensitively', () => {
-  const h = load({ users: [{ id: '9', name: 'Ann', email: 'A@x.io' }] });
-  assert.equal(h.fn.assignedUserId({ assigned_to: 'a@X.io' }), '9');
-});
-
-test('73: an unassigned row, an unknown address and no member list all answer ""', () => {
-  const h = load({ users: [{ id: '9', email: 'A@x.io' }] });
-  assert.equal(h.fn.assignedUserId({}), '');
-  assert.equal(h.fn.assignedUserId({ assigned_to: 'stranger@x.io' }), '');
-  h.fn.usersList = null;
-  assert.equal(h.fn.assignedUserId({ assigned_to: 'A@x.io' }), '');
-});
-
-test('74: a marked row states the reason it cannot be re-assigned', () => {
-  const h = load();
-  assert.equal(h.lex.ASSIGN_GATE_REASON, ASSIGN_GATE);
-  assert.equal(h.fn.assigneeGateReason({ status: 'failed' }), ASSIGN_GATE);
-  assert.equal(h.fn.assigneeGateReason({ status: 'passed' }), ASSIGN_GATE);
-});
-
-test('75: pending folds to untested, and no record at all is not a gate', () => {
-  const h = load();
-  assert.equal(h.fn.assigneeGateReason({ status: 'pending' }), '');
-  assert.equal(h.fn.assigneeGateReason({}), '');
-  assert.equal(h.fn.assigneeGateReason(null), '');
-});
-
-test('157: the reply group is offered with the empty row first, and the record\'s own value picked', () => {
-  const h = load({
-    records: [rec(7, { status: 'failed', substatus: 'Blocked' })],
-    replies: { failed: ['Blocked', 'Needs investigation'] },
-  });
-  h.fn.renderSubstatus(h.state.records[0]);
-  assert.equal(h.node.testSubstatus.hidden, false);
-  assert.deepEqual(h.calls.ddOptions, [{
-    options: [{ value: '', label: NONE }, { value: 'Blocked', label: 'Blocked' },
-      { value: 'Needs investigation', label: 'Needs investigation' }],
-    value: 'Blocked',
-  }]);
-});
-
-test('157b: a value the project no longer replies with falls back to the empty row', () => {
-  const h = load({
-    records: [rec(7, { status: 'failed', substatus: 'Retired' })],
-    replies: { failed: ['Blocked'] },
-  });
-  h.fn.renderSubstatus(h.state.records[0]);
-  assert.equal(h.calls.ddOptions[0].value, '');
-});
-
-test('158: no reply group, no JWT and a pending row each hide the control and clear it', () => {
-  for (const [why, opts] of [
-    ['no reply group', { records: [rec(7, { status: 'failed' })], replies: {} }],
-    ['no jwt', { jwt: false, records: [rec(7, { status: 'failed' })], replies: { failed: ['Blocked'] } }],
-    ['pending', { records: [rec(7)], replies: { pending: ['Blocked'] } }],
-    ['no result id', { records: [rec(7, { status: 'failed' })], replies: { failed: ['Blocked'] } }],
-  ]) {
-    const h = load(opts);
-    const record = why === 'no result id' ? { ...h.state.records[0], id: null } : h.state.records[0];
-    h.fn.renderSubstatus(record);
-    assert.equal(h.node.testSubstatus.hidden, true, why);
-    assert.deepEqual(h.calls.ddOptions, [{ options: [], value: undefined }], why);
-  }
-});
-
-// ---------- the assignee listbox keyboard (rows 147-156) ----------
-
-// Member ids are STRINGS everywhere below because the read builds them that way (api.js:481) and
-// the cursor compares them with `===` — a number would never match the row it is sitting on.
-test('147: the list always opens with Unassigned above the members', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann' }] });
-  assert.deepEqual(plain(h.fn.assigneeRows()), [
-    { id: '', name: 'Unassigned', email: '' }, { id: '1', name: 'Ann' },
-  ]);
-});
-
-test('148: the filter matches a name or an address, and Unassigned is filterable too', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }, { id: '2', name: 'Bo', email: 'brian@x.io' }] });
-  h.fn.openAssigneeMenu();
-  h.node.assigneeFilter.value = 'AN';
-  h.fn.onAssigneeFilterInput();
-  assert.deepEqual(h.optionIds(), ['1', '2']); // Ann by name, Brian by address
-  h.node.assigneeFilter.value = 'una';
-  h.fn.onAssigneeFilterInput();
-  assert.deepEqual(h.optionIds(), ['']);
-});
-
-test('149: a filter that matches nobody empties the list and shows the empty state', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  h.fn.openAssigneeMenu();
-  assert.equal(h.node.assigneeEmpty.hidden, true);
-  h.node.assigneeFilter.value = 'zz';
-  h.fn.onAssigneeFilterInput();
-  assert.deepEqual(plain(h.fn.assigneeRows()), []);
-  assert.deepEqual(h.optionIds(), []);
-  assert.equal(h.node.assigneeEmpty.hidden, false);
-});
-
-test('150: the cursor clamps at the last row instead of wrapping', () => {
-  const h = load({
-    users: [{ id: '1', name: 'Ann', email: 'a@x.io' }, { id: '2', name: 'Bo', email: 'b@x.io' }],
-    records: [rec(7, { assigned_to: 'b@x.io' })],
-  });
-  h.fn.openAssigneeMenu();
-  assert.equal(h.activeOption(), 'assignee-opt-2');
-  h.fn.moveAssigneeActive(1);
-  assert.equal(h.activeOption(), 'assignee-opt-2');
-  assert.equal(h.node.assigneeFilter.getAttribute('aria-activedescendant'), 'assignee-opt-2');
-  // …and one step the other way does move, so the clamp is a clamp and not a dead control.
-  h.fn.moveAssigneeActive(-1);
-  assert.equal(h.activeOption(), 'assignee-opt-1');
-});
-
-test('151: with no cursor yet, either direction lands on the first row', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  assert.equal(h.lex.assigneeActiveId(), null);
-  h.fn.moveAssigneeActive(-1);
-  assert.equal(h.lex.assigneeActiveId(), '');
-});
-
-test('152: Escape closes the menu and hands focus back to the trigger', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  h.fn.openAssigneeMenu();
-  const ev = event(h.doc, 'keydown', { key: 'Escape' });
-  h.fn.onAssigneeMenuKey(ev);
-  assert.equal(h.node.assigneeMenu.hidden, true);
-  assert.equal(h.doc.activeElement, h.node.assigneeTrigger);
-  assert.equal(ev.defaultPrevented, true);
-  assert.equal(ev.propagationStopped, true);
-  // …and the document-level listeners the open registered are gone with it.
-  assert.equal(h.doc.listeners.get('keydown').length, 0);
-  assert.equal(h.doc.listeners.get('click').length, 0);
-});
-
-test('153: Tab closes the menu but is NOT swallowed — focus is leaving on purpose', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  h.fn.openAssigneeMenu();
-  const ev = event(h.doc, 'keydown', { key: 'Tab' });
-  h.fn.onAssigneeMenuKey(ev);
-  assert.equal(h.node.assigneeMenu.hidden, true);
-  assert.equal(ev.defaultPrevented, false);
-  assert.equal(ev.propagationStopped, false);
-});
-
-test('154: Enter on the cursor row assigns that member', async () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }, { id: '2', name: 'Bo', email: 'b@x.io' }] });
-  h.fn.openAssigneeMenu();
-  h.fn.moveAssigneeActive(1); // off Unassigned, onto Ann
-  const ev = event(h.doc, 'keydown', { key: 'Enter' });
-  h.fn.onAssigneeMenuKey(ev);
-  await settle();
-  assert.deepEqual(h.calls.assign, [{ id: 7, value: '1' }]);
-  assert.equal(h.node.assigneeMenu.hidden, true);
-  assert.equal(ev.defaultPrevented, true);
-});
-
-test('155: Space opens the closed trigger and keeps the page from scrolling', () => {
-  const h = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  const ev = event(h.node.assigneeTrigger, 'keydown', { key: ' ' });
-  h.fn.onAssigneeTriggerKey(ev);
-  assert.equal(h.node.assigneeMenu.hidden, false);
-  assert.equal(ev.defaultPrevented, true);
-  // …a key with no meaning here leaves both alone.
-  const h2 = load({ users: [{ id: '1', name: 'Ann', email: 'a@x.io' }] });
-  const other = event(h2.node.assigneeTrigger, 'keydown', { key: 'x' });
-  h2.fn.onAssigneeTriggerKey(other);
-  assert.equal(h2.node.assigneeMenu.hidden, true);
-  assert.equal(other.defaultPrevented, false);
-});
-
-test('156: typing in the filter moves the cursor to the first match', () => {
-  const h = load({
-    users: [{ id: '1', name: 'Zoe', email: 'zoe@x.io' }, { id: '2', name: 'Zack', email: 'zack@x.io' }],
-    records: [rec(7, { assigned_to: 'zack@x.io' })],
-  });
-  h.fn.openAssigneeMenu();
-  assert.equal(h.activeOption(), 'assignee-opt-2'); // the member the row already holds
-  h.node.assigneeFilter.value = 'z'; // both still match, so only the reset can move the cursor
-  h.fn.onAssigneeFilterInput();
-  assert.deepEqual(h.optionIds(), ['1', '2']);
-  assert.equal(h.activeOption(), 'assignee-opt-1');
-});
-
 // ---------- status click and write state (rows 88-95) ----------
 
 test('88: a click while a write is already running returns before anything is painted', async () => {
@@ -841,6 +476,9 @@ test('91: a landed click says NOTHING on the line and moves the screen to Status
   // The card belongs to screens/test-summary.js now, so the landed verdict owes it a repaint —
   // without this row, 90c's "queued does NOT refresh" would pass against a screen refreshing never.
   assert.deepEqual(h.calls.summary, ['refresh']);
+  // Same for the metadata pair (screens/test-meta.js): the status just changed, so the reply group
+  // is re-offered and the #153 assignee gate re-applied — across a file boundary now.
+  assert.deepEqual(h.calls.metaPaints, ['substatus', 'mark', 'gate:passed']);
 });
 
 test('92: FAILED reopens the attachments fold and still does not navigate', async () => {

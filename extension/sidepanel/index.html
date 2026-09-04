@@ -669,10 +669,10 @@
               </div>
             </div>
             <!-- #153: why the trigger above is dead — a row that already carries a result can no longer be
-                 re-assigned (web parity). Filled/hidden by applyAssigneeGate(). -->
+                 re-assigned (web parity). Filled/hidden by TestMeta.applyAssigneeGate(). -->
             <p id="assignee-reason" class="hint inline-reason" hidden></p>
           </div>
-          <!-- Custom status: the shared Dropdown (initSubstatusDropdown()). A <label for> cannot name a
+          <!-- Custom status: the shared Dropdown (TestMeta.initSubstatus()). A <label for> cannot name a
                button, so the word is a <span> the trigger points at with aria-labelledby. -->
           <div id="test-substatus" class="substatus" hidden>
             <span id="substatus-label" class="substatus-label">Custom status</span>
@@ -885,6 +885,8 @@
   <!-- The result summary card, and the file tile every list of files wears — so it must come
        before screens/attachments.js, which draws a manual upload with that same tile. -->
   <script src="screens/test-summary.js"></script>
+  <!-- The custom status and the assignee, wired by app init and re-gated by screens/livesync.js. -->
+  <script src="screens/test-meta.js"></script>
   <script src="screens/test-view.js"></script>
   <script src="screens/livesync.js"></script>
   <script src="screens/offline-queue.js"></script>

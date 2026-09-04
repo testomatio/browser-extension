@@ -4,7 +4,7 @@
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
    refreshRunInfo, refreshRunFinished, renderRunInfo, refreshSuiteFraction, renderRunView,
-   renderTestProgress, applyRunLock, applyAssigneeGate, recordFor, toast, OfflineQueue,
+   renderTestProgress, applyRunLock, TestMeta, recordFor, toast, OfflineQueue,
    $, setStatusLine */
 
 let syncTimer = null;
@@ -180,7 +180,7 @@ function syncApply(remote) {
   if (state.view === 'test') renderTestProgress();
   // #153: a COLLEAGUE's status write closes the assignee gate on the open test too
   // — the select is otherwise repainted only on open.
-  if (openToast && typeof applyAssigneeGate === 'function') applyAssigneeGate(recordFor(openId));
+  if (openToast && typeof TestMeta !== 'undefined') TestMeta.applyAssigneeGate(recordFor(openId));
   if (openToast) toast(`"${openToast.title}" → ${capStatus(openToast.status)}`);
 }
 
