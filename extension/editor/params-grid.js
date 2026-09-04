@@ -1,5 +1,5 @@
 // The test-parameters grid (IIFE global `ParamsGrid`): the model a seed is squared off into, and
-// the folded control that renders it. The read-only table under a test stays in the editor.
+// the folded control that renders it. The read-only table under a test is view.js's.
 
 /* global EditorIcons, Tooltip, TestomatAPI */
 const ParamsGrid = (() => {
