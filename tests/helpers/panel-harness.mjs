@@ -153,7 +153,7 @@ export function fakeWindow() {
   };
 }
 
-// ---------- BEGIN #159 — a controllable clock and a settable visibilityState ----------
+// ---------- the clock ----------
 
 // A REAL interval keeps the node test process alive for its whole period; these fire only when a
 // test calls tick(). Same shape core-harness.mjs proves: callbacks held, clear() really unregisters.
@@ -200,8 +200,6 @@ export function fakeClock() {
   };
 }
 
-// ---------- END #159 ----------
-
 // ---------- the loader ----------
 
 // `exported` names the screen's published `const` — the trailing completion expression. `globals` is
@@ -212,14 +210,14 @@ export function loadScreen(name, opts = {}) {
     globals = {},
     ids = [],
     now,
-    clock = null,          // #159: a fakeClock() whose timers replace the realm's
-    visibility = 'visible', // #159: mini-dom has no visibilityState; the poll gate reads one
+    clock = null,          // a fakeClock() whose timers replace the realm's
+    visibility = 'visible', // mini-dom has no visibilityState; the poll gate reads one
     store = fakeChrome(opts),
     document: doc = makeDocument(ids),
     window: win = fakeWindow(),
   } = opts;
 
-  // #159: without it the gate silently takes its "no such property" branch and passes for the
+  // Without it a poll gate silently takes its "no such property" branch and passes for the
   // wrong reason — the same trap this file already documents for `URL`.
   if (doc.visibilityState === undefined) doc.visibilityState = visibility;
 
@@ -244,7 +242,7 @@ export function loadScreen(name, opts = {}) {
 
   return {
     screen, fn: sandbox, sandbox, doc, window: win, store, ApiError, plain, settle, rejection, clock,
-    // #159: changing the value and firing the event are the one act a browser performs.
+    // Changing the value and firing the event are the one act a browser performs.
     visibility: (value) => { doc.visibilityState = value; doc.dispatchEvent(event(doc, 'visibilitychange')); },
   };
 }

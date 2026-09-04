@@ -487,7 +487,7 @@ test("21: today's sort is a string compare, so a record id of '10' lands before 
   assert.deepEqual(numbers.state.records.map((r) => r.id), [9, 10]);
 });
 
-test.todo("21 (TODO(issue)): record ids sort numerically whatever their type — '9' before '10'", async () => {
+test.todo("21 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
   const h = load({ records: [], answer: () => Promise.resolve([{ id: '9' }, { id: '10' }]) });
   await h.fn.startLiveSync();
   await h.clock.tick();
@@ -615,7 +615,7 @@ test('30: a colleague marking the open test toasts it once and re-runs the assig
   assert.deepEqual(bare.calls.toasts, ['"Test t9" → Passed']);
 });
 
-test('31: the same change on a row that is not open repaints it and says nothing', () => {
+test('31: only the test actually on screen is toasted — not another row, and not the run list', () => {
   const h = load({
     view: 'test',
     currentRecordId: 2,
@@ -631,6 +631,18 @@ test('31: the same change on a row that is not open repaints it and says nothing
   assert.deepEqual(h.calls.repaintRow, ['1']);
   assert.deepEqual(h.calls.toasts, []);
   assert.deepEqual(h.calls.applyAssigneeGate, []);
+
+  // Back on the run list, the row the tester last had open changes: the id still matches, the view
+  // does not, and a toast about a test that is not on screen would be wrong.
+  const listed = load({
+    view: 'run',
+    currentRecordId: 2,
+    records: [{ id: 2, status: 'failed', test_title: 'Login works' }],
+  });
+  listed.fn.syncApply([{ id: 2, status: 'passed', test_title: 'Login works' }]);
+  assert.deepEqual(listed.calls.repaintRow, ['2']); // it did repaint, so the two rows above are not empty
+  assert.deepEqual(listed.calls.toasts, []);
+  assert.deepEqual(listed.calls.applyAssigneeGate, []);
 });
 
 test('32: a poll that brings nothing new paints nothing at all', () => {
