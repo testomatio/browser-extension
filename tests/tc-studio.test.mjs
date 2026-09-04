@@ -73,7 +73,9 @@ function load(opts = {}) {
       create: el('button', { id: 'tc-quick-create', disabled: true, textContent: 'Create' }),
       bulk: el('input', { id: 'tc-quick-bulk', type: 'checkbox', checked: false, disabled: false }),
     });
-    doc.body.append(node.title, node.titles, node.create, node.bulk);
+    // index.html's shape: the tip lives on the LABEL, because a disabled input answers no pointer.
+    node.bulkLabel = el('label', { className: 'choice tc-quick-bulk', dataset: { tip: 'Add more' } }, node.bulk);
+    doc.body.append(node.title, node.titles, node.create, node.bulkLabel);
   }
 
   const calls = {
@@ -195,6 +197,7 @@ function load(opts = {}) {
     $: (id) => doc.getElementById(id),
     show: (view) => { calls.shows.push(view); calls.order.push(`show:${view}`); },
     toast: (msg) => { calls.toasts.push(msg); calls.order.push('toast'); },
+    baseUrlHost: () => 'app.testomat.io', // core/views.js's own — the lock names where to sign in
     setStatusLine: (id, text) => { calls.lines.push({ id, text }); },
     setTabCount: (tab, n) => { calls.tabCounts.push([tab, n]); },
     paintCounter: (box, value) => { calls.counters.push(value); box.textContent = String(value); },
@@ -210,7 +213,15 @@ function load(opts = {}) {
       show: (view) => { calls.skeleton.push(['show', view]); return { view }; },
       hide: (handle) => { calls.skeleton.push(['hide', handle ? handle.view : handle]); },
     },
-    Tooltip: { set: (n, tip) => { calls.tips.push(tip); } },
+    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
+    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    Tooltip: {
+      set: (n, tip) => {
+        calls.tips.push(tip);
+        if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
+        return n;
+      },
+    },
     Icons: { emoji: emojiSpan },
     svgIcon: (name) => el('span', { className: 'md-icon', dataset: { icon: name } }),
     treeIcon,
@@ -305,6 +316,8 @@ function load(opts = {}) {
     // The tester's own two acts on the bar.
     type: (fieldNode, value) => { fieldNode.value = value; fire(fieldNode, 'input'); },
     switchBulk: (on2) => { node.bulk.checked = on2; fire(node.bulk, 'change'); },
+    // The web session answering differently later — it can lapse while the bar is open.
+    setJwt: (v) => { o.jwt = v; },
     // The open inline create row, and the field inside it.
     newRow: () => node.tree.querySelector('.tc-new-suite'),
     newInput: () => node.tree.querySelector('.tc-new-suite .tree-input'),
@@ -640,6 +653,27 @@ test('69: a folders own New suite sends the folder as the parent, keeps it open,
   assert.deepEqual(h.calls.emojiIndex.length, 1);
   assert.deepEqual(h.rowIds(), ['f1', 'new-1']); // the re-render replaced the input row with the node
   assert.equal(h.newRow(), null);
+});
+
+test('69c: a folder the tester collapsed while naming is opened again, so the new suite is not hidden', async () => {
+  const h = load({ suites: [folder('f1', 'Checkout')] });
+  h.on.orderedTree = async () => [folder('f1', 'Checkout', [file('new-1', 'Guest checkout')])];
+  h.fn.renderSuiteTree(h.state.tcSuites);
+
+  fire(h.rowFor('f1').querySelectorAll('.tc-new')[0], 'click'); // opens the folder to show the input
+  // Two clicks to fold: the pill opened the folder without telling the row handler, so its first
+  // click only re-opens what is already open.
+  fire(h.rowFor('f1'), 'click');
+  fire(h.rowFor('f1'), 'click');
+  assert.equal(h.state.tcExpanded.f1, false);
+
+  h.newInput().value = 'Guest checkout';
+  fire(h.newInput(), 'keydown', { key: 'Enter' });
+  await settle();
+
+  // Without this the suite lands inside a shut folder and reads as "nothing happened".
+  assert.equal(h.state.tcExpanded.f1, true);
+  assert.deepEqual(h.rowIds(), ['f1', 'new-1']);
 });
 
 test('69b: the tick creates the same suite the Enter key does, and a folder row asks for a folder', async () => {
@@ -1570,30 +1604,38 @@ test('63: a panel drawn without the bar is not a crash', () => {
 
 // ---------- the switch nobody gates (#263) ----------
 
-test('63b (#263): the Bulk switch is offered and live on a token-only connection, and its request goes out unasked', async () => {
+test('63b: Bulk is not offered on a token-only connection, and the session is re-asked at submit (#263)', async () => {
   // bulkCreateTests goes through jwtRequest and needs an active web session; createTest does not.
-  // Nothing in this screen asks which connection it has, so the tester is offered a switch that fails.
-  const h = load({ suiteId: 's1', jwt: false });
-  h.on.bulk = async () => { throw new Error('Bulk needs an active app.testomat.io web login'); };
+  const none = load({ suiteId: 's1', jwt: false });
+  none.fn.resetTcQuickBar();
+  assert.equal(none.node.bulk.disabled, true);
+  assert.match(none.node.bulkLabel.dataset.tip, /web login/);
 
+  // The same bar WITH a session offers it, and keeps its ordinary tip — so the row above is not
+  // asserting a switch that is disabled whatever happens.
+  const h = load({ suiteId: 's1', jwt: true });
   h.fn.resetTcQuickBar();
-  assert.equal(h.node.bulk.disabled, false, 'the switch is drawn live on a session it cannot use');
-  assert.notEqual(h.node.bulk.hidden, true);
-  assert.equal(h.calls.jwtAsked, 0, 'the bar never asks whether a web session exists');
+  assert.equal(h.node.bulk.disabled, false);
+  assert.equal(h.node.bulkLabel.dataset.tip, 'Add more');
 
+  // Still probing is not a refusal: an 'unknown' answer must never take the switch away.
+  const probing = load({ suiteId: 's1', jwt: 'unknown' });
+  probing.fn.resetTcQuickBar();
+  assert.equal(probing.node.bulk.disabled, false);
+
+  // And the session can lapse after the bar was drawn: the submit asks again and sends nothing.
   h.switchBulk(true);
   h.type(h.node.titles, 'a\nb');
+  h.setJwt(false);
   await h.fn.submitTcQuick();
-  assert.equal(h.calls.jwtAsked, 0, 'and it does not re-ask at submit either');
-  assert.deepEqual(h.calls.bulks, [{ suiteId: 's1', titles: ['a', 'b'] }]);
-  assert.deepEqual(h.calls.toasts, ['Bulk needs an active app.testomat.io web login']);
+  assert.deepEqual(h.calls.bulks, []);
+  assert.match(h.calls.toasts.at(-1), /web login/);
 
-  // The same bar on the same connection WITHOUT Bulk works — which is the shape of the bug.
+  // The single-title path never needed the web session and still does not.
   h.switchBulk(false);
   h.type(h.node.title, 'Login');
   await h.fn.submitTcQuick();
   assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
-  assert.deepEqual(h.calls.toasts, ['Bulk needs an active app.testomat.io web login']);
 });
 
 // ---------- the hand-off to the test page (rows 64-67) ----------

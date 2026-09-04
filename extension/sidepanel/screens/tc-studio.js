@@ -615,6 +615,15 @@ const tcQuickLines = () =>
 // What the button would send, in either mode.
 const tcQuickTitles = () => (tcQuickBulkOn() ? tcQuickLines() : [tcQuickTitle()].filter(Boolean));
 
+// '' = the whole list can go out, else why not. Bulk rides the WEB session (jwtRequest) while a
+// single title does not, so a token-only panel must not be offered a switch its request would refuse.
+function tcBulkLock() {
+  // 'unknown' is still probing and must never gate — only an explicit refusal does.
+  return TestomatAPI.jwtAvailable() === false
+    ? `Bulk needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
+    : '';
+}
+
 // Nothing to send, or a send already out — either way there is nothing to press.
 function syncTcQuickCreate() {
   const btn = $('tc-quick-create');
@@ -626,7 +635,10 @@ function setTcQuickBusy(busy) {
   tcQuickBusy = busy;
   $('tc-quick-title').readOnly = busy;
   $('tc-quick-titles').readOnly = busy;
-  $('tc-quick-bulk').disabled = busy;
+  const lock = tcBulkLock();
+  $('tc-quick-bulk').disabled = busy || !!lock;
+  // The tip sits on the LABEL: a disabled input answers no pointer, so its own tip would never show.
+  Tooltip.set($('tc-quick-bulk').parentElement, lock || 'Add more');
   $('tc-quick-create').textContent = busy ? 'Creating…' : 'Create';
   syncTcQuickCreate();
 }
@@ -686,6 +698,9 @@ async function submitTcQuick() {
   const titles = tcQuickTitles();
   if (tcQuickBusy || !titles.length || !state.tcSuiteId) return;
   const bulk = tcQuickBulkOn();
+  // The web session can lapse between opening the suite and pressing Create.
+  const lock = bulk ? tcBulkLock() : '';
+  if (lock) { toast(lock); return; }
   const suiteId = state.tcSuiteId;
   const field = bulk ? $('tc-quick-titles') : $('tc-quick-title');
   setTcQuickBusy(true);
