@@ -109,6 +109,8 @@ function evIcon(e) {
 
 // Readable .txt artifact (header + Console + Network sections) for auto-attach. UPLOADED onto the
 // result, so every address in it goes through envTrimUrl — a query string carries tokens (PRIVACY.md).
+// Unconditional, unlike the env meta's one line: this file is every request of a whole minute, and
+// it stays on the result for the team to read, so the full-URL setting deliberately does not reach it.
 function evBuildTxt(runTitle, testTitle, entries, status) {
   const lines = [];
   lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
@@ -397,7 +399,9 @@ async function onEvidenceToggle() {
       // to belong to would be the very thing this scoping removes.
       if (state.view !== 'test' || state.currentRecordId == null) { toast('Open a test to record its console & network log'); return; }
       r = await evStartRecording();
-      if (r.unrecordable) { toast(r.unrecordable, { error: true }); return; }
+      // `r` is undefined when the worker answered nothing at all — that case belongs to the
+      // `!r` guard below, which has the sentence for it; reading a field here threw instead.
+      if (r && r.unrecordable) { toast(r.unrecordable, { error: true }); return; }
     }
     // Both are refusals: in the confirmation style they read as "done" in the very place
     // `Recording stopped` appears, and a reader's screen reader would wait instead of interrupt.

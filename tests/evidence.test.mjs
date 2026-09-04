@@ -774,15 +774,22 @@ test('39 (#267): a recorder that refused is toasted as an error, not as a confir
   assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
 });
 
-test('39c: an unanswered START leaks its TypeError into the toast — today\'s wording, pinned', async () => {
-  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path
-  // reads `r.unrecordable` unguarded one line above the `!r` the stop path enjoys. See the todo.
+test('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
+  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path read
+  // `r.unrecordable` one line above the `!r` guard the stop path already enjoyed.
   const h = load({ reply: () => undefined });
   await h.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')" }]);
-  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE']); // and no status refresh follows it
+  // Was: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')".
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable', error: true }]);
+  // …and the refresh the TypeError used to skip runs, so the chip stops showing what it last had.
+  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
   assert.equal(h.node.evidenceToggle.disabled, false);
+  // The answer that DOES carry `unrecordable` still reaches its own sentence, not this one.
+  const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await off.fn.onEvidenceToggle();
+  assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
+  assert.deepEqual(off.types(), []);
 });
 
 test('39b: a throw inside the flow is a sentence, and the button is released all the same', async () => {
@@ -1418,17 +1425,6 @@ test.todo('23 (#264): a panel with no settings loaded yet quotes the recorder\'s
   assert.equal(h.fn.evWindowSeconds(), 60);
   h.state.settings = { evidenceWindowSec: null };
   assert.equal(h.fn.evWindowSeconds(), 60);
-});
-
-// 39c: the start path reads `r.unrecordable` one line above the `!r` guard the stop path gets, so a
-// worker that answered nothing — which is what chrome.runtime.sendMessage resolves to when no
-// listener replied — reaches the tester as a raw TypeError instead of the sentence written for it.
-test.todo('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
-  const h = load({ reply: () => undefined });
-  await h.fn.onEvidenceToggle();
-  await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
-  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
 });
 
 // 59 (#107): the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here, and
