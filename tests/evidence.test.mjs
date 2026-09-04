@@ -467,6 +467,21 @@ test('21: a string that is no URL at all comes back as it came', () => {
   assert.equal(h.fn.evShortUrl(undefined), '');
 });
 
+test('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
+  const h = load();
+  h.evUi.tabUrl = `${SITE}/cart`;
+  // Was: 'text/plain,hi' — a payload the tester read as a path the site under test served.
+  assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
+  // The same for every host-less scheme: what new URL calls the "path" there is not an address.
+  assert.equal(h.fn.evShortUrl('blob:https://shop.example.com/9f2-4e'), 'blob:https://shop.example.com/9f2-4e');
+  assert.equal(h.fn.evShortUrl('file:///tmp/report.html'), 'file:///tmp/report.html');
+  // A request that HAS a host is still shortened the same way it always was.
+  assert.equal(h.fn.evShortUrl(`${SITE}/api/x?y=1`), '/api/x?y=1');
+  assert.equal(h.fn.evShortUrl('https://cdn.other/z'), 'cdn.other/z');
+  // …and a payload longer than the card still goes through the same shortener.
+  assert.equal(h.fn.evShortUrl(`data:image/png;base64,${'A'.repeat(400)}`).length, 200);
+});
+
 test('22: a row is aged, not clocked — inside a trailing window the age is the fact', () => {
   const h = load();
   assert.equal(h.fn.evAge(NOW - 30_000), '30s');
@@ -1361,15 +1376,6 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 21: the comment above evShortUrl says an unparseable input "comes back as it came", but `new URL`
-// parses a data: URL happily and the scheme is then silently dropped from the host-less branch.
-test.todo('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
-  const h = load();
-  h.evUi.tabUrl = `${SITE}/cart`;
-  // Today: 'text/plain,hi' — indistinguishable from a path on the site under test.
-  assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
-});
-
 // 23: the panel says it mirrors the recorder's clamp, and the recorder guards with `!= null` before
 // clamping. This one does not, and state.settings starts life as null (core/state.js), so an
 // unconfigured panel tells the tester it keeps ten seconds while the recorder keeps sixty.

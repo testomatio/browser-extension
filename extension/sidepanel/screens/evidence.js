@@ -334,15 +334,16 @@ function evCardRowText(e) {
   return `${kind}${evOneLine(e.text, 200)}`;
 }
 
-// Unparseable input — a `data:` URL, a relative string from the page hook —
-// comes back as it came.
+// A relative string from the page hook comes back as it came — and so does a host-less scheme
+// (data:, blob:, file:): what `new URL` calls the path there is the payload, not an address.
 function evShortUrl(raw) {
   const url = String(raw || '');
   try {
     const u = new URL(url);
+    if (!u.host) return evOneLine(url, 200);
     const here = evUi.tabUrl ? new URL(evUi.tabUrl).host : '';
     const path = `${u.pathname}${u.search}`;
-    return evOneLine(u.host && u.host !== here ? `${u.host}${path}` : path || '/', 200);
+    return evOneLine(u.host !== here ? `${u.host}${path}` : path || '/', 200);
   } catch { return evOneLine(url, 200); }
 }
 
