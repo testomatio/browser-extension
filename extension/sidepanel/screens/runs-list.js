@@ -263,7 +263,7 @@ async function refreshRuns() {
     // refresh — repaint into the blocking panel instead of toasting.
     if (isReadonlyError(e)) { applyCapabilities(); return; }
     setStatusLine('runs-status', `Refresh failed: ${e.message || e}`, 'error');
-    toast(`Refresh failed: ${e.message || e}`);
+    toast(`Refresh failed: ${e.message || e}`, { error: true });
   }
 }
 
@@ -292,7 +292,7 @@ async function loadGroupContents(groupId) {
     runsPerPage: runs?.perPage ?? null,
     loading: false,
   };
-  if (subs === null || runs === null) toast('Could not load some group contents');
+  if (subs === null || runs === null) toast('Could not load some group contents', { error: true });
   delete state.loadingGroup[key];
   renderList();
 }

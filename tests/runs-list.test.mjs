@@ -348,6 +348,17 @@ test('1: the server states the page size and the row total, and the page count i
     { page: 2, perPage: 50, total: 180, totalPages: 4 });
 });
 
+test('1b: the page the SERVER reports is the one Load more counts from, not the one we asked for', () => {
+  const h = load();
+  // v2 keeps its own page in meta, and a request can be clamped — page 9 of a 3-page list answers 3.
+  const clamped = h.fn.v2Cursor({ meta: { page: 3, per_page: 50, total: 150 } }, 9);
+  assert.equal(plain(clamped).page, 3);
+  assert.equal(h.lex.hasNextPage(clamped), false); // asking again would re-read the same last page
+
+  // Only when the server states nothing does the asked-for page stand in.
+  assert.equal(plain(h.fn.v2Cursor({ meta: { per_page: 50, total: 150 } }, 2)).page, 2);
+});
+
 test('2: a server that sends no meta at all never offers Load more — the page size is what arrived', () => {
   const h = load();
   const cursor = h.fn.v2Cursor({ data: Array.from({ length: 30 }, (_, i) => run(`r${i}`)) }, 1);
@@ -1430,9 +1441,8 @@ test('55: a folder whose contents could not be read caches empty and complains e
   assert.deepEqual(plain(h.state.subgroupsCache.g1), []);
   assert.deepEqual(plain(h.state.childrenCache.g1), []);
   assert.equal('g1' in h.state.loadingGroup, false);
-  // ONE toast for two failed legs — and it carries no error mark, unlike every other failure toast
-  // in this file. See the TODO(issue) row below.
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load some group contents', opts: undefined }]);
+  // ONE toast for two failed legs, marked as the failure it is (#272).
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load some group contents', opts: { error: true } }]);
   assert.deepEqual(plain(h.state.groupPaging.g1), {
     subsPage: 1, subsTotal: null, subsTotalPages: null,
     runsPage: 1, runsTotal: null, runsTotalPages: null, runsPerPage: null, loading: false,
@@ -1453,7 +1463,6 @@ test('55: a folder whose contents could not be read caches empty and complains e
   assert.deepEqual(ok.toastMsgs(), []);
 });
 
-test.todo('55b: the "Could not load some group contents" toast carries no { error: true } — TODO(issue)');
 
 test('56: access turning read-only mid-session repaints the lockout instead of reporting a failed refresh', async () => {
   const h = load({ dashItems: [run('r1')] });
@@ -1474,8 +1483,8 @@ test('57: any other failed refresh leaves the previous list up and says so on th
   assert.equal(h.calls.capabilities, 0);
   assert.deepEqual(h.lastLine('runs-status'),
     { id: 'runs-status', text: 'Refresh failed: Failed to fetch', cls: 'error' });
-  // The LINE is marked as an error and the toast beside it is not. See the TODO(issue) row below.
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Refresh failed: Failed to fetch', opts: undefined }]);
+  // The line and the plaque beside it now agree that this is a failure (#272).
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Refresh failed: Failed to fetch', opts: { error: true } }]);
   assert.deepEqual(h.state.dashItems.map((it) => it.id), ['r1']);
   // A refresh that succeeds says nothing at all, so the two above are the failure's own marks.
   const ok = load({ dashItems: [run('r1')] });
@@ -1486,7 +1495,6 @@ test('57: any other failed refresh leaves the previous list up and says so on th
   assert.deepEqual(ok.state.dashItems.map((it) => it.id), ['r2']);
 });
 
-test.todo('57b: the "Refresh failed" toast carries no { error: true } while its own status line does — TODO(issue)');
 
 test('89: opening a folder reads both its halves once, marks it loading meanwhile, and keeps both cursors', async () => {
   const h = load();
