@@ -266,7 +266,7 @@ test('#154-19: the project\'s cached answers and its permissions are dropped too
 });
 
 test('#154-20: a switch during boot, before the rest of the panel exists, does not crash', () => {
-  const h = dirty(connected({ omit: ['resetTabCounts', 'dropAllCommentDrafts', 'syncStop'] }));
+  const h = dirty(connected({ omit: ['resetTabCounts', 'CommentDrafts', 'syncStop'] }));
   assert.doesNotThrow(() => h.fn.resetProjectScopedState());
   assert.equal(h.state.runId, null, 'and it still did the clearing');
 });
@@ -275,7 +275,7 @@ test('#154-21: the tab counts, the unsent comments and the run poll are each sto
   const h = dirty(connected());
   h.fn.resetProjectScopedState();
   assert.equal(h.spies.resetTabCounts.count(), 1);
-  assert.equal(h.spies.dropAllCommentDrafts.count(), 1);
+  assert.equal(h.spies.CommentDrafts.count(), 1);
   assert.equal(h.spies.syncStop.count(), 1);
 });
 

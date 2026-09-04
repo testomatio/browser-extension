@@ -176,9 +176,12 @@ export function spy(impl = () => undefined) {
 
 // The five handleApiError reaches for bare — a sandbox missing any of them throws instead of routing.
 const ROUTER_GLOBALS = ['setAuthExpiredLine', 'fillSettingsForm', 'show', 'setStatusLine', 'toast'];
-// …and the six behind `typeof` guards, which rows about a missing global leave out on purpose.
-const GUARDED_GLOBALS = ['resetTabCounts', 'dropAllCommentDrafts', 'syncStop', 'applyReadonlyBlock',
+// …and the ones behind `typeof` guards, which rows about a missing global leave out on purpose.
+const GUARDED_GLOBALS = ['resetTabCounts', 'syncStop', 'applyReadonlyBlock',
   'updateDegradedBanner', 'refreshCurrentView'];
+// Guarded globals that are an OBJECT rather than a bare function: `name: method`. The spy is still
+// `spies[name]`, so `omit` and the count read the same as for the others.
+const GUARDED_OBJECTS = { CommentDrafts: 'dropAll' };
 
 // ---------- state.js ----------
 
@@ -209,6 +212,11 @@ export function loadState(opts = {}) {
     if (omit.includes(name)) continue;
     spies[name] = spy(opts.impl?.[name]);
     sandbox[name] = spies[name];
+  }
+  for (const [name, method] of Object.entries(GUARDED_OBJECTS)) {
+    if (omit.includes(name)) continue;
+    spies[name] = spy(opts.impl?.[name]);
+    sandbox[name] = { [method]: spies[name] };
   }
   Object.assign(sandbox, opts.globals || {}); // anything else the panel's other files publish
 

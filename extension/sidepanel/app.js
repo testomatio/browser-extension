@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global Handoff, Icons, Skeleton, askForProject */
+/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts */
 
 // ---------- init ----------
 
@@ -77,7 +77,7 @@ async function init() {
   $('btn-next-test').addEventListener('click', () => navigateTest(1));
   // The comment is read only by a status write, so what is typed is kept as a draft
   // until one lands — otherwise leaving the test drops it.
-  $('test-comment').addEventListener('input', onCommentInput);
+  $('test-comment').addEventListener('input', CommentDrafts.onInput);
   $('tab-test-desc').addEventListener('click', () => showTestSection('desc'));
   $('tab-test-status').addEventListener('click', () => showTestSection('status'));
   $('tab-test-summary').addEventListener('click', () => showTestSection('summary'));

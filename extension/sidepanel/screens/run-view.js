@@ -2,7 +2,7 @@
 // status chips, search, suite sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast, Fmt */
+   progressToast, Fmt, CommentDrafts */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -188,7 +188,7 @@ async function openRunView(runId, title) {
     startLiveSync();         // (re)start polling; also clears an auth-stop
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // run-open is a replay trigger
     loadSuiteEmoji(runId);   // fire-and-forget
-    pruneCommentDrafts(runId); // …and so is dropping the drafts of results THIS run no longer has
+    CommentDrafts.prune(runId); // …and so is dropping the drafts of results THIS run no longer has
     // Kept though fire-and-forget: a row write waits on it for the archived flag (#186).
     runStateProbe = probeRunSession(runId, { infoRead: !!info });
   } catch (e) {

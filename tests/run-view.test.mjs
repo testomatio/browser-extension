@@ -319,7 +319,7 @@ function load(opts = {}) {
     applyCapabilities: () => { calls.capabilities += 1; },
     startLiveSync: () => { calls.liveSyncs += 1; calls.order.push('liveSync'); },
     openTestView: (id) => { calls.opened.push(id); },
-    pruneCommentDrafts: (runId) => { calls.prunes.push(runId); },
+    CommentDrafts: { prune: (runId) => { calls.prunes.push(runId); } },
     updateTestActionsState: o.noTestActions ? undefined : () => { calls.testActions += 1; },
     OfflineQueue: {
       replay: () => { calls.replays += 1; calls.order.push('replay'); },
