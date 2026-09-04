@@ -4,10 +4,15 @@
 // LOADING. api.js is one IIFE assigned to a top-level `const`, so the module object is the script's
 // completion value: `${source}\nTestomatAPI;`.
 
+// api.js's OWN modules (extension/api/*.js) are evaluated in the same sandbox, before it, so the rows
+// exercise the moved code itself and not a stale copy left behind.
+
 // THE INTERNALS SEAM. Half the file never reaches that object — `request`, `toError`, `personOf`,
 // `pageResult`… are closure-private. One assignment is spliced in just above the export literal so
 // a row can name them the way the ticket does; the module's own returned object is untouched, and
-// each name is read as `typeof x === 'undefined' ? undefined : x` so an older copy still loads.
+// each name is read as `typeof x === 'undefined' ? undefined : x` so an older copy still loads. A
+// name that has moved out of the closure is picked off its module global instead; the closure's own
+// still wins, so a half-done extract shows up as a leftover rather than hiding behind the module.
 
 // STUBS. api.js reaches for exactly six globals: fetch, URL, AbortSignal (.timeout/.any), atob,
 // FormData — and Blob through the caller's payload. Node supplies all but `fetch`, which is the
@@ -28,6 +33,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 // API_SRC drives the whole suite against a mutated copy, so a falsification run never has to edit
 // the shipped file and risk leaving it edited.
 export const API = process.env.API_SRC || join(repoRoot, 'extension/api.js');
+
+// The files api.js loads before itself in all three HTML documents, in that order.
+const MODULE_FILES = ['api/errors.js'];
+// API_MODULES swaps one or all of them for mutated copies, the same seam API_SRC gives api.js.
+export const MODULES = process.env.API_MODULES
+  ? process.env.API_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
+  : MODULE_FILES.map((f) => join(repoRoot, 'extension', f));
 
 const sources = new Map();
 const sourceOf = (path) => {
@@ -74,13 +86,21 @@ const INNER = [
   'peopleByKey', 'runAssigneesOf', 'runPeopleOf', 'includedRef', 'includedPerson',
   'testrunExampleOf', 'instanceHost', 'PAGE_GUARD',
 ];
+// The one global each api/ module publishes, in load order.
+const MODULE_GLOBALS = ['ApiErrors'];
 // The export literal at the bottom of the IIFE, the only `return {` at that indent.
 const ANCHOR = '\n  return {\n';
 function instrument(src) {
   const at = src.lastIndexOf(ANCHOR);
   if (at < 0) throw new Error('api-harness: the export literal moved — the internals seam needs a new anchor');
   const pick = INNER.map((n) => `${n}: typeof ${n} === 'undefined' ? undefined : ${n}`).join(', ');
-  return `${src.slice(0, at)}\n  __inner = { ${pick} };\n${src.slice(at)}`;
+  const mods = MODULE_GLOBALS.map((g) => `(typeof ${g} === 'undefined' ? {} : ${g})`).join(', ');
+  const splice = `\n  __inner = (() => {\n`
+    + `    const own = { ${pick} };\n`
+    + `    for (const k of Object.keys(own)) if (own[k] === undefined) delete own[k];\n`
+    + `    return Object.assign({}, ${mods}, own);\n`
+    + `  })();\n`;
+  return `${src.slice(0, at)}${splice}${src.slice(at)}`;
 }
 
 function toResponse(spec) {
@@ -102,7 +122,7 @@ function toResponse(spec) {
 }
 
 export function load(opts = {}) {
-  const { sourcePath = API } = opts;
+  const { sourcePath = API, modules = MODULES } = opts;
 
   const calls = [];   // every fetch, in order: {url, method, headers, body, timeout, signal}
   const routes = [];  // {match, spec} consulted before the queue
@@ -170,6 +190,8 @@ export function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
+  // Same context, before api.js: a module's top-level `const` is what api.js destructures.
+  for (const m of modules) runInContext(sourceOf(m), context, { filename: m });
   const src = instrument(sourceOf(sourcePath));
   const mod = runInContext(`${src}\nTestomatAPI;`, context, { filename: sourcePath });
 

@@ -6,6 +6,8 @@
 // the tester signs in once and v2 keys are minted, never typed. A handed-off config
 // (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
 
+/* global ApiErrors */
+
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
   // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
@@ -26,19 +28,11 @@ const TestomatAPI = (() => {
   // company-readonly account, archived project), while a rejected token is a 401 instead.
   let readonly = 'unknown'; // 'unknown' until a v2 call answers | true | false
   // The host, so a tester reading either verdict below knows WHICH server refused them.
-  const instanceHost = () => { try { return new URL(cfg.baseUrl).host; } catch { return 'the web app'; } };
-  const READONLY_MESSAGE = (status) =>
-    `Your access to this project is read-only — ${instanceHost()} answered ${status} to a plain read too`;
-  const ROUTE_REFUSED = (status) =>
-    `${instanceHost()} refused this request (${status}) — the project itself still reads fine`;
+  const instanceHost = () => ApiErrors.instanceHost(cfg?.baseUrl);
+  const READONLY_MESSAGE = (status) => ApiErrors.readonlyMessage(instanceHost(), status);
+  const ROUTE_REFUSED = (status) => ApiErrors.routeRefused(instanceHost(), status);
 
-  class ApiError extends Error {
-    constructor(kind, status, detail) {
-      super(detail || kind);
-      this.kind = kind; // unconfigured | network | auth | readonly | notfound | http
-      this.status = status;
-    }
-  }
+  const { ApiError, toError } = ApiErrors;
 
   function configure(c) {
     const next = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
@@ -132,19 +126,6 @@ const TestomatAPI = (() => {
     if (!cfg?.baseUrl || !(cfg?.apiToken || handedJwt)) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
-  }
-
-  async function toError(res) {
-    if (res.status === 401 || res.status === 403) {
-      return new ApiError('auth', res.status, 'Token invalid or has no access');
-    }
-    if (res.status === 404) {
-      // Valid token without project membership also yields 404 (research R6).
-      return new ApiError('notfound', 404, 'Not found — or no access to this project');
-    }
-    let detail = '';
-    try { detail = JSON.stringify(await res.json()); } catch { /* empty body */ }
-    return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 
   // The cheapest read v2 has — validate()'s own call, shared so the corroboration cannot drift from it.
