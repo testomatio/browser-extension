@@ -3,7 +3,7 @@
 // recorder is the source of truth.
 
 /* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
-   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection */
+   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection, envTrimUrl */
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
@@ -107,13 +107,19 @@ function evIcon(e) {
   return e.level === 'warning' ? { name: 'warning', kind: 'warning' } : { name: 'error', kind: 'error' };
 }
 
-// Readable .txt artifact (header + Console + Network sections) for auto-attach.
+// Readable .txt artifact (header + Console + Network sections) for auto-attach. UPLOADED onto the
+// result, so every address in it goes through envTrimUrl — a query string carries tokens (PRIVACY.md).
+// Unconditional, unlike the env meta's one line: this file is every request of a whole minute, and
+// it stays on the result for the team to read, so the full-URL setting deliberately does not reach it.
 function evBuildTxt(runTitle, testTitle, entries, status) {
   const lines = [];
   lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
   lines.push(`Recorded tab: ${status.tabTitle || '—'}`);
-  if (status.tabUrl) lines.push(`URL: ${status.tabUrl}`);
-  lines.push(`Window: last ${status.windowSec}s · ${entries.length} entries · ${new Date().toISOString()}`);
+  if (status.tabUrl) lines.push(`URL: ${envTrimUrl(status.tabUrl)}`);
+  // A status with no window would write "last undefineds" into a file that is uploaded onto
+  // the result: the panel's own kept window stands in, the way every other field here falls back.
+  const win = Number.isFinite(status.windowSec) ? status.windowSec : evWindowSeconds();
+  lines.push(`Window: last ${win}s · ${entries.length} entries · ${new Date().toISOString()}`);
   lines.push('');
   const cons = entries.filter((e) => e.kind !== 'network');
   const nets = entries.filter((e) => e.kind === 'network');
@@ -129,7 +135,7 @@ function evBuildTxt(runTitle, testTitle, entries, status) {
   for (const e of nets) {
     const rt = e.resourceType ? ` [${e.resourceType}]` : '';
     const err = e.errorText ? ` — ${e.errorText}` : '';
-    lines.push(`[${evTime(e.ts)}] ${evNetStatus(e)} ${e.method} ${e.url}${rt}${err}`);
+    lines.push(`[${evTime(e.ts)}] ${evNetStatus(e)} ${e.method} ${envTrimUrl(e.url)}${rt}${err}`);
     // The captured response body, indented under its request.
     if (e.bodySnippet) {
       for (const bl of e.bodySnippet.split('\n')) lines.push(`    ${bl}`);
@@ -330,15 +336,16 @@ function evCardRowText(e) {
   return `${kind}${evOneLine(e.text, 200)}`;
 }
 
-// Unparseable input — a `data:` URL, a relative string from the page hook —
-// comes back as it came.
+// A relative string from the page hook comes back as it came — and so does a host-less scheme
+// (data:, blob:, file:): what `new URL` calls the path there is the payload, not an address.
 function evShortUrl(raw) {
   const url = String(raw || '');
   try {
     const u = new URL(url);
+    if (!u.host) return evOneLine(url, 200);
     const here = evUi.tabUrl ? new URL(evUi.tabUrl).host : '';
     const path = `${u.pathname}${u.search}`;
-    return evOneLine(u.host && u.host !== here ? `${u.host}${path}` : path || '/', 200);
+    return evOneLine(u.host !== here ? `${u.host}${path}` : path || '/', 200);
   } catch { return evOneLine(url, 200); }
 }
 
@@ -392,9 +399,13 @@ async function onEvidenceToggle() {
       // to belong to would be the very thing this scoping removes.
       if (state.view !== 'test' || state.currentRecordId == null) { toast('Open a test to record its console & network log'); return; }
       r = await evStartRecording();
-      if (r.unrecordable) { toast(r.unrecordable); return; }
+      // `r` is undefined when the worker answered nothing at all — that case belongs to the
+      // `!r` guard below, which has the sentence for it; reading a field here threw instead.
+      if (r && r.unrecordable) { toast(r.unrecordable, { error: true }); return; }
     }
-    if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`); await refreshEvidenceStatus(); return; }
+    // Both are refusals: in the confirmation style they read as "done" in the very place
+    // `Recording stopped` appears, and a reader's screen reader would wait instead of interrupt.
+    if (!r || !r.ok) { toast(`Recorder: ${(r && r.error) || 'unavailable'}`, { error: true }); await refreshEvidenceStatus(); return; }
     applyEvidenceStatus(r.status);
     // #123: in-page instrumentation, so Chrome shows no "…is debugging this
     // browser" bar and DevTools may stay open.
@@ -647,7 +658,7 @@ async function uploadEvidenceLog(record) {
     return url;
   } catch (e) {
     // Non-fatal: the status write already succeeded — only the log couldn't attach.
-    toast(`Test marked failed — the console & network log couldn't attach (${e.message})`);
+    toast(`Test marked failed — the console & network log couldn't attach (${e.message})`, { error: true });
     return '';
   }
 }

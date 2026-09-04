@@ -12,9 +12,20 @@
 // Rows 1-64 are the ticket's; a lettered suffix is the companion case that drives the same path the
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
 // Run: node --test tests/evidence.test.mjs
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+
+// The REAL trim from core/env-info.js, not a look-alike: PRIVACY.md's promise is that file's
+// wording, and a stub would let row 17 pass against a marker the panel never writes.
+// CORE_SRC points the suite at a mutated COPY of core/, so a falsification run never edits it.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
+const envTrimUrl = runInNewContext(`${readFileSync(join(CORE_SRC, 'env-info.js'), 'utf8')}\nenvTrimUrl;`, { URL });
 
 // evTime reads getHours/getMinutes/getSeconds — LOCAL time. Pinned here so the ticket's own UTC
 // stamps are the ones asserted; the row also carries a clock-agnostic form beside them.
@@ -169,6 +180,7 @@ function load(opts = {}) {
       calls.disabledAt.push(node.evidenceToggle ? node.evidenceToggle.disabled : null);
       return o.site;
     }),
+    envTrimUrl,
     Tooltip: { set: () => {} },
     HoverCard: { attach: () => { calls.order.push('card.attach'); return card; } },
     // shared/empty-state.js's shape, cut to what this screen asks of it.
@@ -384,6 +396,19 @@ test('15: nothing captured is still a readable file — both sections say (none)
   assert.ok(one.includes('== Network (0) ==\n(none)'), one);
 });
 
+test('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
+  const h = load();
+  const win = (txt) => txt.split('\n').find((l) => l.startsWith('Window:'));
+  // uploadEvidenceLog hands evBuildTxt `snap.status || {}`, so this is a shape it really gets.
+  // Was: 'Window: last undefineds · 0 entries · …', in a file uploaded onto the result.
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], {})), /^Window: last \d+s · 0 entries · /);
+  // The stand-in is the panel's own kept window, not a figure invented for the header.
+  h.state.settings = { evidenceWindowSec: 90 };
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], {})), /^Window: last 90s · /);
+  // …and a status that DOES carry one is still quoted as it came, fallback or no fallback.
+  assert.match(win(h.fn.evBuildTxt('Run A', 'Test B', [], { windowSec: 120 })), /^Window: last 120s · /);
+});
+
 test('16: a body the tester switched off is named as switched off, not as an empty one', () => {
   const h = load();
   const off = h.fn.evBuildTxt('R', 'T', [net({ url: 'https://x/y', bodySkipped: true })], { windowSec: 60 });
@@ -392,6 +417,22 @@ test('16: a body the tester switched off is named as switched off, not as an emp
   // A request with neither a body nor the flag gets no line under it at all.
   const bare = h.fn.evBuildTxt('R', 'T', [net({ url: 'https://x/y' })], { windowSec: 60 });
   assert.ok(bare.endsWith(`== Network (1) ==\n[${AT}] 500 GET https://x/y\n`), bare);
+});
+
+test('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
+  const h = load();
+  const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })],
+    { tabUrl: `${SITE}/reset?token=abc123`, windowSec: 60 });
+  // This file is uploaded onto the result, where everyone with project access reads it.
+  assert.ok(!txt.includes('token=abc123'), txt);
+  // …and what stands in its place still names the request, marked as cut.
+  assert.ok(txt.includes(`URL: ${SITE}/reset (query trimmed)`), txt);
+  assert.ok(txt.includes(`500 GET ${SITE}/pay (query trimmed)`), txt);
+  // A URL with nothing to cut is written whole, with no marker hung on it.
+  const clean = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay` })], { tabUrl: `${SITE}/cart`, windowSec: 60 });
+  assert.ok(clean.includes(`URL: ${SITE}/cart\n`), clean);
+  assert.ok(clean.includes(`500 GET ${SITE}/pay\n`), clean);
+  assert.ok(!clean.includes('query trimmed'), clean);
 });
 
 // ---------- what the hover card says (rows 18-22) ----------
@@ -424,6 +465,21 @@ test('21: a string that is no URL at all comes back as it came', () => {
   assert.equal(h.fn.evShortUrl('/rel/path'), '/rel/path');
   assert.equal(h.fn.evShortUrl(''), '');
   assert.equal(h.fn.evShortUrl(undefined), '');
+});
+
+test('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
+  const h = load();
+  h.evUi.tabUrl = `${SITE}/cart`;
+  // Was: 'text/plain,hi' — a payload the tester read as a path the site under test served.
+  assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
+  // The same for every host-less scheme: what new URL calls the "path" there is not an address.
+  assert.equal(h.fn.evShortUrl('blob:https://shop.example.com/9f2-4e'), 'blob:https://shop.example.com/9f2-4e');
+  assert.equal(h.fn.evShortUrl('file:///tmp/report.html'), 'file:///tmp/report.html');
+  // A request that HAS a host is still shortened the same way it always was.
+  assert.equal(h.fn.evShortUrl(`${SITE}/api/x?y=1`), '/api/x?y=1');
+  assert.equal(h.fn.evShortUrl('https://cdn.other/z'), 'cdn.other/z');
+  // …and a payload longer than the card still goes through the same shortener.
+  assert.equal(h.fn.evShortUrl(`data:image/png;base64,${'A'.repeat(400)}`).length, 200);
 });
 
 test('22: a row is aged, not clocked — inside a trailing window the age is the fact', () => {
@@ -647,7 +703,7 @@ test('35: Rec off the test view, or with no testrun to belong to, says so and st
 test('36: a page Chrome keeps extensions off is named, and the button comes back', async () => {
   const h = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
   await h.fn.onEvidenceToggle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
   assert.deepEqual(h.types(), []);
   assert.equal(h.store.ops('local', 'set').length, 0); // not even the body-capture flag was written
   assert.deepEqual(h.calls.disabledAt, [true]);        // held down while the resolver ran…
@@ -691,26 +747,49 @@ test('39: a recorder that refuses says why and then re-reads the truth from the 
   const h = load({ reply: () => ({ ok: false, error: 'x' }) });
   await h.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x' }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
   assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
   // A STOP the worker never answered is named too, rather than passing for a success.
   const gone = load({ reply: () => undefined });
   gone.evUi.recording = true;
   await gone.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(gone.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
+  assert.deepEqual(gone.calls.toasts, [{ msg: 'Recorder: unavailable', error: true }]);
   assert.deepEqual(gone.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
 });
 
-test('39c: an unanswered START leaks its TypeError into the toast — today\'s wording, pinned', async () => {
-  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path
-  // reads `r.unrecordable` unguarded one line above the `!r` the stop path enjoys. See the todo.
+test('39 (#267): a recorder that refused is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  // Was the ordinary confirmation style, in the very place a success is announced.
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
+  // A page Chrome keeps extensions off is the same news, and carries the same flag.
+  const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await off.fn.onEvidenceToggle();
+  assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
+  // …while a start that WORKED stays a plain confirmation: the flag is the failure's, not the flow's.
+  const ok = load({ reply: () => ({ ok: true, status: RECORDING }) });
+  await ok.fn.onEvidenceToggle();
+  assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
+});
+
+test('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
+  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path read
+  // `r.unrecordable` one line above the `!r` guard the stop path already enjoyed.
   const h = load({ reply: () => undefined });
   await h.fn.onEvidenceToggle();
   await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')" }]);
-  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE']); // and no status refresh follows it
+  // Was: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')".
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable', error: true }]);
+  // …and the refresh the TypeError used to skip runs, so the chip stops showing what it last had.
+  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
   assert.equal(h.node.evidenceToggle.disabled, false);
+  // The answer that DOES carry `unrecordable` still reaches its own sentence, not this one.
+  const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
+  await off.fn.onEvidenceToggle();
+  assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
+  assert.deepEqual(off.types(), []);
 });
 
 test('39b: a throw inside the flow is a sentence, and the button is released all the same', async () => {
@@ -824,7 +903,7 @@ test('43: an automatic start is silent in both outcomes — a toast on every tes
   assert.deepEqual(blocked.types(), []);
   // The tester's OWN click on that same page does say it — the silence belongs to the auto-start.
   await blocked.fn.onEvidenceToggle();
-  assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded' }]);
+  assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
 });
 
 test('44: a poll that finds the tester gone clears the chip FIRST and only then tells the worker', async () => {
@@ -1156,18 +1235,36 @@ test('58: an upload that fails is non-fatal — the status write already landed'
   const broke = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
   assert.equal(await broke.fn.uploadEvidenceLog({ id: '900' }), '');
   assert.deepEqual(broke.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)" },
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
   ]);
 
   const silent = load({ reply: recorded, upload: () => ({}) });
   assert.equal(await silent.fn.uploadEvidenceLog({ id: '900' }), '');
   assert.deepEqual(silent.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)" },
+    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)", error: true },
   ]);
   // A landing upload says nothing at all: the sentence is the failure's, not the flow's.
   const ok = load({ reply: recorded });
   assert.equal(await ok.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
   assert.deepEqual(ok.calls.toasts, []);
+});
+
+test('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
+  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
+  await h.fn.uploadEvidenceLog({ id: '900' });
+  // The status write landed and the evidence did not — the sentence saying so used to look
+  // exactly like the sentences that mean everything went fine.
+  assert.deepEqual(h.calls.toasts, [
+    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
+  ]);
+  // Those sentences are still unflagged: the upload that landed says nothing at all…
+  const ok = load({ reply: recorded });
+  await ok.fn.uploadEvidenceLog({ id: '900' });
+  assert.deepEqual(ok.calls.toasts, []);
+  // …and the one confirmation this screen does print stays a confirmation.
+  const attached = load();
+  attached.fn.attachEvidenceEntry(con());
+  assert.deepEqual(attached.calls.toasts, [{ msg: ATTACHED }]);
 });
 
 // ---------- wiring, messaging and the card (rows 60-64) ----------
@@ -1320,33 +1417,6 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 15: uploadEvidenceLog passes `snap.status || {}`, so a snapshot that carries no status writes the
-// literal string `undefined` into a file that is then uploaded to the server.
-test.todo('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
-  const h = load();
-  const txt = h.fn.evBuildTxt('Run A', 'Test B', [], {});
-  // Today: 'Window: last undefineds · 0 entries · …'.
-  assert.match(txt.split('\n').find((l) => l.startsWith('Window:')), /^Window: last \d+s · /);
-});
-
-// 17: PRIVACY.md promises URL trimming and never exempts this file, but the .txt carries the whole
-// request URL, query string and all — straight to the server, beside the result.
-test.todo('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.md promises', () => {
-  const h = load();
-  const txt = h.fn.evBuildTxt('R', 'T', [net({ url: `${SITE}/pay?token=abc123&card=4111` })], { windowSec: 60 });
-  // Today: the whole URL, query included, is written into the file.
-  assert.ok(!txt.includes('token=abc123'), txt);
-});
-
-// 21: the comment above evShortUrl says an unparseable input "comes back as it came", but `new URL`
-// parses a data: URL happily and the scheme is then silently dropped from the host-less branch.
-test.todo('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
-  const h = load();
-  h.evUi.tabUrl = `${SITE}/cart`;
-  // Today: 'text/plain,hi' — indistinguishable from a path on the site under test.
-  assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
-});
-
 // 23: the panel says it mirrors the recorder's clamp, and the recorder guards with `!= null` before
 // clamping. This one does not, and state.settings starts life as null (core/state.js), so an
 // unconfigured panel tells the tester it keeps ten seconds while the recorder keeps sixty.
@@ -1355,34 +1425,6 @@ test.todo('23 (#264): a panel with no settings loaded yet quotes the recorder\'s
   assert.equal(h.fn.evWindowSeconds(), 60);
   h.state.settings = { evidenceWindowSec: null };
   assert.equal(h.fn.evWindowSeconds(), 60);
-});
-
-// 39 and 58 are one bug: both toasts report a failure and neither is styled as one, so they read as
-// ordinary confirmations in the same place a success would appear.
-test.todo('39 (#267): a recorder that refused is toasted as an error, not as a confirmation', async () => {
-  const h = load({ reply: () => ({ ok: false, error: 'x' }) });
-  await h.fn.onEvidenceToggle();
-  await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
-});
-
-test.todo('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
-  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
-  await h.fn.uploadEvidenceLog({ id: '900' });
-  assert.deepEqual(h.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
-  ]);
-});
-
-// 39c: the start path reads `r.unrecordable` one line above the `!r` guard the stop path gets, so a
-// worker that answered nothing — which is what chrome.runtime.sendMessage resolves to when no
-// listener replied — reaches the tester as a raw TypeError instead of the sentence written for it.
-test.todo('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
-  const h = load({ reply: () => undefined });
-  await h.fn.onEvidenceToggle();
-  await settle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable' }]);
-  assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
 });
 
 // 59 (#107): the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here, and
