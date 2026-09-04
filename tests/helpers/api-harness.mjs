@@ -35,7 +35,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 export const API = process.env.API_SRC || join(repoRoot, 'extension/api.js');
 
 // The files api.js loads before itself in all three HTML documents, in that order.
-const MODULE_FILES = ['api/errors.js', 'api/transport.js', 'api/paging.js', 'api/people.js'];
+const MODULE_FILES = ['api/errors.js', 'api/transport.js', 'api/paging.js', 'api/people.js',
+  'api/normalize.js'];
 // API_MODULES swaps one or all of them for mutated copies, the same seam API_SRC gives api.js.
 export const MODULES = process.env.API_MODULES
   ? process.env.API_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
@@ -87,7 +88,7 @@ const INNER = [
   'testrunExampleOf', 'instanceHost', 'PAGE_GUARD',
 ];
 // The one global each api/ module publishes, in load order.
-const MODULE_GLOBALS = ['ApiErrors', 'ApiTransport', 'ApiPaging', 'ApiPeople'];
+const MODULE_GLOBALS = ['ApiErrors', 'ApiTransport', 'ApiPaging', 'ApiPeople', 'ApiNormalize'];
 // The export literal at the bottom of the IIFE, the only `return {` at that indent.
 const ANCHOR = '\n  return {\n';
 function instrument(src) {
