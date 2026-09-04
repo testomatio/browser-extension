@@ -113,7 +113,7 @@ test('13: getTestsBySuite sends the bracketed key — a bare suites= 500s', asyn
   assert.ok(h.urls()[0].includes('suites%5B%5D=s1'), h.urls()[0]);
 });
 
-// ---- the fan-outs (E-P1-3 and E-P2-4 still OPEN) ----
+// ---- the fan-outs (E-P2-4 still OPEN) ----
 
 // One request per page, page 1 alone announcing how many there are; page 2 answers LAST on purpose.
 const suitePage = (rec) => {
@@ -123,12 +123,12 @@ const suitePage = (rec) => {
   return { status: 200, json, delay: p === 2 ? 4 : 1 };
 };
 
-test('91: getSuitePositions fires pages 2..6 in ONE Promise.all — nothing caps it', async () => {
+test('91: getSuitePositions fires pages 2..6 together — five is under the cap', async () => {
   const h = load().configure({ apiToken: JWT });
   h.route('/suites?page=', suitePage);
   const positions = await h.inner.getSuitePositions();
   assert.equal(h.matching('/suites?page=').length, 6);
-  assert.equal(h.maxInFlight(), 5); // E-P1-3 OPEN: total_pages 1000 would fire 999 at once
+  assert.equal(h.maxInFlight(), 5); // fewer pages than FANOUT_LIMIT: nothing waits its turn
   assert.equal(positions.size, 6);
   assert.equal(positions.get('s2'), 8); // the last to answer still lands in the map
   assert.equal(positions.get('s6'), 4);
@@ -144,9 +144,63 @@ test('92: listTestrunExamples fans the same way, once per open run', async () =>
   });
   const map = await h.mod.listTestrunExamples('r1');
   assert.equal(h.matching('/testruns?run_id=').length, 6);
-  assert.equal(h.maxInFlight(), 5); // E-P1-3 OPEN
+  assert.equal(h.maxInFlight(), 5);
   assert.deepEqual(Object.keys(plain(map)).sort(), ['tr1', 'tr2', 'tr3', 'tr4', 'tr5', 'tr6']);
   assert.deepEqual(plain(map).tr2, { values: ['v2'], params: null });
+});
+
+// A big project: 40 pages, each later page answering FASTER, so completion order is the reverse of
+// page order and an out-of-order assembly cannot hide.
+const bigSuitePage = (rec) => {
+  const p = Number(new URL(rec.url).searchParams.get('page'));
+  const json = { data: [{ id: `s${p}`, attributes: { position: p } }] };
+  if (p === 1) json.meta = { total_pages: 40 };
+  return { status: 200, json, delay: Math.max(41 - p, 1) };
+};
+
+test('91a: a 40-page project sends SIX at a time, and the pages still land in page order', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/suites?page=', bigSuitePage);
+  const positions = await h.inner.getSuitePositions();
+  assert.equal(h.matching('/suites?page=').length, 40);
+  assert.equal(h.maxInFlight(), 6); // #106: the Tests tab no longer opens 39 requests in one frame
+  assert.equal(positions.size, 40);
+  // Insertion order is PAGE order, not the reverse order the answers arrived in.
+  assert.deepEqual([...positions.keys()].slice(0, 3), ['s1', 's2', 's3']);
+  assert.equal([...positions.keys()].at(-1), 's40');
+});
+
+test('92a: the run examples fan-out is capped the same, and keyed the same way', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/testruns?run_id=', (rec) => {
+    const p = Number(new URL(rec.url).searchParams.get('page'));
+    const json = { data: [{ id: `tr${p}`, attributes: { example: [`v${p}`] } }] };
+    if (p === 1) json.meta = { total_pages: 40 };
+    return { status: 200, json, delay: Math.max(41 - p, 1) };
+  });
+  const map = await h.mod.listTestrunExamples('r1');
+  assert.equal(h.matching('/testruns?run_id=').length, 40);
+  assert.equal(h.maxInFlight(), 6);
+  assert.equal(Object.keys(plain(map)).length, 40);
+  assert.deepEqual(Object.keys(plain(map)).slice(0, 3), ['tr1', 'tr2', 'tr3']);
+});
+
+test('91b: mapLimit itself — results by index, never by who finished first', async () => {
+  const h = load();
+  const seen = [];
+  const out = await h.inner.mapLimit([5, 4, 3, 2, 1, 0], 2, async (n) => {
+    seen.push(n);
+    await h.settle(n + 1);
+    return n * 10;
+  });
+  assert.deepEqual(plain(out), [50, 40, 30, 20, 10, 0]); // slowest first, and still first in the result
+  assert.deepEqual(seen.slice(0, 2), [5, 4]);     // only `limit` start before anything finishes
+});
+
+test('91c: PAGE_GUARD still caps how many pages there can be at all', async () => {
+  const h = load().configure({ apiToken: JWT });
+  assert.equal(h.inner.PAGE_GUARD, 1000);
+  assert.equal(h.inner.FANOUT_LIMIT, 6);
 });
 
 test('93: fetchGroupRunsNested pages on a hardcoded 50, not on PAGE_GUARD', async () => {

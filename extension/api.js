@@ -156,7 +156,7 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  const { drain, pageResult, PAGE_GUARD, DASH_KEYS, GROUP_KEYS } = ApiPaging;
+  const { drain, mapLimit, pageResult, PAGE_GUARD, FANOUT_LIMIT, DASH_KEYS, GROUP_KEYS } = ApiPaging;
   const pagedData = (path, query) => drain(request, path, query);
 
   const validate = () => request('/runs', RUNS_PING);
@@ -198,10 +198,13 @@ const TestomatAPI = (() => {
     };
     const first = await jwtRequest('/suites?page=1');
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
+    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
-    const rest = await Promise.all(
-      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`/suites?page=${i + 2}`)),
+    const rest = await mapLimit(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
+      FANOUT_LIMIT,
+      (p) => jwtRequest(`/suites?page=${p}`),
     );
     rest.forEach(take);
     return positions;
@@ -524,10 +527,13 @@ const TestomatAPI = (() => {
     const path = `/testruns?run_id=${encodeURIComponent(runId)}`;
     const first = await jwtRequest(`${path}&page=1`);
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out at once, PAGE_GUARD being the runaway stop.
+    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
+    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
-    const rest = await Promise.all(
-      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => jwtRequest(`${path}&page=${i + 2}`)),
+    const rest = await mapLimit(
+      Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
+      FANOUT_LIMIT,
+      (p) => jwtRequest(`${path}&page=${p}`),
     );
     rest.forEach(take);
     return map;
