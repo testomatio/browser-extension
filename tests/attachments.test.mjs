@@ -120,11 +120,14 @@ function load(opts = {}) {
     },
     // attTileItem overwrites li.className immediately, so the stub needs nothing clever — but it
     // records what it was handed, because the image group is the argument that matters.
-    fileTileItem: (att, group) => {
-      calls.tiles.push({ att: plain(att), group });
-      return el('li', { className: 'tile' }, el('span', { className: 'tile-name' }, att.name));
+    // The tile and its group both come from screens/test-summary.js now (its own suite owns them).
+    TestSummary: {
+      fileTileItem: (att, group) => {
+        calls.tiles.push({ att: plain(att), group });
+        return el('li', { className: 'tile' }, el('span', { className: 'tile-name' }, att.name));
+      },
+      IMG_GROUP_ATTS: 'result-attachments',
     },
-    IMG_GROUP_ATTS: 'result-attachments',
     svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
     confirmDialog: async (message, label) => {
       calls.order.push('confirm');

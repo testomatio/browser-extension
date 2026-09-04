@@ -2,7 +2,7 @@
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-view.js.
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
-   updateTestActionsState, Tooltip, ImgHydrate, fileTileItem, IMG_GROUP_ATTS,
+   updateTestActionsState, Tooltip, ImgHydrate, TestSummary,
    svgIcon, confirmDialog, baseUrlHost, paintCounter */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
@@ -64,7 +64,7 @@ function attRows() {
 // the one thing a MANUAL upload has that a runner artifact does not: it can be taken off the
 // result. The bin is a SIBLING of the tile, never a child — .file-tile is itself a <button>.
 function attTileItem(a) {
-  const li = fileTileItem(a, IMG_GROUP_ATTS);
+  const li = TestSummary.fileTileItem(a, TestSummary.IMG_GROUP_ATTS);
   li.className = 'file-tile-item';
   li.append(attDeleteBtn(a));
   return li;
@@ -220,7 +220,7 @@ function attDropzone() {
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
-  ImgHydrate.release(IMG_GROUP_ATTS); // the previews about to be dropped own these
+  ImgHydrate.release(TestSummary.IMG_GROUP_ATTS); // the previews about to be dropped own these
   const onTest = state.view === 'test';
   const rows = onTest ? attRows() : [];
   // Off the test screen the list is hidden anyway — no dropzone is built for it.

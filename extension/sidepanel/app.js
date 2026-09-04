@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts */
+/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary */
 
 // ---------- init ----------
 
@@ -92,7 +92,7 @@ async function init() {
   initAssigneeDropdown();
   $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure);
   for (const key of ['failure', 'artifacts', 'meta', 'steps']) {
-    $(`summary-${key}-head`).addEventListener('click', () => toggleSummaryDisclosure(key));
+    $(`summary-${key}-head`).addEventListener('click', () => TestSummary.toggleDisclosure(key));
   }
   initEvidence();
   initAttachments(); // #107: the Attach file button + its hidden native picker
