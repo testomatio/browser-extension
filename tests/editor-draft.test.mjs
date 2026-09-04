@@ -97,11 +97,13 @@ function tracker(env, { ctx = 'panel', draftKey = 'editorDraft:test:t1', ...over
     recording: { entries: [], start: -1, count: 0, polished: false, rawItems: [], polishedItems: [] },
     shots: [],
     shotsRev: 0,
+    savedId: null,
     ...over,
   };
   let strips = 0;
   const read = {};
-  for (const k of ['title', 'markdown', 'priority', 'suite', 'test', 'params', 'recording', 'shots', 'shotsRev']) {
+  for (const k of ['title', 'markdown', 'priority', 'suite', 'test', 'params', 'recording', 'shots',
+    'shotsRev', 'savedId']) {
     read[k] = () => state[k];
   }
   read.stripRefresh = () => { strips += 1; };
@@ -242,6 +244,18 @@ test('65: storage.session missing is the second early return', () => {
   const { t } = tracker(env);
   t.persistDraftNow();
   assert.deepEqual(env.shots.put, []); // not even the pictures — the whole write is off
+});
+
+// #112: a create whose test landed but whose parameters did not. Without the id in the draft a
+// reload reopens it as a create, and the retry makes a SECOND test on the server.
+test('66b (#112): the draft carries the id of a test already created, and omits it when there is none', () => {
+  const half = load();
+  tracker(half, { savedId: 'T7' }).t.persistDraftNow();
+  assert.equal(written(half).savedId, 'T7');
+  // …and an ordinary draft does not grow the field at all.
+  const plainEnv = load();
+  tracker(plainEnv).t.persistDraftNow();
+  assert.equal('savedId' in written(plainEnv), false);
 });
 
 test('66: a grid that has not read the server yet leaves `params` off the draft', () => {

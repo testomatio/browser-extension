@@ -378,7 +378,7 @@
   // PATCHes title/description/priority of `uid` and leaves the suite alone.
   function renderEditor({
     ctx, mode = 'create', uid = null, test = null,
-    suite, title, markdown, priority, dirty: initialDirty = false,
+    suite, title, markdown, priority, dirty: initialDirty = false, savedId: restoredSavedId = null,
     templates = [], templateId: initialTemplateId = null, params = null, recorded = null,
     shots = [], shotsLost = 0,
   }) {
@@ -396,7 +396,7 @@
     let done = false;        // saved → the read-only view took over this page
     // The id the first Save got. A second Save updates that test instead of creating another,
     // which is what lets a half-written Save be retried at all.
-    let savedId = null;
+    let savedId = restoredSavedId;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
     const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
@@ -416,6 +416,7 @@
         recording: () => rec.draftShape(),
         shots: () => pendingShots,
         shotsRev: () => shotsRev,
+        savedId: () => savedId,
         stripRefresh: () => scheduleStripRefresh(),
       },
     });
@@ -1123,6 +1124,8 @@
         // What did not land is still only in this grid: hold the editor, its draft and the dirty
         // flag, so a second Save sends exactly those rows.
         if (paramsError) {
+          // The draft has to learn the test exists, or a reload before the retry makes a second one.
+          schedulePersist();
           showToast(`Saved — parameters couldn't be written (${paramsError})`, { error: true });
           return null;
         }
@@ -1454,6 +1457,8 @@
     let restoredDirty = false;
     let shots = [];
     let shotsLost = 0;
+    // A create whose test landed but whose parameters did not: the retry must update it.
+    let savedId = null;
     // The restored draft is the tester's own text — it outranks the template seed.
     if (panelCtx) {
       const key = editorDraftKey({ suite: cx.suite });
@@ -1467,11 +1472,12 @@
         // what still lets them be polished (or put back).
         recorded = draft.recording || null;
         ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
+        savedId = draft.savedId || null;
         restoredDirty = true;
       }
     }
     renderEditor({
-      ctx: cx.ctx, suite: cx.suite,
+      ctx: cx.ctx, suite: cx.suite, savedId,
       title, markdown, priority, params, recorded, dirty: restoredDirty, shots, shotsLost,
       templates, templateId: initialTemplate ? initialTemplate.id : null,
     });

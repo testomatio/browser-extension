@@ -68,6 +68,10 @@ const EditorDraft = (() => {
       // would restore an empty grid over real parameters.
       const grid = read.params();
       if (grid) draft.params = grid;
+      // A create whose test already landed but whose parameters did not: without this the restored
+      // draft opens as a create again and a second Save makes a second test.
+      const made = read.savedId && read.savedId();
+      if (made) draft.savedId = made;
       // #23: the recording itself — its entries (packets included) and where its items are —
       // so a reopened panel can still polish it, or put it back.
       const rec = read.recording();
