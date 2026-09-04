@@ -35,7 +35,17 @@ const RecSession = (() => {
 
   // The deferred first step is `Open <url>` and carries no packet — its own sentence is
   // the only place that url is written down.
-  const openUrl = (raw) => (String(raw).match(/^Open\s+(\S+)/) || [])[1] || '';
+  const OPEN_STEP = /^(Open\s+)(\S+)/;
+  const openUrl = (raw) => (String(raw).match(OPEN_STEP) || [])[2] || '';
+
+  // The prompt leaves the browser, so a url in it is cut to origin + path whatever the recorded
+  // step kept — queries carry reset tokens. A `#/…` route is the page, not a fragment.
+  const trimUrl = (raw) => {
+    let u;
+    try { u = new URL(raw); } catch { return raw; }
+    return `${u.origin}${u.pathname}${u.hash.startsWith('#/') ? u.hash.split('?')[0] : ''}`;
+  };
+  const trimOpen = (raw) => String(raw).replace(OPEN_STEP, (m, head, url) => head + trimUrl(url));
 
   // The wire format the prompt expects. Values are double-quoted with inner quotes escaped
   // and newlines collapsed, so one fact is always one line.
@@ -185,8 +195,10 @@ const RecSession = (() => {
       const done = MdSections.replaceItems(editor.getValue(), 'Steps', STEPS_OPTS, {
         start: recStart, count: recCount, next: recRawItems, written: recWritten(),
       });
+      // Every item is the tester's own now: nothing went back, so nothing about the polish moves.
+      // `recRawItems` is never re-derived here — a skipped item would file the edit away as ours.
+      if (!done.touched) { showToast('Nothing to put back — these steps were edited by hand'); return; }
       if (done.md !== editor.getValue()) setMarkdown(done.md);
-      recRawItems = done.items;
       recPolished = false;
       updatePolishBtn();
       onPersist();
@@ -242,7 +254,8 @@ const RecSession = (() => {
         const e = c.element || {};
         const n = c.near || {};
         const af = c.after || {};
-        out.push(`${i + 1}. raw: ${String(a.raw).replace(/\s*[\r\n]+\s*/g, ' ')}`);
+        const rawLine = trimOpen(a.raw).replace(/\s*[\r\n]+\s*/g, ' ');
+        out.push(`${i + 1}. raw: ${rawLine}`);
         out.push(`   action: ${c.action || 'open'}`);
         if (c.element) {
           out.push(`   element: ${e.tag || ''} role=${pq(e.role)} type=${pq(e.type)} text=${pq(e.text)}`
@@ -254,7 +267,7 @@ const RecSession = (() => {
           out.push(`   near: label=${pq(n.label)} row=${pq(n.row)} column=${pq(n.column)}`
             + ` section=${pq(n.section)} heading=${pq(n.heading)} siblings=${pq(n.siblings)}`);
         }
-        out.push(`   after: url=${pq(af.url || openUrl(a.raw) || 'unchanged')} title=${pq(af.title || 'unchanged')}`
+        out.push(`   after: url=${pq(af.url || openUrl(rawLine) || 'unchanged')} title=${pq(af.title || 'unchanged')}`
           + ` toast=${pq(af.toast)} dialog=${pq(af.dialog)} state=${pq(af.state)} counter=${pq(af.counter)}`);
         if (a.note) out.push(`   note: ${a.note}`);
       });
