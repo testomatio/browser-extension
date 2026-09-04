@@ -1,7 +1,7 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta */
+/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates */
 
 // ---------- init ----------
 
@@ -85,12 +85,12 @@ async function init() {
   // #192: the escape hatch for an annotation the upload re-check refused.
   $('btn-save-annotation').addEventListener('click', savePendingAnnotation);
   // Full-page capture checkbox: persisted, and mirrored wherever else it shows.
-  $('fullpage-test').addEventListener('change', (e) => setFullPageCapture(e.target.checked));
+  $('fullpage-test').addEventListener('change', (e) => TestGates.setFullPageCapture(e.target.checked));
   $('btn-finish-run').addEventListener('click', finishRun);
   $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
   TestMeta.initSubstatus();
   TestMeta.initAssignee();
-  $('attachments-head').addEventListener('click', toggleAttachmentsDisclosure);
+  $('attachments-head').addEventListener('click', TestGates.toggleAttachmentsDisclosure);
   for (const key of ['failure', 'artifacts', 'meta', 'steps']) {
     $(`summary-${key}-head`).addEventListener('click', () => TestSummary.toggleDisclosure(key));
   }

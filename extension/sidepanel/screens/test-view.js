@@ -1,8 +1,8 @@
 // Test view: render steps (tri-state or local checkboxes), example substitution,
-// status writes, the verdict gates and the priority icon.
+// status writes and the priority icon.
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons, CommentDrafts, WriteCore, TestSummary,
-   TestMeta, renderPendingAnnotation, Skeleton, Tooltip, EmptyState,
+   TestMeta, TestGates, renderPendingAnnotation, Skeleton, EmptyState,
    ImgHydrate, progressToast, hideToast */
 
 // The description body's object-URL group (shared/img-hydrate.js) — repainted and released
@@ -44,12 +44,12 @@ async function openTestView(recordId) {
   TestMeta.renderSubstatusMark(null); // never let the previous test's custom status linger
   if ($('test-assignee')) $('test-assignee').hidden = true;
   TestSummary.hide(); // #117: never let the previous test's result flash here
-  updateTestActionsState();
+  TestGates.update();
   renderAttachmentList(); // #107: never let the previous test's attachments linger
   renderPendingAnnotation(); // #192: a kept annotation is offered on its own record only
   srecOnTestOpen(); // #68: bind a page-started recording to this result, and take a parked file
-  applyAttachmentsDisclosure();
-  syncFullPageToggles();
+  TestGates.applyAttachmentsDisclosure();
+  TestGates.syncFullPageToggles();
   const sk = Skeleton.show('test');
   try {
     // Versioned steps from the testrun, and the session probe alongside it: two
@@ -75,7 +75,7 @@ async function openTestView(recordId) {
     TestMeta.renderAssignee(record);
     // #107: both need the settled session — prefetched attachments + the degraded gate.
     renderAttachmentList();
-    updateTestActionsState();
+    TestGates.update();
   } catch (e) {
     if (String(state.currentRecordId) === String(record.id)) handleApiError(e, 'test-status');
   } finally {
@@ -358,129 +358,6 @@ function renderPriority() {
   refreshContextBar();
 }
 
-// ---- full-page capture toggle ----
-// Persisted in settings (default false); every capture path reads fullPageCaptureEnabled().
-function fullPageCaptureEnabled() { return !!(state.settings && state.settings.fullPageCapture); }
-
-function syncFullPageToggles() {
-  const el = $('fullpage-test');
-  if (el) el.checked = fullPageCaptureEnabled();
-}
-
-async function setFullPageCapture(on) {
-  if (!state.settings) return;
-  state.settings.fullPageCapture = !!on;
-  syncFullPageToggles();
-  if (hasChrome && chrome.storage?.local) {
-    try { await chrome.storage.local.set({ settings: state.settings }); } catch { /* best effort */ }
-  }
-}
-
-// A hover-only tooltip is invisible on touch, so the reason shows inline too. The
-// button's own tooltip is remembered once and restored when the gate lifts.
-function applyActionGate(btnId, reasonId, msg, { inline = true } = {}) {
-  const btn = $(btnId);
-  if (!btn) return;
-  if (btn.dataset.baseTip === undefined) btn.dataset.baseTip = Tooltip.get(btn);
-  btn.disabled = !!msg;
-  Tooltip.set(btn, msg || btn.dataset.baseTip);
-  const reason = $(reasonId);
-  const show = !!msg && inline;
-  if (reason) { reason.textContent = show ? msg : ''; reason.hidden = !show; }
-}
-
-// The buttons double as the result display: the matching one takes the `.solid` fill.
-function paintStatusButtons(status) {
-  const s = status && status !== 'pending' ? normStatus(status) : '';
-  for (const st of ['passed', 'failed', 'skipped']) {
-    const btn = $(`btn-${st}`);
-    if (!btn) continue;
-    btn.classList.toggle('solid', st === s);
-    btn.classList.toggle('outline', st !== s);
-  }
-}
-
-function updateTestActionsState() {
-  const record = recordFor(state.currentRecordId);
-  // #152/#154: the lock outranks every other gate here — "no saved result yet"
-  // would invite a click that can no longer create one. Per RECORD since #154.
-  const lock = typeof recordWriteLock === 'function' ? recordWriteLock(record) : '';
-  // The three buttons share ONE reason paragraph, so they are gated together.
-  for (const id of ['btn-passed', 'btn-failed', 'btn-skipped']) applyActionGate(id, null, lock);
-  const lockNote = $('status-lock-reason');
-  if (lockNote) { lockNote.textContent = lock; lockNote.hidden = !lock; }
-  paintStatusButtons(record?.status);
-  // The comment rides the status write, so a lock makes it read-only too.
-  const comment = $('test-comment');
-  if (comment) { comment.disabled = !!lock; Tooltip.set(comment, lock); }
-  // Tri-state step circles write straight to the server (add_step) — same lock.
-  // The v1 local checkboxes (basic mode) are local-only ticks and stay live.
-  document.querySelectorAll('#test-steps .step-state').forEach((b) => {
-    b.disabled = !!lock;
-    Tooltip.set(b, lock);
-  });
-  // Substatus stays visible and simply refuses to change; assignee is deliberately
-  // NOT gated here — it is workflow metadata, tracked separately (#153).
-  const substatus = Dropdown.of('substatus-select');
-  if (substatus) { substatus.disabled = !!lock; Tooltip.set(substatus.trigger, lock); }
-  // Attach gates on a missing result id, NOT the status — a pending row can have one.
-  const noResult = !record?.id;
-  // #107: uploads are JWT-only, so a PROVEN degraded session disables them —
-  // 'unknown' is still probing and must never gate.
-  const degraded = TestomatAPI.jwtAvailable() === false;
-  // The lock still DISABLES both buttons, but its reason is not repeated inline: the
-  // group note above already says it once, and two more copies read as a stutter.
-  // `inline: false` keeps the reason on the tooltip only.
-  applyActionGate('btn-screenshot-annotate', 'screenshot-reason',
-    lock ? lock
-      : noResult ? 'No saved result yet — screenshots attach to a test result'
-        : degraded ? `Attaching screenshots needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '', { inline: !lock });
-  applyActionGate('btn-attach-file', 'attach-file-reason',
-    lock ? lock
-      : noResult ? 'No saved result yet — files attach to a test result'
-        : degraded ? `Attaching files needs an active ${baseUrlHost()} web login — sign in there, then Refresh`
-          : '', { inline: !lock });
-  applyActionGate('btn-screen-rec', 'screen-rec-reason',
-    lock ? lock
-      : noResult ? 'No saved result yet, a recording attaches to a test result'
-        : degraded ? `Attaching a recording needs an active ${baseUrlHost()} web login, sign in there, then Refresh`
-          : '', { inline: !lock });
-  // The empty-list dropzone repeats this gate in its own copy, so it repaints when the gate
-  // moves. ONLY while it IS the dropzone: rebuilding real rows would drop their thumbnails.
-  const attList = $('attachment-list');
-  if (typeof renderAttachmentList === 'function' && attList && !attList.querySelector('.file-tile-item')) {
-    renderAttachmentList();
-  }
-}
-
-// ---- Attachments disclosure ----
-// Open by default: the files on a result are what the tester came for, and a collapsed
-// section reads as "nothing attached". Closing it is remembered for the panel session.
-let attachmentsOpen = true;
-
-function applyAttachmentsDisclosure() {
-  const head = $('attachments-head');
-  const body = $('attachments-body');
-  if (head) head.setAttribute('aria-expanded', attachmentsOpen ? 'true' : 'false');
-  if (body) body.hidden = !attachmentsOpen;
-}
-
-function toggleAttachmentsDisclosure() {
-  attachmentsOpen = !attachmentsOpen;
-  applyAttachmentsDisclosure();
-}
-
-// Through the same toggle a click uses, so aria-expanded and the memory stay coherent.
-function openAttachmentsDisclosure() {
-  if (!attachmentsOpen) toggleAttachmentsDisclosure();
-}
-
-// FAILED keeps the tester on the test to attach evidence, so open the section.
-function expandAttachmentsForFailure() {
-  openAttachmentsDisclosure();
-}
-
 // The write's state as DATA on the line — `data-write` is what the panel and the
 // e2e harness read back, instead of keying on the prose.
 function setWriteState(kind) {
@@ -505,7 +382,7 @@ async function clickStatus(status) {
   const lock = typeof recordWriteLock === 'function' ? recordWriteLock(record) : '';
   if (lock) {
     setStatusLine('test-status', lock, 'error');
-    updateTestActionsState();
+    TestGates.update();
     return;
   }
   const prev = record ? { ...record } : null;
@@ -533,14 +410,14 @@ async function clickStatus(status) {
     setWriteState(queued ? 'queued' : 'saved');
     // The controls below only apply once a row HAS a status, so the screen follows it.
     showTestSection('status');
-    updateTestActionsState();
+    TestGates.update();
     TestMeta.renderSubstatus(record); // status changed -> offer that status's reply group
     TestMeta.renderSubstatusMark(record);
     TestMeta.applyAssigneeGate(record); // #153: status changed -> the row is no longer re-assignable
     if (!queued) TestSummary.refresh(record); // #117: keep the summary card in step
     // #108: NO status navigates away — moving on is an explicit act ("Next test →"
     // or its hotkey). FAILED still surfaces the evidence controls it needs.
-    if (status === 'failed') expandAttachmentsForFailure();
+    if (status === 'failed') TestGates.expandForFailure();
   } catch (e) {
     if (record && prev) Object.assign(record, prev);
     renderTestProgress();

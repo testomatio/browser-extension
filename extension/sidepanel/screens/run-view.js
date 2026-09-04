@@ -373,7 +373,7 @@ function applyRunLock({ force = false } = {}) {
   const note = $('run-lock-note');
   if (note) { note.textContent = reason; note.hidden = !reason; }
   updateRunActions();                                        // Finish run hides on the same signal
-  if (typeof updateTestActionsState === 'function') updateTestActionsState();
+  if (typeof TestGates !== 'undefined') TestGates.update();
 }
 
 // JWT-gated; `jwtAvailable` is 'unknown' until a probe runs, so it stays hidden then.

@@ -1,6 +1,6 @@
 // Test-view hotkeys (web-runner parity) and the tab-screenshot capture helpers.
 
-/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, attRemember,
+/* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, TestGates, attRemember,
    renderAttachmentList, progressToast, hideToast */
 
 // ---------- hotkeys (US5) ----------
@@ -191,7 +191,7 @@ async function attachScreenshotAnnotated() {
       return;
     }
     progressToast('Capturing tab…');
-    const fullPage = fullPageCaptureEnabled();
+    const fullPage = TestGates.fullPageCaptureEnabled();
     const resp = await captureTab(fullPage);
     if (!resp?.ok) {
       // #101: another extension's frame blocked the debugger and the viewport
@@ -228,6 +228,6 @@ async function attachScreenshotAnnotated() {
     if (annotated) keepRefusedAnnotation(annotated, record.id);
     toast(`Upload failed: ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
-    updateTestActionsState(); // restore the gate-driven disabled state
+    TestGates.update(); // restore the gate-driven disabled state
   }
 }

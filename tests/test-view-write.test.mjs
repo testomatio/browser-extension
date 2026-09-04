@@ -3,15 +3,15 @@
 // tester marked this test" into a request. `writeStatus` is the panel's most-shared function — the
 // run list's inline rows and the offline queue's replay both call it — so its enqueue, its draft
 // drop and its stale-entry removal are pinned HERE rather than through the screens that borrow it.
-// Four things are easy to get quietly wrong and most of this file is about them. A landed write has
+// Three things are easy to get quietly wrong and most of this file is about them. A landed write has
 // to spend the draft it came from AND drop the queue entry it supersedes, or the next replay writes
 // an older status back over it. A queued write has two sentences, not one: a rejected token is not
 // "offline", and telling the tester to wait for a connection that is already there costs them the
-// session. Every gate here carries prose the tester reads, and the same sentence is worded four
-// ways across this file — pinned exactly as it stands so a shared-helper refactor cannot drift it.
-// And the module keeps mutable state (the draft cache, the step chain, the two write flags), so
-// every test re-evaluates the source through its own load() rather than resetting anything by hand.
-// Rows are the ticket's 1-17, 57-109 and 147-158. A lettered suffix is the companion case that
+// session. And the module keeps mutable state (the draft cache, the step chain, the two write
+// flags), so every test re-evaluates the source through its own load() rather than resetting by
+// hand. What the tester may do at all — the locks, the attach gates and their copy — is
+// tests/test-gates.test.mjs's; the rows here only read the gate back after a verdict lands.
+// Rows are the ticket's 57-62, 88-95 and 104-109. A lettered suffix is the companion case that
 // drives the same path the other way, so a row asserting "nothing happened" cannot pass against a
 // fixture where nothing could have happened anyway.
 // Run: node --test tests/test-view-write.test.mjs
@@ -28,19 +28,6 @@ const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/cor
 
 const HOST = 'app.testomat.io';
 const LOCK = 'Run is finished — results are read-only';
-
-// The three attach gates, verbatim. The recorder's two use commas where the others use em dashes;
-// that drift is the reason these are strings in the test and not a template.
-const NO_RESULT = {
-  shot: 'No saved result yet — screenshots attach to a test result',
-  file: 'No saved result yet — files attach to a test result',
-  rec: 'No saved result yet, a recording attaches to a test result',
-};
-const DEGRADED = {
-  shot: `Attaching screenshots needs an active ${HOST} web login — sign in there, then Refresh`,
-  file: `Attaching files needs an active ${HOST} web login — sign in there, then Refresh`,
-  rec: `Attaching a recording needs an active ${HOST} web login, sign in there, then Refresh`,
-};
 
 // A promise this file resolves by hand: several rows are about what a SECOND call does while the
 // first one's request is still on the wire.
@@ -266,6 +253,10 @@ function load(opts = {}) {
     createContext({ ...globals, console, URL, Date, TestomatAPI: { ...globals.TestomatAPI, ApiError } }),
     { filename: join(CORE_SRC, 'write-status.js') },
   );
+  // Same for the REAL screens/test-gates.js (tests/test-gates.test.mjs owns it): a landed verdict
+  // repaints the gates and a FAILED one reopens the fold, and both are asserted on the DOM below.
+  const gates = loadScreen('test-gates', { globals, document: doc, store, exported: 'TestGates' }).screen;
+  globals.TestGates = gates;
 
   const clock = fakeClock();
   const h = loadScreen('test-view', {
@@ -286,7 +277,7 @@ function load(opts = {}) {
   return {
     ...h,
     lex: h.screen,
-    state, calls, on, node, doc, clock, store, control,
+    state, calls, on, node, doc, clock, store, control, gates,
     // A tri-state step as renderTriState builds it: the row, its control and the bookkeeping.
     step: (over = {}) => {
       const li = el('li');
@@ -483,7 +474,7 @@ test('91: a landed click says NOTHING on the line and moves the screen to Status
 
 test('92: FAILED reopens the attachments fold and still does not navigate', async () => {
   const h = load();
-  h.fn.toggleAttachmentsDisclosure(); // the tester had folded it away
+  h.gates.toggleAttachmentsDisclosure(); // the tester had folded it away
   assert.equal(h.node.attachmentsBody.hidden, true);
   await h.fn.clickStatus('failed');
   assert.equal(h.node.attachmentsBody.hidden, false);
@@ -494,7 +485,7 @@ test('92: FAILED reopens the attachments fold and still does not navigate', asyn
 
 test('92b: …every other verdict leaves the fold exactly as the tester left it', async () => {
   const h = load();
-  h.fn.toggleAttachmentsDisclosure();
+  h.gates.toggleAttachmentsDisclosure();
   await h.fn.clickStatus('passed');
   assert.equal(h.node.attachmentsBody.hidden, true);
 });
@@ -547,115 +538,6 @@ test('95: clearing the write state DELETES the attribute rather than emptying it
   h.fn.setWriteState('');
   assert.equal('write' in h.node.testStatus.dataset, false);
   assert.equal(h.node.testStatus.getAttribute('data-write'), null);
-});
-
-// ---------- gates and copy (rows 96-103) ----------
-
-test('96: a lock disables every verdict control and says the reason once, above them', () => {
-  const h = load({ lock: LOCK, stepButtons: 2 });
-  h.fn.updateTestActionsState();
-  for (const id of ['btnPassed', 'btnFailed', 'btnSkipped']) {
-    assert.equal(h.node[id].disabled, true, id);
-    assert.equal(h.node[id].dataset.tip, LOCK, id);
-  }
-  assert.equal(h.node.statusLockReason.textContent, LOCK);
-  assert.equal(h.node.statusLockReason.hidden, false);
-  assert.equal(h.node.testComment.disabled, true);
-  assert.equal(h.node.testComment.dataset.tip, LOCK);
-  assert.deepEqual(h.doc.querySelectorAll('#test-steps .step-state').map((b) => b.disabled), [true, true]);
-  assert.equal(h.control.disabled, true);
-});
-
-test('96b: …and with no lock every one of them is live again', () => {
-  const h = load({ stepButtons: 2 });
-  h.fn.updateTestActionsState();
-  for (const id of ['btnPassed', 'btnFailed', 'btnSkipped']) assert.equal(h.node[id].disabled, false, id);
-  assert.equal(h.node.statusLockReason.hidden, true);
-  assert.equal(h.node.statusLockReason.textContent, '');
-  assert.equal(h.node.testComment.disabled, false);
-  assert.deepEqual(h.doc.querySelectorAll('#test-steps .step-state').map((b) => b.disabled), [false, false]);
-  assert.equal(h.control.disabled, false);
-});
-
-test('97: the lock reaches the attach buttons on the TOOLTIP only — one copy, not four', () => {
-  const h = load({ lock: LOCK });
-  h.fn.updateTestActionsState();
-  for (const [btn, reason] of [['btnScreenshotAnnotate', 'screenshotReason'],
-    ['btnAttachFile', 'attachFileReason'], ['btnScreenRec', 'screenRecReason']]) {
-    assert.equal(h.node[btn].disabled, true, btn);
-    assert.equal(h.node[btn].dataset.tip, LOCK, btn);
-    assert.equal(h.node[reason].hidden, true, reason);
-    assert.equal(h.node[reason].textContent, '', reason);
-  }
-});
-
-test('98: no saved result yet — the three sentences, verbatim, inline and on the tooltip', () => {
-  const h = load({ records: [rec(7, { id: null })] });
-  h.fn.updateTestActionsState();
-  assert.equal(h.node.screenshotReason.textContent, NO_RESULT.shot);
-  assert.equal(h.node.attachFileReason.textContent, NO_RESULT.file);
-  assert.equal(h.node.screenRecReason.textContent, NO_RESULT.rec);
-  assert.equal(h.node.btnScreenshotAnnotate.dataset.tip, NO_RESULT.shot);
-  assert.equal(h.node.screenRecReason.hidden, false);
-  // The verdict buttons are NOT gated by a missing id — a pending row is marked into existence.
-  assert.equal(h.node.btnPassed.disabled, false);
-});
-
-test('99: a proven degraded session names the host to sign in to', () => {
-  const h = load({ jwtAvailable: false });
-  h.fn.updateTestActionsState();
-  assert.equal(h.node.screenshotReason.textContent, DEGRADED.shot);
-  assert.equal(h.node.attachFileReason.textContent, DEGRADED.file);
-  assert.equal(h.node.screenRecReason.textContent, DEGRADED.rec);
-  assert.equal(h.node.btnAttachFile.disabled, true);
-});
-
-test('99b: the lock OUTRANKS a missing result and a degraded session both', () => {
-  const h = load({ lock: LOCK, jwtAvailable: false, records: [rec(7, { id: null })] });
-  h.fn.updateTestActionsState();
-  assert.equal(h.node.btnScreenshotAnnotate.dataset.tip, LOCK);
-  assert.equal(h.node.screenshotReason.textContent, '');
-});
-
-test('100: a session still probing must never gate — "unknown" is not a refusal', () => {
-  const h = load({ jwtAvailable: 'unknown' });
-  h.fn.updateTestActionsState();
-  for (const id of ['btnScreenshotAnnotate', 'btnAttachFile', 'btnScreenRec']) {
-    assert.equal(h.node[id].disabled, false, id);
-  }
-  assert.equal(h.node.screenshotReason.hidden, true);
-});
-
-test('101: lifting a gate restores the button\'s own tooltip, not an empty one', () => {
-  const h = load({ jwtAvailable: false });
-  h.node.btnAttachFile.dataset.tip = 'Attach a file to this result';
-  h.fn.updateTestActionsState();
-  assert.equal(h.node.btnAttachFile.dataset.tip, DEGRADED.file);
-  h.sandbox.TestomatAPI.jwtAvailable = () => true; // the tester signed in and hit Refresh
-  h.fn.updateTestActionsState();
-  assert.equal(h.node.btnAttachFile.dataset.tip, 'Attach a file to this result');
-  assert.equal(h.node.btnAttachFile.disabled, false);
-});
-
-test('102: an unmarked row fills none of the three verdict buttons', () => {
-  const h = load();
-  h.fn.paintStatusButtons('pending');
-  assert.deepEqual(['btnPassed', 'btnFailed', 'btnSkipped'].map((id) => h.node[id].className),
-    ['outline', 'outline', 'outline']);
-  // …and a real verdict fills exactly its own.
-  h.fn.paintStatusButtons('failed');
-  assert.deepEqual(['btnPassed', 'btnFailed', 'btnSkipped'].map((id) => h.node[id].className),
-    ['outline', 'solid', 'outline']);
-});
-
-test('103: a status the panel does not know fills nothing either', () => {
-  const h = load();
-  h.fn.paintStatusButtons('quarantined');
-  assert.deepEqual(['btnPassed', 'btnFailed', 'btnSkipped'].map((id) => h.node[id].classList.contains('solid')),
-    [false, false, false]);
-  h.fn.paintStatusButtons(null);
-  assert.deepEqual(['btnPassed', 'btnFailed', 'btnSkipped'].map((id) => h.node[id].classList.contains('solid')),
-    [false, false, false]);
 });
 
 // ---------- the pager (rows 104-109) ----------

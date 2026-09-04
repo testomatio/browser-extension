@@ -322,7 +322,7 @@ function load(opts = {}) {
     startLiveSync: () => { calls.liveSyncs += 1; calls.order.push('liveSync'); },
     openTestView: (id) => { calls.opened.push(id); },
     CommentDrafts: { prune: (runId) => { calls.prunes.push(runId); } },
-    updateTestActionsState: o.noTestActions ? undefined : () => { calls.testActions += 1; },
+    TestGates: o.noTestActions ? undefined : { update: () => { calls.testActions += 1; } },
     OfflineQueue: {
       replay: () => { calls.replays += 1; calls.order.push('replay'); },
       decorateRow: (li, id) => { calls.decorated.push(String(id)); },
@@ -635,7 +635,7 @@ test('76: applyRunLock re-asks the Finish button and the test view, when there i
   h.fn.applyRunLock();
   assert.equal(h.calls.testActions, 1);
   assert.equal(h.node.btnFinishRun.hidden, false);
-  // A panel that never loaded test-view.js has no updateTestActionsState at all, and survives it.
+  // A panel that never loaded screens/test-gates.js has no TestGates at all, and survives it.
   const bare = load({ runStatus: 'running', noTestActions: true });
   bare.fn.applyRunLock();
   assert.equal(bare.calls.testActions, 0);
