@@ -51,6 +51,11 @@ const Handoff = (() => {
     // `projectToken` is optional: the session can read a project's key itself, so a host that
     // holds one only saves the panel a round trip.
     if (!doc?.baseUrl || !doc.projectId || !doc.jwt) return null;
+    // https only, the same refusal Save gives a typed address: the session token below and every
+    // call after it would otherwise go out in clear text.
+    let scheme;
+    try { scheme = new URL(doc.baseUrl).protocol; } catch { return null; }
+    if (scheme !== 'https:') return null;
     return { ...doc, app: String(doc.app || '').trim(), at: Number(doc.at) || 0 };
   }
 

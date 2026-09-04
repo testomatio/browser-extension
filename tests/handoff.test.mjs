@@ -134,9 +134,17 @@ test('H8: a push with no readable timestamp counts as zero, and is then never of
   assert.equal((await loadHandoff({ file: { ...FULL, at: 1 } }).Handoff.ready()).at, 1);
 });
 
-// A-P1-3: a handoff naming a plain-http instance is accepted, so the host's session token and every
-// call after it go out in clear text. Save in settings.js refuses http; this path never checks.
-test.todo('H9: a host file naming an http instance should be refused, and today is accepted');
+// A-P1-3: a file may not name a plain-http instance either — the same refusal Save gives a typed
+// address ('Instance URL must be https://'), so the session token never goes out in clear text.
+test('H9: a host file naming an http instance is refused', async () => {
+  const h = loadHandoff({ file: { ...FULL, baseUrl: 'http://app.testomat.io' } });
+  assert.equal(await h.Handoff.ready(), null);
+  assert.equal(h.Handoff.offer(), null);
+  // A self-hosted instance on the tester's own machine is refused on the same terms.
+  assert.equal(await loadHandoff({ file: { ...FULL, baseUrl: 'http://localhost:3000' } }).Handoff.ready(), null);
+  // The same instance over https is the offer it always was.
+  assert.equal((await loadHandoff({ file: FULL }).Handoff.ready()).baseUrl, 'https://app.testomat.io');
+});
 
 test('H10: a host file whose instance address is not an address at all connects to nothing', async () => {
   const h = loadHandoff({ file: { ...FULL, baseUrl: 'javascript:x' } });
