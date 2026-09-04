@@ -2,6 +2,10 @@
 // `descriptionWithExample.js`, down to the non-"0" rule and the DOUBLE QUOTES it wraps values in.
 
 const TestomatParams = (() => {
+  // A column name is whatever the parameters grid let the tester type: `price(usd)` would compile
+  // to a capture group and `a.b` would match `axb`, so it is escaped before it becomes a pattern.
+  const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
   // Unchanged when there is nothing to substitute, so callers can render the raw placeholders + a badge.
   function substitute(text, params, example) {
     if (typeof text !== 'string' || !text) return text || '';
@@ -9,7 +13,10 @@ const TestomatParams = (() => {
     let description = text;
     for (let i in params) {
       if (typeof params[i] === 'string' && params[i].trim() !== '' && params[i].trim() !== '0') {
-        let param = params[i];
+        // A cell this row does not have stays a raw placeholder — an incomplete row must read as
+        // incomplete, not as a test that says "undefined". An empty cell is a value, and substitutes.
+        if (example[i] == null) continue;
+        let param = escapeRe(params[i]);
         description = description.replace(new RegExp(`\\$\{${param}\}`, 'g'), '"' + example[i] + '"');
         description = description.replace(new RegExp(`\{\{${param}\}\}`, 'g'), '"' + example[i] + '"');
       }
