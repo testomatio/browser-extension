@@ -17,8 +17,10 @@ const TestomatParams = (() => {
         // incomplete, not as a test that says "undefined". An empty cell is a value, and substitutes.
         if (example[i] == null) continue;
         let param = escapeRe(params[i]);
-        description = description.replace(new RegExp(`\\$\{${param}\}`, 'g'), '"' + example[i] + '"');
-        description = description.replace(new RegExp(`\{\{${param}\}\}`, 'g'), '"' + example[i] + '"');
+        // The braces are escaped too: unescaped, a column named `2` reads as the quantifier
+        // `{2}` and the placeholder is never found.
+        description = description.replace(new RegExp(`\\$\\{${param}\\}`, 'g'), '"' + example[i] + '"');
+        description = description.replace(new RegExp(`\\{\\{${param}\\}\\}`, 'g'), '"' + example[i] + '"');
       }
     }
     return description;

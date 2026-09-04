@@ -107,6 +107,16 @@ test('P12: every punctuation mark the parameters grid lets a tester type substit
 
 // Today's answer, not a correct one: the first pass has already taken every occurrence, so the
 // second column can never be seen. Refusing two columns of one name is the editor's plan(), #112.
+test('P12b: a column named with digits substitutes like any other', () => {
+  // Unescaped braces made `${2}` read as the quantifier `{2}`, so the placeholder was never found.
+  for (const name of ['2', '12', '0x1']) {
+    assert.equal(sub(`X \${${name}} Y`, [name], ['V']), 'X "V" Y', name);
+    assert.equal(sub(`X {{${name}}} Y`, [name], ['V']), 'X "V" Y', name);
+  }
+  // …and a column named exactly '0' is still the one the product skips (P3).
+  assert.equal(sub('${0}', ['0'], ['V']), '${0}');
+});
+
 test('P13: with two columns of the same name the FIRST one wins', () => {
   assert.equal(sub('${email}', ['email', 'email'], ['a@x', 'b@y']), '"a@x"');
 });
