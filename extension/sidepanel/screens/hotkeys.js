@@ -178,6 +178,8 @@ async function attachScreenshotAnnotated() {
     return;
   }
   if (btn) btn.disabled = true; // double-click guard for the whole capture→upload flow
+  // Declared out here so the catch can still see it: a failed upload must not cost the drawing too.
+  let annotated = null;
   try {
     // The tab under test: the capture AND the annotator-overlay inject both need a
     // page Chrome lets us touch. Never a prompt — host access is held from install.
@@ -204,7 +206,7 @@ async function attachScreenshotAnnotated() {
     if (fullPage && resp.viewportOnly) toast('Full page needs the debugger, which this page blocks — captured the viewport.', { ms: 8000 });
     else if (fullPage && resp.heightClipped) toast('This page is taller than a screenshot can be — the shot stops at the full-page limit.', { ms: 8000 });
     else progressToast('Annotating…');
-    const annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
+    annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
     if (!annotated) { hideToast(); return; } // Discard — no upload, no state change
     // #187: the annotator is interactive and the run can finish under it, so the
     // lock is re-asked immediately before the write.
@@ -222,6 +224,8 @@ async function attachScreenshotAnnotated() {
     renderAttachmentList();
     setStatusLine('test-status', 'Screenshot attached ✓', 'ok');
   } catch (e) {
+    // A connection that drops mid-upload is the same loss as a refusal — keep it, offer Save.
+    if (annotated) keepRefusedAnnotation(annotated, record.id);
     toast(`Upload failed: ${e.message}`, { error: true }); // …which also takes the progress plaque down
   } finally {
     updateTestActionsState(); // restore the gate-driven disabled state
