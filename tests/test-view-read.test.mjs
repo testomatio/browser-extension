@@ -25,6 +25,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 // rule and the double quotes it wraps a value in. PARAMS_SRC mirrors params.test.mjs's own seam.
 const PARAMS_SRC = process.env.PARAMS_SRC || join(repoRoot, 'extension/params.js');
 const TestomatParams = runInNewContext(`${readFileSync(PARAMS_SRC, 'utf8')}\nTestomatParams;`, {});
+// The REAL one, not a stub: the rows below assert the duration a tester reads, and a fake would
+// let them pass against a wording the panel never prints. tests/format.test.mjs owns its cases.
+const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
+const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 
 // ---------- what Md.render really emits ----------
 // Captured once from the real pipeline (vendor/showdown.min.js + shared/html-sanitize.js +
@@ -202,6 +206,7 @@ function load(opts = {}) {
     chrome: chromeStub,
     $: (id) => doc.getElementById(id),
     TestomatParams,
+    Fmt,
     // shared/markdown.js's two answers: `render` off the frozen snapshots above, `stepLists` the
     // real algorithm — a stub that always found the lists would make row 119 pass for free.
     Md: {
@@ -286,61 +291,6 @@ function load(opts = {}) {
 const rowsOf = (steps) => plain([...steps].map((s) => ({
   kind: s.kind, pos: s.pos, index: s.index, title: s.title, expected: s.expected, state: s.state,
 })));
-
-// ===================== duration (rows 18-25) =====================
-
-test('18: a duration that is zero, negative or not a number at all prints nothing', () => {
-  const h = load();
-  for (const v of [0, -5, NaN, null, '', undefined, 'later']) assert.equal(h.fn.humanDuration(v), '');
-});
-
-test('18a: …and every duration above zero does print, down to a single millisecond', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(1), '1ms');
-  assert.equal(h.fn.humanDuration(0.4), '0ms'); // rounded, but still a figure: it ran
-});
-
-test('19: under a second is milliseconds', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(999), '999ms');
-  assert.equal(h.fn.humanDuration(1000), '1s'); // the boundary belongs to seconds
-});
-
-test('20: the reported-steps route hands a STRING by design, and it formats the same', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration('1500'), '1.5s');
-  assert.equal(h.fn.humanDuration(1500), '1.5s');
-});
-
-test('21: a whole number of seconds loses its .0', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(2000), '2s');
-  assert.equal(h.fn.humanDuration(2100), '2.1s'); // …and a tenth that is there stays
-});
-
-test('22: a whole minute is a minute, with no seconds hung off it', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(60000), '1m');
-});
-
-test('23: minutes and seconds', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(90000), '1m 30s');
-});
-
-test('24: one millisecond under the hour reads "59m 60s" — the rounding artifact, pinned', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(3599999), '59m 60s');
-  // The neighbouring second, where the same arithmetic is unremarkable.
-  assert.equal(h.fn.humanDuration(3599000), '59m 59s');
-});
-
-test('25: hours, with the minutes dropped when there are none', () => {
-  const h = load();
-  assert.equal(h.fn.humanDuration(3600000), '1h');
-  assert.equal(h.fn.humanDuration(3660000), '1h 1m');
-  assert.equal(h.fn.humanDuration(7260000), '2h 1m');
-});
 
 // ===================== the server step overlay (rows 26-29) =====================
 

@@ -14,9 +14,19 @@
 // re-reads, the probe and the chip bar. A lettered suffix is the companion case that drives the same
 // path the other way, so a row asserting "nothing happened" cannot pass against a broken fixture.
 // Run: node --test tests/run-view.test.mjs
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+
+// The REAL formatter, not a stub: the Run info rows assert the duration a tester reads, and a
+// fake would let them pass against a wording the panel never prints (tests/format.test.mjs).
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
+const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 
 // formatTimeIn falls back to the MACHINE zone when the profile zone is junk (row 18). Pinned to a
 // zone that is neither UTC nor the repo's own, so the fallback is distinguishable from a honoured
@@ -293,17 +303,9 @@ function load(opts = {}) {
       const at = String(email).indexOf('@');
       return at > 0 ? String(email).slice(0, at) : String(email);
     },
-    // screens/test-view.js:508's ladder, cut to the branches these rows read. The ARGUMENT is the
-    // point: run-view passes seconds and has to multiply, so an unconverted 90 prints '0.09s'.
-    humanDuration: (ms) => {
-      calls.durations.push(ms);
-      const secs = Number(ms) / 1000;
-      if (!(secs > 0)) return '';
-      const mins = Math.floor(secs / 60);
-      if (!mins) return `${String(secs.toFixed(1)).replace(/\.0$/, '')}s`;
-      const rest = Math.round(secs - mins * 60);
-      return rest ? `${mins}m ${rest}s` : `${mins}m`;
-    },
+    // The real core/format.js, recorded on the way through. The ARGUMENT is the point of these
+    // rows: run-view holds SECONDS and has to multiply, so an unconverted 90 prints '0.09s'.
+    Fmt: { humanDuration: (ms) => { calls.durations.push(ms); return Fmt.humanDuration(ms); } },
     // screens/test-view.js:1584's own optimistic assign — without it a rollback row would pass
     // against a stub that never changed the record in the first place.
     writeStatus: async (record, status, comment) => {

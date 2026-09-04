@@ -1,7 +1,7 @@
 // Test view: render steps (tri-state or local checkboxes), example substitution,
 // status writes, the priority icon, and the substatus dropdown.
 
-/* global TestomatAPI, TestomatParams, Md, PriorityIcons,
+/* global TestomatAPI, TestomatParams, Md, PriorityIcons, Fmt,
    renderPendingAnnotation, Skeleton, Sk, Tooltip, EmptyState, UserCell, Icons,
    ImgHydrate, progressToast, hideToast */
 
@@ -505,23 +505,6 @@ const TEST_STATE_TINT = { passed: 'passed', failed: 'failed', skipped: 'skipped'
 let summarySteps = null;
 let summaryStepsFetch = null;
 
-// pretty-ms parity with the web (helpers/duration-to-human).
-function humanDuration(ms) {
-  const n = Number(ms);
-  if (!Number.isFinite(n) || n <= 0) return '';
-  if (n < 1000) return `${Math.round(n)}ms`;
-  const secs = n / 1000;
-  if (secs < 60) return `${String(secs.toFixed(1)).replace(/\.0$/, '')}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) {
-    const rest = Math.round(secs - mins * 60);
-    return rest ? `${mins}m ${rest}s` : `${mins}m`;
-  }
-  const hours = Math.floor(mins / 60);
-  const restMin = mins % 60;
-  return restMin ? `${hours}h ${restMin}m` : `${hours}h`;
-}
-
 // `kind` is 'unreported' | 'bare' (falsy clears): "mark it and this fills in" vs
 // "it IS marked and the run carried nothing behind the verdict".
 function paintSummaryEmpty(kind) {
@@ -601,7 +584,7 @@ function renderResultSummary() {
   const word = document.createElement('span');
   word.textContent = label;
   el.replaceChildren(statusIcon(status), word);
-  const dur = humanDuration(attrs['run-time']);
+  const dur = Fmt.humanDuration(attrs['run-time']);
   $('summary-duration').textContent = dur ? `· ${dur}` : '';
   renderSummaryFailure(attrs);
   renderSummaryArtifacts(attrs);
@@ -1034,7 +1017,7 @@ function summaryStepNode(node) {
     word.textContent = node.status;
     row.append(word);
   }
-  const dur = humanDuration(node?.duration);
+  const dur = Fmt.humanDuration(node?.duration);
   if (dur) {
     const d = document.createElement('span');
     d.className = 'summary-step-duration';
