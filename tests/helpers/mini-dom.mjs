@@ -4,8 +4,14 @@
 // DIVERGENCES, each earned by a test. querySelectorAll returns a PLAIN ARRAY, and document order
 // is depth-first, because indexOf on that array is how a step's position is computed.
 
-// append('<b>x</b>') is ONE TEXT NODE: nothing here parses HTML. A property assigned to a node
+// append('<b>x</b>') is ONE TEXT NODE: append never parses HTML. A property assigned to a node
 // stays verbatim, while getAttribute, the selectors and `attributes` all report it.
+
+// innerHTML DOES parse, because shared/markdown.js hands showdown's output to it and the sanitizer
+// is then asked what survived. It is a tokeniser, not a browser: comments and doctypes are dropped,
+// void and raw-text elements are honoured, an unmatched `</p>` is ignored, and there is no implied
+// tag insertion — `<table><tr>` nests as written. Entities decode on the way in and `& < >` re-encode
+// on the way out, so the round trip a sanitizer test reads is the one a browser shows.
 
 // Events do not bubble — fire() runs the listeners on the node it is handed. Pre-created ids:
 // makeDocument(['ul#tc-tree']) appends one element per entry to <body>.
@@ -177,6 +183,100 @@ function reflected(node, name) {
   return String(v);
 }
 
+// ---------- the innerHTML tokeniser ----------
+
+// Nothing may be inside these; `<br>two` is a sibling, not a child.
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
+  'param', 'source', 'track', 'wbr']);
+// Their body is text however tag-shaped it looks — which is the whole point of a `<script>` row.
+const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title']);
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#96': '`' };
+
+function decodeEntities(s) {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, body) => {
+    const key = body.toLowerCase();
+    if (key[0] === '#') {
+      const code = key[1] === 'x' ? parseInt(key.slice(2), 16) : parseInt(key.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : whole;
+    }
+    return NAMED[key] ?? whole;
+  });
+}
+
+const escapeText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeAttr = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+// name, then `="v"` / `='v'` / `=v` / nothing. A name may carry `:` and `-` — xlink:href, data-id.
+const ATTR = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]*)))?/g;
+
+function parseAttrs(node, src) {
+  ATTR.lastIndex = 0;
+  let m;
+  while ((m = ATTR.exec(src)) !== null) {
+    const value = m[2] ?? m[3] ?? m[4] ?? '';
+    node.setAttribute(m[1].toLowerCase(), decodeEntities(value)); // HTML names are case-insensitive
+  }
+}
+
+// One pass, left to right; `stack` is the open elements, and an end tag that matches nothing is
+// dropped rather than unwinding the tree — a browser recovers differently, no fixture needs it to.
+function parseHtml(html, into) {
+  const stack = [into];
+  const top = () => stack[stack.length - 1];
+  const src = String(html);
+  let at = 0;
+  const push = (t) => { if (t) top().append(new MiniText(decodeEntities(t))); };
+  while (at < src.length) {
+    const lt = src.indexOf('<', at);
+    if (lt < 0) { push(src.slice(at)); break; }
+    push(src.slice(at, lt));
+    if (src.startsWith('<!--', lt)) { // a comment reaches no fixture: drop it whole
+      const end = src.indexOf('-->', lt + 4);
+      at = end < 0 ? src.length : end + 3;
+      continue;
+    }
+    if (src.startsWith('<!', lt) || src.startsWith('<?', lt)) {
+      const end = src.indexOf('>', lt);
+      at = end < 0 ? src.length : end + 1;
+      continue;
+    }
+    const close = /^<\/\s*([^\s>]+)\s*>/.exec(src.slice(lt));
+    if (close) {
+      const tag = close[1].toUpperCase();
+      for (let i = stack.length - 1; i > 0; i -= 1) {
+        if (stack[i].tagName === tag) { stack.length = i; break; }
+      }
+      at = lt + close[0].length;
+      continue;
+    }
+    const open = /^<([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*?)\/?>/.exec(src.slice(lt));
+    if (!open) { push('<'); at = lt + 1; continue; } // a stray `<` is text, as in a browser
+    const name = open[1].toLowerCase();
+    const node = new MiniElement(name);
+    parseAttrs(node, open[2]);
+    top().append(node);
+    at = lt + open[0].length;
+    if (open[0].endsWith('/>') || VOID.has(name)) continue;
+    if (RAW_TEXT.has(name)) { // its body is text: `<script>a < b</script>` holds no element
+      const end = src.toLowerCase().indexOf(`</${name}`, at);
+      const body = src.slice(at, end < 0 ? src.length : end);
+      if (body) node.append(new MiniText(body));
+      at = end < 0 ? src.length : src.indexOf('>', end) + 1;
+      continue;
+    }
+    stack.push(node);
+  }
+  return into;
+}
+
+function serialize(node) {
+  if (node.nodeType === 3) return escapeText(node.nodeValue);
+  const name = node.tagName.toLowerCase();
+  const attrs = node.attributes.map(({ name: n, value }) => ` ${n}="${escapeAttr(value)}"`).join('');
+  if (VOID.has(name)) return `<${name}${attrs}>`;
+  return `<${name}${attrs}>${node.childNodes.map(serialize).join('')}</${name}>`;
+}
+
 // ---------- nodes ----------
 
 class MiniNode {
@@ -282,6 +382,13 @@ class MiniParent extends MiniNode {
   set textContent(v) {
     for (const old of this.childNodes.splice(0)) old.parentElement = null;
     if (v != null && v !== '') this.childNodes.push(...incoming(this, [String(v)]));
+  }
+
+  // The one place HTML is parsed: shared/markdown.js hands showdown's output straight to it.
+  get innerHTML() { return this.childNodes.map(serialize).join(''); }
+  set innerHTML(html) {
+    for (const old of this.childNodes.splice(0)) old.parentElement = null;
+    parseHtml(html, this);
   }
 
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }

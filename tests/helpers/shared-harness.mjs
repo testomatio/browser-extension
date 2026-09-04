@@ -171,3 +171,24 @@ export function chromeFake(opts = {}) {
 /** `document.baseURI` + the matching `location.origin` — what resAllowed() reads at call time. */
 export const EXT_BASE = 'chrome-extension://abcdef/sidepanel/index.html';
 export const EXT_ORIGIN = 'chrome-extension://abcdef';
+
+// Chrome gives a chrome-extension:// URL a real origin; Node reports "null" for every scheme it
+// does not treat as special, which would make `/rails/x.png` and `javascript:x` look alike to
+// resAllowed(). This is the browser's answer, not a loosening: a different extension id still
+// compares unequal, and `javascript:` / `data:` stay origin-less.
+export class ExtURL extends URL {
+  get origin() {
+    const own = super.origin;
+    return own === 'null' && this.protocol === 'chrome-extension:'
+      ? `${this.protocol}//${this.host}`
+      : own;
+  }
+}
+
+/** The two globals html-sanitize.js reads at call time, plus the URL it judges schemes with. */
+export const pageGlobals = (over = {}) => ({
+  document: { baseURI: EXT_BASE },
+  location: { origin: EXT_ORIGIN },
+  URL: ExtURL,
+  ...over,
+});
