@@ -215,23 +215,9 @@ test('64: a draft with no shots never opens the store at all', async () => {
 
 // ===================== persistDraftNow =====================================
 
-test('65: an editor opened in a TAB writes no draft at all — D P2-17, still open', () => {
-  const env = load();
-  const { t } = tracker(env, { ctx: 'tab' });
-  t.markDirty();
-  t.persistDraftNow();
-  assert.equal(env.store.size, 0);
-  assert.deepEqual(env.shots.put, []);
-  assert.deepEqual(env.log.filter((l) => l.startsWith('session.') || l.startsWith('ShotStore.')), []);
-  // …and the throttled path is dead too, so nothing writes it later either.
-  t.schedulePersist();
-  assert.equal(env.clock.armed(), 0);
-});
-
-// The bug behind case 65 (#249): a tab editor is torn down by an extension update or a reload like
-// any other page, and the beforeunload dialog it relies on cannot survive that. The restore is
-// gated on the panel too (editor.js), so a fix has to move the write and both reads together.
-test.todo('65 (#249): a tab-context editor persists its draft, so a reload does not eat it', () => {
+// #249: a tab editor is torn down by an extension update or a reload like any other page, and the
+// beforeunload dialog it relies on cannot survive that. The restore in editor.js moved with this.
+test('65 (#249): a tab-context editor persists its draft, so a reload does not eat it', () => {
   const env = load();
   const { t } = tracker(env, { ctx: 'tab' });
   t.persistDraftNow();
@@ -239,7 +225,31 @@ test.todo('65 (#249): a tab-context editor persists its draft, so a reload does 
   assert.equal(written(env).title, 'Login works');
 });
 
-test('65: storage.session missing is the second early return', () => {
+test('65 (#249): a TAB takes the same 400ms throttle and the same shot write as the panel', () => {
+  const env = load();
+  const { t } = tracker(env, { ctx: 'tab', shots: ['a'], shotsRev: 1 });
+  t.onEdited();
+  assert.equal(env.clock.armed(), 1); // the throttled path is live in a tab too…
+  assert.deepEqual(env.clock.delays(), [400]);
+  env.clock.run();
+  assert.equal(written(env).markdown, '### Steps\n\n1. Open');
+  assert.deepEqual(env.shots.put, [['editorDraft:test:t1', ['a']]]); // …and the pictures with it
+});
+
+// Gate 3 of the same fix: without it a tab that saves or discards leaves its draft behind, and the
+// panel then restores that stale text over what the server now holds.
+test('65 (#249): a TAB that discards drops its draft and its shots, not just the panel', () => {
+  const env = load();
+  const { t } = tracker(env, { ctx: 'tab' });
+  t.onEdited();
+  env.clock.run();
+  assert.equal(env.store.size, 1);
+  t.clearDirty();
+  assert.equal(env.store.size, 0);
+  assert.deepEqual(env.shots.del, ['editorDraft:test:t1']);
+});
+
+test('65: no storage.session is the only early return left on the write', () => {
   const env = load({ session: false });
   const { t } = tracker(env);
   t.persistDraftNow();
@@ -363,8 +373,10 @@ test('70: the tab-ctx beforeunload guard is added and removed exactly once', () 
   t.clearDirty();
   t.clearDirty();
   assert.equal(t.isDirty(), false);
-  // clearDirty kills the (unarmed) persist timer first in every context — see case 69.
-  assert.deepEqual(env.log, ['add:beforeunload', 'clearTimeout', 'remove:beforeunload']);
+  // clearDirty kills the (unarmed) persist timer first and removes the draft last — in every
+  // context since #249, so the order of case 69 holds here too.
+  assert.deepEqual(env.log, ['add:beforeunload', 'clearTimeout', 'remove:beforeunload',
+    'ShotStore.del', 'session.remove:editorDraft:test:t1']);
   assert.equal(env.listeners.length, 0);
   // The handler is the one the browser needs to show its own dialog.
   const ev = { prevented: false, returnValue: null, preventDefault() { this.prevented = true; } };
