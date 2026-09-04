@@ -18,6 +18,13 @@ const QUEUE_KEY = 'offlineQueue';
 const qKey = (recordId) => String(recordId);
 const normalizeFlag = (v) => (!v ? null : v === 'auth' ? 'auth' : 'network');
 
+// #106: an entry queued because the TOKEN was rejected is not waiting for a connection, and saying
+// so was a lie the tester could act on for hours. Same queue, same replay — different sentence.
+const QUEUED_OFFLINE_TIP = 'Saved offline — will sync when the connection returns';
+const QUEUED_AUTH_TIP = 'Saved here — the token was rejected; authorize again in Settings to sync it';
+// An entry from an older build carries no reason: it queued the way it always did — offline.
+const queuedTip = (recordId) => (queueReason(recordId) === 'auth' ? QUEUED_AUTH_TIP : QUEUED_OFFLINE_TIP);
+
 // Only a network error or a 401/403 «paused» token queues; every other API error
 // keeps its honest error toast.
 function queueQualifies(e) { return !!e && (e.kind === 'network' || e.kind === 'auth'); }
@@ -48,6 +55,8 @@ function queueCount() { return Object.keys(queueCache).length; }
 // …and the share of it this connection can actually sync (the banner's count).
 function queueCountActive() { return Object.values(queueCache).filter(queueEntryActive).length; }
 function queueHas(recordId) { return Object.prototype.hasOwnProperty.call(queueCache, qKey(recordId)); }
+// WHY the entry is here — 'auth' or 'network'. Wording only: nothing reads it to decide a replay.
+function queueReason(recordId) { return queueCache[qKey(recordId)]?.reason || null; }
 
 async function persistQueue() {
   if (!hasChrome) return;
@@ -56,9 +65,10 @@ async function persistQueue() {
 
 // Add or REPLACE (newer click wins). The stored comment is the RAW tester text —
 // replay re-derives the env-info/evidence suffix at replay time.
-async function queueEnqueue({ recordId, runId, status, comment, queuedAt }) {
+async function queueEnqueue({ recordId, runId, status, comment, queuedAt, reason }) {
   queueCache[qKey(recordId)] = {
     recordId, runId, status, comment: comment || '', queuedAt: queuedAt || Date.now(),
+    reason: normalizeFlag(reason), // WORDING only — the replay treats every entry alike
     ...queueIdentity(), // the connection this write belongs to — replay elsewhere 404s
   };
   await persistQueue();
@@ -214,18 +224,21 @@ function applyQueuedMarker(li, recordId) {
     mark = document.createElement('span');
     mark.className = 'badge outline queued-mark';
     mark.textContent = 'queued';
-    Tooltip.set(mark, 'Saved offline — will sync when the connection returns');
     // insertBefore(node, null) appends — the `.meta` host has no actions cell.
     host.insertBefore(mark, host.querySelector(':scope > .row-actions'));
   } else if (!queued && mark) {
     mark.remove();
   }
+  if (queued && mark) Tooltip.set(mark, queuedTip(recordId));
 }
 
 function updateTestQueuedMarker() {
   const el = $('test-queued');
   if (!el) return;
-  el.hidden = !(state.view === 'test' && state.currentRecordId != null && queueHas(state.currentRecordId));
+  const queued = state.view === 'test' && state.currentRecordId != null && queueHas(state.currentRecordId);
+  el.hidden = !queued;
+  // The markup's own tip is the offline one; a rejected token needs the other sentence.
+  if (queued) Tooltip.set(el, queuedTip(state.currentRecordId));
 }
 
 function refreshQueueUI() {
@@ -266,6 +279,7 @@ async function queueInit() {
 const OfflineQueue = {
   init: queueInit,
   has: queueHas,
+  reason: queueReason,
   count: queueCount,
   qualifies: queueQualifies,
   enqueue: queueEnqueue,

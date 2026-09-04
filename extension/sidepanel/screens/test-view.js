@@ -1604,8 +1604,12 @@ async function writeStatus(record, status, comment, onOptimistic, opts = {}) {
       // no toast. `noQueue` replays bypass this so a retry throws and stays queued.
       if (!opts.noQueue && record && record.id != null
           && typeof OfflineQueue !== 'undefined' && OfflineQueue.qualifies(e)) {
-        await OfflineQueue.enqueue({ recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now() });
-        return { queued: true };
+        // `reason` is the queued entry's WORDING, nothing else: what queues is unchanged (#106).
+        const reason = e.kind === 'auth' ? 'auth' : 'network';
+        await OfflineQueue.enqueue({
+          recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now(), reason,
+        });
+        return { queued: true, reason };
       }
       throw e;
     }
@@ -1671,7 +1675,12 @@ async function clickStatus(status) {
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.updateTestMarker();
     if (!stillHere()) { hideToast(); return; } // tester already moved on — nothing left to paint here
     // Landed: the line says NOTHING (the verdict is already on three surfaces).
-    setStatusLine('test-status', queued ? `${status} — queued offline, will sync when back online` : '', queued ? 'ok' : '');
+    // #106: a token the server rejected is not "offline", and telling the tester to wait for a
+    // connection that is already there costs them the session. Same queue — an honest sentence.
+    const queuedLine = res && res.reason === 'auth'
+      ? `${status} — saved here, but the token was rejected; authorize again in Settings`
+      : `${status} — queued offline, will sync when back online`;
+    setStatusLine('test-status', queued ? queuedLine : '', queued ? 'ok' : '');
     setWriteState(queued ? 'queued' : 'saved');
     // The controls below only apply once a row HAS a status, so the screen follows it.
     showTestSection('status');
