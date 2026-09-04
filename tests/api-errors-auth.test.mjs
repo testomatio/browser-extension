@@ -12,7 +12,7 @@ const V2KEY = 'V2KEY';                       // a minted project key — a liter
 const keyDoc = (attrs) => ok({ data: { attributes: attrs } });
 const loginOk = ok({ jwt: JWT });
 
-// ---- error mapping — toError / ApiError (E-P2-1 still OPEN) ----
+// ---- error mapping — toError / ApiError ----
 
 test('14: 401 is the one sentence about the token, whatever the body said', async () => {
   const h = load().configure();
@@ -40,13 +40,42 @@ test('16: 404 says it may be the project, not the row', async () => {
   assert.equal(e.message, 'Not found — or no access to this project');
 });
 
-test('17: a 500 body reaches the tester as a raw JSON dump', async () => {
+test('17: a 500 body reaches the tester as the sentence the server wrote', async () => {
   const h = load().configure();
   h.reply({ status: 500, json: { errors: [{ detail: 'boom' }] } });
   const e = await rejection(h.mod.validate());
   assert.equal(e.kind, 'http');
-  // E-P2-1 OPEN: no formatter yet, so the tester reads the wire shape
-  assert.equal(e.message, '{"errors":[{"detail":"boom"}]}');
+  assert.equal(e.message, 'boom'); // never the wire shape it arrived in
+});
+
+test('17a: every body shape the two APIs use, and the order they are read in', async () => {
+  const cases = [
+    [{ message: 'the run is closed' }, 'the run is closed'],
+    [{ error: 'suite not empty' }, 'suite not empty'],
+    [{ errors: [{ detail: 'title is too long' }] }, 'title is too long'],
+    [{ errors: [{ title: 'Unprocessable' }] }, 'Unprocessable'],
+    [{ errors: [{ message: 'nope' }] }, 'nope'],
+    [{ errors: ['plain string'] }, 'plain string'],
+    [{ message: 'wins', error: 'loses' }, 'wins'],
+    [{ errors: [{ detail: 'wins', title: 'loses' }] }, 'wins'],
+  ];
+  for (const [body, want] of cases) {
+    const h = load().configure();
+    h.reply({ status: 422, json: body });
+    const e = await rejection(h.mod.validate());
+    assert.equal(e.message, want, JSON.stringify(body));
+    assert.equal(e.status, 422);
+  }
+});
+
+test('17b: nothing readable in the body falls back to the status line, never to a dump', async () => {
+  const bodies = [{}, { data: { id: 7 } }, { errors: [] }, { message: '   ' }, { message: 5 }, null, [1, 2]];
+  for (const body of bodies) {
+    const h = load().configure();
+    h.reply({ status: 500, json: body });
+    const e = await rejection(h.mod.validate());
+    assert.equal(e.message, 'HTTP 500', JSON.stringify(body));
+  }
 });
 
 test('18: a 500 the parser chokes on falls back to the status line', async () => {

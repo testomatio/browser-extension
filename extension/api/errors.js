@@ -20,6 +20,21 @@ const ApiErrors = (() => {
     }
   }
 
+  // What the SERVER actually wrote, in the shapes the two halves of this API use: v2 answers
+  // `{message}` or `{error}`, the JSON:API an `errors[]` of `{detail|title|message}`. Anything else
+  // is nothing readable — never the stringified body, which is a wire dump, not a sentence.
+  const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  function readable(body) {
+    if (typeof body === 'string') return text(body);
+    if (!body || typeof body !== 'object') return '';
+    const direct = text(body.message) || text(body.error);
+    if (direct) return direct;
+    const first = Array.isArray(body.errors) ? body.errors[0] : null;
+    if (typeof first === 'string') return text(first);
+    if (!first || typeof first !== 'object') return '';
+    return text(first.detail) || text(first.title) || text(first.message);
+  }
+
   async function toError(res) {
     if (res.status === 401 || res.status === 403) {
       return new ApiError('auth', res.status, 'Token invalid or has no access');
@@ -31,9 +46,10 @@ const ApiErrors = (() => {
     // `http` and 429 on purpose: the offline queue reads `kind` and must not start queueing these.
     if (res.status === 429) return new ApiError('http', 429, RATE_LIMITED);
     let detail = '';
-    try { detail = JSON.stringify(await res.json()); } catch { /* empty body */ }
+    try { detail = readable(await res.json()); } catch { /* empty or unparseable body */ }
+    // Nothing readable in there — the status line is at least honest about what happened.
     return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 
-  return { ApiError, toError, instanceHost, readonlyMessage, routeRefused, RATE_LIMITED };
+  return { ApiError, toError, readable, instanceHost, readonlyMessage, routeRefused, RATE_LIMITED };
 })();
