@@ -67,7 +67,7 @@ test('4: falsy text is dropped, and an entry with no text at all does not throw'
   });
 });
 
-// Case 5, the double prefix, is a shipped bug — the test.todo at the end of this file.
+// Case 5, the double prefix, is a shipped bug (#245) — the test.todo at the end of this file.
 
 // ===================== insertRecorded: items → markdown =====================
 
@@ -100,7 +100,7 @@ test('9: nothing recorded leaves the body byte for byte as it was', () => {
   assert.equal(insertRecorded(body, { steps: [], expected: [], leadSubs: [] }), body);
 });
 
-// Case 10, the English heading appended to a Ukrainian body, is the second test.todo below.
+// Case 10, the English heading appended to a Ukrainian body (#246), is the second test.todo below.
 
 // ===================== polishedSection: answer → section ====================
 
@@ -204,7 +204,7 @@ test('27: precedence is error, then details, then message', () => {
 // 5: the recorder's own `Expected: ` prefix is added on top of one the entry already carries.
 // splitRecorded writes the prefix by hand while parsePolishedItems routes through asExpected,
 // which strips a leading `expected:` first; the fix is to route both through asExpected.
-test.todo('5 (TODO, open bug): an entry that already says "Expected:" is not prefixed twice', () => {
+test.todo('5 (#245): an entry that already says "Expected:" is not prefixed twice', () => {
   // Today: subs === ['Expected: Expected: y'].
   const parts = splitRecorded([{ text: 'A' }, { kind: 'expected', text: 'Expected: y' }], false);
   assert.deepEqual(plain(parts.steps), [{ text: 'A', subs: ['Expected: y'] }]);
@@ -212,7 +212,7 @@ test.todo('5 (TODO, open bug): an entry that already says "Expected:" is not pre
 
 // 10: insertRecorded hard-codes the English 'Steps' heading, while shared/markdown.js reads
 // `step|крок`, so a Ukrainian test grows a second, English section instead of gaining a step.
-test.todo('10 (TODO, open bug): a recorded step joins the Ukrainian ### Кроки section', () => {
+test.todo('10 (#246): a recorded step joins the Ukrainian ### Кроки section', () => {
   // Today: '### Кроки\n\n1. Відкрити\n\n### Steps\n\n1. Клік'.
   assert.equal(
     insertRecorded(md('### Кроки', '', '1. Відкрити', ''), splitRecorded([{ text: 'Клік' }], false)),
