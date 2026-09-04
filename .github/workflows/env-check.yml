@@ -6,14 +6,16 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - 'tests/env-info-matrix.mjs'
+      - 'tests/env-info.test.mjs'
+      - 'tests/helpers/core-harness.mjs'
       - 'tests/env-live-probe.mjs'
       - '.github/workflows/env-check.yml'
       - 'extension/sidepanel/core/env-info.js'
   push:
     branches: [main]
     paths:
-      - 'tests/env-info-matrix.mjs'
+      - 'tests/env-info.test.mjs'
+      - 'tests/helpers/core-harness.mjs'
       - 'tests/env-live-probe.mjs'
       - '.github/workflows/env-check.yml'
       - 'extension/sidepanel/core/env-info.js'
@@ -37,7 +39,7 @@ jobs:
       - name: sample-matrix
         id: sample-matrix
         shell: bash
-        run: node tests/env-info-matrix.mjs
+        run: node --test tests/env-info.test.mjs
 
       # Runs even when the matrix is red: before the fix it fails by design and the
       # live probe result is still the evidence we need.
