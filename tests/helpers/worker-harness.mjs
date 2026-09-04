@@ -304,6 +304,13 @@ export function load(opts = {}) {
     ShotStore: { sweep: async (keys, maxAge) => { log('ShotStore.sweep', keys, maxAge); } },
     evStopIfRecording: (reason) => { log('evStopIfRecording', reason); },
     srecCastOwns: (tabId) => hooks.castOwns(tabId),
+    // The awaited twin, stubbed the way session.js resolves it: the mirror `castOwns` stands for,
+    // and behind it the cast the worker restart re-seeds from storage.session.
+    srecCastOwnsReady: async (tabId) => {
+      if (hooks.castOwns(tabId)) return true;
+      const rec = sess.screenRec;
+      return !!(rec && rec.recording && rec.mode === 'cast' && rec.tabId === tabId);
+    },
 
     chrome: chromeStub,
     console,

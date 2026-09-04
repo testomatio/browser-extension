@@ -268,17 +268,23 @@ test('W28: host+path is Chrome\'s placeholder, not a title', () => {
   assert.equal(load().api.srIsUrlTitle('shop.example.com/cart', 'https://shop.example.com/cart'), true);
 });
 
+// The other shape Chrome shows while a page loads: the host with no path behind it.
+test('W28b: the host on its own is Chrome\'s placeholder too', () => {
+  const { srIsUrlTitle } = load().api;
+  assert.equal(srIsUrlTitle('shop.example.com', 'https://shop.example.com/cart'), true);
+  assert.equal(srIsUrlTitle('shop.example.com', 'https://shop.example.com/'), true);
+});
+
 test('W29: a real title is kept', () => {
   assert.equal(load().api.srIsUrlTitle('Cart', 'https://shop.example.com/cart'), false);
 });
 
-// `u.href.includes(t)` swallows any short title that happens to be a substring of the URL.
-test('W30: a real page titled "cart" is mistaken for a placeholder, because the URL contains it', () => {
-  assert.equal(load().api.srIsUrlTitle('cart', 'https://shop.example.com/cart'), true);
-});
-
-test.todo('W30b: a real title that the URL merely contains is still a title (#228)', () => {
-  assert.equal(load().api.srIsUrlTitle('cart', 'https://shop.example.com/cart'), false);
+// A placeholder IS the address; a one-word section name the address happens to contain, and a
+// title that carries the domain inside it, are the page's own words and are kept.
+test('W30b: a real title that the URL merely contains is still a title', () => {
+  const { srIsUrlTitle } = load().api;
+  assert.equal(srIsUrlTitle('cart', 'https://shop.example.com/cart'), false);
+  assert.equal(srIsUrlTitle('example.com — Home', 'https://shop.example.com/cart'), false);
 });
 
 test('W31: an empty or blank title is a placeholder', () => {
@@ -570,8 +576,8 @@ test('W64: the foreign-frame refusal becomes our own copy, and unlocks the viewp
   assert.equal(err.foreignFrame, true);
 });
 
-// Today Chrome's own wording is toasted at the tester verbatim, with no way to act on it.
-test.todo('W65: "another debugger is attached" is explained in our words (#229)', () => {
+// Chrome's own wording names a tab id nobody can find; ours names the thing to close.
+test('W65: "another debugger is attached" is explained in our words', () => {
   const err = load().api.dbgError('Another debugger is already attached to the tab with id: 5');
   assert.match(err.message, /DevTools|another tool|close/i);
   assert.equal(err.debuggerBusy, true);
@@ -743,12 +749,13 @@ test('W83: a restricted page is refused before either route runs', async () => {
   assert.deepEqual(h.named('debugger.attach'), []);
 });
 
+// A refusal with no copy of its own — it reaches the panel exactly as Chrome wrote it.
 test('W84: any debugger failure that is not the foreign frame still rejects', async () => {
   const { h, err } = await shotOf(
-    (hh) => { hh.hooks.dbgAttach = () => 'Another debugger is already attached to the tab with id: 5'; },
+    (hh) => { hh.hooks.dbgAttach = () => 'Cannot attach to this target.'; },
     { beyondViewport: true },
   );
-  assert.equal(err.message, 'Another debugger is already attached to the tab with id: 5');
+  assert.equal(err.message, 'Cannot attach to this target.');
   assert.deepEqual(h.named('scripting.executeScript'), []); // no frame surgery for a stranger
 });
 
@@ -795,14 +802,27 @@ test('W88: a cast recording already holds the attach, so the shot shares it and 
   assert.equal(h.named('debugger.sendCommand').length, 2); // the control: it did shoot
 });
 
-// After a worker restart the cast's tab is re-seeded asynchronously; a shot taken in that window
-// sees srecCastOwns() false, attaches on top of the cast's own session and is refused by Chrome.
-test.todo('W89: a shot right after a worker restart still shares the cast\'s attach (#230)', async () => {
-  const h = load();
-  h.hooks.castOwns = () => false; // the re-seed has not landed yet
+// After a worker restart the mirror is null until the cast's tab is re-seeded from session
+// storage; the shot waits for that answer rather than attaching on top of the cast's own session.
+test('W89: a shot right after a worker restart still shares the cast\'s attach', async () => {
+  const h = load({ session: { screenRec: { recording: true, mode: 'cast', tabId: 7, paused: false } } });
+  h.hooks.castOwns = () => false; // the mirror: the re-seed has not landed yet
   h.hooks.dbgAttach = () => 'Another debugger is already attached to the tab with id: 7';
-  await h.api.shootViaDebugger(7, true);
+  const { res } = await h.api.shootViaDebugger(7, true);
   assert.deepEqual(h.named('debugger.attach'), []);
+  assert.deepEqual(h.named('debugger.detach'), []); // the cast's session is left standing
+  assert.equal(res.data, 'shot'); // the control: it shared the attach and did shoot
+});
+
+// The control on W89: with no cast in session storage there is nothing to share, so the shot
+// opens its own attach and closes it again.
+test('W89b: with no recording to share, the shot attaches and detaches as it always did', async () => {
+  const h = load();
+  h.hooks.castOwns = () => false;
+  const { res } = await h.api.shootViaDebugger(7, true);
+  assert.deepEqual(plain(h.named('debugger.attach')), [[{ tabId: 7 }, '1.3']]);
+  assert.deepEqual(plain(h.named('debugger.detach')), [[{ tabId: 7 }]]);
+  assert.equal(res.data, 'shot');
 });
 
 // ================= the injected frame surgery, run on a page ===============

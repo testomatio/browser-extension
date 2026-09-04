@@ -22,7 +22,10 @@ const SREC_CLAIM_MS = 2 * 60 * 1000;
 // The cast attach, mirrored in a module var so the frame pump filters without an await;
 // re-seeded from storage on a worker restart (the debugger session survives one).
 let castTab = null;
+let castSeeded = Promise.resolve(); // the re-seed below, so a caller can wait for the mirror
 const srecCastOwns = (tabId) => castTab != null && tabId === castTab;
+// The answer worth acting on: a caller that CAN await gets the truth, not a mirror mid-re-seed.
+const srecCastOwnsReady = async (tabId) => { await castSeeded; return srecCastOwns(tabId); };
 
 const srecGet = async () => (await chrome.storage.session.get(SREC_KEY))[SREC_KEY] || null;
 const srecSet = (v) => chrome.storage.session.set({ [SREC_KEY]: v });
@@ -350,7 +353,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 });
 
 // A worker restart drops the module mirror; the debugger session it filters for survives one.
-srecGet().then((st) => { if (st && st.recording && st.mode === 'cast') castTab = st.tabId; }).catch(() => {});
+// Held in `castSeeded`, and never rejecting, so a shot landing mid-seed waits for an answer.
+castSeeded = srecGet()
+  .then((st) => { if (st && st.recording && st.mode === 'cast') castTab = st.tabId; })
+  .catch(() => {});
 
 // The track ends with the tab and the offscreen document pushes the file; this only tidies state.
 chrome.tabs.onRemoved.addListener(async (tabId) => {

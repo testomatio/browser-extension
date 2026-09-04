@@ -304,7 +304,8 @@ async function shootViaDebugger(tabId, beyondViewport) {
   let clip = null;
   let res;
   // A cast recording already holds the attach on this tab: share it, and leave it standing.
-  const shared = typeof srecCastOwns === 'function' && srecCastOwns(tabId);
+  // Awaited: right after a worker restart the mirror is still null and says there is no recording.
+  const shared = typeof srecCastOwnsReady === 'function' && await srecCastOwnsReady(tabId);
   if (!shared) await dbgAttach(tabId);
   try {
     if (beyondViewport) clip = await fullPageClip(tabId);

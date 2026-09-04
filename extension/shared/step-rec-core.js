@@ -118,14 +118,16 @@ const StepRecCore = (() => {
     return es.length;
   }
 
-  // Chrome fills tab.title with a URL-derived placeholder (host+path) until the real <title> parses.
+  // Chrome fills tab.title with a URL-derived placeholder until the real <title> parses. A title
+  // is that placeholder only when it IS the address — host+path+search, the host, or the href.
   function srIsUrlTitle(title, url) {
     const t = (title || '').trim();
     if (!t) return true;
     try {
       const u = new URL(url);
-      const bare = (u.host + u.pathname + u.search).replace(/\/+$/, '');
-      return t.replace(/\/+$/, '') === bare || u.href.includes(t) || t.includes(u.host);
+      const bare = (s) => String(s).replace(/\/+$/, '');
+      const seen = bare(t);
+      return seen === bare(u.host + u.pathname + u.search) || seen === bare(u.host) || seen === bare(u.href);
     } catch { return false; }
   }
 
