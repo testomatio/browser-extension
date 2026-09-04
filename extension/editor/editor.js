@@ -1112,10 +1112,10 @@
         if (ctx === 'panel') removeEditorDraft(draftKey);
         // For a create, `test: {}` is not a missing record: it is the `manual` kind
         // TestType reads out of a record carrying no state flags.
-        const rec = (editing && test) ? { ...test, title: t, priority } : {};
+        const record = (editing && test) ? { ...test, title: t, priority } : {};
         // View first, then the toast — showToast targets the view's own element. With no
         // id back (never seen on v2) just latch `done`, so a retry can't create a copy.
-        if (id) handOverToView(id, { title: t, markdown: description, priority, test: rec });
+        if (id) handOverToView(id, { title: t, markdown: description, priority, test: record });
         else done = true;
         if (shotError) {
           showToast(shotFailed > 1
