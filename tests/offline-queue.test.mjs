@@ -44,7 +44,7 @@ function load(opts = {}) {
   const banner = el('div', { id: 'pending-banner', hidden: true }, bannerText);
   const retry = el('button', { id: 'pending-banner-retry' });
   const testQueued = el('span', { id: 'test-queued', hidden: true });
-  // One line and no `.meta`, the shape rows took in #215 — the row itself hosts the mark.
+  // One line and no `.meta`, the shape rows took upstream — the row itself hosts the mark.
   const list = el('ul', { id: 'run-tests' }, ...o.rows.map((id) => el('li', {
     className: 'test-row', dataset: { recordId: String(id) },
   }, el('span', { className: 'title' }, `test ${id}`))));

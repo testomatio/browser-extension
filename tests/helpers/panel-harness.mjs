@@ -173,7 +173,7 @@ export function loadScreen(name, opts = {}) {
     setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
     ...globals,
     // Whatever else a test puts on TestomatAPI, ApiError stays the real constructor.
-    TestomatAPI: { ApiError, ...(globals.TestomatAPI || {}) },
+    TestomatAPI: { ...(globals.TestomatAPI || {}), ApiError },
   };
   // A clock the caller can hold still, with the realm's own Date otherwise untouched.
   if (now !== undefined) {
