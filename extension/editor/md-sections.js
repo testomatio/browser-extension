@@ -130,7 +130,12 @@ const MdSections = (() => {
     // the tester wrote there, and the section's own trailing blanks stay where they are.
     let at = cut.end;
     while (at > cut.hIdx + 1 && !lines[at - 1].trim()) at--;
-    lines.splice(at, 0, '', ...render(list, cut.style));
+    // With no step before them, `leadSubs` belong to the FIRST of the new ones: an expected result
+    // with nothing above it describes the step that follows.
+    const head = leadSubs.length
+      ? [{ ...list[0], subs: [...leadSubs, ...(list[0].subs || [])] }, ...list.slice(1)]
+      : list;
+    lines.splice(at, 0, '', ...render(head, cut.style));
     return lines.join('\n');
   }
 

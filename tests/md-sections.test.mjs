@@ -311,8 +311,8 @@ test('a body saved with Windows line endings keeps the steps it already had (#14
     [['Expected: the home page']]);
 });
 
-// An expected result recorded before its step exists has nothing to hang on and is dropped.
-test.todo('an expected result recorded into a Steps section that holds only prose survives (#146)', () => {
+// An expected result recorded with no step above it hangs on the step that follows it instead.
+test('an expected result recorded into a Steps section that holds only prose survives (#146)', () => {
   const withStep = md('### Steps', '', '1. Open the site', '');
   const opts = { ordered: true, leadSubs: ['Expected: the dashboard'] };
   assert.match(MdSections.insert(withStep, 'Steps', [step('Click Login')], opts), /Expected: the dashboard/);
