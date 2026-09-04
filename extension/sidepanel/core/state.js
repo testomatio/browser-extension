@@ -307,6 +307,7 @@ function handleApiError(e, statusId, opts = {}) {
   } else if (statusId) {
     setStatusLine(statusId, e.message || String(e), 'error');
   } else {
-    toast(e.message || String(e));
+    // No field to sit under: the toast is the whole report, so it carries the error style.
+    toast(e.message || String(e), { error: true });
   }
 }
