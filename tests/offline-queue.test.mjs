@@ -74,9 +74,13 @@ function load(opts = {}) {
     // refreshQueueUI runs on every enqueue and every removal, so this one has to stay cheap.
     $: (id) => { calls.$ += 1; return doc.getElementById(id); },
     Tooltip: { set: (node, tip) => { tips.push({ node, tip }); } },
-    writeStatus: async (record, status, comment, onOptimistic, wOpts) => {
-      writes.push({ id: String(record.id), status, comment, opts: { ...wOpts } });
-      return o.write(record, status, comment, onOptimistic, wOpts);
+    // core/write-status.js's, stubbed: this suite is about what the drain hands it and what it
+    // does with the answer. tests/write-status.test.mjs owns the request itself.
+    WriteCore: {
+      writeStatus: async (record, status, comment, onOptimistic, wOpts) => {
+        writes.push({ id: String(record.id), status, comment, opts: { ...wOpts } });
+        return o.write(record, status, comment, onOptimistic, wOpts);
+      },
     },
     TestomatAPI: {
       getRun: async (id) => { apiCalls.push(['getRun', String(id)]); return o.getRun(String(id)); },
@@ -777,7 +781,7 @@ test('53: an older Chrome with no session onChanged still finishes init and stil
 test('54: the forced-failure cycle — queue while it fails, and a later success clears its own entry', async () => {
   const server = {};
   let h;
-  // screens/test-view.js's writeStatus, cut to the three lines this cycle turns on.
+  // core/write-status.js's writeStatus, cut to the three lines this cycle turns on.
   const mark = async (recordId, status) => {
     try {
       const forced = h.Q.forcedError();

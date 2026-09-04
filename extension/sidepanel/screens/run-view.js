@@ -2,7 +2,7 @@
 // status chips, search, suite sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast, Fmt, CommentDrafts */
+   progressToast, Fmt, CommentDrafts, WriteCore */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -1235,7 +1235,7 @@ async function writeRowStatus(record, status, li) {
   const prev = { ...record };
   state.inlineWrites += 1;
   try {
-    const res = await writeStatus(record, status, ''); // no comment / no view-specific bits at run level
+    const res = await WriteCore.writeStatus(record, status, ''); // no comment / no view-specific bits at run level
     if (btn) btn.classList.remove('busy');
     repaintRow(li, record);          // repaint reflects the queued marker too (decorateRow)
     if (!(res && res.queued)) flashRowSaved(li); // green flash only when the write actually landed
