@@ -1777,6 +1777,27 @@ test('64b: a re-render leaves the list keyboard-ready again, and Load more stays
   assert.equal(h.doc.activeElement, h.rowFor('r2'), 'the arrows stop at the last ROW');
 });
 
+// 64c: the head is a role="button" that folds a folder, and the chevron that says which way it is
+// pointing is a picture. Written where the fold is written — the render, and the toggle.
+test('64c (#109): a folder head says whether it is open, and keeps saying it as the fold moves', () => {
+  const h = load({ dashItems: [group('g1'), run('r2')], subgroupsCache: { g1: [] }, childrenCache: { g1: [run('r1')] } });
+  h.fn.renderDashboard();
+  const head = () => h.groupRowFor('g1').querySelector('.group-head');
+  assert.equal(head().getAttribute('aria-expanded'), 'false');
+
+  fire(head(), 'click');
+  assert.equal(head().getAttribute('aria-expanded'), 'true');
+  fire(head(), 'click');
+  assert.equal(head().getAttribute('aria-expanded'), 'false');
+
+  // …and a row rebuilt from state is born saying it, not left to the toggle that is not coming.
+  h.state.expandedGroups.push('g1');
+  h.fn.renderDashboard();
+  assert.equal(head().getAttribute('aria-expanded'), 'true');
+  // A run row folds nothing, so it claims no fold.
+  assert.equal(h.rowFor('r2').getAttribute('aria-expanded'), null);
+});
+
 test('101: in the degraded v2 mode there is nothing nested to hydrate, so the walk returns at once', async () => {
   const h = load({ listMode: 'v2', expandedGroups: ['gone'], dashItems: [] });
   h.stubRenderList();

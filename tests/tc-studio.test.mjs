@@ -1230,6 +1230,31 @@ test('81c (#109): the inline create field keeps every key typed into it, tree or
   assert.equal(h.doc.activeElement, h.rowFor('f1'));
 });
 
+// 81d: the row is a role="button" that folds a branch, and the chevron pointing one way or the
+// other is a picture. Three places write this fold, and a reader believes whichever wrote last.
+test('81d (#109): a folder row says whether it is open — and a file row claims no fold at all', () => {
+  const h = load({ suites: [folder('f1', 'Checkout', [file('s1', 'Guest')]), file('s2', 'Payments')] });
+  h.fn.renderSuiteTree(h.state.tcSuites);
+  const folderRow = h.rowFor('f1');
+  assert.equal(folderRow.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.rowFor('s2').getAttribute('aria-expanded'), null, 'a leaf folds nothing');
+  assert.equal(h.rowFor('s1').getAttribute('aria-expanded'), null);
+
+  fire(folderRow, 'click');
+  assert.equal(folderRow.getAttribute('aria-expanded'), 'true');
+  fire(folderRow, 'click');
+  assert.equal(folderRow.getAttribute('aria-expanded'), 'false');
+
+  // The New-suite button opens the folder to show the field it mounts inside — a fold write too.
+  fire(folderRow.querySelector('.tc-new'), 'click', { bubbles: true });
+  assert.equal(folderRow.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.rowFor('s1').closest('.tc-children').hidden, false, 'and the fold it claims is the real one');
+
+  // …and a row rebuilt from the expand set is born saying it, not left to a toggle to correct.
+  h.fn.renderSuiteTree(h.state.tcSuites);
+  assert.equal(h.rowFor('f1').getAttribute('aria-expanded'), 'true');
+});
+
 // ---------- the two search fields, and what a reset is allowed to touch (rows 4d-30c) ----------
 
 test('4b: typing in the tree search narrows the tree and reveals the branch under every match', () => {

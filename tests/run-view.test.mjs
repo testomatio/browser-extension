@@ -22,6 +22,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
 import { loadState } from './helpers/core-harness.mjs';
+import { loadInto } from './helpers/shared-harness.mjs';
+
+// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
+// keyboard rows below are worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
+
+// A keypress from whatever has focus, which bubbles to the <ul> both handlers are delegated on —
+// the same trip a real one makes. `key` is taken here by the id-to-camelCase helper below.
+const press = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
 // The REAL formatter, not a stub: the Run info rows assert the duration a tester reads, and a
 // fake would let them pass against a wording the panel never prints (tests/format.test.mjs).
@@ -271,6 +280,7 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    Roving: roving(),
     capabilities: { jwt: o.jwt },
     stepWriteChain: Promise.resolve(),
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -422,6 +432,12 @@ function load(opts = {}) {
     sectionKeys: () => node.runTests.querySelectorAll('.suite-section').map((s) => s.dataset.suite),
     sectionTitles: () => node.runTests.querySelectorAll('.suite-head .title').map((t) => t.textContent),
     rowIds: () => node.runTests.querySelectorAll('li.test-row').map((r) => r.dataset.recordId),
+    rowFor: (id) => node.runTests.querySelector(`li.test-row[data-record-id="${id}"]`),
+    headFor: (suite) => node.runTests.querySelector(`.suite-section[data-suite="${suite}"] .suite-head`),
+    // Every stop the arrows walk, in document order — the shape the roving model is about.
+    rowTabs: () => node.runTests.querySelectorAll('li.test-row, .suite-head').map((r) => r.getAttribute('tabindex')),
+    // A row's three status buttons, whatever their state.
+    cellsOf: (li) => li.querySelectorAll('.row-actions .row-st'),
     emptyTitle: () => node.runTests.querySelector('.empty-title')?.textContent ?? null,
     emptyActions: () => node.runTests.querySelectorAll('.empty-actions > *').map((a) => a.textContent),
     fraction: () => node.runProgress.querySelector('.counts-done')?.textContent ?? null,
@@ -2359,19 +2375,140 @@ test('53a (#258): finishing the run re-sorts the re-read the same way, not as te
   assert.deepEqual(h.rowIds(), ['99', '100']);
 });
 
-// 64: testRow (1107-1127) and the suiteSection head (1239-1266) carry a click listener and nothing
-// else — no tabindex, no role, no keydown — so the whole checklist is unreachable by keyboard.
-test.todo('64 (#109): a test row and a suite head can be reached and opened from the keyboard', () => {
+// 64: testRow and the suiteSection head carried a click listener and nothing else — no tabindex, no
+// role, no keydown — so the checklist was unreachable by keyboard while each row's three status
+// buttons WERE reachable: a tester could mark a test they were never able to read. One roving tab
+// stop for the whole list now; the helper's own contract is tests/roving.test.mjs.
+test('64 (#109): a test row and a suite head can be reached and opened from the keyboard', () => {
+  const h = load({ records: twoSuites(), expandedSuites: { A: true } });
+  h.fn.renderRunSections();
+
+  const head = h.headFor('A');
+  assert.equal(head.getAttribute('role'), 'button', 'a reader is told the head is actionable');
+  assert.equal(head.getAttribute('tabindex'), '0');
+  assert.equal(head.getAttribute('aria-expanded'), 'true', 'and whether it is open — the chevron is a picture');
+  // Every row is BORN a stop and the first focus to land demotes the rest, which is how a
+  // re-render needs no call of its own.
+  assert.equal(h.rowFor(1).getAttribute('role'), 'button', 'and so is every test row');
+  assert.equal(h.rowFor(1).getAttribute('tabindex'), '0');
+
+  // ←→ mean "into this row's buttons" one line below, so on a head they mean nothing at all.
+  head.focus();
+  assert.equal(press(head, 'ArrowRight').defaultPrevented, false);
+  assert.equal(press(head, 'ArrowLeft').defaultPrevented, false);
+  assert.equal(h.doc.activeElement, head);
+
+  // Down steps onto A's row, and the tab stop travels with the caret.
+  assert.equal(press(head, 'ArrowDown').defaultPrevented, true);
+  assert.equal(h.doc.activeElement, h.rowFor(1));
+  assert.deepEqual(h.rowTabs(), ['-1', '0', '-1', '-1'], 'exactly one stop in the whole checklist');
+
+  // …then STRAIGHT over folded B's row onto B's head — an invisible row is not a stop.
+  press(h.rowFor(1), 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.headFor('B'));
+
+  // Enter on a row opens the test, which is the same act as clicking it. Space too, and it is
+  // swallowed or the checklist scrolls out from under the row it just opened.
+  assert.equal(press(h.rowFor(1), 'Enter').defaultPrevented, true);
+  assert.equal(press(h.rowFor(1), ' ').defaultPrevented, true);
+  assert.deepEqual(h.calls.opened, [1, 1]);
+
+  // Enter on the head folds — and the head SAYS so, rather than leaving it to the chevron.
+  assert.equal(press(head, 'Enter').defaultPrevented, true);
+  assert.equal(h.state.expandedSuites.A, false);
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  press(head, 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.headFor('B'), 'a folded suite offers the arrows no row at all');
+});
+
+// 64a (#109): the three status buttons were three tab stops PER ROW, so a 200-test run was 600 of
+// them and not one said which test was being marked. They are cells of their row now.
+test("64a (#109): ←→ walk a row's status buttons, clamped at both ends", () => {
   const h = load({ records: [rec(1, { suite_title: 'A' })] });
   h.fn.renderRunSections();
-  const li = h.node.runTests.querySelector('li.test-row');
-  const head = h.node.runTests.querySelector('.suite-head');
-  assert.equal(li.listeners.has('click'), true, 'the mouse path is wired');   // green today
-  // Today: no tabindex, no role and no keydown on either.
-  assert.notEqual(li.getAttribute('tabindex'), null);
-  assert.equal(li.listeners.has('keydown'), true);
-  assert.notEqual(head.getAttribute('tabindex'), null);
-  assert.equal(head.listeners.has('keydown'), true);
+  const li = h.rowFor(1);
+  const cells = h.cellsOf(li);
+  assert.deepEqual(cells.map((b) => b.getAttribute('tabindex')), ['-1', '-1', '-1'],
+    'not one of them is a tab stop of its own any more');
+
+  // Right off the row lands on the FIRST button, and walks to the last.
+  assert.equal(press(li, 'ArrowRight').defaultPrevented, true);
+  assert.equal(h.doc.activeElement, cells[0]);
+  press(cells[0], 'ArrowRight');
+  assert.equal(h.doc.activeElement, cells[1]);
+  press(cells[1], 'ArrowRight');
+  assert.equal(h.doc.activeElement, cells[2]);
+  press(cells[2], 'ArrowRight');
+  assert.equal(h.doc.activeElement, cells[2], 'and stops there rather than wrapping');
+
+  // Back the other way; off the first button, ← is the way out to the row that owns them.
+  press(cells[2], 'ArrowLeft');
+  assert.equal(h.doc.activeElement, cells[1]);
+  press(cells[1], 'ArrowLeft');
+  assert.equal(h.doc.activeElement, cells[0]);
+  assert.equal(press(cells[0], 'ArrowLeft').defaultPrevented, true);
+  assert.equal(h.doc.activeElement, li);
+
+  // ↑↓ on a button answer nothing on purpose: the way out is ←, and one key keeps one meaning.
+  press(li, 'ArrowRight');
+  assert.equal(press(cells[0], 'ArrowDown').defaultPrevented, false);
+  assert.equal(h.doc.activeElement, cells[0]);
+  // ← on the row itself is not a way out of the list — there is nothing to the left of it.
+  li.focus();
+  assert.equal(press(li, 'ArrowLeft').defaultPrevented, false);
+  assert.equal(h.doc.activeElement, li);
+});
+
+test('64b (#109): a locked row has no button to step into, so → is left alone', () => {
+  const h = load({ records: [rec(1, { suite_title: 'A' })], runStatus: 'finished' });
+  h.fn.renderRunSections();
+  const li = h.rowFor(1);
+  assert.deepEqual(h.cellsOf(li).map((b) => b.disabled), [true, true, true], '#152 — a finished run');
+  li.focus();
+  assert.equal(press(li, 'ArrowRight').defaultPrevented, false);
+  assert.equal(h.doc.activeElement, li, 'the caret never left the row it was on');
+
+  // The head above it is untouched by the lock: reading a finished run is the point of one.
+  const head = h.headFor('A');
+  press(head, 'ArrowDown');
+  assert.equal(h.doc.activeElement, li);
+});
+
+// 64c: `.suite-section.collapsed .suite-rows { display: none }` is CSS only, and the arrows read
+// the DOM — so a fold the stylesheet alone knows about is a fold they walk straight through.
+test('64c (#109): a folded suite states its fold in the DOM, however it was folded', () => {
+  const h = load({ records: twoSuites() }); // two suites, so both are born collapsed
+  h.fn.renderRunSections();
+  const heads = h.node.runTests.querySelectorAll('.suite-head');
+  assert.deepEqual(heads.map((x) => x.getAttribute('aria-expanded')), ['false', 'false']);
+  assert.deepEqual(h.node.runTests.querySelectorAll('.suite-rows').map((u) => u.hidden), [true, true]);
+
+  // The mouse path writes both of the same two things the keyboard one does.
+  fire(heads[0], 'click');
+  assert.equal(heads[0].getAttribute('aria-expanded'), 'true');
+  assert.equal(h.node.runTests.querySelector('[data-suite="A"] .suite-rows').hidden, false);
+
+  // Home and End are the ends of what is SHOWN — B's row is still folded away.
+  press(heads[0], 'End');
+  assert.equal(h.doc.activeElement, heads[1]);
+  press(heads[1], 'Home');
+  assert.equal(h.doc.activeElement, heads[0]);
+});
+
+test('64d (#109): a re-render leaves the checklist keyboard-ready, with nothing wired twice', () => {
+  // An empty run is wired before it is drawn: the keyboard must not wait for a first row.
+  const h = load();
+  h.fn.renderRunSections();
+  assert.equal(h.node.runTests.listeners.get('keydown').length, 2, 'the row walk and the cell walk');
+
+  h.state.records.push(rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'A' }));
+  h.fn.renderRunSections();
+  h.fn.renderRunSections(); // what every poll tick does: brand-new rows into the same <ul>
+  assert.equal(h.node.runTests.listeners.get('keydown').length, 2, 'and neither is stacked per draw');
+  press(h.rowFor(1), 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.rowFor(2));
+  press(h.rowFor(2), 'ArrowRight');
+  assert.equal(h.doc.activeElement, h.cellsOf(h.rowFor(2))[0]);
 });
 
 // 65 (#277): onRunSearch rebuilt every section on every keystroke — five characters typed into a
