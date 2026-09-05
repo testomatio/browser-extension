@@ -770,3 +770,421 @@ test('34: no projects resolve to no project', () => {
   const h = load();
   assert.equal(h.fn.resolveProjectId([], 'a'), '');
 });
+
+// ============================================================================
+// Connect mode and the three handoff sentences (rows 18-25)
+// ============================================================================
+
+test('18: a credentialed instance with a project reads Connected on a ready card', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 't', projectId: 'p1' } });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionCard.hidden, false);
+  assert.equal(h.node.connectionCard.dataset.state, 'ready');
+  assert.equal(h.node.connectionHost.textContent, 'a.io');
+  assert.equal(h.node.connectionState.textContent, 'Connected');
+  assert.equal(h.node.connectionState.className, 'badge passed connection-state');
+});
+
+test('19: credentialed with no project yet is a half-done first run, and the pill says so', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 't', projectId: '' } });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionCard.hidden, false);
+  assert.equal(h.node.connectionCard.dataset.state, 'pending');
+  assert.equal(h.node.connectionState.textContent, 'Project not picked');
+  assert.equal(h.node.connectionState.className, 'badge neutral connection-state');
+});
+
+test('19a: nothing saved hides the card, and nothing else on it is repainted', () => {
+  const h = load({ settings: null });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionCard.hidden, true);
+  assert.equal(h.node.connectionHost.textContent, '');
+  assert.equal(h.node.connectionSource.hidden, true);
+});
+
+test('19b: a page without the connection card renders it without throwing', () => {
+  const h = load({ without: ['connection-card'], settings: { baseUrl: 'https://a.io', apiToken: 't' } });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.hidden, true); // renderConnectionSource never ran either
+});
+
+test('20: a live handoff says whose sign-in it is and what Disconnect costs', () => {
+  const h = load({
+    settings: { baseUrl: 'https://a.io', handoff: true, handoffApp: 'Runner CLI', projectId: 'p1' },
+    offer: { app: 'Runner CLI' },
+  });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.hidden, false);
+  assert.equal(h.node.connectionSource.textContent,
+    'Signed in by Runner CLI. Disconnect stops it signing you in again — '
+    + 'open the run from there to come back.');
+});
+
+test('21: once the offer is gone, a tester with a token of their own is told it still works', () => {
+  const h = load({
+    settings: { baseUrl: 'https://a.io', handoff: true, handoffApp: 'runner CLI', apiToken: 'mine' },
+    offer: null,
+  });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.textContent,
+    'Runner CLI has closed its session. Everything now uses your own sign-in.');
+});
+
+test('22: with the offer gone and no token of their own, the tester is pointed at Authorize', () => {
+  const h = load({
+    settings: { baseUrl: 'https://a.io', handoff: true, handoffApp: 'Runner CLI' },
+    offer: null,
+  });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.textContent,
+    'Runner CLI has closed its session. Authorize above to keep working.');
+});
+
+test('22a: an offer that named no app is still named, rather than left as a blank', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', handoff: true }, offer: null });
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.textContent,
+    'The app that opened this browser has closed its session. Authorize above to keep working.');
+});
+
+test('23: a connection the tester made themselves says nothing about a handoff', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 't' } });
+  h.node.connectionSource.hidden = false;
+  h.fn.renderConnection();
+  assert.equal(h.node.connectionSource.hidden, true);
+  assert.equal(h.node.connectionSource.textContent, '');
+});
+
+test('24: entering the connect screen promotes the form and puts the caret in the token box', () => {
+  const h = load({ view: 'settings', settings: null });
+  h.fn.applyConnectMode();
+  assert.equal(h.node.viewSettings.dataset.mode, 'connect');
+  assert.equal(h.doc.body.dataset.connect, 'true');
+  assert.equal(h.node.connectHero.hidden, false);
+  assert.equal(h.node.btnSaveSettings.textContent, 'Connect');
+  assert.equal(h.doc.activeElement, h.node.setToken);
+});
+
+test('24a: a configured panel gets the full form back, hero away and the Save wording restored', () => {
+  const h = load({ ...CONFIGURED, view: 'settings' });
+  h.fn.applyConnectMode();
+  assert.equal(h.node.viewSettings.dataset.mode, 'full');
+  assert.equal(h.doc.body.dataset.connect, 'false');
+  assert.equal(h.node.connectHero.hidden, true);
+  assert.equal(h.node.btnSaveSettings.textContent, 'Save & validate');
+  assert.equal(h.doc.activeElement, null);
+});
+
+test('24b: another view with nothing saved is not the connect screen', () => {
+  const h = load({ view: 'runs', settings: null });
+  h.fn.applyConnectMode();
+  assert.equal(h.node.viewSettings.dataset.mode, 'full');
+  assert.equal(h.doc.activeElement, null);
+});
+
+test('25: a repaint while the tester is already typing does not steal the caret back', () => {
+  const h = load({ view: 'settings', settings: null });
+  h.fn.applyConnectMode();
+  h.doc.activeElement = null; // the tester moved on to another field
+  h.fn.applyConnectMode();
+  h.fn.applyConnectMode();
+  assert.equal(h.doc.activeElement, null);
+});
+
+test('25a: leaving the connect screen and coming back focuses the token box again', () => {
+  const h = load({ view: 'settings', settings: null });
+  h.fn.applyConnectMode();
+  h.doc.activeElement = null;
+  h.state.settings = { baseUrl: 'https://a.io', apiToken: 't' };
+  h.fn.applyConnectMode(); // out of connect mode
+  h.state.settings = null;
+  h.fn.applyConnectMode(); // and back in
+  assert.equal(h.doc.activeElement, h.node.setToken);
+});
+
+// ============================================================================
+// The save gauntlet (rows 35-52)
+// ============================================================================
+
+test('35: an empty Instance is an Advanced problem, so Advanced is unfolded with the error', async () => {
+  const h = load({ baseUrl: '' });
+  h.fill({ token: 'tok-1' });
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: REQUIRED, cls: 'error' });
+  assert.equal(h.node.settingsAdvancedBody.hidden, false);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+  assert.deepEqual(h.calls.toasts, []); // never got as far as validating
+});
+
+test('36: a missing token is a Connection problem — unfolding Advanced would point at the wrong row', async () => {
+  const h = load({ baseUrl: 'https://a.io' });
+  h.fill({ token: '   ' });
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: REQUIRED, cls: 'error' });
+  assert.equal(h.node.settingsAdvancedBody.hidden, true);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
+
+test('37: a plain http instance is refused, with the field it is about on screen', async () => {
+  const h = load();
+  h.fill({ baseUrl: 'http://a.io', token: 'tok-1' });
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: NOT_HTTPS, cls: 'error' });
+  assert.equal(h.node.settingsAdvancedBody.hidden, false);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
+
+test('38: an instance that is no URL at all is refused, with Advanced unfolded', async () => {
+  const h = load();
+  h.fill({ baseUrl: 'not a url', token: 'tok-1' });
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: NOT_URL, cls: 'error' });
+  assert.equal(h.node.settingsAdvancedBody.hidden, false);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
+
+test('39: a Log window out of range stops the save before anything reaches the network', async () => {
+  const h = load();
+  h.fill({ ...OK_SAVE, window: '5' });
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: BAD_WINDOW, cls: 'error' });
+  assert.equal(h.store.ops('local', 'set').length, 0);
+  assert.equal(h.calls.listProjects, 0);
+  assert.deepEqual(h.calls.toasts, []);
+  // The Log window lives in Failure log, so Advanced stays as the tester left it.
+  assert.equal(h.node.settingsAdvancedBody.hidden, true);
+});
+
+test('40: a token the server refuses is named as the token, and nothing is stored', async () => {
+  const h = load({ projectList: () => { throw new ApiError('auth', 401, 'unauthorized'); } });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), {
+    id: 'settings-status',
+    msg: 'Token rejected by a.io — authorize there again and save the new token',
+    cls: 'error',
+  });
+  assert.equal(h.store.ops('local', 'set').length, 0);
+  assert.equal(h.calls.validate, 0);
+  assert.equal(h.state.settings, null);
+  assert.deepEqual(h.calls.toasts, ['Validating…']);
+});
+
+test('41: a network hiccup still saves, on the project this instance was last on', async () => {
+  const h = load({
+    hostSettings: { 'a.io': { baseUrl: 'https://a.io', apiToken: 'old', projectId: 'p1' } },
+    hostHistory: ['a.io'],
+    projects: [{ id: 'stale' }],
+    projectList: () => { throw new ApiError('network', 0, 'offline'); },
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.equal(h.lineOf('settings-status').msg, ''); // the happy-path clear, not an error
+  assert.equal(h.stored().settings.projectId, 'p1');
+  assert.deepEqual(plain(h.state.projects), []); // never another host's slugs
+  assert.equal(h.calls.validate, 1);
+  assert.equal(h.calls.runsView, 1);
+});
+
+test('42: a network hiccup with no remembered project says so, and saves nothing', async () => {
+  const h = load({ projectList: () => { throw new ApiError('network', 0, 'offline'); } });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), {
+    id: 'settings-status',
+    msg: "Couldn't load your projects from a.io — check the connection and save again",
+    cls: 'error',
+  });
+  assert.equal(h.store.ops('local', 'set').length, 0);
+  assert.equal(h.calls.validate, 0);
+});
+
+test('43: a token that reaches no project at all is a different sentence from a lost connection', async () => {
+  const h = load({ projects: [{ id: 'stale' }], projectList: () => [] });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), {
+    id: 'settings-status',
+    msg: 'This token reaches no projects — ask for access to one, then save again',
+    cls: 'error',
+  });
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
+
+test('44: an empty project list empties the switcher — the old host\'s slugs must not survive', async () => {
+  const refused = load({ projects: [{ id: 'stale' }], projectList: () => [] });
+  refused.fill(OK_SAVE);
+  await refused.fn.saveSettings();
+  assert.deepEqual(plain(refused.state.projects), []);
+  // …and the same on the path that carries on because a project is remembered.
+  const kept = load({
+    projects: [{ id: 'stale' }],
+    hostSettings: { 'a.io': { baseUrl: 'https://a.io', projectId: 'p1' } },
+    hostHistory: ['a.io'],
+    projectList: () => [],
+  });
+  kept.fill(OK_SAVE);
+  await kept.fn.saveSettings();
+  assert.deepEqual(plain(kept.state.projects), []);
+  assert.equal(kept.stored().settings.projectId, 'p1');
+});
+
+test('45: several projects and no previous one save the token first, then ask for the pick', async () => {
+  const h = load({ projectList: () => [{ id: 'a' }, { id: 'b' }] });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.order.filter((s) => ['local.set', 'askForProject', 'validate'].includes(s)),
+    ['local.set', 'askForProject']);
+  assert.equal(h.calls.validate, 0); // no project to validate against yet
+  assert.equal(h.stored().settings.projectId, '');
+  assert.deepEqual(plain(h.state.projects), [{ id: 'a' }, { id: 'b' }]);
+  assert.equal(h.calls.runsView, 0);
+});
+
+test('46: read-only access is a VALID configuration, so the save stands', async () => {
+  const h = load({
+    projectList: () => [{ id: 'p1' }],
+    validate: () => { throw new ApiError('readonly', 403, 'read only'); },
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.equal(h.stored().settings.projectId, 'p1');
+  assert.equal(h.lineOf('settings-status').msg, '');
+  assert.equal(h.calls.runsView, 1);
+});
+
+test('47: any other validation failure is reported verbatim, and nothing is stored', async () => {
+  const h = load({
+    projectList: () => [{ id: 'p1' }],
+    validate: () => { throw new ApiError('http', 500, 'server exploded'); },
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.lineOf('settings-status'), {
+    id: 'settings-status', msg: 'Validation failed: server exploded', cls: 'error',
+  });
+  assert.equal(h.store.ops('local', 'set').length, 0);
+  assert.equal(h.state.settings, null);
+  assert.equal(h.calls.runsView, 0);
+});
+
+test('48: the happy path commits, repaints the header, clears the line and lands on the runs view', async () => {
+  const h = load({ projectList: () => [{ id: 'p1' }] });
+  h.fill({ ...OK_SAVE, window: '120', neverValues: true });
+  await h.fn.saveSettings();
+  assert.deepEqual(
+    h.order.filter((s) => ['local.set', 'renderProjectBar', 'status:settings-status', 'openRunsView'].includes(s)),
+    ['local.set', 'renderProjectBar', 'status:settings-status', 'openRunsView'],
+  );
+  assert.deepEqual(h.lineOf('settings-status'), { id: 'settings-status', msg: '', cls: '' });
+  assert.deepEqual(h.stored().settings, {
+    baseUrl: 'https://a.io',
+    apiToken: 'tok-1',
+    projectId: 'p1',
+    envInfoOnFail: true,
+    envFullUrl: false,
+    evidenceWindowSec: 120,
+    evidenceAutoStart: false,
+    evidenceAutoAttach: true,
+    evidenceCaptureBodies: true,
+    stepRecNeverValues: true,
+  });
+  // renderConnection ran on the way out: the card is the verdict, not a line under Save.
+  assert.equal(h.node.connectionCard.dataset.state, 'ready');
+});
+
+test('48a: the token is checked WITHOUT a project first, then the project-scoped call is made', async () => {
+  const h = load({
+    hostSettings: { 'a.io': { baseUrl: 'https://a.io', projectId: 'p1' } },
+    hostHistory: ['a.io'],
+    projectList: () => [{ id: 'p1' }, { id: 'p2' }],
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.deepEqual(h.order.filter((s) => ['listProjects', 'validate', 'local.set'].includes(s)),
+    ['listProjects', 'validate', 'local.set']);
+  assert.equal(h.calls.configured.length, 2);
+  assert.deepEqual(h.calls.configured[0],
+    { baseUrl: 'https://a.io', apiToken: 'tok-1', projectId: 'p1' });
+  assert.equal(h.calls.configured[1].projectId, 'p1');
+});
+
+test('49: a per-host preference this form cannot show survives the re-save', async () => {
+  const h = load({
+    hostSettings: { 'a.io': { baseUrl: 'https://a.io', projectId: 'p1', fullPageCapture: false } },
+    hostHistory: ['a.io'],
+    projectList: () => [{ id: 'p1' }],
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.equal(h.stored().settings.fullPageCapture, false);
+});
+
+test('49a: the ACTIVE instance is the fallback source for those preferences', async () => {
+  const h = load({
+    settings: { baseUrl: 'https://a.io', apiToken: 'old', projectId: 'p1', fullPageCapture: true },
+    hostSettings: {},
+    hostHistory: [],
+    projectList: () => [{ id: 'p1' }],
+  });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.equal(h.stored().settings.fullPageCapture, true);
+  assert.equal(h.stored().settings.projectId, 'p1');
+});
+
+test('49b: a first save for an unknown instance carries no stray per-host preference', async () => {
+  const h = load({ projectList: () => [{ id: 'p1' }] });
+  h.fill(OK_SAVE);
+  await h.fn.saveSettings();
+  assert.equal('fullPageCapture' in h.stored().settings, false);
+});
+
+test('50: landing on another project drops that project\'s state FIRST, before anything is written', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 't', projectId: 'old' } });
+  await h.fn.commitSettings({ baseUrl: 'https://a.io', apiToken: 't', projectId: 'new' }, 'a.io');
+  assert.deepEqual(h.order, [
+    'resetProjectScopedState', 'state.settings', 'state.hostSettings', 'state.hostHistory', 'local.set',
+  ]);
+});
+
+test('50a: staying on the same project, or arriving without one, drops nothing', async () => {
+  const same = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1' } });
+  await same.fn.commitSettings({ baseUrl: 'https://a.io', projectId: 'p1' }, 'a.io');
+  assert.equal(same.calls.reset, 0);
+  const first = load({ settings: null });
+  await first.fn.commitSettings({ baseUrl: 'https://a.io', projectId: 'p1' }, 'a.io');
+  assert.equal(first.calls.reset, 0);
+  const unpicked = load({ settings: { baseUrl: 'https://a.io', projectId: '' } });
+  await unpicked.fn.commitSettings({ baseUrl: 'https://a.io', projectId: 'p2' }, 'a.io');
+  assert.equal(unpicked.calls.reset, 0);
+});
+
+test('51: the commit writes the config, the per-host map, the history AND the two mirrored keys', async () => {
+  const h = load();
+  const settings = { baseUrl: 'https://a.io', projectId: 'p1', evidenceCaptureBodies: false, stepRecNeverValues: true };
+  await h.fn.commitSettings(settings, 'a.io');
+  assert.deepEqual(h.written(), [[
+    'evidenceCaptureBodies', 'hostHistory', 'hostSettings', 'settings', 'stepRecNeverValues',
+  ]]);
+  const data = h.stored();
+  assert.equal(data.evidenceCaptureBodies, false); // the relay reads this, never `settings`
+  assert.equal(data.stepRecNeverValues, true);     // and so does the step recorder
+  assert.deepEqual(data.hostSettings, { 'a.io': settings });
+  assert.deepEqual(data.hostHistory, ['a.io']);
+});
+
+test('52: re-saving a known instance moves it to the front of the history without duplicating it', async () => {
+  const h = load({ hostHistory: ['b.io', 'a.io', 'c.io'] });
+  await h.fn.commitSettings({ baseUrl: 'https://a.io' }, 'a.io');
+  assert.deepEqual(plain(h.state.hostHistory), ['a.io', 'b.io', 'c.io']);
+  assert.deepEqual(h.stored().hostHistory, ['a.io', 'b.io', 'c.io']);
+});
+
+test('52a: with no chrome the panel still holds the config, it just persists nothing', async () => {
+  const h = load({ hasChrome: false });
+  await h.fn.commitSettings({ baseUrl: 'https://a.io', projectId: 'p1' }, 'a.io');
+  assert.equal(h.state.settings.projectId, 'p1');
+  assert.deepEqual(plain(h.state.hostHistory), ['a.io']);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
