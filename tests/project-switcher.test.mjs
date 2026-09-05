@@ -489,3 +489,577 @@ test('23: pressing the mouse on a row keeps the caret in the filter box, and rel
   assert.deepEqual(picked, ['p2']);
 });
 
+// ---------- 24-27: the cursor ----------
+
+test('24: a cursor the filter has just hidden moves to the first row still visible', () => {
+  const h = load({ projects: [CHECKOUT, BILLING] });
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectActiveId, 'p1');
+  h.node.projectFilter.value = 'bill';
+  h.fn.onProjectFilterInput();
+  assert.equal(h.peek().projectActiveId, 'p2');
+  assert.equal(h.activeId(), 'p2');
+  assert.equal(h.node.projectFilter.getAttribute('aria-activedescendant'), 'project-opt-p2');
+});
+
+test('25: a filter that matches nobody empties the cursor and shows the empty state', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.node.projectFilter.value = 'zzz';
+  h.fn.onProjectFilterInput();
+  assert.deepEqual(h.optionIds(), []);
+  assert.equal(h.peek().projectActiveId, null);
+  assert.equal(h.node.projectEmpty.hidden, false);
+  assert.equal(h.node.projectFilter.getAttribute('aria-activedescendant'), null);
+});
+
+test('25b: rows again, and the empty state goes back where it came from', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.node.projectFilter.value = 'zzz';
+  h.fn.onProjectFilterInput();
+  h.node.projectFilter.value = '';
+  h.fn.onProjectFilterInput();
+  assert.equal(h.node.projectEmpty.hidden, true);
+  assert.deepEqual(h.optionIds(), ['p1', 'p2']);
+});
+
+test('26: the arrows STOP at the last row — no wrap back to the top', () => {
+  const h = load({ projects: [CHECKOUT, BILLING, PLAIN] });
+  h.fn.openProjectMenu();
+  h.fn.moveProjectActive(1);
+  h.fn.moveProjectActive(1);
+  assert.equal(h.peek().projectActiveId, 'p3');
+  h.fn.moveProjectActive(1);
+  assert.equal(h.peek().projectActiveId, 'p3');
+  assert.equal(h.activeId(), 'p3');
+  // …and at the first row on the way back.
+  h.fn.moveProjectActive(-1);
+  h.fn.moveProjectActive(-1);
+  h.fn.moveProjectActive(-1);
+  assert.equal(h.peek().projectActiveId, 'p1');
+  assert.equal(h.activeId(), 'p1');
+});
+
+test('27: an arrow pressed with the cursor on nothing lands on the first row, whichever way it points', () => {
+  // The cursor is on nothing whenever the last render had no rows; a list landing behind an open
+  // popup is how rows come back under it. Up, from there, must not walk off the top.
+  const empty = { baseUrl: 'https://a.io', apiToken: 'TOKEN' };
+  const h = load({ settings: empty, projects: [] });
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectActiveId, null);
+  h.state.projects = [CHECKOUT, BILLING];
+  h.fn.moveProjectActive(-1);
+  assert.equal(h.peek().projectActiveId, 'p1');
+
+  const g = load({ settings: empty, projects: [] });
+  g.fn.openProjectMenu();
+  g.state.projects = [CHECKOUT, BILLING];
+  g.fn.moveProjectActive(1);
+  assert.equal(g.peek().projectActiveId, 'p1'); // and Down from nothing is the first row too
+});
+
+test('27b: an arrow over an empty list is a no-op, not a crash', () => {
+  const h = load({ projects: [] , settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' } });
+  h.fn.renderProjectOptions();
+  h.fn.moveProjectActive(1);
+  assert.equal(h.peek().projectActiveId, null);
+});
+
+test('27c: the cursor scrolls itself into view — the row below the fold is still reachable by keyboard', () => {
+  const h = load({ projects: [CHECKOUT, BILLING, PLAIN] });
+  h.fn.openProjectMenu();
+  h.calls.scrolls.length = 0;
+  h.fn.moveProjectActive(1);
+  assert.deepEqual(h.calls.scrolls, [{ id: 'project-opt-p2', arg: { block: 'nearest' } }]);
+});
+
+// ---------- 28-37: the keys, and opening and closing ----------
+
+test('28: Escape closes the popup and hands the caret back to the trigger, and no one else sees the key', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.calls.order.length = 0;
+  const ev = fire(h.doc, 'keydown', { key: 'Escape' });
+  assert.equal(h.node.projectMenu.hidden, true);
+  assert.equal(h.node.projectTrigger.getAttribute('aria-expanded'), 'false');
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.propagationStopped, true);
+  assert.ok(h.calls.order.includes('focus:project-trigger'));
+});
+
+test('29: Tab closes the popup WITHOUT taking the caret back — focus is on its way somewhere', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.calls.order.length = 0;
+  const ev = fire(h.doc, 'keydown', { key: 'Tab' });
+  assert.equal(h.node.projectMenu.hidden, true);
+  assert.equal(h.calls.order.includes('focus:project-trigger'), false);
+  assert.equal(ev.defaultPrevented, false); // the browser's own Tab still runs
+});
+
+test('30: an arrow is swallowed whole — the panel’s own arrow handling must never see it', () => {
+  const h = load({ projects: [CHECKOUT, BILLING] });
+  h.fn.openProjectMenu();
+  const down = fire(h.doc, 'keydown', { key: 'ArrowDown' });
+  assert.equal(down.defaultPrevented, true);
+  assert.equal(down.propagationStopped, true);
+  assert.equal(h.peek().projectActiveId, 'p2');
+  const up = fire(h.doc, 'keydown', { key: 'ArrowUp' });
+  assert.equal(up.defaultPrevented, true);
+  assert.equal(up.propagationStopped, true);
+  assert.equal(h.peek().projectActiveId, 'p1');
+});
+
+test('31: Enter picks the row under the cursor, and that is a switch', () => {
+  const h = load({ projects: [CHECKOUT, BILLING] });
+  h.fn.openProjectMenu();
+  h.fn.moveProjectActive(1);
+  const switches = h.stub('switchProject');
+  const ev = fire(h.doc, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.propagationStopped, true);
+  assert.deepEqual(switches, [['p2']]);
+  assert.equal(h.node.projectMenu.hidden, true); // pickProject closes first — the switch repaints views
+});
+
+test('31b: Enter with no cursor picks nothing, and still keeps the key to itself', () => {
+  const h = load({ projects: [], settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' } });
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectActiveId, null);
+  const switches = h.stub('switchProject');
+  const ev = fire(h.doc, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, true);
+  assert.deepEqual(switches, []);
+});
+
+test('32: with the popup closed the document-level keys do nothing at all', () => {
+  const h = load();
+  h.fn.renderProjectOptions();
+  const before = h.peek().projectActiveId;
+  for (const k of ['Escape', 'ArrowDown', 'Enter', 'Tab']) {
+    const ev = event(h.doc, 'keydown', { key: k });
+    h.fn.onProjectMenuKey(ev);
+    assert.equal(ev.defaultPrevented, false, k);
+    assert.equal(ev.propagationStopped, false, k);
+  }
+  assert.equal(h.peek().projectActiveId, before);
+});
+
+test('32b: closing takes both document listeners with it — a leaked capture handler eats the panel’s keys', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  assert.equal(h.doc.listeners.get('click').length, 1);
+  assert.equal(h.doc.listeners.get('keydown').length, 1);
+  h.fn.closeProjectMenu();
+  assert.equal(h.doc.listeners.get('click').length, 0);
+  assert.equal(h.doc.listeners.get('keydown').length, 0);
+  // A second close over a closed popup adds nothing and removes nothing.
+  h.fn.closeProjectMenu();
+  assert.equal(h.doc.listeners.get('click').length, 0);
+});
+
+test('33: Space on the closed trigger opens the popup instead of clicking the button shut again', () => {
+  for (const k of [' ', 'Enter', 'ArrowDown', 'ArrowUp']) {
+    const h = load();
+    h.fn.initProjectDropdown();
+    const ev = fire(h.node.projectTrigger, 'keydown', { key: k });
+    assert.equal(ev.defaultPrevented, true, k);
+    assert.equal(h.node.projectMenu.hidden, false, k);
+  }
+  const h = load();
+  h.fn.initProjectDropdown();
+  const ev = fire(h.node.projectTrigger, 'keydown', { key: 'a' });
+  assert.equal(ev.defaultPrevented, false); // typing is not a way in
+  assert.equal(h.node.projectMenu.hidden, true);
+});
+
+test('34: the same keys with the popup already open are the popup’s, not the trigger’s', () => {
+  const h = load();
+  h.fn.initProjectDropdown();
+  h.fn.openProjectMenu();
+  h.calls.order.length = 0;
+  const ev = fire(h.node.projectTrigger, 'keydown', { key: ' ' });
+  assert.equal(ev.defaultPrevented, false);
+  assert.equal(h.calls.order.includes('renderProjectOptions'), false); // no second open
+});
+
+test('34b: clicking the trigger toggles, and the click never reaches the document’s own closer', () => {
+  const h = load();
+  h.fn.initProjectDropdown();
+  const open = fire(h.node.projectTrigger, 'click');
+  assert.equal(open.propagationStopped, true);
+  assert.equal(h.node.projectMenu.hidden, false);
+  const shut = fire(h.node.projectTrigger, 'click');
+  assert.equal(shut.propagationStopped, true);
+  assert.equal(h.node.projectMenu.hidden, true);
+  assert.ok(h.calls.order.includes('focus:project-trigger'));
+});
+
+test('35: a click on the filter box or the list is INSIDE — the popup does not close under the tester', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  for (const target of [h.node.projectFilter, h.node.projectList, h.node.projectMenu, h.node.projectTrigger]) {
+    h.fn.onProjectDocClick({ target });
+    assert.equal(h.node.projectMenu.hidden, false, target.id);
+  }
+  h.fn.onProjectDocClick({ target: h.doc.body });
+  assert.equal(h.node.projectMenu.hidden, true);
+});
+
+test('36: a pinned connection cannot open the popup at all', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true }, offer: null });
+  h.fn.openProjectMenu();
+  assert.equal(h.node.projectMenu.hidden, true);
+  assert.equal(h.node.projectTrigger.getAttribute('aria-expanded'), 'false');
+  assert.equal((h.doc.listeners.get('click') || []).length, 0); // and nothing was listening for the way out
+});
+
+test('37: opening clears the last filter, puts the cursor on the project in use and focuses the box', () => {
+  // The active project is deliberately NOT the first row: opening on rows[0] would answer this row
+  // by accident on any list where the two happen to agree.
+  const h = load({ projects: [BILLING, PLAIN, CHECKOUT] });
+  h.fn.openProjectMenu();
+  h.node.projectFilter.value = 'bill';
+  h.fn.onProjectFilterInput();
+  h.fn.closeProjectMenu();
+  h.calls.order.length = 0;
+
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectFilter, '');
+  assert.equal(h.node.projectFilter.value, '');
+  assert.deepEqual(h.optionIds(), ['p2', 'p3', 'p1']);
+  assert.equal(h.peek().projectActiveId, 'p1');    // the ACTIVE project, not the first row
+  assert.equal(h.activeId(), 'p1');
+  assert.equal(h.node.projectMenu.hidden, false);
+  assert.equal(h.node.projectTrigger.getAttribute('aria-expanded'), 'true');
+  assert.ok(h.calls.order.includes('focus:project-filter'));
+  // Focus lands AFTER the rows exist — a hidden, empty list cannot carry aria-activedescendant.
+  assert.ok(h.calls.order.indexOf('renderProjectOptions') < h.calls.order.indexOf('focus:project-filter'));
+  assert.equal(h.node.projectFilter.getAttribute('aria-activedescendant'), 'project-opt-p1');
+});
+
+test('37b: opening on a connection with no project yet leaves the cursor to the first row', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' } });
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectActiveId, 'p1');
+  assert.deepEqual(h.optionIds(), ['p1', 'p2']);
+});
+
+test('37c: an already-open popup is not re-opened — a second open would throw the filter away', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.node.projectFilter.value = 'bill';
+  h.fn.onProjectFilterInput();
+  h.fn.openProjectMenu();
+  assert.equal(h.peek().projectFilter, 'bill');
+  assert.deepEqual(h.optionIds(), ['p2']);
+});
+
+// ---------- 38-39: filling the list ----------
+
+test('38: a connection with no credential asks for nothing and answers with an empty list', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io' } });
+  assert.deepEqual(plain(await h.fn.refreshProjects()), []);
+  assert.equal(h.calls.listProjects, 0);
+  assert.deepEqual(plain(h.state.projects), [CHECKOUT, BILLING]); // untouched
+});
+
+test('39: a list that fails to load leaves the projects the panel already had exactly where they were', async () => {
+  const h = load();
+  h.on.listProjects = async () => { throw new Error('offline'); };
+  assert.deepEqual(plain(await h.fn.refreshProjects()), []);
+  assert.equal(h.calls.listProjects, 1);
+  assert.deepEqual(plain(h.state.projects), [CHECKOUT, BILLING]);
+  assert.equal(h.calls.order.includes('renderProjectBar'), false); // nothing changed, nothing repainted
+});
+
+test('39b: a list that lands replaces the projects and repaints the bar', async () => {
+  const h = load();
+  h.on.listProjects = async () => [PLAIN];
+  assert.deepEqual(plain(await h.fn.refreshProjects()), [PLAIN]);
+  assert.deepEqual(plain(h.state.projects), [PLAIN]);
+  assert.ok(h.calls.order.includes('renderProjectBar'));
+});
+
+// ---------- 40-42: writing it down ----------
+
+test('40: the write puts the settings and the host map down, then DROPS the old project’s session', async () => {
+  const h = load({ hostSettings: { 'b.io': { baseUrl: 'https://b.io' } } });
+  const settings = { baseUrl: 'https://a.io', projectId: 'p2', apiToken: 'TOKEN' };
+  await h.fn.persistActiveSettings(settings);
+  assert.deepEqual(plain(h.state.hostSettings), {
+    'b.io': { baseUrl: 'https://b.io' },
+    'a.io': settings,
+  });
+  const ops = h.store.calls.filter((c) => c.area === 'local').map((c) => c.op);
+  assert.deepEqual(ops, ['set', 'remove']); // in this order, and both of them
+  assert.deepEqual(plain(h.store.ops('local', 'set')[0].arg), { settings, hostSettings: plain(h.state.hostSettings) });
+  assert.deepEqual(plain(h.store.ops('local', 'remove')[0].arg), 'session');
+});
+
+test('40b: outside Chrome nothing is written, and the host map is still brought up to date', async () => {
+  const h = load({ hasChrome: false });
+  const settings = { baseUrl: 'https://a.io', projectId: 'p2' };
+  await h.fn.persistActiveSettings(settings);
+  assert.deepEqual(plain(h.state.hostSettings), { 'a.io': settings });
+  assert.equal(h.store.calls.length, 0);
+});
+
+test('41: a storage hiccup does not strand the switch — the write fails quietly', async () => {
+  const h = load();
+  h.store.fails.set = new Error('QUOTA');
+  await h.fn.persistActiveSettings({ baseUrl: 'https://a.io', projectId: 'p2' }); // must not throw
+  assert.deepEqual(h.store.ops('local', 'remove'), []); // the set threw before the session drop
+  const g = load();
+  g.store.fails.remove = new Error('QUOTA');
+  await g.fn.persistActiveSettings({ baseUrl: 'https://a.io', projectId: 'p2' });
+  assert.equal(g.store.ops('local', 'set').length, 1);
+});
+
+test('42: an instance address that is not an address writes no host entry, and still saves', async () => {
+  const h = load();
+  const settings = { baseUrl: 'garbage', projectId: 'p2' };
+  await h.fn.persistActiveSettings(settings);
+  assert.deepEqual(plain(h.state.hostSettings), {});
+  assert.deepEqual(h.store.calls.filter((c) => c.area === 'local').map((c) => c.op), ['set', 'remove']);
+  assert.deepEqual(plain(h.store.ops('local', 'set')[0].arg), { settings, hostSettings: {} });
+});
+
+// ---------- 43-51: the switch, and the order it happens in ----------
+
+test('43: picking the project already in use does nothing whatsoever', async () => {
+  const h = load();
+  await h.fn.switchProject('p1');
+  assert.deepEqual(h.calls.order, ['switchProject']);
+  assert.equal(h.store.calls.length, 0);
+});
+
+test('44: a switch with nothing to switch — no slug, or no connection — is a no-op', async () => {
+  const h = load();
+  await h.fn.switchProject(null);
+  await h.fn.switchProject('');
+  assert.equal(h.store.calls.length, 0);
+  const g = load({ settings: null });
+  await g.fn.switchProject('p2');
+  assert.equal(g.store.calls.length, 0);
+  assert.equal(g.state.settings, null);
+});
+
+test('45: the queue is drained BEFORE anything moves, and the drain still sees the OLD project', async () => {
+  const h = load({ queue: 2 });
+  const d = deferred();
+  let seenDuringDrain = null;
+  h.on.replay = () => { seenDuringDrain = h.state.settings.projectId; return d.promise; };
+
+  const p = h.fn.switchProject('p2');
+  await settle();
+  // Nothing has moved yet: the switch is parked on the drain.
+  assert.deepEqual(h.calls.order, ['switchProject', 'OfflineQueue.count', 'OfflineQueue.replay']);
+  assert.equal(seenDuringDrain, 'p1');            // a queued result flushing here lands on p1
+  assert.equal(h.state.settings.projectId, 'p1');
+  assert.equal(h.store.calls.length, 0);
+
+  d.resolve();
+  await p;
+  assert.ok(h.at('OfflineQueue.replay') < h.at('Handoff.configure'));
+  assert.equal(h.state.settings.projectId, 'p2');
+});
+
+test('45b: a drain that fails is swallowed — the tester is not held on the old project by it', async () => {
+  const h = load({ queue: 1 });
+  h.on.replay = async () => { throw new Error('still offline'); };
+  await h.fn.switchProject('p2');
+  assert.equal(h.state.settings.projectId, 'p2');
+  assert.deepEqual(h.calls.toasts, ['Switched to Billing']);
+});
+
+test('45c: an empty queue is not drained, and a panel without the queue at all still switches', async () => {
+  const h = load({ queue: 0 });
+  await h.fn.switchProject('p2');
+  assert.equal(h.calls.order.includes('OfflineQueue.replay'), false);
+  assert.ok(h.calls.order.includes('OfflineQueue.count'));
+  const g = load({ queue: null }); // no such global — the typeof guard's own branch
+  await g.fn.switchProject('p2');
+  assert.equal(g.state.settings.projectId, 'p2');
+});
+
+test('46: entries the drain could not clear do NOT stand in the tester’s way — each carries its own stamp', async () => {
+  const h = load({ queue: 3 });
+  h.on.replay = async () => {}; // replayed nothing; the count would still be 3
+  await h.fn.switchProject('p2');
+  assert.equal(h.state.settings.projectId, 'p2');
+  assert.deepEqual(h.calls.toasts, ['Switched to Billing']);
+  // Nothing asked the tester to confirm, and the count is never re-read after the drain.
+  assert.equal(h.calls.order.filter((n) => n === 'OfflineQueue.count').length, 1);
+});
+
+test('47: the switch happens in ONE order — configure, tear down, write, repaint, open, count, say so', async () => {
+  const h = load({ activeTab: 'runs' });
+  await h.fn.switchProject('p2');
+  assert.deepEqual(h.calls.order, [
+    'switchProject',
+    'Handoff.configure',
+    'resetProjectScopedState',
+    'persistActiveSettings',
+    'renderProjectBar',
+    'openRunsView',
+    'prefetchTabCounts',
+    'toast',
+  ]);
+  // …and the teardown ran before ANY of it was written down: a reload mid-switch cannot come back
+  // to a run of the old project against the slug of the new one.
+  assert.deepEqual(h.calls.resets, [{ projectId: 'p2', writes: 0, removes: 0 }]);
+  // The bar is repainted only once the write has landed, session drop and all.
+  assert.deepEqual(h.calls.repaints, [{ writes: 1, removes: 1 }]);
+});
+
+test('47b: the counts are fired and NOT waited for — the switch is over before the chips fill in', async () => {
+  const h = load();
+  const d = deferred();
+  h.on.prefetchTabCounts = () => d.promise;
+  await h.fn.switchProject('p2'); // would hang here if it were awaited
+  assert.equal(h.calls.prefetches, 1);
+  assert.deepEqual(h.calls.toasts, ['Switched to Billing']);
+  d.resolve();
+});
+
+test('47c: a storage failure mid-switch still finishes the switch — in memory and on screen both', async () => {
+  const h = load();
+  h.store.fails.set = new Error('QUOTA');
+  await h.fn.switchProject('p2'); // must not reject
+  assert.equal(h.state.settings.projectId, 'p2');
+  assert.deepEqual(h.calls.order, [
+    'switchProject', 'Handoff.configure', 'resetProjectScopedState', 'persistActiveSettings',
+    'renderProjectBar', 'openRunsView', 'prefetchTabCounts', 'toast',
+  ]);
+  assert.deepEqual(h.calls.toasts, ['Switched to Billing']);
+});
+
+test('48: the first pick of a connection clears the line Save left behind and lands on Runs', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' }, activeTab: 'settings' });
+  await h.fn.switchProject('p1');
+  assert.deepEqual(h.calls.lines, [{ id: 'settings-status', text: '' }]);
+  assert.ok(h.at('setStatusLine') < h.at('openRunsView'));
+  assert.equal(h.calls.order.includes('fillSettingsForm'), false); // the settings tab does not hold it
+  assert.deepEqual(h.calls.toasts, ['Connected to Checkout']);
+});
+
+test('49: a later pick made from Settings stays on Settings, with the form refilled', async () => {
+  const h = load({ activeTab: 'settings' });
+  await h.fn.switchProject('p2');
+  assert.ok(h.at('fillSettingsForm') < h.at('show'));
+  assert.deepEqual(h.calls.shows, ['settings']);
+  assert.equal(h.calls.order.includes('openRunsView'), false);
+  assert.deepEqual(h.calls.lines, []);
+  assert.deepEqual(h.calls.toasts, ['Switched to Billing']);
+});
+
+test('50: a pick made from the Tests tab reopens the Tests tab at its root', async () => {
+  const h = load({ activeTab: 'tests' });
+  await h.fn.switchProject('p2');
+  assert.ok(h.calls.order.includes('openTcStudioView'));
+  assert.equal(h.calls.order.includes('openRunsView'), false);
+});
+
+test('50b: every other tab goes back to Runs', async () => {
+  for (const tab of ['runs', 'run', null, undefined]) {
+    const h = load({ activeTab: tab });
+    await h.fn.switchProject('p2');
+    assert.ok(h.calls.order.includes('openRunsView'), String(tab));
+  }
+});
+
+test('50c: the view opener is awaited — the counts are not fired at a half-painted screen', async () => {
+  const h = load();
+  const d = deferred();
+  h.on.openRunsView = () => d.promise;
+  const p = h.fn.switchProject('p2');
+  await settle();
+  assert.equal(h.calls.prefetches, 0);
+  assert.deepEqual(h.calls.toasts, []);
+  d.resolve();
+  await p;
+  assert.equal(h.calls.prefetches, 1);
+});
+
+test('51: a project the list has never heard of is named by its slug in the toast', async () => {
+  const h = load();
+  await h.fn.switchProject('p9');
+  assert.deepEqual(h.calls.toasts, ['Switched to p9']);
+  const g = load({ projects: [PLAIN] });
+  await g.fn.switchProject('p3');
+  assert.deepEqual(g.calls.toasts, ['Switched to p3']); // a title that IS the slug reads the same
+});
+
+test('51b: the switch carries every other setting across untouched, and configures the API with it', async () => {
+  const h = load({ settings: { ...SETTINGS, evidenceWindowSec: 60 } });
+  await h.fn.switchProject('p2');
+  assert.deepEqual(plain(h.state.settings),
+    { baseUrl: 'https://a.io', projectId: 'p2', apiToken: 'TOKEN', evidenceWindowSec: 60 });
+  assert.deepEqual(h.calls.configured, [plain(h.state.settings)]);
+});
+
+// ---------- 52-55: what boot resolves ----------
+
+test('52: a saved project is ready at once, and the list is fetched BEHIND the answer', async () => {
+  const h = load();
+  const d = deferred();
+  h.on.listProjects = () => d.promise;
+  assert.equal(await h.fn.initProjectSwitcher(), 'ready'); // would hang if the fetch were awaited
+  assert.ok(h.at('renderProjectBar') < h.at('refreshProjects'));
+  assert.equal(h.node.projectCurrent.textContent, 'Checkout (p1)');
+  d.resolve([]);
+  await settle();
+});
+
+test('53: a token whose account has no project at all leaves nothing to run against', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' }, projects: [] });
+  h.on.listProjects = async () => [];
+  assert.equal(await h.fn.initProjectSwitcher(), 'none');
+  assert.equal(h.store.calls.length, 0);
+});
+
+test('53b: a list that will not load is the same verdict — nothing to run against yet', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' }, projects: [] });
+  h.on.listProjects = async () => { throw new Error('offline'); };
+  assert.equal(await h.fn.initProjectSwitcher(), 'none');
+});
+
+test('54: a lone project is taken without asking, and written down the way Save writes it', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' }, projects: [] });
+  h.on.listProjects = async () => [BILLING];
+  assert.equal(await h.fn.initProjectSwitcher(), 'ready');
+  assert.equal(h.state.settings.projectId, 'p2');
+  assert.deepEqual(h.calls.configured, [plain(h.state.settings)]);
+  assert.deepEqual(h.store.calls.filter((c) => c.area === 'local').map((c) => c.op), ['set', 'remove']);
+  assert.deepEqual(plain(h.state.hostSettings), { 'a.io': plain(h.state.settings) });
+  assert.equal(h.node.projectCurrent.textContent, 'Billing (p2)');
+});
+
+test('55: several projects and no saved one is the tester’s pick to make', async () => {
+  const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' }, projects: [] });
+  h.on.listProjects = async () => [CHECKOUT, BILLING, PLAIN];
+  assert.equal(await h.fn.initProjectSwitcher(), 'choose');
+  assert.equal(h.state.settings.projectId, undefined);
+  assert.equal(h.store.calls.length, 0); // nothing decided, nothing written
+});
+
+test('55b: the choose-a-project screen is what "choose" opens, with the settings form behind it', () => {
+  const h = load();
+  h.fn.askForProject();
+  assert.deepEqual(h.calls.order, ['fillSettingsForm', 'setStatusLine', 'show', 'focus:pick-filter']);
+  assert.deepEqual(h.calls.shows, ['pick']);
+  assert.ok(h.at('fillSettingsForm') < h.at('show')); // the form is what a Disconnect from there leaves behind
+});
+
+test('55c: the dropdown is wired once, to the three controls it owns', () => {
+  const h = load();
+  h.fn.initProjectDropdown();
+  assert.deepEqual([...h.node.projectTrigger.listeners.keys()], ['click', 'keydown']);
+  assert.deepEqual([...h.node.projectFilter.listeners.keys()], ['input']);
+  h.node.projectFilter.value = 'bill';
+  fire(h.node.projectFilter, 'input');
+  assert.equal(h.peek().projectFilter, 'bill');
+});
+
