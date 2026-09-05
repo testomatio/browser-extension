@@ -899,6 +899,9 @@
        shares with the header popup, and before settings.js, which sends the first run to it. -->
   <script src="screens/project-pick.js"></script>
   <script src="screens/settings.js"></script>
+  <!-- The Runs tab's paging arithmetic. Ahead of runs-list.js, its only caller: nothing else in the
+       panel counts pages, so this tag stands between the two rather than earlier. -->
+  <script src="screens/runs-paging.js"></script>
   <script src="screens/runs-list.js"></script>
   <!-- The write gate every result write asks. Ahead of run-view.js, which paints its note, and of
        the eight screens after it; core/write-status.js asks it late-bound, as it always has. -->
