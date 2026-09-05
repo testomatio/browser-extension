@@ -15,6 +15,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 // historical check — so a falsification run never has to edit the shipped module.
 const SRC = process.env.SREC_SRC || join(repoRoot, 'extension/screenrec/session.js');
 const source = readFileSync(SRC, 'utf8');
+// The worker's own sibling, evaluated in the SAME realm below rather than stubbed: a stub would keep
+// every parked row green while testing nothing. SREC_PARKED_SRC points it at a mutated copy.
+const PARKED_SRC = process.env.SREC_PARKED_SRC || join(repoRoot, 'extension/screenrec/parked.js');
+const parkedSource = readFileSync(PARKED_SRC, 'utf8');
 const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
@@ -206,6 +210,9 @@ function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
+  // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` — and
+  // the bare names this file destructures off it — resolve here.
+  runInContext(parkedSource, context, { filename: PARKED_SRC });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
   const makePort = (name, o = {}) => {
@@ -544,6 +551,15 @@ test('25: a finished take is parked whole and the review opens over the tab it w
   assert.deepEqual(h.named('scripting.executeScript'), [[{ target: { tabId: 7 }, files: ['content/review-overlay.js'] }]]);
 });
 
+// The file's own reason outranks the caller's: a cap ends the recording inside the offscreen
+// document, and only the file it pushes back knows that is what happened.
+test('25b: a take that ended on its own cap says so, even when the caller calls it a stop', async () => {
+  const h = await open();
+  await h.api.srecFinish({ url: 'blob:take', size: 4096, ms: 8000, reason: 'cap' },
+    { recording: true, mode: 'tab', tabId: 7, recordId: 'r-1' }, 'user');
+  assert.equal(h.parked().reason, 'cap');
+});
+
 test('26: a take pushed after the worker restarted is parked with no test bound to it', async () => {
   const h = await open();
   await h.api.srecFinish({ url: 'blob:orphan', size: 512, ms: 2000 }, null, 'cap');
@@ -757,6 +773,15 @@ test('48: approving the take as recorded is what finally offers it to the panel'
   assert.deepEqual(await h.message({ type: 'SCREENREC_REVIEWED' }), { ok: true });
   assert.deepEqual(h.parked(), TAKE({ reviewed: true }));
   assert.deepEqual(h.events(), [{ type: 'SCREENREC_EVENT', event: 'file', file: TAKE({ reviewed: true }) }]);
+});
+
+// 48 drives an unclaimed take, where a merge and a rebuild are byte-identical. This is the half
+// that tells them apart: the panel holding the upload must not lose it to its own review.
+test('48b: the panel that claimed the take still holds it after the review says yes', async () => {
+  const held = { by: 'panel-A', at: NOW };
+  const h = await open({ session: { screenRecFile: TAKE({ claim: held }) } });
+  assert.deepEqual(await h.message({ type: 'SCREENREC_REVIEWED' }), { ok: true });
+  assert.deepEqual(h.parked(), TAKE({ claim: held, reviewed: true }));
 });
 
 test('49: a trimmed take keeps its name and test, and carries no stale claim', async () => {
