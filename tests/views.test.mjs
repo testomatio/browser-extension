@@ -983,7 +983,7 @@ test('V48: any other key on a menu option does nothing and leaves the menu stand
   assert.equal(ev.defaultPrevented, false);
 });
 
-test('V49: Escape hands the caret back to the "…"; picking an option does not, and that is a gap', () => {
+test('V49 (#335): Escape hands the caret back to the "…"; picking an option does not, and that is a gap', () => {
   const h = load();
   const { bar } = filterBar(h, [50, 50, 50, 50], 150);
   h.fn.fitFilterChips(bar);
@@ -1143,7 +1143,7 @@ test('V59: under the lockout there is no basic mode to explain, so the strip sta
   assert.equal(h.node['degraded-banner'].hidden, true);
 });
 
-test('V60: with nothing saved the strip still reads as a sentence rather than as an error', () => {
+test('V60 (#336): with nothing saved the strip reads "the web app web login", and that is a gap', () => {
   const h = load({ jwt: false, settings: null });
   assert.equal(h.fn.baseUrlHost(), 'the web app');
   h.state.view = 'runs';
