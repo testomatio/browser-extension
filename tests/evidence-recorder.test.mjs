@@ -55,7 +55,8 @@ const PICK = `
     evWindowEntries: () => evBuf.windowEntries(), evIsError: EvBuffer.isError, evOnPageEvents,
     evPushPageNet: (ev, ts) => evBuf.pushPageNet(ev, ts), evWrOwns, evWrStart, evWrDone, evWrError,
     evWrRedirect, evRegister, evUnregister,
-    evStart, evStop, evStopIfRecording, evWipe, evStatus, evScheduleMirror, evMirror },
+    evStart, evStop, evStopIfRecording, evWipe, evStatus, evScheduleMirror, evMirror,
+    makeBuffer: EvBuffer.makeBuffer },
   caps: { HARD_CAP: EvBuffer.HARD_CAP, MIRROR_MS: EVIDENCE_MIRROR_MS, NET_MAP_CAP: EvBuffer.NET_MAP_CAP,
     MERGE_MS: EvBuffer.MERGE_MS, REQUESTS: EVIDENCE_REQUESTS },
   ready: evReady,
@@ -392,6 +393,32 @@ test('5: the buffer keeps two windows of history, not the one the panel shows', 
   assert.deepEqual(h.buffer().map((e) => e.text), ['behind the window', 'fresh']);
   // The panel only ever sees one window — the extra minute is retroactive margin, not exposure.
   assert.deepEqual(h.window().map((e) => e.text), ['fresh']);
+});
+
+// The window is mutable: a settings change rewrites it mid-recording, and BOTH halves have to
+// follow it. Row 5 pins the panel's half; this one pins the prune's.
+test('5b: shortening the window mid-recording shortens what the buffer keeps, not just what it shows', async () => {
+  const h = await ready();
+  h.st.windowSec = 10;
+  h.st.buffer = [con({ ts: at(25), text: 'past two short windows' }), con({ ts: at(15), text: 'still inside them' })];
+  h.fns.evPush(con({ ts: at(1), text: 'fresh' }));
+  assert.deepEqual(h.buffer().map((e) => e.text), ['still inside them', 'fresh']);
+});
+
+// The leak guard runs INSIDE push, before the mirror is told — otherwise the mirror writes a buffer
+// whose in-flight rows the map has already forgotten. Only reachable below the recorder's own buffer.
+test('8b: the requestId map is already empty by the time the mirror is scheduled', async () => {
+  const h = await ready();
+  const sizes = [];
+  const netMap = new Map();
+  const buf = h.fns.makeBuffer({ netMapCap: 2, netMap, onChange: () => sizes.push(netMap.size) });
+  netMap.set('a', net());
+  netMap.set('b', net());
+  buf.push(con());
+  assert.deepEqual(sizes, [2], 'at the cap the map stands, and the mirror sees it stand');
+  netMap.set('c', net());
+  buf.push(con());
+  assert.deepEqual(sizes, [2, 0], 'over the cap it is cleared first, and the mirror sees it empty');
 });
 
 test('6: an old entry hiding behind a fresh one is left in the buffer', async () => {
