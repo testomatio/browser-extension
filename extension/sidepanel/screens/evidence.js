@@ -3,7 +3,7 @@
 // recorder is the source of truth.
 
 /* global TestomatAPI, chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
-   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection, envTrimUrl */
+   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection, EvidenceFormat */
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
@@ -22,133 +22,6 @@ const EV_CARD_ROWS = 6;
 async function evSend(message) {
   if (!hasChrome || !chrome.runtime || !chrome.runtime.sendMessage) return { ok: false, error: 'no-extension' };
   try { return await chrome.runtime.sendMessage(message); } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
-}
-
-// ---- formatting ----------------------------------------------------------
-
-function evTime(ts) {
-  const d = new Date(ts);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-function evOneLine(s, max = 200) {
-  const one = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
-  return one.length > max ? `${one.slice(0, max - 1)}…` : one;
-}
-
-function evNetStatus(e) { return e.errorText ? (e.status || 'ERR') : (e.status != null ? e.status : '—'); }
-
-// `uncaught` (#163) is an exception or unhandled rejection — no console call made
-// that row, so it must not read as one.
-function evLabel(e) {
-  if (e.kind === 'exception') return `uncaught.${e.level}`;
-  return e.kind === 'log' ? `log.${e.level}` : `console.${e.level}`;
-}
-
-// source:line:col — the col only an uncaught row carries. `trim` is the CALLER's policy
-// (envTrimUrl where the text is uploaded, nothing on screen); the line and col never change.
-function evLoc(e, trim) {
-  if (!e.url) return '';
-  const url = trim ? trim(e.url) : e.url;
-  return `${url}${e.line ? `:${e.line}${e.col ? `:${e.col}` : ''}` : ''}`;
-}
-
-// Stands in for a body the recorder deliberately did not read (#95 toggle OFF).
-const EV_BODY_DISABLED = '(body capture disabled)';
-
-// The fence is longer than any backtick run inside, so the body cannot break out.
-function evFence(body) {
-  const runs = String(body).match(/`+/g) || [];
-  const fence = '`'.repeat(Math.max(3, runs.reduce((m, r) => Math.max(m, r.length), 0) + 1));
-  return `${fence}\n${body}\n${fence}`;
-}
-
-// #175: message/url/errorText are written by the PAGE — a backtick would close the
-// inline span and hand the rest to the markdown renderer; a newline ends the quote.
-function evInlineCode(text) {
-  const s = String(text).replace(/\s+/g, ' ');
-  const runs = s.match(/`+/g) || [];
-  const ticks = '`'.repeat(runs.reduce((m, r) => Math.max(m, r.length), 0) + 1);
-  const pad = /^`|`$/.test(s) ? ' ' : ''; // CommonMark strips one space from each end
-  return `${ticks}${pad}${s}${pad}${ticks}`;
-}
-
-// Goes into the tester's comment, which is UPLOADED with the result — so the address is
-// trimmed here, exactly as the .txt trims its own (PRIVACY.md); the on-screen row keeps it whole.
-function evEntrySnippet(e) {
-  const t = evTime(e.ts);
-  if (e.kind === 'network') {
-    const url = envTrimUrl(e.url);
-    const inner = e.errorText
-      ? `${evNetStatus(e)} ${e.method} ${url} ${e.errorText} ${t}`
-      : `${evNetStatus(e)} ${e.method} ${url} ${t}`;
-    let out = `> ${evInlineCode(`[${inner}]`)}`;
-    if (e.bodySnippet) out += `\n\n${evFence(e.bodySnippet + (e.bodyTruncated ? '\n… (truncated)' : ''))}`;
-    return out;
-  }
-  return `> ${evInlineCode(`[${evLabel(e)} ${t}] ${evOneLine(e.text)}`)}`;
-}
-
-function evRowText(e) {
-  const t = evTime(e.ts);
-  if (e.kind === 'network') return `${evNetStatus(e)} ${e.method} ${evOneLine(e.url, 120)} · ${t}`;
-  return `${evLabel(e)} · ${evOneLine(e.text, 120)} · ${t}`;
-}
-
-// Stable across re-renders (#150): `ts` is stamped once and never rewritten, the
-// requestId separates redirect hops, and page-hook rows carry no requestId.
-function evKey(e) {
-  if (e.kind === 'network') return `network:${e.ts}:${e.requestId || `${e.method} ${e.url}`}`;
-  return `${e.kind}:${e.ts}:${e.text || ''}`;
-}
-
-// Returns the icon AND the severity that colours it — an icon carries no colour
-// of its own, and the two must never disagree.
-function evIcon(e) {
-  if (e.kind === 'network') {
-    return e.errorText ? { name: 'block', kind: 'error' } : { name: 'language', kind: 'net' };
-  }
-  return e.level === 'warning' ? { name: 'warning', kind: 'warning' } : { name: 'error', kind: 'error' };
-}
-
-// Readable .txt artifact (header + Console + Network sections) for auto-attach. UPLOADED onto the
-// result, so every address in it goes through envTrimUrl — a query string carries tokens (PRIVACY.md).
-// Unconditional, unlike the env meta's one line: this file is every request of a whole minute, and
-// it stays on the result for the team to read, so the full-URL setting deliberately does not reach it.
-function evBuildTxt(runTitle, testTitle, entries, status) {
-  const lines = [];
-  lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
-  lines.push(`Recorded tab: ${status.tabTitle || '—'}`);
-  if (status.tabUrl) lines.push(`URL: ${envTrimUrl(status.tabUrl)}`);
-  // A status with no window would write "last undefineds" into a file that is uploaded onto
-  // the result: the panel's own kept window stands in, the way every other field here falls back.
-  const win = Number.isFinite(status.windowSec) ? status.windowSec : evWindowSeconds();
-  lines.push(`Window: last ${win}s · ${entries.length} entries · ${new Date().toISOString()}`);
-  lines.push('');
-  const cons = entries.filter((e) => e.kind !== 'network');
-  const nets = entries.filter((e) => e.kind === 'network');
-  lines.push(`== Console (${cons.length}) ==`);
-  if (!cons.length) lines.push('(none)');
-  for (const e of cons) {
-    const at = evLoc(e, envTrimUrl);
-    lines.push(`[${evTime(e.ts)}] ${evLabel(e)}: ${evOneLine(e.text, 500)}${at ? ` (${at})` : ''}`);
-  }
-  lines.push('');
-  lines.push(`== Network (${nets.length}) ==`);
-  if (!nets.length) lines.push('(none)');
-  for (const e of nets) {
-    const rt = e.resourceType ? ` [${e.resourceType}]` : '';
-    const err = e.errorText ? ` — ${e.errorText}` : '';
-    lines.push(`[${evTime(e.ts)}] ${evNetStatus(e)} ${e.method} ${envTrimUrl(e.url)}${rt}${err}`);
-    // The captured response body, indented under its request.
-    if (e.bodySnippet) {
-      for (const bl of e.bodySnippet.split('\n')) lines.push(`    ${bl}`);
-      if (e.bodyTruncated) lines.push('    … (truncated)');
-    } else if (e.bodySkipped) lines.push(`    ${EV_BODY_DISABLED}`);
-  }
-  lines.push('');
-  return lines.join('\n');
 }
 
 // ---- status reflection ---------------------------------------------------
@@ -319,7 +192,7 @@ function evCardRow(e) {
   li.className = 'hovercard-row';
   const icon = document.createElement('span');
   icon.className = 'ev-icon';
-  const mark = evIcon(e);
+  const mark = EvidenceFormat.icon(e);
   icon.dataset.kind = mark.kind;
   icon.append(svgIcon(mark.name, 14));
   const txt = document.createElement('span');
@@ -328,7 +201,7 @@ function evCardRow(e) {
   const at = document.createElement('span');
   at.className = 'hovercard-row-meta';
   at.textContent = evAge(e.ts);
-  Tooltip.set(at, evTime(e.ts));
+  Tooltip.set(at, EvidenceFormat.time(e.ts));
   li.append(icon, txt, at);
   return li;
 }
@@ -336,9 +209,9 @@ function evCardRow(e) {
 // A request drops its origin unless it LEFT the recorded site (there the host IS
 // the news); a console row drops the `console.` prefix, but `uncaught` (#163) stays.
 function evCardRowText(e) {
-  if (e.kind === 'network') return `${evNetStatus(e)} ${e.method} ${evShortUrl(e.url)}`;
+  if (e.kind === 'network') return `${EvidenceFormat.netStatus(e)} ${e.method} ${evShortUrl(e.url)}`;
   const kind = e.kind === 'exception' ? 'uncaught · ' : '';
-  return `${kind}${evOneLine(e.text, 200)}`;
+  return `${kind}${EvidenceFormat.oneLine(e.text, 200)}`;
 }
 
 // A relative string from the page hook comes back as it came — and so does a host-less scheme
@@ -347,11 +220,11 @@ function evShortUrl(raw) {
   const url = String(raw || '');
   try {
     const u = new URL(url);
-    if (!u.host) return evOneLine(url, 200);
+    if (!u.host) return EvidenceFormat.oneLine(url, 200);
     const here = evUi.tabUrl ? new URL(evUi.tabUrl).host : '';
     const path = `${u.pathname}${u.search}`;
-    return evOneLine(u.host !== here ? `${u.host}${path}` : path || '/', 200);
-  } catch { return evOneLine(url, 200); }
+    return EvidenceFormat.oneLine(u.host !== here ? `${u.host}${path}` : path || '/', 200);
+  } catch { return EvidenceFormat.oneLine(url, 200); }
 }
 
 // Age, not clock time — inside a trailing window the age IS the fact (how close a
@@ -543,13 +416,13 @@ function evRow(e) {
   head.className = 'ev-row-head';
   const icon = document.createElement('span');
   icon.className = 'ev-icon';
-  const mark = evIcon(e);
+  const mark = EvidenceFormat.icon(e);
   icon.dataset.kind = mark.kind;
   icon.append(svgIcon(mark.name, 14));
   const txt = document.createElement('span');
   txt.className = 'ev-text';
-  txt.textContent = evRowText(e);
-  Tooltip.set(txt, evRowText(e));
+  txt.textContent = EvidenceFormat.rowText(e);
+  Tooltip.set(txt, EvidenceFormat.rowText(e));
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn size-xs ev-attach';
@@ -559,7 +432,7 @@ function evRow(e) {
 
   // The open/closed verdict comes from evUi.expanded, not from the DOM, so the
   // next poll tick rebuilds the row in the state the tester left it in (#150).
-  const key = evKey(e);
+  const key = EvidenceFormat.key(e);
   const details = evDetails(e);
   const paint = (open) => { details.hidden = !open; li.classList.toggle('expanded', open); };
   paint(evUi.expanded.has(key));
@@ -589,25 +462,25 @@ function evDetails(e) {
   if (e.kind === 'network') {
     field('Method', e.method);
     field('URL', e.url);
-    field('Status', evNetStatus(e));
+    field('Status', EvidenceFormat.netStatus(e));
     field('MIME', e.mimeType);
     field('Type', e.resourceType);
     if (e.errorText) field('Error', e.errorText);
     field('Timing', e.durationMs != null ? `${e.durationMs} ms` : null);
-    field('At', evTime(e.ts));
+    field('At', EvidenceFormat.time(e.ts));
     box.append(dl);
     if (e.bodySnippet || e.bodySkipped) {
       const pre = document.createElement('pre');
       pre.className = e.bodySnippet ? 'code ev-body' : 'code ev-body ev-body-note';
-      pre.textContent = e.bodySnippet ? e.bodySnippet + (e.bodyTruncated ? '\n… (truncated)' : '') : EV_BODY_DISABLED;
+      pre.textContent = e.bodySnippet ? e.bodySnippet + (e.bodyTruncated ? '\n… (truncated)' : '') : EvidenceFormat.BODY_DISABLED;
       box.append(pre);
     }
   } else {
-    field('Level', evLabel(e));
-    field('At', evTime(e.ts));
+    field('Level', EvidenceFormat.label(e));
+    field('At', EvidenceFormat.time(e.ts));
     // WHOLE, unlike the .txt and the comment: nothing here leaves the browser, and the tester
     // needs the real address of their own page to find the error.
-    field('Location', evLoc(e));
+    field('Location', EvidenceFormat.loc(e));
     box.append(dl);
     const pre = document.createElement('pre');
     pre.className = 'code ev-body';
@@ -620,7 +493,7 @@ function evDetails(e) {
 function attachEvidenceEntry(e) {
   const ta = $('test-comment');
   if (!ta) return;
-  const snippet = evEntrySnippet(e);
+  const snippet = EvidenceFormat.entrySnippet(e);
   ta.value = ta.value ? `${ta.value}\n${snippet}` : snippet;
   ta.dispatchEvent(new Event('input', { bubbles: true }));
   toast('Log snippet added to the comment');
@@ -659,7 +532,7 @@ async function uploadEvidenceLog(record) {
   if (!snap || !snap.ok) return '';
   const entries = snap.entries || [];
   const testTitle = record.test_title || ($('test-title') && $('test-title').textContent) || '';
-  const txt = evBuildTxt(state.runTitle, testTitle, entries, snap.status || {});
+  const txt = EvidenceFormat.buildTxt(state.runTitle, testTitle, entries, snap.status || {});
   try {
     const blob = new Blob([txt], { type: 'text/plain' });
     const res = await TestomatAPI.uploadAttachment(record.id, blob, `evidence-${record.id}-${Date.now()}.txt`);

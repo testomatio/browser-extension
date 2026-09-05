@@ -207,9 +207,12 @@ export function fakeClock() {
 // `exported` names the screen's published `const` — the trailing completion expression. `globals` is
 // the screen's own panel globals, which this file deliberately knows nothing about. `dir` is the
 // directory to read from: core/views.js is a plain script of the same shape, one folder over.
+// `before` names the sibling scripts index.html loads AHEAD of this one, evaluated into the same
+// context: a published `const` is a global lexical, shared between the scripts and never a property.
 export function loadScreen(name, opts = {}) {
   const {
     dir = SCREENS_SRC,
+    before = [],
     exported = null,
     globals = {},
     ids = [],
@@ -242,6 +245,10 @@ export function loadScreen(name, opts = {}) {
   const file = join(dir, `${name}.js`);
   const source = sourceOf(file);
   const context = createContext(sandbox);
+  for (const dep of before) {
+    const path = join(dir, `${dep}.js`);
+    runInContext(sourceOf(path), context, { filename: path });
+  }
   const screen = runInContext(exported ? `${source}\n${exported};` : source, context, { filename: file });
 
   return {
