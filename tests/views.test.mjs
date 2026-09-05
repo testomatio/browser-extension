@@ -15,7 +15,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, CORE_SRC, makeDocument, el, fire } from './helpers/panel-harness.mjs';
+import {
+  loadScreen, CORE_SRC, makeDocument, el, fire, plain, fakeClock, rejection,
+} from './helpers/panel-harness.mjs';
 import { loadInto } from './helpers/shared-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,7 +34,12 @@ function makePage() {
   const mk = (tag, id, props = {}) => { node[id] = el(tag, { id, ...props }); return node[id]; };
 
   const tabbar = mk('nav', 'tabbar', { role: 'tablist' });
-  for (const t of BAR) tabbar.append(mk('button', `tab-${t}`, { className: 'tab', role: 'tab' }));
+  for (const t of BAR) {
+    // index.html:90 — the count chip lives INSIDE its tab and ships hidden, because unknown is not 0.
+    const btn = mk('button', `tab-${t}`, { className: 'tab', role: 'tab' });
+    btn.append(mk('span', `tab-${t}-count`, { className: 'counter size-sm', hidden: true }));
+    tabbar.append(btn);
+  }
   const headerTop = mk('div', 'header-top');
   headerTop.append(tabbar, mk('div', 'rec-slot'));
 
@@ -50,7 +57,13 @@ function makePage() {
     section.setAttribute('tabindex', '-1');
     main.append(section);
   }
-  doc.body.append(headerTop, projectBar, contextBar, mk('div', 'degraded-banner', { hidden: true }), main);
+  const degraded = mk('div', 'degraded-banner', { hidden: true });
+  degraded.append(el('span', { className: 'banner-text degraded-banner-text' })); // index.html:135
+
+  doc.body.append(headerTop, projectBar, contextBar, degraded, main,
+    mk('p', 'run-status', { className: 'status-line' }),   // index.html:569
+    mk('p', 'test-status', { className: 'status-line' }),  // index.html:638
+    mk('div', 'toast', { className: 'toast', hidden: true })); // index.html:816
   return { doc, node };
 }
 
@@ -63,7 +76,12 @@ const SETTINGS = { baseUrl: 'https://app.testomat.io', projectId: 'p1' };
 function load(opts = {}) {
   const o = { settings: SETTINGS, readonly: false, jwt: true, ...opts };
   const { doc, node } = makePage();
-  const calls = { persists: 0, clicks: [] };
+  // `order` is every collaborator this file calls, in the order it called them: half of what the
+  // switch and the tab model promise is a sequence, not a set.
+  const calls = {
+    persists: 0, clicks: [], order: [], opens: [], counts: [], configures: [], projects: 0,
+  };
+  const observers = []; // every ResizeObserver the two fitters arm, callback kept, never fired for them
 
   const state = {
     view: null,
@@ -75,6 +93,9 @@ function load(opts = {}) {
     tcSuiteId: null,
     runTitle: '',
     testTitle: '',
+    tcSuiteTitle: '',
+    tcSuiteEmoji: '',
+    testrunDetail: null,
     testDetailPending: false,
     projectEpoch: 0,
   };
@@ -85,28 +106,67 @@ function load(opts = {}) {
     views: VIEWS,
     Roving: roving(),
     $: (id) => doc.getElementById(id),
-    Skeleton: { bootDone: () => {}, hide: () => {} },
+    Skeleton: {
+      bootDone: () => { calls.order.push('bootDone'); },
+      hide: () => { calls.order.push('hide'); },
+    },
     Tooltip: { set: (n, tip) => { if (n) n.dataset.tip = tip; } },
     TestomatAPI: { jwtAvailable: () => o.jwt },
     // core/state.js:101, verbatim.
     isConfigured: () => !!(state.settings && state.settings.projectId),
-    persistSession: () => { calls.persists += 1; },
+    persistSession: () => { calls.persists += 1; calls.order.push('persist'); },
     // The crumb factories name these at BUILD time, not on click — an absent one throws.
-    openRunsView: () => {},
-    openRunView: () => {},
-    openTcStudioView: () => {},
+    openRunsView: () => { calls.opens.push(['runs']); calls.order.push('openRunsView'); },
+    openRunView: (id, title) => { calls.opens.push(['run', id, title]); calls.order.push('openRunView'); },
+    openTcStudioView: () => { calls.opens.push(['tcstudio']); calls.order.push('openTcStudioView'); },
+    openTestView: (id) => { calls.opens.push(['test', id]); },
+    openTestSuitePicker: () => { calls.opens.push(['promote']); },
+    refreshTcList: () => { calls.opens.push(['refreshTcList']); },
+    refreshRuns: () => { calls.opens.push(['refreshRuns']); return o.refreshRuns ? o.refreshRuns() : undefined; },
+    refreshProjects: () => { calls.projects += 1; return o.projects || Promise.resolve(); },
+    fillSettingsForm: () => { calls.order.push('fillSettingsForm'); },
+    loadRunsCount: (epoch) => { calls.counts.push(['runs', epoch]); return Promise.resolve(); },
+    loadTestsCount: (epoch) => { calls.counts.push(['tests', epoch]); return Promise.resolve(); },
+    Handoff: { configure: (s) => { calls.configures.push(s); calls.order.push('Handoff.configure'); } },
+    // shared/icons.js:238 — the arity matters: `cls` reaches classList.add, which throws on a space.
+    Icons: {
+      el: (name, size = 16, ...cls) => {
+        const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
+        n.classList.add(...cls.filter(Boolean));
+        return n;
+      },
+    },
+    Sk: { bar: (kind) => el('span', { className: 'sk-bar', dataset: { kind } }) },
+    // Records the callback and never fires it: the real one re-enters fitFilterChips, and only the
+    // width guard stops that — an eager fake would recurse instead of testing the guard.
+    ResizeObserver: class {
+      constructor(cb) { this.cb = cb; this.node = null; observers.push(this); }
+      observe(n) { this.node = n; }
+      disconnect() { this.node = null; }
+    },
+    recordFor: (id) => (o.records || {})[id] || null,
+    TestType: { forRecord: (rec) => (rec.automated ? el('span', { className: 'type-mark' }, 'A') : null) },
     // core/status-icons.js — the suite mark a tclist title carries.
     StatusIcons: {
       FILE: 'tree_suite',
       treeIcon: (name, cls) => el('span', { className: cls, dataset: { icon: name } }),
     },
   };
+  // shared/priority-icons.js loads before core, but the file guards on `typeof` — so a row can take
+  // it away and watch the title carry no marks rather than throw.
+  if (o.priorityIcons !== false) {
+    globals.PriorityIcons = { mark: (p) => el('span', { className: 'prio', dataset: { prio: String(p || '') } }, String(p || '')) };
+  }
+
+  const clock = fakeClock(); // a real 3.5s toast timer would hold the whole test run open
 
   const h = loadScreen('views', {
     dir: CORE_SRC,
     document: doc,
     globals,
-    exported: '({ TAB_OF_VIEW, TABS, TAB_ROOT })',
+    clock,
+    exported: `({ TAB_OF_VIEW, TABS, TAB_ROOT, ROOT_VIEWS, CONTEXT_TRAILS, CONTEXT_WEB_TARGET,
+      tabCountKnown, LABEL_FIT_MIN_FIELD, ALERT_ICON, PROGRESS_ICON, progressToast })`,
   });
 
   // Each tab's own click listener, the way app.js wires it: what Enter and Space are allowed to do,
@@ -119,6 +179,7 @@ function load(opts = {}) {
     doc,
     node,
     calls,
+    observers,
     lex: h.screen,
     tab: (t) => node[`tab-${t}`],
     // Every tab's tabindex in bar order — the one shape the roving model is about.
@@ -328,4 +389,431 @@ test('V11: every one of the eight sections is its tab’s panel, and can hold th
     assert.match(open[1], /\brole="tabpanel"/, `view-${v} is a panel`);
     assert.match(open[1], new RegExp(`\\baria-labelledby="tab-${TAB_OF_VIEW[v]}"`), `view-${v} names its tab`);
   }
+});
+
+// ---------- the tab a screen belongs to ----------
+
+test('V12: every screen the panel can show belongs to exactly one of the three tabs', () => {
+  const h = load();
+  assert.deepEqual(plain(h.lex.TAB_OF_VIEW), {
+    tcstudio: 'tests', tclist: 'tests', promote: 'tests',
+    runs: 'runs', run: 'runs', test: 'runs',
+    settings: 'settings', pick: 'settings',
+  });
+  assert.deepEqual(plain(h.lex.TABS), BAR);
+  // The four landing screens: the Back arrow and the title row above it are hidden on these.
+  assert.deepEqual(VIEWS.filter((v) => h.lex.ROOT_VIEWS.has(v)), ['settings', 'pick', 'runs', 'tcstudio']);
+});
+
+test('V13: a view name nobody knows lands the tester in Runs rather than in no tab at all', () => {
+  const h = load();
+  h.fn.show('bogus'); // no throw: there is no #view-bogus to hide, show or focus
+  assert.equal(h.state.activeTab, 'runs', 'a bar with no tab lit is a bar the tester cannot read');
+  assert.equal(h.state.view, 'bogus');
+  assert.equal(h.doc.body.dataset.view, 'bogus');
+  assert.deepEqual(VIEWS.filter((v) => !h.node[`view-${v}`].hidden), []);
+});
+
+test('V14: the switch does its steps in the order the screens after it depend on', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.state.runTitle = 'Nightly';
+  const at = {};
+  // screens/settings.js:224 focuses its token field from in here, so the sections must have switched.
+  h.fn.applyConnectMode = () => {
+    h.calls.order.push('applyConnectMode');
+    at.sectionUp = h.node['view-run'].hidden;
+    at.view = h.state.view;
+  };
+  h.fn.updatePendingBanner = () => { h.calls.order.push('updatePendingBanner'); };
+  h.fn.onViewShown = (v) => {
+    h.calls.order.push(`onViewShown:${v}`);
+    at.title = h.node['context-title'].textContent;
+    at.selected = h.tab('runs').getAttribute('aria-selected');
+  };
+
+  h.fn.show('run');
+  assert.deepEqual(h.calls.order, ['bootDone', 'hide', 'applyConnectMode',
+    'updatePendingBanner', 'onViewShown:run', 'persist']);
+  assert.equal(at.sectionUp, false, 'the section was already up when the screen reached for its field');
+  assert.equal(at.view, 'run');
+  assert.equal(at.title, 'Nightly', 'and the header row was painted before the screen loaded');
+  assert.equal(at.selected, 'true');
+});
+
+test('V15: the three scripts that load after core are optional — the switch runs without any of them', () => {
+  const h = load();
+  assert.equal(h.fn.applyConnectMode, undefined);
+  assert.equal(h.fn.updatePendingBanner, undefined);
+  assert.equal(h.fn.onViewShown, undefined);
+  h.fn.show('settings'); // no throw
+  assert.equal(h.node['view-settings'].hidden, false);
+  assert.equal(h.calls.persists, 1, 'and the session was still written');
+});
+
+// ---------- the title above the Back arrow ----------
+
+test('V16: the title names the screen from the first frame, before its data has landed', () => {
+  const h = load();
+  assert.equal(h.fn.contextTitleFor('run'), 'Run');
+  assert.equal(h.fn.contextTitleFor('test'), 'Test');
+  assert.equal(h.fn.contextTitleFor('tclist'), 'Suite');
+  assert.equal(h.fn.contextTitleFor('promote'), 'Choose suite');
+  assert.equal(h.fn.contextTitleFor('runs'), '', 'a tab root has no title — the row is hidden there');
+
+  h.state.runTitle = 'Nightly';
+  h.state.testTitle = 'Login works';
+  h.state.tcSuiteTitle = 'Checkout';
+  assert.deepEqual(['run', 'test', 'tclist'].map((v) => h.fn.contextTitleFor(v)),
+    ['Nightly', 'Login works', 'Checkout']);
+});
+
+test('V17: a priority still being read holds its slot, so the title cannot jump under the reader', () => {
+  const h = load();
+  h.state.testDetailPending = true;
+  const [prio, type] = h.fn.contextTitleMarks('test');
+  assert.equal(prio.className, 'prio');
+  assert.equal(prio.childNodes.length, 1, 'a skeleton bar stands in the slot the real mark will take');
+  assert.equal(prio.firstChild.className, 'sk-bar');
+  assert.equal(type, null);
+
+  h.state.testDetailPending = false;
+  h.state.testrunDetail = { data: { attributes: { test: { priority: 'high' } } } };
+  assert.equal(h.fn.contextTitleMarks('test')[0].dataset.prio, 'high', 'the same slot, now filled');
+});
+
+test('V18: with the priority vocabulary missing the title simply carries no marks', () => {
+  const h = load({ priorityIcons: false });
+  assert.deepEqual(plain(h.fn.contextTitleMarks('test')), [null, null]);
+  h.state.testTitle = 'Login works';
+  h.fn.updateContextBar('test');
+  assert.equal(h.node['context-title'].textContent, 'Login works', 'and prints no holes where they were');
+});
+
+// ---------- the trail ----------
+
+test('V19: the trail above a test names the run it came out of, and that crumb is the way back', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.state.runTitle = 'Nightly';
+  h.fn.renderContextCrumbs('test');
+
+  const nav = h.node['context-crumbs'];
+  assert.equal(nav.hidden, false);
+  assert.deepEqual(nav.childNodes.map((n) => n.className), ['crumb', 'crumb-sep', 'crumb']);
+  const [root, run] = nav.querySelectorAll('.crumb');
+  assert.deepEqual([root.textContent, run.textContent], ['Runs', 'Nightly']);
+  // The root crumb keeps its width; the ones after it give width up, so what they lose comes back.
+  assert.equal(root.dataset.tip, undefined);
+  assert.equal(root.getAttribute('aria-label'), null);
+  assert.equal(run.dataset.tip, 'Nightly');
+  assert.equal(run.getAttribute('aria-label'), 'Nightly');
+
+  run.click();
+  assert.deepEqual(plain(h.calls.opens), [['run', '7', 'Nightly']]);
+});
+
+test('V20: a tab root has no trail — the nav goes away rather than standing there empty', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.fn.renderContextCrumbs('test');
+  assert.equal(h.node['context-crumbs'].childNodes.length, 3);
+
+  h.fn.renderContextCrumbs('runs');
+  assert.equal(h.node['context-crumbs'].hidden, true);
+  assert.equal(h.node['context-crumbs'].childNodes.length, 0);
+  h.fn.renderContextCrumbs(null); // what updateContextBar passes on a root view
+  assert.equal(h.node['context-crumbs'].hidden, true);
+});
+
+// ---------- the way out to the web app ----------
+
+test('V21: the web link points at the RECORD the tester is reading, not the test case behind it', () => {
+  const h = load({ records: { 55: { test_id: 't7' } } });
+  const target = h.lex.CONTEXT_WEB_TARGET;
+  h.state.runId = '9';
+  h.state.currentRecordId = '55';
+  assert.deepEqual(plain(target.test()), ['test', 'runs/9/test/55'],
+    'a parametrized run has many records on one test_id — only the record names the row on screen');
+
+  h.state.runId = null; // a test opened with no run around it: the case page is the honest target
+  assert.deepEqual(plain(target.test()), ['test', 'test/t7']);
+  h.state.currentRecordId = null;
+  assert.equal(target.test(), null, 'and with neither there is nothing to point at');
+
+  h.state.runId = '9';
+  assert.deepEqual(plain(target.run()), ['run', 'runs/9']);
+  h.state.tcSuiteId = 's 1';
+  assert.deepEqual(plain(target.tclist()), ['suite', 'suite/s%201']);
+});
+
+test('V22: the link is built off the SAVED base url, trailing slashes gone and every id encoded', () => {
+  const h = load({ settings: { baseUrl: 'https://a.io///', projectId: 'p 1' } });
+  h.state.runId = '9';
+  h.fn.renderContextOpenLink('run');
+  const a = h.node['context-open'];
+  assert.equal(a.hidden, false);
+  assert.equal(a.href, 'https://a.io/projects/p%201/runs/9');
+  assert.equal(a.getAttribute('aria-label'), 'Open this run in Testomat');
+  assert.equal(a.dataset.tip, 'Open this run in Testomat');
+});
+
+test('V23: with nothing to open the link hides instead of pointing the tester at a 404', () => {
+  const h = load();
+  h.state.runId = '9';
+  h.fn.renderContextOpenLink('run');
+  assert.equal(h.node['context-open'].hidden, false);
+
+  h.state.runId = null; // the id has not been read back yet
+  h.fn.renderContextOpenLink('run');
+  assert.equal(h.node['context-open'].hidden, true);
+  assert.equal(h.node['context-open'].getAttribute('href'), null, 'and the stale href went with it');
+
+  h.state.runId = '9';
+  h.fn.renderContextOpenLink('promote'); // the suite picker is a step, not a page on the web
+  assert.equal(h.node['context-open'].hidden, true);
+});
+
+test('V24: a locked project is not offered a way out to the web app either', () => {
+  const h = load({ readonly: true });
+  h.state.runId = '9';
+  h.fn.renderContextOpenLink('run');
+  assert.equal(h.node['context-open'].hidden, true);
+});
+
+test('V25: an http base url a handoff supplied is emitted exactly as it stands', () => {
+  // saveSettings is https-only, Handoff.connect is not — so this is reachable, and pinned as it is.
+  const h = load({ settings: { baseUrl: 'http://a.io', projectId: 'p1' } });
+  h.state.runId = '9';
+  h.fn.renderContextOpenLink('run');
+  assert.equal(h.node['context-open'].href, 'http://a.io/projects/p1/runs/9');
+});
+
+// ---------- the header row on a drill-down ----------
+
+test('V26: on a drill-down the Rec chip and the one Refresh ride into the only row left', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.fn.updateContextBar('runs'); // a tab root: the row folds away and the two go home
+  assert.equal(h.node['context-bar'].hidden, true);
+  assert.equal(h.node['btn-back'].hidden, true);
+  assert.equal(h.doc.body.dataset.immersive, 'false');
+  assert.equal(h.node['rec-slot'].parentElement.id, 'header-top');
+  assert.equal(h.node['btn-refresh'].parentElement.id, 'project-bar');
+
+  h.fn.updateContextBar('run');
+  assert.equal(h.node['context-bar'].hidden, false);
+  assert.equal(h.node['btn-back'].hidden, false);
+  assert.equal(h.doc.body.dataset.immersive, 'true');
+  assert.equal(h.node['rec-slot'].parentElement.id, 'context-bar', 'or Rec would be unreachable');
+  const bar = h.node['context-bar'];
+  assert.equal(bar.childNodes.indexOf(h.node['btn-refresh']) + 1,
+    bar.childNodes.indexOf(h.node['context-open']), 'and Refresh keeps its seat left of the open-link');
+
+  h.fn.updateContextBar('runs'); // …and back home again, in one piece
+  assert.equal(h.node['rec-slot'].parentElement.id, 'header-top');
+  assert.equal(h.node['btn-refresh'].nextElementSibling.id, 'project-open');
+});
+
+test('V27: a title too long for its row is offered whole as a tooltip — the NAME, not the whole row', () => {
+  const h = load();
+  h.state.testTitle = 'Checkout with an expired card';
+  h.state.testrunDetail = { data: { attributes: { test: { priority: 'high' } } } };
+  const title = h.node['context-title'];
+  title.scrollHeight = 40; // the box a browser would have measured after the row went up
+  title.clientHeight = 20;
+
+  h.fn.updateContextBar('test');
+  assert.equal(title.textContent, 'highCheckout with an expired card', 'the mark is drawn in the row');
+  assert.equal(title.dataset.tip, 'Checkout with an expired card',
+    'the reader can already see the mark; repeating it in the tip would be noise');
+
+  title.scrollHeight = 20; // it fits now
+  h.fn.updateContextBar('test');
+  assert.equal(title.dataset.tip, '');
+});
+
+// ---------- the tab bar ----------
+
+test('V28: unconfigured, the two tabs that need a project are taken away and say why', () => {
+  const h = load({ settings: null });
+  h.fn.updateTabBar();
+  for (const t of ['tests', 'runs']) {
+    assert.equal(h.tab(t).disabled, true, t);
+    assert.equal(h.tab(t).getAttribute('aria-disabled'), 'true', t);
+    assert.equal(h.tab(t).dataset.tip, 'Configure settings first', t);
+  }
+  assert.equal(h.tab('settings').disabled, false, 'Settings is the one tab reachable unconfigured');
+  assert.equal(h.tab('settings').getAttribute('aria-disabled'), 'false');
+  assert.equal(h.tab('settings').dataset.tip, '');
+});
+
+test('V29: a tab the markup has not built is walked past, not thrown over', () => {
+  const h = load();
+  h.node['tab-tests'].remove();
+  h.fn.updateTabBar(); // no throw
+  assert.equal(h.tab('runs').getAttribute('aria-disabled'), 'false');
+});
+
+// ---------- the counters ----------
+
+test('V30: zero is a number the tester can see — only an UNKNOWN count hides the chip', () => {
+  const h = load();
+  const chip = h.node['tab-runs-count'];
+  h.fn.setTabCount('runs', 0);
+  assert.equal(chip.hidden, false, 'a project with no runs says so');
+  assert.equal(chip.textContent, '0');
+
+  for (const unknown of [null, undefined, NaN, -1, '12', Infinity]) {
+    h.fn.setTabCount('runs', unknown);
+    assert.equal(chip.hidden, true, `${String(unknown)} is not a count the bar may print`);
+    assert.equal(chip.textContent, '');
+  }
+
+  h.fn.setTabCount('runs', 12);
+  assert.equal(chip.textContent, '12');
+  h.fn.resetTabCounts();
+  assert.deepEqual(BAR.map((t) => h.node[`tab-${t}-count`].hidden), [true, true, true]);
+});
+
+test('V31: a count that did not move does not blink — the flash replays only for a new number', () => {
+  const h = load();
+  const chip = h.node['tab-runs-count'];
+  const churn = [];
+  let name = 'counter settled';
+  Object.defineProperty(chip, 'className', {
+    configurable: true, get: () => name, set: (v) => { name = v; churn.push(v); },
+  });
+  // The read that forces the layout the class toggle just changed — without it the keyframe never
+  // restarts, and a settled count would sit there with no flash at all.
+  Object.defineProperty(chip, 'offsetWidth', {
+    configurable: true, get: () => { churn.push('reflow'); return 0; },
+  });
+
+  h.fn.paintCounter(chip, 12);
+  assert.deepEqual(churn, ['counter', 'reflow', 'counter settled']);
+  assert.equal(chip.textContent, '12');
+
+  churn.length = 0;
+  h.fn.paintCounter(chip, 12); // the same number arriving again
+  assert.deepEqual(churn, [], 'nothing was touched, so nothing re-fades under the tester');
+
+  h.fn.paintCounter(chip, 13);
+  assert.deepEqual(churn, ['counter', 'reflow', 'counter settled']);
+  assert.equal(chip.textContent, '13');
+});
+
+test('V32: the flash is dropped once it has played, so a screen coming back does not re-fade its counts', () => {
+  const h = load();
+  const chip = h.node['tab-runs-count'];
+  h.fn.initCounterFade();
+
+  chip.className = 'counter settled';
+  fire(h.doc, 'animationend', { animationName: 'counter-in', target: chip });
+  assert.equal(chip.className, 'counter');
+
+  chip.className = 'counter settled';
+  fire(h.doc, 'animationend', { animationName: 'spin', target: chip });
+  assert.equal(chip.className, 'counter settled', 'another animation on the same node is not this one');
+});
+
+test('V33: a tab that already knows its number is not counted a second time', () => {
+  const h = load();
+  h.state.projectEpoch = 4;
+  h.node['tab-tests-count'].hidden = false; // the suite tree derived it on the way in
+  h.fn.prefetchTabCounts();
+  assert.deepEqual(plain(h.calls.counts), [['runs', 4]], 'a second, differently derived count must not win');
+  assert.equal(h.lex.tabCountKnown('tests'), true);
+
+  h.calls.counts.length = 0;
+  h.node['tab-tests-count'].hidden = true;
+  h.fn.prefetchTabCounts();
+  assert.deepEqual(plain(h.calls.counts), [['tests', 4], ['runs', 4]]);
+});
+
+test('V34: a locked project counts nothing — every request it could make is refused anyway', async () => {
+  const h = load({ readonly: true });
+  await h.fn.prefetchTabCounts();
+  await h.fn.refreshTabCounts();
+  assert.deepEqual(h.calls.counts, []);
+});
+
+test('V35: the suite tree owns the tests number, so a refresh on that screen does not re-derive it', () => {
+  const h = load();
+  h.state.projectEpoch = 2;
+  h.state.view = 'tcstudio';
+  h.fn.refreshTabCounts();
+  assert.deepEqual(plain(h.calls.counts), [['runs', 2]]);
+
+  h.calls.counts.length = 0;
+  h.state.view = 'runs';
+  h.fn.refreshTabCounts();
+  assert.deepEqual(plain(h.calls.counts), [['runs', 2], ['tests', 2]]);
+});
+
+// ---------- the panel-wide Refresh ----------
+
+test('V36: a second Refresh while the first is still in flight is dropped, not queued', async () => {
+  let release;
+  const h = load({ projects: new Promise((r) => { release = r; }) });
+  const btn = h.node['btn-refresh'];
+
+  const first = h.fn.refreshAll();
+  assert.equal(btn.disabled, true, 'disabled before the first request goes out, not after it lands');
+  assert.equal(btn.classList.contains('spinning'), true);
+
+  const second = h.fn.refreshAll();
+  release();
+  await Promise.all([first, second]);
+  assert.equal(h.calls.projects, 1, 'or every request in flight would be sent a second time');
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.classList.contains('spinning'), false);
+});
+
+test('V37: a refresh that fails still gives the button back — the panel is not left spinning', async () => {
+  let fail = true;
+  const h = load({ refreshRuns: () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve()) });
+  h.state.view = 'runs';
+
+  const err = await rejection(h.fn.refreshAll());
+  assert.equal(err.message, 'offline');
+  const btn = h.node['btn-refresh'];
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.classList.contains('spinning'), false);
+
+  fail = false;
+  h.calls.projects = 0;
+  await h.fn.refreshAll();
+  assert.equal(h.calls.projects, 1, 'and the next press really runs — the door was unlocked too');
+});
+
+test('V38: Refresh re-pulls the screen that is open without navigating away from it', async () => {
+  const h = load();
+  h.state.runId = '7';
+  h.state.runTitle = 'Nightly';
+  h.state.currentRecordId = '55';
+  const ran = async (view) => {
+    h.calls.opens.length = 0;
+    h.state.view = view;
+    await h.fn.refreshCurrentView();
+    return plain(h.calls.opens);
+  };
+  assert.deepEqual(await ran('runs'), [['refreshRuns']]);
+  assert.deepEqual(await ran('run'), [['run', '7', 'Nightly']]);
+  assert.deepEqual(await ran('test'), [['test', '55']]);
+  assert.deepEqual(await ran('tcstudio'), [['tcstudio']]);
+  assert.deepEqual(await ran('tclist'), [['refreshTcList']], 're-read in place, or the open list is lost');
+  assert.deepEqual(await ran('promote'), [['promote']]);
+  assert.deepEqual(await ran('settings'), [], 'Settings holds no server data of its own');
+});
+
+test('V39: a run or test whose id is not known yet is left alone rather than re-opened as nothing', async () => {
+  const h = load();
+  h.state.view = 'run';
+  h.state.runId = null;
+  await h.fn.refreshCurrentView();
+  h.state.view = 'test';
+  h.state.currentRecordId = null;
+  await h.fn.refreshCurrentView();
+  assert.deepEqual(h.calls.opens, []);
 });
