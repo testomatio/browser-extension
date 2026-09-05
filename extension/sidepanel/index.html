@@ -905,6 +905,9 @@
   <!-- The Runs tab's paging arithmetic. Ahead of runs-list.js, its only caller: nothing else in the
        panel counts pages, so this tag stands between the two rather than earlier. -->
   <script src="screens/runs-paging.js"></script>
+  <!-- What a pasted run link or a bare id may mean. Ahead of runs-list.js, which calls it while the
+       tester types; ../shared/handoff.js loads EARLIER and reaches forward for it, as it always has. -->
+  <script src="screens/runs-url.js"></script>
   <script src="screens/runs-list.js"></script>
   <!-- The write gate every result write asks. Ahead of run-view.js, which paints its note, and of
        the eight screens after it; core/write-status.js asks it late-bound, as it always has. -->

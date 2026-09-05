@@ -778,7 +778,7 @@ function runNoTestsEmpty() {
   const s = state.settings || {};
   const actions = [];
   if (s.baseUrl && s.projectId && state.runId) {
-    // The same `<host>/projects/<slug>/runs/<id>` shape looksLikeRunUrl parses.
+    // The same `<host>/projects/<slug>/runs/<id>` shape RunsUrl.looksLikeRunUrl parses.
     const a = document.createElement('a');
     a.className = 'btn size-sm';
     a.href = `${s.baseUrl}/projects/${encodeURIComponent(s.projectId)}/runs/${encodeURIComponent(state.runId)}`;
