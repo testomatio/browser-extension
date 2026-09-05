@@ -12,6 +12,8 @@
 // Rows 1-65 are the ticket's; 66+ are code the ticket left unspoken for. A lettered suffix is the
 // companion case that drives the same path the other way, so a row asserting "nothing happened"
 // cannot pass against a stub that never worked.
+// Rows 1-6 and 92 are gone to tests/runs-paging.test.mjs (#195): the arithmetic they drive is its own
+// file now, and this one loads it for real, so the rows below still assert against real cursors.
 // Run: node --test tests/runs-list.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -318,10 +320,13 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
+    // The REAL screens/runs-paging.js, in index.html's own order: every row below is about what this
+    // screen DOES with a cursor, so a stub here would be the thing under assertion (#195).
+    before: ['runs-paging'],
     exported: `({ RUN_FILTERS, FILTER_KEYS, RUNS_FILTER_TINT, LOADING_ICON, filterLabel, matchesFilter,
       runsSearchActive, runsFilterActive, anyRunsConstraint, titleOf, searchNeedle, runMatchesSearch,
       groupTitleMatchesSearch, runPasses, groupSelfHit, runsEmptyMessage, childrenLoaded,
-      groupContentsLoaded, hasNextPage, listLoadedCount, isPasteInput, envTags, isExpanded,
+      groupContentsLoaded, isPasteInput, envTags, isExpanded, RunsPaging,
       renderedGroupRow, looksLikeRunId, runsSearchRunId, runIdProbeFor, RUN_NOT_FOUND, RUN_ID_PROBE_MS })`,
   });
 
@@ -356,69 +361,6 @@ function load(opts = {}) {
     lastLine: (id) => [...calls.lines].reverse().find((l) => l.id === id) ?? null,
   };
 }
-
-// ---------- the paging arithmetic (rows 1-6) ----------
-
-test('1: the server states the page size and the row total, and the page count is derived from them', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.v2Cursor({ meta: { page: 2, per_page: 50, total: 180 } }, 2)),
-    { page: 2, perPage: 50, total: 180, totalPages: 4 });
-});
-
-test('1b: the page the SERVER reports is the one Load more counts from, not the one we asked for', () => {
-  const h = load();
-  // v2 keeps its own page in meta, and a request can be clamped — page 9 of a 3-page list answers 3.
-  const clamped = h.fn.v2Cursor({ meta: { page: 3, per_page: 50, total: 150 } }, 9);
-  assert.equal(plain(clamped).page, 3);
-  assert.equal(h.lex.hasNextPage(clamped), false); // asking again would re-read the same last page
-
-  // Only when the server states nothing does the asked-for page stand in.
-  assert.equal(plain(h.fn.v2Cursor({ meta: { per_page: 50, total: 150 } }, 2)).page, 2);
-});
-
-test('2: a server that sends no meta at all never offers Load more — the page size is what arrived', () => {
-  const h = load();
-  const cursor = h.fn.v2Cursor({ data: Array.from({ length: 30 }, (_, i) => run(`r${i}`)) }, 1);
-  assert.deepEqual(plain(cursor), { page: 1, perPage: 30, total: null, totalPages: null });
-  assert.equal(h.lex.hasNextPage(cursor), false);
-  // The same shape WITH a meta does offer it, so the false above is a decision and not a stub.
-  assert.equal(h.lex.hasNextPage(h.fn.v2Cursor({ meta: { page: 1, per_page: 30, total: 90 }, data: [] }, 1)), true);
-});
-
-test('3: an empty page still divides — perPage falls to 1 rather than to zero', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.v2Cursor({ data: [] }, 3)), { page: 3, perPage: 1, total: null, totalPages: null });
-  // With a total present the |1 is what keeps the ceil finite instead of Infinity.
-  assert.equal(h.fn.v2Cursor({ meta: { total: 7 }, data: [] }, 1).totalPages, 7);
-});
-
-test('4: "there is more" needs a page COUNT — an unknown one is not a promise of another page', () => {
-  const h = load();
-  assert.equal(h.lex.hasNextPage({ page: 1, totalPages: null }), false);
-  assert.equal(h.lex.hasNextPage({ page: 1, totalPages: 2 }), true);
-  assert.equal(h.lex.hasNextPage(null), false);
-  // The last page is not a next page either.
-  assert.equal(h.lex.hasNextPage({ page: 2, totalPages: 2 }), false);
-});
-
-test('5: the remainder never goes negative, and an unknown total has no remainder to state', () => {
-  const h = load();
-  assert.equal(h.fn.remainderOf({ total: 180 }, 200), 0);
-  assert.equal(h.fn.remainderOf({ total: null }, 5), null);
-  assert.equal(h.fn.remainderOf(null, 5), null);
-  assert.equal(h.fn.remainderOf({ total: 180 }, 30), 150);
-});
-
-test('6: the two v2 sources fold into one cursor, and the total is null unless BOTH report one', () => {
-  const h = load({
-    v2RunsPaging: { page: 1, total: 10, totalPages: 4 },
-    v2GroupsPaging: { page: 2, total: null, totalPages: 1 },
-  });
-  assert.deepEqual(plain(h.fn.v2ListPaging()), { page: 2, total: null, totalPages: 4, loading: false });
-  // Both reporting: the totals ADD, which is the branch the null above is chosen over.
-  h.state.v2GroupsPaging = { page: 2, total: 3, totalPages: 1 };
-  assert.deepEqual(plain(h.fn.v2ListPaging(true)), { page: 2, total: 13, totalPages: 4, loading: true });
-});
 
 // ---------- the chips, the counts and the empty messages (rows 13-18) ----------
 
@@ -1342,7 +1284,7 @@ test('96: the New run link follows the connected host and project, and hides whe
   assert.equal(h.node.newRun.hidden, true);
 });
 
-// ---------- Load more, folder contents and Refresh (rows 51-57, 86-93) ----------
+// ---------- Load more, folder contents and Refresh (rows 51-57, 86-91, 93) ----------
 
 test('51: under a search the Load more row admits how much of the list was actually searched', () => {
   const h = load({ search: 'nightly' });
@@ -1569,26 +1511,6 @@ test('91: a folder’s Load more that fails puts its button back and marks the t
   assert.equal(h.state.groupPaging.g1.loading, false);
   assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load more runs: Failed to fetch', opts: { error: true } }]);
   assert.deepEqual(h.state.childrenCache.g1.map((r) => r.id), ['r1']);
-});
-
-test('92: a folder has more when EITHER half has, and the remainder is the two added together', () => {
-  const h = load({
-    subgroupsCache: { g1: [group('a')] },
-    childrenCache: { g1: [run('r1'), run('r2')] },
-  });
-  assert.equal(h.fn.groupHasMore('never-opened'), false);
-  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 1, runsPage: 1, runsTotalPages: 1, subsTotal: 1, runsTotal: 2 };
-  assert.equal(h.fn.groupHasMore('g1'), false);
-  assert.equal(h.fn.groupRemainder('g1'), 0);
-  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 3, runsPage: 1, runsTotalPages: 1, subsTotal: 5, runsTotal: 2 };
-  assert.equal(h.fn.groupHasMore('g1'), true);
-  assert.equal(h.fn.groupRemainder('g1'), 4);              // 5-1 subgroups, 2-2 runs
-  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 1, runsPage: 1, runsTotalPages: 9, subsTotal: null, runsTotal: 6 };
-  assert.equal(h.fn.groupHasMore('g1'), true);
-  assert.equal(h.fn.groupRemainder('g1'), 4);              // an unknown half counts as nothing left
-  h.state.groupPaging.g1 = { subsPage: 1, subsTotalPages: 2, runsPage: 1, runsTotalPages: 2, subsTotal: null, runsTotal: null };
-  assert.equal(h.fn.groupRemainder('g1'), null);           // neither total known: no number to state
-  assert.equal(h.fn.groupRemainder('never-opened'), null);
 });
 
 test('93: the Load more row stays up while its own press is running, even on the last page', () => {

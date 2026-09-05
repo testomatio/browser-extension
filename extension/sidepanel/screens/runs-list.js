@@ -1,7 +1,7 @@
 // Runs-list screen: dashboard/v2 runs plus rungroup folders, status-filter chips,
 // refresh, lazy nested loading, and run/group URL paste.
 
-/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons */
+/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons, RunsPaging */
 
 // ---------- runs list ----------
 
@@ -41,20 +41,6 @@ const groupSelfHit = (group) => matchesFilter(group.status) && groupTitleMatches
 const runsEmptyMessage = () =>
   (runsSearchActive() ? 'No runs match' : `No ${filterLabel(state.runsFilter).toLowerCase()} runs`);
 
-// v2 index response → paging cursor: totalPages is derived, because v2 reports a
-// row total and no page count.
-function v2Cursor(res, page) {
-  const meta = res?.meta || {};
-  const perPage = Number(meta.per_page) || (res?.data || []).length || 1;
-  const total = meta.total != null ? Number(meta.total) : null;
-  return {
-    page: Number(meta.page) || page,
-    perPage,
-    total,
-    totalPages: total != null ? Math.max(1, Math.ceil(total / perPage)) : null,
-  };
-}
-
 // Degraded fallback: page 1 of runs + rungroups. Both cursors are kept so the
 // shared "Load more" can advance whichever source still has a tail.
 async function fetchRunsData(page = 1) {
@@ -65,8 +51,8 @@ async function fetchRunsData(page = 1) {
   return {
     runs: runsRes?.data || [],
     groups: groupsRes?.data || [],
-    runsCursor: v2Cursor(runsRes, page),
-    groupsCursor: v2Cursor(groupsRes, page),
+    runsCursor: RunsPaging.v2Cursor(runsRes, page),
+    groupsCursor: RunsPaging.v2Cursor(groupsRes, page),
   };
 }
 
@@ -111,26 +97,12 @@ async function loadRuns() {
       state.lastGroups = groups;
       state.v2RunsPaging = runsCursor;
       state.v2GroupsPaging = groupsCursor;
-      state.listPaging = v2ListPaging();
+      state.listPaging = RunsPaging.v2ListPaging();
       state.descendantsSettled = true; // v2 flat list is already complete
     } else {
       throw e; // genuine error under a working session — surface it
     }
   }
-}
-
-// v2 folds two independently paged sources: more rows exist while EITHER has a
-// next page.
-function v2ListPaging(loading = false) {
-  const r = state.v2RunsPaging || {};
-  const g = state.v2GroupsPaging || {};
-  const totals = [r.total, g.total];
-  return {
-    page: Math.max(r.page || 1, g.page || 1),
-    total: totals.every((t) => t != null) ? totals.reduce((a, b) => a + b, 0) : null,
-    totalPages: Math.max(r.totalPages || 1, g.totalPages || 1),
-    loading,
-  };
 }
 
 // Every top-level group's descendant runs (any depth, nested=true), fetched up
@@ -301,25 +273,11 @@ async function loadGroupContents(groupId) {
 // Deliberately not infinite scroll: the panel's one shared scroll container
 // (collapsed folders, paste-flash scrollIntoView) makes bottom-reach races.
 
-function remainderOf(cursor, loadedCount) {
-  if (!cursor || cursor.total == null) return null;
-  return Math.max(0, cursor.total - loadedCount);
-}
-const hasNextPage = (cursor) => !!cursor && cursor.totalPages != null && (cursor.page || 1) < cursor.totalPages;
-
-function listCursor() {
-  return state.listMode === 'dashboard' ? state.listPaging : v2ListPaging(state.listPaging?.loading);
-}
-const listLoadedCount = () =>
-  (state.listMode === 'dashboard'
-    ? state.dashItems.length
-    : (state.lastRuns || []).length + (state.lastGroups || []).length);
-
 // Rows land first; the nested descendant counts for groups this page brought in
 // settle right after, repainting the chips.
 async function loadMoreRuns() {
-  const cursor = listCursor();
-  if (!cursor || cursor.loading || !hasNextPage(cursor)) return;
+  const cursor = RunsPaging.listCursor();
+  if (!cursor || cursor.loading || !RunsPaging.hasNextPage(cursor)) return;
   const next = (cursor.page || 1) + 1;
   const epoch = state.projectEpoch;
   state.listPaging = { ...cursor, loading: true };
@@ -334,8 +292,8 @@ async function loadMoreRuns() {
       await loadDescendantRuns();          // counts for the groups this page brought in
       await ensureExpandedChildrenLoaded(); // …and contents for any that restored expanded
     } else {
-      const runsNext = hasNextPage(state.v2RunsPaging) ? next : null;
-      const groupsNext = hasNextPage(state.v2GroupsPaging) ? next : null;
+      const runsNext = RunsPaging.hasNextPage(state.v2RunsPaging) ? next : null;
+      const groupsNext = RunsPaging.hasNextPage(state.v2GroupsPaging) ? next : null;
       const [runsRes, groupsRes] = await Promise.all([
         runsNext ? TestomatAPI.listRuns(runsNext) : null,
         groupsNext ? TestomatAPI.listRunGroups(groupsNext) : null,
@@ -343,13 +301,13 @@ async function loadMoreRuns() {
       if (staleProject(epoch) || state.listMode !== 'v2') return;
       if (runsRes) {
         state.lastRuns = [...(state.lastRuns || []), ...(runsRes.data || [])];
-        state.v2RunsPaging = v2Cursor(runsRes, runsNext);
+        state.v2RunsPaging = RunsPaging.v2Cursor(runsRes, runsNext);
       }
       if (groupsRes) {
         state.lastGroups = [...(state.lastGroups || []), ...(groupsRes.data || [])];
-        state.v2GroupsPaging = v2Cursor(groupsRes, groupsNext);
+        state.v2GroupsPaging = RunsPaging.v2Cursor(groupsRes, groupsNext);
       }
-      state.listPaging = v2ListPaging();
+      state.listPaging = RunsPaging.v2ListPaging();
       renderList();
     }
   } catch (e) {
@@ -363,12 +321,12 @@ async function loadMoreRuns() {
 async function loadMoreGroup(groupId) {
   const key = String(groupId);
   const p = state.groupPaging[key];
-  if (!p || p.loading || !groupHasMore(key)) return;
+  if (!p || p.loading || !RunsPaging.groupHasMore(key)) return;
   const epoch = state.projectEpoch;
   state.groupPaging[key] = { ...p, loading: true };
   renderList();
-  const subsNext = hasNextPage({ page: p.subsPage, totalPages: p.subsTotalPages }) ? p.subsPage + 1 : null;
-  const runsNext = hasNextPage({ page: p.runsPage, totalPages: p.runsTotalPages }) ? p.runsPage + 1 : null;
+  const subsNext = RunsPaging.hasNextPage({ page: p.subsPage, totalPages: p.subsTotalPages }) ? p.subsPage + 1 : null;
+  const runsNext = RunsPaging.hasNextPage({ page: p.runsPage, totalPages: p.runsTotalPages }) ? p.runsPage + 1 : null;
   try {
     const [subs, runs] = await Promise.all([
       subsNext ? TestomatAPI.fetchGroupSubgroups(groupId, subsNext) : null,
@@ -394,23 +352,6 @@ async function loadMoreGroup(groupId) {
     renderList();
     toast(`Could not load more runs: ${e.message || e}`, { error: true });
   }
-}
-
-function groupHasMore(groupId) {
-  const p = state.groupPaging[String(groupId)];
-  if (!p) return false;
-  return hasNextPage({ page: p.subsPage, totalPages: p.subsTotalPages })
-    || hasNextPage({ page: p.runsPage, totalPages: p.runsTotalPages });
-}
-
-function groupRemainder(groupId) {
-  const key = String(groupId);
-  const p = state.groupPaging[key];
-  if (!p || (p.subsTotal == null && p.runsTotal == null)) return null;
-  const subs = remainderOf({ total: p.subsTotal }, (state.subgroupsCache[key] || []).length);
-  const runs = remainderOf({ total: p.runsTotal }, (state.childrenCache[key] || []).length);
-  if (subs == null && runs == null) return null;
-  return (subs || 0) + (runs || 0);
 }
 
 // The "M of T loaded" note shows only under an active constraint — the filter
@@ -483,7 +424,7 @@ async function expandGroupChain(ids) {
 async function ensureSubgroupLoaded(parentId, childId) {
   const key = String(parentId);
   const has = () => (state.subgroupsCache[key] || []).some((sg) => String(sg.id) === String(childId));
-  for (let guard = 0; guard < 50 && !has() && groupHasMore(key); guard++) {
+  for (let guard = 0; guard < 50 && !has() && RunsPaging.groupHasMore(key); guard++) {
     await loadMoreGroup(key);
   }
 }
@@ -492,7 +433,7 @@ async function ensureSubgroupLoaded(parentId, childId) {
 async function ensureTopLevelGroupLoaded(groupId) {
   for (let guard = 0; guard < 20; guard++) {
     if (findGroupById(groupId)) return true;
-    if (!hasNextPage(listCursor())) return false;
+    if (!RunsPaging.hasNextPage(RunsPaging.listCursor())) return false;
     await loadMoreRuns();
   }
   return false;
@@ -770,12 +711,12 @@ function dashGroupRow(group, forceShowKids = false) {
   }
   // Rendered under an active constraint too — a filter narrowing the LOADED rows
   // must not hide the fact that more exist (#110).
-  if (groupHasMore(key)) {
+  if (RunsPaging.groupHasMore(key)) {
     const p = state.groupPaging[key];
     const loadedHere = (state.subgroupsCache[key] || []).length + (state.childrenCache[key] || []).length;
     const totalHere = p.subsTotal == null && p.runsTotal == null ? null : (p.subsTotal || 0) + (p.runsTotal || 0);
     kids.append(loadMoreRow({
-      remaining: groupRemainder(key),
+      remaining: RunsPaging.groupRemainder(key),
       loading: !!p.loading,
       loaded: loadedHere,
       total: totalHere,
@@ -872,11 +813,11 @@ function finishRunsRender(ul, { loaded, shown, constrained }) {
 // Stays put under an active search/status chip, so a filtered-empty list still
 // admits it only searched page 1.
 function renderTopLoadMore(ul) {
-  const cursor = listCursor();
-  if (!hasNextPage(cursor) && !cursor?.loading) return;
-  const loaded = listLoadedCount();
+  const cursor = RunsPaging.listCursor();
+  if (!RunsPaging.hasNextPage(cursor) && !cursor?.loading) return;
+  const loaded = RunsPaging.listLoadedCount();
   ul.append(loadMoreRow({
-    remaining: remainderOf(cursor, loaded),
+    remaining: RunsPaging.remainderOf(cursor, loaded),
     loading: !!cursor.loading,
     loaded,
     total: cursor.total,
