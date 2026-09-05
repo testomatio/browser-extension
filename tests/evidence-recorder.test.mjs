@@ -25,8 +25,12 @@ const SRC = process.env.EV_SRC || join(repoRoot, 'extension/evidence/recorder.js
 // The REAL SiteTab, not a look-alike: row 38 asserts the restricted-page sentence word for word, and
 // row 57 leans on originOf() dropping the port.
 const SITE_TAB = join(repoRoot, 'extension/shared/site-tab.js');
+// The ring buffer the recorder is built on — the worker importScripts it first, so the rows get it
+// first too, unstubbed.
+const BUFFER = join(repoRoot, 'extension/evidence/buffer.js');
 const source = readFileSync(SRC, 'utf8');
 const siteTabSource = readFileSync(SITE_TAB, 'utf8');
+const bufferSource = readFileSync(BUFFER, 'utf8');
 
 const NOW = 1_700_000_000_000;
 const TAB = 5;
@@ -40,22 +44,27 @@ const settle = async (turns = 3) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-// Every ev* is a top-level `function`, so it lands on the sandbox anyway; the module state and the
-// caps are lexical `const`/`let` and exist only in the script's completion value. `st` hands the rows
-// live getters/setters over those bindings — the only way to seed a buffer or a session from outside.
+// Every ev* is a top-level `function`, so it lands on the sandbox anyway; the recorder's own state
+// is lexical `const`/`let` and exists only in the script's completion value. The ring buffer and the
+// caps now live behind `EvBuffer` (evidence/buffer.js, loaded into the same context), so the rows
+// reach them through the recorder's `evBuf`. `st` hands the rows live getters/setters over those
+// bindings — the only way to seed a buffer or a session from outside.
 const PICK = `
 ;({
-  fns: { evClampWindow, evLoadSettings, evPush, evWindowEntries, evIsError, evOnPageEvents,
-    evPushPageNet, evWrOwns, evWrStart, evWrDone, evWrError, evWrRedirect, evRegister, evUnregister,
-    evStart, evStop, evStopIfRecording, evWipe, evStatus, evScheduleMirror, evMirror },
-  caps: { HARD_CAP: EVIDENCE_HARD_CAP, MIRROR_MS: EVIDENCE_MIRROR_MS, NET_MAP_CAP: EVIDENCE_NET_MAP_CAP,
-    MERGE_MS: EVIDENCE_MERGE_MS, REQUESTS: EVIDENCE_REQUESTS },
+  fns: { evClampWindow: EvBuffer.clampWindow, evLoadSettings, evPush: (e) => evBuf.push(e),
+    evWindowEntries: () => evBuf.windowEntries(), evIsError: EvBuffer.isError, evOnPageEvents,
+    evPushPageNet: (ev, ts) => evBuf.pushPageNet(ev, ts), evWrOwns, evWrStart, evWrDone, evWrError,
+    evWrRedirect, evRegister, evUnregister,
+    evStart, evStop, evStopIfRecording, evWipe, evStatus, evScheduleMirror, evMirror,
+    makeBuffer: EvBuffer.makeBuffer },
+  caps: { HARD_CAP: EvBuffer.HARD_CAP, MIRROR_MS: EVIDENCE_MIRROR_MS, NET_MAP_CAP: EvBuffer.NET_MAP_CAP,
+    MERGE_MS: EvBuffer.MERGE_MS, REQUESTS: EVIDENCE_REQUESTS },
   ready: evReady,
   st: {
-    get buffer() { return evBuffer; }, set buffer(v) { evBuffer = v; },
+    get buffer() { return evBuf.entries(); }, set buffer(v) { evBuf.load(v); },
     get session() { return evSession; }, set session(v) { evSession = v; },
     get hookReady() { return evHookReady; }, set hookReady(v) { evHookReady = v; },
-    get windowSec() { return evWindowSec; }, set windowSec(v) { evWindowSec = v; },
+    get windowSec() { return evWindowSec; }, set windowSec(v) { evWindowSec = v; evBuf.setWindowSec(v); },
     get restored() { return evRestored; },
     net: evNetById,
   },
@@ -251,6 +260,7 @@ function load(opts = {}) {
   // Same context, before the recorder: site-tab.js's top-level `const SiteTab` lands in the global
   // lexical scope, which is exactly how the worker's bare `SiteTab` resolves after importScripts.
   runInContext(siteTabSource, context, { filename: SITE_TAB });
+  runInContext(bufferSource, context, { filename: BUFFER });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
   // One trip through the listener. `sync` is how many replies landed BEFORE it returned — rows 52/53
@@ -383,6 +393,32 @@ test('5: the buffer keeps two windows of history, not the one the panel shows', 
   assert.deepEqual(h.buffer().map((e) => e.text), ['behind the window', 'fresh']);
   // The panel only ever sees one window — the extra minute is retroactive margin, not exposure.
   assert.deepEqual(h.window().map((e) => e.text), ['fresh']);
+});
+
+// The window is mutable: a settings change rewrites it mid-recording, and BOTH halves have to
+// follow it. Row 5 pins the panel's half; this one pins the prune's.
+test('5b: shortening the window mid-recording shortens what the buffer keeps, not just what it shows', async () => {
+  const h = await ready();
+  h.st.windowSec = 10;
+  h.st.buffer = [con({ ts: at(25), text: 'past two short windows' }), con({ ts: at(15), text: 'still inside them' })];
+  h.fns.evPush(con({ ts: at(1), text: 'fresh' }));
+  assert.deepEqual(h.buffer().map((e) => e.text), ['still inside them', 'fresh']);
+});
+
+// The leak guard runs INSIDE push, before the mirror is told — otherwise the mirror writes a buffer
+// whose in-flight rows the map has already forgotten. Only reachable below the recorder's own buffer.
+test('8b: the requestId map is already empty by the time the mirror is scheduled', async () => {
+  const h = await ready();
+  const sizes = [];
+  const netMap = new Map();
+  const buf = h.fns.makeBuffer({ netMapCap: 2, netMap, onChange: () => sizes.push(netMap.size) });
+  netMap.set('a', net());
+  netMap.set('b', net());
+  buf.push(con());
+  assert.deepEqual(sizes, [2], 'at the cap the map stands, and the mirror sees it stand');
+  netMap.set('c', net());
+  buf.push(con());
+  assert.deepEqual(sizes, [2, 0], 'over the cap it is cleared first, and the mirror sees it empty');
 });
 
 test('6: an old entry hiding behind a fresh one is left in the buffer', async () => {

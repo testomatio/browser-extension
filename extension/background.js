@@ -7,7 +7,8 @@
 
 importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js',
   'shared/step-rec-core.js', 'shared/dbg-errors.js', 'shared/fullpage-trim.js',
-  'shared/presence-match.js', 'evidence/recorder.js', 'screenrec/parked.js', 'screenrec/session.js');
+  'shared/presence-match.js', 'evidence/buffer.js', 'evidence/recorder.js',
+  'screenrec/parked.js', 'screenrec/session.js');
 
 // ======================= Panel surface: side panel / window =================
 // `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so

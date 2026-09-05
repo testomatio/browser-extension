@@ -1,12 +1,10 @@
-// Evidence recorder in the background worker (importScripts): the ring buffer + the
-// EVIDENCE_* protocol. Two sources — page-hook.js and webRequest — separated by evWrOwns().
+// Evidence recorder in the background worker (importScripts): the EVIDENCE_* protocol around
+// the ring buffer of evidence/buffer.js. Two sources — page-hook.js and webRequest — separated
+// by evWrOwns().
 
-/* global chrome, SiteTab */
+/* global chrome, SiteTab, EvBuffer */
 
-const EVIDENCE_HARD_CAP = 1000;      // memory guard: absolute entry ceiling
 const EVIDENCE_MIRROR_MS = 2000;     // throttled mirror to storage.session
-const EVIDENCE_NET_MAP_CAP = 3000;   // requestId->entry map leak guard
-const EVIDENCE_MERGE_MS = 10000;     // window for adopting a webRequest twin
 
 // Registered per origin while recording so a navigation is instrumented at document_start;
 // the ids are fixed so a leftover registration is always found and replaced.
@@ -16,18 +14,15 @@ const EV_HOOK_FILE = 'evidence/page-hook.js';
 const EV_RELAY_FILE = 'evidence/relay.js';
 
 let evSession = null;                // { tabId, recordId, tabTitle, tabUrl, startedAt }
-let evBuffer = [];                   // [{ ts, kind, ... }] newest last
 const evNetById = new Map();         // webRequest requestId -> network entry
 let evWindowSec = 60;                // settings.evidenceWindowSec (clamped 10-600)
 let evHookReady = false;             // the page hook owns this document's fetch/XHR
 let evRestored = false;              // the storage.session mirror has been read back
 let evMirrorTimer = null;
 
-function evClampWindow(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return 60;
-  return Math.min(600, Math.max(10, Math.round(n)));
-}
+// The ring buffer itself, holding [{ ts, kind, ... }] newest last. It owns the map's leak guard
+// and schedules the mirror, so every write to a row goes through it.
+const evBuf = EvBuffer.makeBuffer({ netMap: evNetById, onChange: evScheduleMirror, windowSec: evWindowSec });
 
 // Cached (refreshed on start and on any settings change) so per-event reads stay cheap.
 // The body-capture flag is NOT cached here — the relay feeds it to the hook.
@@ -35,34 +30,9 @@ async function evLoadSettings() {
   try {
     const { settings } = await chrome.storage.local.get('settings');
     evWindowSec = settings && settings.evidenceWindowSec != null
-      ? evClampWindow(settings.evidenceWindowSec) : 60;
+      ? EvBuffer.clampWindow(settings.evidenceWindowSec) : 60;
   } catch { evWindowSec = 60; }
-}
-
-// ---- ring buffer ---------------------------------------------------------
-
-function evPush(entry) {
-  evBuffer.push(entry);
-  // Prune to 2x the window (retroactive margin) then hard-cap the length.
-  const cutoff = Date.now() - 2 * evWindowSec * 1000;
-  if (evBuffer[0] && evBuffer[0].ts < cutoff) evBuffer = evBuffer.filter((e) => e.ts >= cutoff);
-  if (evBuffer.length > EVIDENCE_HARD_CAP) evBuffer = evBuffer.slice(evBuffer.length - EVIDENCE_HARD_CAP);
-  if (evNetById.size > EVIDENCE_NET_MAP_CAP) evNetById.clear();
-  evScheduleMirror();
-  return entry;
-}
-
-// Sorted by ts: the sources arrive on different latencies (webRequest is immediate, the
-// page hook batches ~200 ms), so append order is not time order.
-function evWindowEntries() {
-  const cutoff = Date.now() - evWindowSec * 1000;
-  return evBuffer.filter((e) => e.ts >= cutoff).sort((a, b) => a.ts - b.ts);
-}
-
-// errorsOnly: console error/warn (incl. log + uncaught rows) + non-2xx/failed net.
-function evIsError(e) {
-  if (e.kind === 'network') return e.errorText != null || (e.status != null && (e.status < 200 || e.status >= 300));
-  return e.level === 'error' || e.level === 'warning';
+  evBuf.setWindowSec(evWindowSec);
 }
 
 // ---- page hook events ----------------------------------------------------
@@ -81,40 +51,15 @@ function evOnPageEvents(events, sender) {
     if (!ev || typeof ev !== 'object') continue;
     if (ev.t === 'ready') { evHookReady = true; continue; }
     const ts = Number(ev.ts) || Date.now();
-    if (ev.t === 'net') evPushPageNet(ev, ts);
+    if (ev.t === 'net') evBuf.pushPageNet(ev, ts);
     else if (EV_PAGE_KINDS[ev.t]) {
-      evPush({ ts, kind: EV_PAGE_KINDS[ev.t],
+      evBuf.push({ ts, kind: EV_PAGE_KINDS[ev.t],
         level: ev.level === 'warning' ? 'warning' : 'error',
         text: String(ev.text || ''), url: ev.url || null,
         line: ev.line != null ? ev.line : null, col: ev.col != null ? ev.col : null });
     }
   }
   return { off: false };
-}
-
-// The one place the sources can collide: the hook is installed but its `ready` had not
-// reached us when webRequest saw the same xhr. The richer page row overwrites in place.
-function evAdoptTwin(ev, ts) {
-  for (let i = evBuffer.length - 1; i >= 0; i--) {
-    const e = evBuffer[i];
-    if (e.ts < ts - EVIDENCE_MERGE_MS) break;
-    if (e.kind === 'network' && e.fromPage !== true && e.method === ev.method && e.url === ev.url) return e;
-  }
-  return null;
-}
-
-function evPushPageNet(ev, ts) {
-  const fields = {
-    ts, kind: 'network', fromPage: true, method: ev.method || 'GET', url: ev.url || '',
-    resourceType: ev.resourceType || 'fetch',
-    status: ev.status != null ? ev.status : null, errorText: ev.errorText || null,
-    mimeType: ev.mimeType || null, durationMs: ev.durationMs != null ? ev.durationMs : null,
-  };
-  if (ev.bodySnippet) { fields.bodySnippet = String(ev.bodySnippet); fields.bodyTruncated = !!ev.bodyTruncated; }
-  if (ev.bodySkipped) fields.bodySkipped = true;
-  const twin = evAdoptTwin(ev, ts);
-  if (twin) { Object.assign(twin, fields, { ts: twin.ts }); evScheduleMirror(); return; }
-  evPush(fields);
 }
 
 // ---- chrome.webRequest (the backbone) ------------------------------------
@@ -132,7 +77,7 @@ function evWrStart(d) {
   // A fresh main-frame request means the current document (and its hook) is on its way
   // out; the newly injected hook says hello again.
   if (d.type === 'main_frame' && d.frameId === 0) evHookReady = false;
-  const entry = evPush({
+  const entry = evBuf.push({
     ts: Date.now(), kind: 'network', requestId: d.requestId,
     method: d.method || 'GET', url: d.url || '',
     resourceType: d.type || null, status: null, errorText: null,
@@ -170,7 +115,7 @@ function evWrRedirect(d) {
     e.redirectedTo = d.redirectURL || null;
   }
   if (!evWrOwns(d)) { evNetById.delete(d.requestId); return; }
-  const next = evPush({
+  const next = evBuf.push({
     ts: Date.now(), kind: 'network', requestId: d.requestId,
     method: (e && e.method) || d.method || 'GET', url: d.redirectURL || '',
     resourceType: d.type || null, status: null, errorText: null, redirectedFrom: (e && e.url) || null,
@@ -239,7 +184,7 @@ async function evStart(tabId, recordId) {
   try { tab = await chrome.tabs.get(tabId); } catch { /* title may be hidden */ }
   // Armed BEFORE the inject: the hook says hello the instant it lands, and a batch
   // arriving at a session-less worker is answered by muting the hook we just installed.
-  evBuffer = [];
+  evBuf.clear();
   evNetById.clear();
   evHookReady = false;
   evSession = {
@@ -268,7 +213,7 @@ async function evStop(keepBuffer = true) {
   evSession = null;
   evNetById.clear();
   evHookReady = false;
-  if (!keepBuffer) evBuffer = [];
+  if (!keepBuffer) evBuf.clear();
   evTellHook(tabId, false);
   await evUnregister();
   await evMirror(); // awaited so EVIDENCE_WIPE can order its remove() after this write
@@ -304,7 +249,7 @@ function evStatus() {
     tabTitle: evSession ? evSession.tabTitle : '',
     tabUrl: evSession ? evSession.tabUrl : '',
     windowSec: evWindowSec,
-    entryCount: evBuffer.length,
+    entryCount: evBuf.entries().length,
   };
 }
 
@@ -320,7 +265,7 @@ function evScheduleMirror() {
 function evMirror() {
   try {
     return chrome.storage.session
-      .set({ evidenceMirror: { session: evSession, buffer: evBuffer, windowSec: evWindowSec } })
+      .set({ evidenceMirror: { session: evSession, buffer: evBuf.entries(), windowSec: evWindowSec } })
       .catch(() => {});
   } catch { return Promise.resolve(); } // storage.session unavailable — best effort
 }
@@ -332,7 +277,7 @@ async function evRestore() {
   try {
     const { evidenceMirror } = await chrome.storage.session.get('evidenceMirror');
     if (evidenceMirror) {
-      evBuffer = Array.isArray(evidenceMirror.buffer) ? evidenceMirror.buffer : [];
+      evBuf.load(Array.isArray(evidenceMirror.buffer) ? evidenceMirror.buffer : []);
       evSession = evidenceMirror.session || null;
     }
   } catch { /* nothing mirrored */ }
@@ -392,11 +337,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else if (msg.type === 'EVIDENCE_STATUS') {
         sendResponse({ ok: true, status: evStatus() });
       } else if (msg.type === 'EVIDENCE_LIST') {
-        const all = evWindowEntries();
-        const entries = msg.errorsOnly ? all.filter(evIsError) : all;
+        const all = evBuf.windowEntries();
+        const entries = msg.errorsOnly ? all.filter(evBuf.isError) : all;
         sendResponse({ ok: true, status: evStatus(), entries });
       } else { // EVIDENCE_SNAPSHOT
-        sendResponse({ ok: true, status: evStatus(), entries: evWindowEntries() });
+        sendResponse({ ok: true, status: evStatus(), entries: evBuf.windowEntries() });
       }
     } catch (e) {
       sendResponse({ ok: false, error: String((e && e.message) || e), status: evStatus() });
