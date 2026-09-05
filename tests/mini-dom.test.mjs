@@ -482,9 +482,13 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
   const doc = makeDocument(['ul#tc-tree']);
   // The real helper, not a stub: the row below is drawn by whatever it stamps on a tree row.
   const rovingSrc = readFileSync(join(repoRoot, 'extension/shared/roving.js'), 'utf8');
+  // Real too, and free to be: core/suite-tree.js decides the order these rows come out in and
+  // takes no stub of its own — a bare `{}` is the whole sandbox it needs.
+  const treeSrc = readFileSync(join(repoRoot, 'extension/sidepanel/core/suite-tree.js'), 'utf8');
   const sandbox = {
     document: doc,
     Roving: runInNewContext(`${rovingSrc}\nRoving`, {}),
+    SuiteTree: runInNewContext(`${treeSrc}\nSuiteTree`, {}),
     state: { tcExpanded: {}, tcTreeSearch: '', settings: {} },
     $: (id) => doc.getElementById(id),
     setTabCount: () => {},

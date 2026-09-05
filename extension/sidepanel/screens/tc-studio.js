@@ -2,7 +2,7 @@
 // hand-off (read-only view for an existing test, editor for a new one).
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving,
-   StatusIcons */
+   StatusIcons, SuiteTree */
 
 // ---------- TC Studio: suite tree + TC list ----------
 // The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
@@ -34,15 +34,6 @@ function rowActions(...kids) {
 // Suites created in THIS visit, newest first: the API appends a new suite to the
 // END of its parent's children, so server order would move it off-screen.
 const tcJustCreated = [];
-
-// Non-mutating — state.tcSuites keeps the server's order; only the drawing moves.
-function hoistJustCreated(list) {
-  const nodes = list || [];
-  if (!tcJustCreated.length || !nodes.length) return nodes;
-  const rank = (n) => tcJustCreated.indexOf(String(n.id));
-  const fresh = nodes.filter((n) => rank(n) >= 0).sort((a, b) => rank(a) - rank(b));
-  return fresh.length ? [...fresh, ...nodes.filter((n) => rank(n) < 0)] : nodes;
-}
 
 // Remove any open inline create row — only one may be active at a time.
 function closeSuiteInput() {
@@ -192,7 +183,7 @@ function tcNode(node, ctx) {
     // fold that is not there.
     row.setAttribute('aria-expanded', String(open));
     // The picker draws the project's own order — picking is reading the tree.
-    const children = ctx.pick ? (node.children || []) : hoistJustCreated(node.children);
+    const children = ctx.pick ? (node.children || []) : SuiteTree.hoist(node.children, tcJustCreated);
     for (const c of children) kids.append(tcNode(c, ctx));
     li.append(kids);
     if (open) row.classList.add('expanded');
@@ -291,20 +282,6 @@ function renderSuiteEmpty(ul, tail, canCreate) {
 // Local (the tree is already in state.tcSuites) and over suite/folder TITLES only
 // — the tests themselves are searched by the TC list's own field.
 
-// A matching folder keeps its WHOLE subtree; one kept only for a descendant shows
-// just the branch leading there. Returns copies — a cleared query restores tcSuites.
-function filterSuiteTree(roots, query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return roots;
-  const keep = (n) => {
-    const self = (n.title || '').toLowerCase().includes(q);
-    const kids = (n.children || []).map(keep).filter(Boolean);
-    if (!self && !kids.length) return null;
-    return { ...n, children: self ? (n.children || []) : kids };
-  };
-  return (roots || []).map(keep).filter(Boolean);
-}
-
 // A query that matched nothing is not an empty project — the way out is the query.
 function tcTreeEmptySearch() {
   const clear = document.createElement('button');
@@ -369,19 +346,14 @@ function renderSuiteTree(roots) {
   const bar = $('tc-tree-bar');
   if (bar) bar.hidden = !roots.length && !q;
   // Hoist AFTER the filter — it returns copies, so reordering has to come last.
-  renderSuiteTreeInto($('tc-tree'), hoistJustCreated(filterSuiteTree(roots, q)), {
+  renderSuiteTreeInto($('tc-tree'), SuiteTree.hoist(SuiteTree.filter(roots, q), tcJustCreated), {
     pick: false,
     expandAll: !!q,               // show the branch that leads to every match
     searching: !!q && !!roots.length, // "no match" only when there WAS something to match
   });
   // The tab chip counts the PROJECT, never the filter.
-  setTabCount('tests', treeTestCount(roots));
+  setTabCount('tests', SuiteTree.testCount(roots));
 }
-
-// Every test case in the project (#127). Summed over the ROOTS only — a folder's
-// `test_count` is already its subtree total, so descending would double-count.
-const treeTestCount = (roots) =>
-  (roots || []).reduce((n, s) => n + (Number(s.test_count) || 0), 0);
 
 // The Tests count WITHOUT the tree (prefetchTabCounts, core/views.js). Leaves
 // state.tcSuites untouched — a tree cached here would be drawn before its refetch.
@@ -389,7 +361,7 @@ async function loadTestsCount(epoch) {
   try {
     const roots = await TestomatAPI.getSuiteTree();
     if (staleProject(epoch)) return;
-    setTabCount('tests', treeTestCount(roots));
+    setTabCount('tests', SuiteTree.testCount(roots));
     // The tree is dropped, but its marks are the project's — a run opened next
     // wants them (rememberSuiteEmoji, screens/run-view.js).
     rememberSuiteEmoji(roots);
@@ -449,16 +421,6 @@ async function openTcStudioView() {
   } finally {
     Skeleton.hide(sk);
   }
-}
-
-// null when the tree is empty or the node is absent — both mean "draw the glyph".
-function suiteNodeEmoji(nodes, id) {
-  for (const n of nodes || []) {
-    if (String(n.id) === String(id)) return n.emoji || null;
-    const found = suiteNodeEmoji(n.children, id);
-    if (found) return found;
-  }
-  return null;
 }
 
 function tcRowMatches(t) {
@@ -588,7 +550,7 @@ async function openTcListView(suiteId, title) {
   state.tcSuiteTitle = title || 'Suite';
   // Read off the tree already in memory — the callers have an id and a title,
   // never the node. null (no tree, e.g. a restored session) draws the glyph.
-  state.tcSuiteEmoji = suiteNodeEmoji(state.tcSuites, suiteId);
+  state.tcSuiteEmoji = SuiteTree.emojiOf(state.tcSuites, suiteId);
   // Search resets on every suite open (in-memory only).
   resetTcSearch();
   // Coming back to the suite already open — its rows are in memory, so they stay up
