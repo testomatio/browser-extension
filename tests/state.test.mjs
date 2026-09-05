@@ -38,6 +38,49 @@ test('#154-2: asking for no row at all finds a row whose id is literally the wor
   assert.equal(plain(h.recordFor(null)).test_title, 'Odd one');
 });
 
+// byRecordId is the ONE comparator the three sort sites share (run-view open, run-view finish,
+// livesync poll). Ids reach it as numbers or as text, so every row below mixes the two.
+const order = (...ids) => {
+  const { byRecordId } = loadState();
+  return ids.map((id) => ({ id })).sort(byRecordId).map((r) => r.id);
+};
+
+test('#258-1: numeric ids sort as numbers, whichever type they arrived as', () => {
+  assert.deepEqual(order(10, 2, 1), [1, 2, 10]);
+  assert.deepEqual(order('10', '2', '1'), ['1', '2', '10']);
+  assert.deepEqual(order('10', 2, '1'), ['1', 2, '10']);
+});
+
+test("#258-2: the ten boundary a text compare gets wrong — '9' before '10', '99' before '100'", () => {
+  assert.deepEqual(order('10', '9'), ['9', '10']);
+  assert.deepEqual(order('100', '99'), ['99', '100']);
+  // Padding is not what makes an id text: ' 7 ' is still the number seven.
+  assert.deepEqual(order('10', ' 7 '), [' 7 ', '10']);
+});
+
+test('#258-3: an id that is not a number at all sorts after every one that is', () => {
+  assert.deepEqual(order('abc', 10, '9'), ['9', 10, 'abc']);
+  assert.deepEqual(order(10, 'abc'), [10, 'abc']);   // …and the same either way round
+});
+
+test('#258-4: two non-numeric ids fall back to a plain text compare', () => {
+  assert.deepEqual(order('b', 'a', 'c'), ['a', 'b', 'c']);
+});
+
+test('#258-5: a blank or whitespace id is NOT the number zero', () => {
+  // Number('') and Number('  ') are both a finite 0, which would sort them ahead of record 5.
+  assert.deepEqual(order('', 5), [5, '']);
+  assert.deepEqual(order('  ', 5), [5, '  ']);
+});
+
+test('#258-6: ids that compare equal keep the order they came in', () => {
+  const { byRecordId } = loadState();
+  const rows = [{ id: 1, t: 'a' }, { id: '1', t: 'b' }, { id: 1, t: 'c' }];
+  assert.deepEqual(rows.sort(byRecordId).map((r) => r.t), ['a', 'b', 'c']);
+  assert.equal(byRecordId({ id: 7 }, { id: '7' }), 0, 'and it says so with a 0, never a -1');
+  assert.equal(byRecordId({ id: 'x' }, { id: 'x' }), 0);
+});
+
 test('#154-3: the instance is remembered by its host name', () => {
   assert.equal(loadState().hostOf('https://app.testomat.io/x'), 'app.testomat.io');
 });

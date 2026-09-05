@@ -4,7 +4,7 @@
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
    refreshRunInfo, refreshRunFinished, renderRunInfo, refreshSuiteFraction, renderRunView,
-   renderTestProgress, applyRunLock, TestMeta, recordFor, toast, OfflineQueue,
+   renderTestProgress, applyRunLock, TestMeta, recordFor, byRecordId, toast, OfflineQueue,
    $, setStatusLine */
 
 let syncTimer = null;
@@ -95,7 +95,7 @@ async function syncTick() {
     // A recovered connection must not leave a red line standing — only a red one goes.
     const line = $('run-status');
     if (line && line.classList.contains('error')) setStatusLine('run-status', '');
-    syncApply(records.slice().sort((a, b) => (a.id > b.id ? 1 : -1)));
+    syncApply(records.slice().sort(byRecordId));
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // a successful poll tick is a replay trigger
     // The run detail rides the same tick: custom-status counters (#109), Run info
     // (#112) and the finished state (#152) live there, not in the rows. Best-effort.

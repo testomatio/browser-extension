@@ -78,6 +78,21 @@ const state = {
 // test. ids may be number or string across the v2/session boundary — compare stringified.
 const recordFor = (recordId) => state.records.find((r) => String(r.id) === String(recordId));
 
+// Run order = creation order = id ASC, for ids that arrive as numbers OR as text: a plain
+// `>` put '10' before '9'. Numeric ids sort as numbers and BEFORE any non-numeric one.
+const byRecordId = (a, b) => {
+  const sa = String(a?.id);
+  const sb = String(b?.id);
+  const na = Number(sa);
+  const nb = Number(sb);
+  // `Number('')` and `Number('  ')` are a finite 0, so a blank id is not a numeric one.
+  const numA = sa.trim() !== '' && Number.isFinite(na);
+  const numB = sb.trim() !== '' && Number.isFinite(nb);
+  if (numA && numB) return na - nb;
+  if (numA !== numB) return numA ? -1 : 1;
+  return sa < sb ? -1 : sa > sb ? 1 : 0;   // equal ids keep the order they came in
+};
+
 // Hostname of an instance base URL — the per-host settings key; null when invalid.
 const hostOf = (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } };
 

@@ -224,7 +224,7 @@ export function loadState(opts = {}) {
   // The `const`s are lexical, so the script's completion value is how they cross back; `peek` is
   // appended to the STRING only — the shipped file keeps its module state private.
   const exported = runInContext(
-    `${sourceOf(file)}\n({ state, capabilities, recordFor, hostOf, isConfigured, staleProject,`
+    `${sourceOf(file)}\n({ state, capabilities, recordFor, byRecordId, hostOf, isConfigured, staleProject,`
     + ` isAuthError, isReadonlyError, $, views, hasChrome, sleep, READONLY_RECHECK_MS,`
     + ` peek: () => ({ projectInfo, projectInfoPromise, usersMap, usersList, usersPromise,`
     + ` readonlyProbe, readonlyWatch }) })`,
