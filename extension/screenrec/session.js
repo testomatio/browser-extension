@@ -7,11 +7,14 @@
 // which needs no gesture at all, at the price of Chrome's "…is debugging" bar for its duration.
 
 /* global resolveSiteTab, SiteTab, dbgIsForeignFrame, foreignFramesOut, foreignFramesBack,
-   SrecParked */
+   SrecParked, SrecClaim */
 
 // The parked take's record and its transitions live in screenrec/parked.js; the bare names keep this
 // file's call sites and its worker surface — srecName has no caller here, but stays reachable.
 const { srecName, buildParked, applyReviewed, applyTrimmed } = SrecParked;
+// Who owns the upload lives in screenrec/claim.js, along with the queue its writes take turns in;
+// SREC_CLAIM_MS has no caller here either, but stays reachable the same way.
+const { SREC_CLAIM_MS, claimOk, applyClaim, dropClaim, serialize } = SrecClaim;
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
@@ -21,8 +24,6 @@ const SREC_MENU_ID = 'testomat-screen-rec';
 const SREC_COMMAND = 'toggle-screen-recording';
 // Enforced in offscreen/recorder.js; kept here for what the bar and the panel say out loud.
 const SREC_TIME_CAP_MS = 5 * 60 * 1000;
-// How long one panel document owns the upload: a panel closed mid-upload must not strand the take.
-const SREC_CLAIM_MS = 2 * 60 * 1000;
 
 // The cast attach, mirrored in a module var so the frame pump filters without an await;
 // re-seeded from storage on a worker restart (the debugger session survives one).
@@ -391,9 +392,6 @@ chrome.commands.onCommand.addListener((cmd, tab) => {
 
 // ---- protocol --------------------------------------------------------------
 
-// A claim reads, checks and stamps across awaits — one at a time, or two panels both find it free.
-let srecClaimChain = Promise.resolve();
-
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   switch (msg && msg.type) {
     case 'SCREENREC_START': srecStart({ recordId: msg.recordId != null ? msg.recordId : null }).then(sendResponse); return true;
@@ -410,26 +408,23 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     // The 'file' event is a broadcast: every open panel document would upload the same take.
     case 'SCREENREC_CLAIM':
-      srecClaimChain = srecClaimChain.then(async () => {
+      serialize(async () => {
         const parked = await srecParked();
         if (!parked) return sendResponse({ ok: false });
-        const held = parked.claim;
-        if (held && held.by !== msg.by && Date.now() - held.at < SREC_CLAIM_MS) return sendResponse({ ok: false });
-        await chrome.storage.session.set({ [SREC_FILE_KEY]: { ...parked, claim: { by: msg.by, at: Date.now() } } });
+        // One instant for both the verdict and the stamp, so the TTL runs from the claim it granted.
+        const now = Date.now();
+        if (!claimOk(parked, msg.by, now)) return sendResponse({ ok: false });
+        await chrome.storage.session.set({ [SREC_FILE_KEY]: applyClaim(parked, msg.by, now) });
         return sendResponse({ ok: true });
-      }).catch(() => {});
+      });
       return true;
     // Sent when an upload fails, so the next «Retry attach…» — here or in another panel — can claim it.
     case 'SCREENREC_UNCLAIM':
-      srecClaimChain = srecClaimChain.then(async () => {
-        const parked = await srecParked();
-        if (parked && parked.claim && parked.claim.by === msg.by) {
-          const rest = { ...parked };
-          delete rest.claim;
-          await chrome.storage.session.set({ [SREC_FILE_KEY]: rest });
-        }
+      serialize(async () => {
+        const rest = dropClaim(await srecParked(), msg.by);
+        if (rest) await chrome.storage.session.set({ [SREC_FILE_KEY]: rest });
         return sendResponse({ ok: true });
-      }).catch(() => {});
+      });
       return true;
     // The review approved the file AS RECORDED — only now may the panel attach it.
     case 'SCREENREC_REVIEWED':

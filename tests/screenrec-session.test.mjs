@@ -19,6 +19,10 @@ const source = readFileSync(SRC, 'utf8');
 // every parked row green while testing nothing. SREC_PARKED_SRC points it at a mutated copy.
 const PARKED_SRC = process.env.SREC_PARKED_SRC || join(repoRoot, 'extension/screenrec/parked.js');
 const parkedSource = readFileSync(PARKED_SRC, 'utf8');
+// The claim's own sibling, same rule: the real module, in the same realm, so the claim rows below
+// exercise it rather than a stub. SREC_CLAIM_SRC points it at a mutated copy.
+const CLAIM_SRC = process.env.SREC_CLAIM_SRC || join(repoRoot, 'extension/screenrec/claim.js');
+const claimSource = readFileSync(CLAIM_SRC, 'utf8');
 const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
@@ -81,6 +85,7 @@ function load(opts = {}) {
     off: {},
     offDefault: { ok: true },
     sendMessage: null,            // set to take the whole broadcast channel over
+    storageSet: null,             // set to intercept a write; throwing from it is a failed write
     getContexts: () => [{ documentId: 'doc-1' }],
     createDocument: async () => {},
     closeDocument: async () => {},
@@ -139,7 +144,11 @@ function load(opts = {}) {
   const storageArea = (store, area) => ({
     get: async (keys) => { log(`storage.${area}.get`, keys); return plain(readKeys(store, keys)); },
     // Chrome structured-clones on the way in; an alias would hide what a read-modify-write guards.
-    set: async (obj) => { log(`storage.${area}.set`, obj); Object.assign(store, plain(obj)); },
+    set: async (obj) => {
+      log(`storage.${area}.set`, obj);
+      if (hooks.storageSet) await hooks.storageSet(area, plain(obj));
+      Object.assign(store, plain(obj));
+    },
     remove: async (key) => {
       log(`storage.${area}.remove`, key);
       for (const k of Array.isArray(key) ? key : [key]) delete store[k];
@@ -213,6 +222,7 @@ function load(opts = {}) {
   // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` — and
   // the bare names this file destructures off it — resolve here.
   runInContext(parkedSource, context, { filename: PARKED_SRC });
+  runInContext(claimSource, context, { filename: CLAIM_SRC });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
   const makePort = (name, o = {}) => {
@@ -747,6 +757,26 @@ test('44: two panels asking in the same tick still leave exactly one owner', asy
   ]);
   assert.equal(both.filter((r) => r.ok).length, 1);
   assert.equal(h.parked().claim.by, 'A');
+});
+
+// Claims take turns in one queue, so a claim that throws must not take the queue down with it: the
+// panel behind it in the line is a second document waiting for an answer that would never come.
+test('44b: a claim whose write fails still lets the panel behind it be answered', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  h.hooks.storageSet = () => { h.hooks.storageSet = null; throw new Error('quota'); };
+  let answer = 'the second panel was never answered';
+  h.message({ type: 'SCREENREC_CLAIM', by: 'A' }).then(() => {}, () => {});
+  h.message({ type: 'SCREENREC_CLAIM', by: 'B' }).then((v) => { answer = v; });
+  await h.settle(6);
+  assert.deepEqual(answer, { ok: true });
+});
+
+// 40-44 only ever read `.claim`, so a claim that rebuilt the record instead of merging would gut the
+// take and no row would notice. The bytes belong to the tester; only the owner changes.
+test('40b: claiming the take changes who holds it and nothing else about it', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  assert.deepEqual(await h.message({ type: 'SCREENREC_CLAIM', by: 'A' }), { ok: true });
+  assert.deepEqual(h.parked(), TAKE({ claim: { by: 'A', at: NOW } }));
 });
 
 test('45: with no take parked there is nothing to claim', async () => {
