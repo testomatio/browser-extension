@@ -1151,3 +1151,265 @@ test('V60: with nothing saved the strip still reads as a sentence rather than as
   assert.match(h.node['degraded-banner'].querySelector('.degraded-banner-text').textContent,
     /an active the web app web login/);
 });
+
+// ---------- tabs, and the way back ----------
+
+test('V61: until the panel is configured a tab click goes nowhere at all', () => {
+  const h = load({ settings: null });
+  h.fn.show('settings');
+  h.calls.opens.length = 0;
+  h.fn.switchTab('runs');
+  h.fn.switchTab('tests');
+  assert.deepEqual(h.calls.opens, []);
+  assert.equal(h.state.activeTab, 'settings');
+});
+
+test('V62: leaving Settings reconfigures the API from what was SAVED, before the next screen opens', () => {
+  const h = load();
+  h.fn.show('settings');
+  h.calls.order.length = 0;
+  h.fn.switchTab('runs');
+  assert.deepEqual(h.calls.order, ['Handoff.configure', 'openRunsView'],
+    'a screen loading first would run on the unsaved edits still sitting in the form');
+  assert.deepEqual(plain(h.calls.configures), [SETTINGS]);
+});
+
+test('V63: clicking the tab you are already on keeps the screen you are on', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.fn.show('run'); // deep inside the Runs tab
+  h.calls.opens.length = 0;
+  h.fn.switchTab('runs');
+  assert.deepEqual(h.calls.opens, [], 'the open run is not thrown away for the list');
+  assert.equal(h.state.view, 'run');
+});
+
+test('V64: coming back to a tab lands on the screen it was left on, without reloading it', () => {
+  const h = load();
+  h.state.tabViews.tests = 'tclist';
+  h.state.tcSuiteId = 's1';
+  h.fn.openTabView('tests');
+  assert.equal(h.state.view, 'tclist');
+  assert.deepEqual(h.calls.opens, [], 're-shown, not re-read: the list it holds survives');
+
+  h.state.tabViews.runs = 'test';
+  h.state.runId = '7';
+  h.fn.openTabView('runs');
+  assert.equal(h.state.view, 'test');
+  assert.deepEqual(h.calls.opens, []);
+});
+
+test('V65: a remembered screen whose id has gone lands the tester on the tab’s own root instead', () => {
+  const h = load();
+  h.state.tabViews.tests = 'tclist';
+  h.state.tcSuiteId = null; // the suite is not known any more
+  h.fn.openTabView('tests');
+  assert.deepEqual(plain(h.calls.opens), [['tcstudio']]);
+
+  h.calls.opens.length = 0;
+  h.state.tabViews.runs = 'run';
+  h.state.runId = null;
+  h.fn.openTabView('runs');
+  assert.deepEqual(plain(h.calls.opens), [['runs']]);
+});
+
+test('V66: the suite picker is a step of + New test, never a screen to come back to', () => {
+  const h = load();
+  h.state.tabViews.tests = 'promote';
+  h.state.tcSuiteId = 's1';
+  h.fn.openTabView('tests');
+  assert.deepEqual(plain(h.calls.opens), [['tcstudio']]);
+});
+
+test('V67: opening Settings refills the form from what was saved, dropping the stale edits in the DOM', () => {
+  const h = load();
+  h.calls.order.length = 0;
+  h.fn.openTabView('settings');
+  assert.deepEqual(h.calls.order.slice(0, 2), ['fillSettingsForm', 'bootDone']);
+  assert.equal(h.state.view, 'settings');
+});
+
+test('V68: Back walks one step up the same trail the crumbs draw', () => {
+  const h = load();
+  h.state.runId = '7';
+  h.state.runTitle = 'Nightly';
+  const back = (view) => {
+    h.calls.opens.length = 0;
+    h.state.view = view;
+    h.fn.goBack();
+    return plain(h.calls.opens);
+  };
+  assert.deepEqual(back('tclist'), [['tcstudio']]);
+  assert.deepEqual(back('promote'), [['tcstudio']], 'cancelling the picker is going back to the tree');
+  assert.deepEqual(back('test'), [['run', '7', 'Nightly']]);
+  assert.deepEqual(back('run'), [['runs']]);
+  for (const root of ['runs', 'settings', 'tcstudio']) {
+    assert.deepEqual(back(root), [], `${root} is a tab root — the arrow is hidden there`);
+  }
+});
+
+// ---------- the toast at the bottom ----------
+
+test('V69: a long message stays up longer, and no message holds the panel forever', () => {
+  const h = load();
+  assert.equal(h.fn.toastDuration('short'), 3500);
+  assert.equal(h.fn.toastDuration('x'.repeat(40)), 3500);
+  assert.equal(h.fn.toastDuration('x'.repeat(41)), 3550);
+  assert.equal(h.fn.toastDuration('x'.repeat(200)), 8000);
+});
+
+test('V70: a plain toast is announced politely, carries nothing but its words, and takes itself down', async () => {
+  const h = load();
+  h.fn.toast('Saved');
+  const t = h.node.toast;
+  assert.equal(t.hidden, false);
+  assert.equal(t.getAttribute('role'), 'status', 'status waits its turn; alert would cut the reader off');
+  assert.equal(t.querySelectorAll('.toast-text').length, 1);
+  assert.equal(t.textContent, 'Saved');
+  assert.equal(t.querySelector('.toast-icon'), null);
+  assert.equal(t.querySelector('.toast-dismiss'), null);
+  assert.equal(h.clock.count(), 1);
+  assert.equal(h.clock.ms(), 3500);
+
+  await h.clock.tick();
+  assert.equal(t.hidden, true);
+});
+
+test('V71: an error interrupts the reader, offers a way out — and still goes away on its own', async () => {
+  const h = load();
+  h.fn.toast('Upload failed', { error: true });
+  const t = h.node.toast;
+  assert.equal(t.getAttribute('role'), 'alert');
+  assert.equal(t.classList.contains('error'), true);
+  assert.equal(t.childNodes[0].className, 'toast-icon', 'the mark comes before the words, not after');
+  assert.equal(t.querySelector('.toast-icon .md-icon').dataset.icon, 'error');
+  const x = t.querySelector('.toast-dismiss');
+  assert.equal(x.getAttribute('aria-label'), 'Dismiss');
+  assert.equal(t.childNodes[t.childNodes.length - 1], x, 'and the way out comes last');
+  assert.equal(h.clock.count(), 1, 'an error the tester ignores must not sit there for the session');
+
+  await h.clock.tick();
+  assert.equal(t.hidden, true);
+  assert.equal(t.getAttribute('role'), 'status',
+    'the live region is handed back, or the next quiet message would interrupt');
+});
+
+test('V72: the dismiss button takes the error down at once and disarms its timer', () => {
+  const h = load();
+  h.fn.toast('Upload failed', { error: true });
+  h.node.toast.querySelector('.toast-dismiss').click();
+  assert.equal(h.node.toast.hidden, true);
+  assert.equal(h.clock.count(), 0, 'a timer left running would hide a toast that replaced this one');
+});
+
+test('V73: the running-job plaque holds until the job answers — a timer would take it down mid-work', () => {
+  const h = load();
+  h.lex.progressToast('Uploading…');
+  const t = h.node.toast;
+  assert.equal(t.classList.contains('progress'), true);
+  assert.equal(t.getAttribute('role'), 'status', 'a step of a job is not an interruption');
+  const mark = t.querySelector('.toast-icon .md-icon');
+  assert.equal(mark.dataset.icon, 'progress_activity');
+  assert.equal(mark.classList.contains('spin'), true);
+  assert.equal(h.clock.count(), 0);
+});
+
+test('V74: the legacy number form still means "hold it this long"', () => {
+  const h = load();
+  h.fn.toast('x', 5000);
+  assert.deepEqual(h.clock.arms(), [5000]);
+});
+
+test('V75: a new toast replaces the last one whole — no leftover icon, no leftover timer', () => {
+  const h = load();
+  h.fn.toast('Upload failed', { error: true });
+  const firstTimer = h.clock.armed[0].id;
+
+  h.fn.toast('Saved');
+  const t = h.node.toast;
+  assert.equal(t.querySelectorAll('.toast-text').length, 1);
+  assert.equal(t.querySelector('.toast-icon'), null, 'the error mark went with the error');
+  assert.equal(t.querySelector('.toast-dismiss'), null);
+  assert.equal(t.classList.contains('error'), false);
+  assert.equal(t.getAttribute('role'), 'status');
+  assert.ok(h.clock.cleared.includes(firstTimer), 'the first timer would have hidden this message early');
+  assert.equal(h.clock.count(), 1);
+});
+
+test('V76: an inline action fires once and takes the toast with it', () => {
+  const h = load();
+  let ran = 0;
+  h.fn.toast('Deleted', { action: { label: 'Undo', onClick: () => { ran += 1; } } });
+  const act = h.node.toast.querySelector('.toast-action');
+  assert.equal(act.textContent, 'Undo');
+
+  act.click();
+  assert.equal(ran, 1);
+  assert.equal(h.node.toast.hidden, true);
+  assert.equal(h.clock.count(), 0);
+});
+
+test('V77: an action with nothing to do is not drawn as a button the tester can press', () => {
+  const h = load();
+  h.fn.toast('Deleted', { action: { label: 'Undo' } });
+  assert.equal(h.node.toast.querySelector('.toast-action'), null);
+});
+
+test('V78: hideToast takes the plaque down and hands the live region back', () => {
+  const h = load();
+  h.lex.progressToast('Uploading…');
+  h.fn.hideToast();
+  const t = h.node.toast;
+  assert.equal(t.hidden, true);
+  assert.equal(t.classList.contains('progress'), false);
+  assert.equal(t.getAttribute('role'), 'status');
+  assert.equal(h.clock.count(), 0);
+});
+
+test('V79: hiding a toast on a page that has none is not an error the tester has to see', () => {
+  const h = load();
+  h.node.toast.remove();
+  h.fn.hideToast(); // no throw
+});
+
+// ---------- the line under a field ----------
+
+test('V80: a screen printing its own status line takes the running-job plaque down with it', () => {
+  const h = load();
+  h.lex.progressToast('Saving…');
+  assert.equal(h.node.toast.hidden, false);
+
+  h.fn.setStatusLine('run-status', 'Saved', 'ok');
+  assert.equal(h.node['run-status'].textContent, 'Saved');
+  assert.equal(h.node['run-status'].className, 'status-line ok');
+  assert.equal(h.node.toast.hidden, true,
+    'this is the one rule that keeps a plaque from standing over a job that already answered');
+});
+
+test('V81: a status line with no tone carries no trailing space in its class', () => {
+  const h = load();
+  h.fn.setStatusLine('run-status', '');
+  assert.equal(h.node['run-status'].className, 'status-line');
+  assert.equal(h.node['run-status'].textContent, '');
+});
+
+test('V82: an expired session offers Settings inline instead of teleporting the tester out of the run', () => {
+  const h = load();
+  h.fn.show('runs');
+  h.fn.setAuthExpiredLine('test-status');
+  const line = h.node['test-status'];
+  assert.equal(line.className, 'status-line error');
+  assert.equal(line.textContent, 'Session expired — open Settings to re-authenticate');
+  const btn = line.querySelector('.link-btn.inline-auth-link');
+  assert.equal(btn.tagName, 'BUTTON');
+
+  btn.click();
+  assert.equal(h.state.activeTab, 'settings');
+  assert.equal(h.state.view, 'settings');
+  assert.deepEqual(h.calls.order.filter((s) => s === 'fillSettingsForm'), ['fillSettingsForm']);
+});
+
+test('V83: a status line the screen does not have is not an error either', () => {
+  const h = load();
+  h.fn.setAuthExpiredLine('nope'); // no throw
+});
