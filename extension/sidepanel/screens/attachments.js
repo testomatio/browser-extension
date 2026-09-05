@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
    TestGates, Tooltip, ImgHydrate, TestSummary,
-   confirmDialog, paintCounter, StatusIcons */
+   ConfirmDialog, paintCounter, StatusIcons */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -121,7 +121,7 @@ async function onDeleteAttachment(a) {
   const record = recordFor(state.currentRecordId);
   const lock = attDeleteLock(a);
   if (lock) { toast(lock); return; }
-  const ok = await confirmDialog(`Delete ${a.name}? It is removed from this result for everyone.`, 'Delete');
+  const ok = await ConfirmDialog.ask(`Delete ${a.name}? It is removed from this result for everyone.`, 'Delete');
   if (!ok) return;
   const again = attDeleteLock(a); // the dialog outlived the gate
   if (again) { setStatusLine('test-status', again, 'error'); return; }

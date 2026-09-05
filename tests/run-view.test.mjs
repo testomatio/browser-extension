@@ -14,7 +14,9 @@
 // re-reads, the probe and the chip bar. A lettered suffix is the companion case that drives the same
 // path the other way, so a row asserting "nothing happened" cannot pass against a broken fixture.
 // Rows 1, 46, 85, 86, 87 and 88 left with the icon vocabulary (#194) — they are
-// tests/status-icons.test.mjs now, and the real module is loaded here beside the screen.
+// tests/status-icons.test.mjs now, and the real module is loaded here beside the screen. Rows 81
+// and 81a left the same way with the confirm dialog, to tests/dialog.test.mjs; the finish rows
+// below still drive the REAL one, because what they are about is what finishRun does with its answer.
 // Run: node --test tests/run-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -168,8 +170,8 @@ function load(opts = {}) {
     progressToasts: [],
   };
 
-  // <dialog>'s own three members; mini-dom has no dialog element, and confirmDialog drives all of
-  // them — showModal to open it, `open` to decide whether close() is still needed.
+  // <dialog>'s own three members; mini-dom has no dialog element, and ConfirmDialog.ask drives all
+  // of them — showModal to open it, `open` to decide whether close() is still needed.
   if (node.confirmDialog) {
     node.confirmDialog.open = false;
     node.confirmDialog.showModal = () => { node.confirmDialog.open = true; calls.order.push('showModal'); };
@@ -415,9 +417,10 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
-    // index.html's own order: core/status-icons.js stands ahead of every screen, and this screen
-    // draws its glyphs through it. The REAL one — stubbing it would test the stub (#194).
-    before: [['status-icons', CORE_SRC]],
+    // index.html's own order: core/status-icons.js and core/dialog.js stand ahead of every screen,
+    // and this screen draws its glyphs and asks its confirm through them. The REAL ones — the
+    // finish rows are about the answer finishRun gets, and a stub would test the stub (#194).
+    before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC]],
     // Every name below is a lexical `const` — invisible as a sandbox property, reachable only off
     // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
     exported: `({ statusLabel, runStatusTerminal, runArchived, runAutomated,
@@ -702,7 +705,7 @@ test('77: a re-run archived run is "running" again — Finish stays hidden anywa
   assert.doesNotThrow(() => bare.fn.updateRunActions());
 });
 
-// ---------- finishing a run (rows 49-51, 78-81) ----------
+// ---------- finishing a run (rows 49-51, 78-80a) ----------
 
 // The dialog is answered from outside, the way a tester answers it: start the call, let it reach
 // showModal, then click. `settle()` is the turn in between — never await the finishRun promise here,
@@ -804,32 +807,8 @@ test('80a: an expired session is handled inline WITHOUT a second toast on top of
   assert.deepEqual(h.calls.toasts, []);
 });
 
-test('81: the dialog wears the message and the label, and lets go of both buttons on the way out', async () => {
-  const h = load({ runStatus: 'running' });
-  const done = h.fn.finishRun();
-  await settle();
-  assert.equal(h.node.confirmMessage.textContent, 'Finish run? Pending tests will be marked skipped.');
-  assert.equal(h.node.confirmOk.textContent, 'Finish run');
-  assert.equal(h.node.confirmOk.listeners.get('click').length, 1);
-  assert.equal(h.node.confirmCancel.listeners.get('click').length, 1);
-  assert.equal(h.node.confirmDialog.listeners.get('cancel').length, 1);
-  fire(h.node.confirmCancel, 'click');
-  await done;
-  assert.equal(h.node.confirmOk.listeners.get('click').length, 0, 'torn down');
-  assert.equal(h.node.confirmCancel.listeners.get('click').length, 0);
-  assert.equal(h.node.confirmDialog.listeners.get('cancel').length, 0);
-  assert.equal(h.node.confirmDialog.open, false, 'and closed');
-});
-
-test('81a: Esc on the dialog reads as a cancel, not as a confirmation', async () => {
-  const h = load({ runStatus: 'running' });
-  const done = h.fn.finishRun();
-  await settle();
-  fire(h.node.confirmDialog, 'cancel');
-  await done;
-  assert.deepEqual(h.calls.reads.finish, []);
-  assert.equal(h.state.runStatus, 'running');
-});
+// Rows 81 and 81a are tests/dialog.test.mjs now — the sentence, the label and the three ways of
+// saying no belong to the module, and every row above drives that same real one (#194).
 
 // ---------- the status vocabulary and the counters (rows 2-3, 5-6, 82-84, 86a, 88a) ----------
 

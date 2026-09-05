@@ -129,10 +129,14 @@ function load(opts = {}) {
     StatusIcons: {
       svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
     },
-    confirmDialog: async (message, label) => {
-      calls.order.push('confirm');
-      calls.confirms.push({ message, label });
-      return on.confirm(message, label);
+    // Stubbed on purpose: these rows are about the gate re-asked AFTER the answer, so the answer
+    // has to be settable per row. The dialog's own contract is tests/dialog.test.mjs (#194).
+    ConfirmDialog: {
+      ask: async (message, label) => {
+        calls.order.push('confirm');
+        calls.confirms.push({ message, label });
+        return on.confirm(message, label);
+      },
     },
     paintCounter: (node, n) => { calls.counters.push(n); node.textContent = String(n); },
     TestomatAPI: {
