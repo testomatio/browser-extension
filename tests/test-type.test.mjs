@@ -72,6 +72,20 @@ test('5: a detached test says it lost its code, not that it is automated', () =>
   assert.equal(T.of({ state: 'automated', detached: true }), 'detached');
 });
 
+// 5 and 6 each send one exception, or a defect that outranks everything. This is the pair in the
+// middle: the order between them is what the tester reads on a row that is both.
+test('5b: a detached test that is also out of sync says detached — losing its code outranks drifting', () => {
+  assert.equal(T.of({ state: 'automated', detached: true, out_of_sync: true }), 'detached');
+  assert.equal(T.of({ state: 'automated', detached: true, outdated: true }), 'detached');
+});
+
+// `state` is v2's word for it and `kind` is the older one. A record carrying both is a record from a
+// server mid-upgrade, and the newer field has to win.
+test('5c: when a record carries both state and kind, state is the one believed', () => {
+  assert.equal(T.of({ state: 'manual', kind: 'automated' }), 'manual');
+  assert.equal(T.of({ state: 'automated', kind: 'manual' }), 'automated');
+});
+
 test('6: a defect outranks every other exception on the same row', () => {
   assert.equal(T.of({ defect: true, detached: true, out_of_sync: true }), 'defect');
 });

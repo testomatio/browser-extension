@@ -126,6 +126,16 @@ test('6: a refused or missing asset answers false and mints nothing — it never
   assert.equal(img.getAttribute('src'), null);
 });
 
+// 6's refusal carries a text/html body, so the type check alone would also reject it. This one calls
+// itself a PNG: the status has to be believed on its own, or an error page is drawn as the picture.
+test('6c: a refusal that claims to be a PNG is still a refusal', async () => {
+  const h = load({ respond: () => ({ ok: false, status: 403, blob: async () => ({ type: 'image/png' }) }) });
+  const img = h.doc.createElement('img');
+  assert.equal(await h.H.load('g', RAILS_URL, img, { instanceOnly: true }), false);
+  assert.deepEqual(h.calls.minted, [], 'nothing is minted from a page that refused us');
+  assert.equal(img.getAttribute('src'), null);
+});
+
 test('6b: an off-instance URL refused by the API answers false rather than rejecting', async () => {
   const h = load();
   const img = h.doc.createElement('img');

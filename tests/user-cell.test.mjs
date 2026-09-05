@@ -123,6 +123,13 @@ test('9: a dotted login is two initials, not a letter and a dot — and the JS l
   assert.equal(U.initials('j.doe'), 'jd'); // CSS shouts them; nothing here upper-cases
 });
 
+// Two words is the common case and hides the rule. Three tells you which two letters are taken:
+// the first of the first word and the first of the SECOND, never the last.
+test('9b: a three-part name is read from its first two words, not its first and last', () => {
+  assert.equal(U.initials('Ann Marie Lee'), 'AM');
+  assert.equal(U.initials('Jean de la Fontaine'), 'Jd');
+});
+
 test('10: one word gives its first two letters', () => {
   assert.equal(U.initials('Ann'), 'An');
 });
@@ -202,6 +209,21 @@ test('21: the sign-in PAGE a signed-out fetch gets back is not a photo — the m
   assert.deepEqual(h.calls.minted, []);
   assert.equal(avatarOf(cell).textContent, 'An');
   assert.equal(avatarOf(cell).classList.contains('has-photo'), false);
+});
+
+// 21b's refusal has no content-type, so the type check alone would also reject it. This one calls
+// itself an image: the STATUS has to be believed on its own, or an error page is drawn as a face.
+test('21c: a refusal that claims to be an image is still a refusal', async () => {
+  const h = load({ fetchAsset: async () => ({
+    ok: false,
+    status: 403,
+    headers: { get: () => 'image/png' },
+    blob: async () => ({ type: 'image/png' }),
+  }) });
+  const cell = h.U.cell({ name: 'Ann Lee', avatar: 'https://x.test/a.png' });
+  await settle();
+  assert.deepEqual(h.calls.minted, [], 'nothing is minted from a page that refused us');
+  assert.equal(avatarOf(cell).textContent, 'AL', 'the monogram stands instead of a stranger\u2019s face');
 });
 
 test('21b: a 404 or a 403 on the avatar leaves the monogram rather than an empty circle', async () => {
