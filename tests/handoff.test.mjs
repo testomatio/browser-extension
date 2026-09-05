@@ -64,7 +64,9 @@ function loadHandoff(opts = {}) {
     renderProjectBar: () => { bars += 1; },
     openRunFromUrl: async (url) => { calls.openRun.push(url); return openRunFromUrl(url); },
     openRunsView: () => { runsViews += 1; },
-    parseRunUrlParts: (raw) => { calls.parse.push(raw); return runParts(raw); },
+    // A stub, not the real screens/runs-url.js: rows H34 and H35 hand back a kind and an id the real
+    // parser would never read out of that URL, and what they pin is handoff.js's OWN guard (#195).
+    RunsUrl: { parseParts: (raw) => { calls.parse.push(raw); return runParts(raw); } },
   };
   if (withWindow) sandbox.window = {};
 

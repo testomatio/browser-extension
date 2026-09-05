@@ -15,7 +15,7 @@
 // Loaded by the panel, the editor and the viewer — all three configure the API for themselves.
 
 /* global TestomatAPI, state, hostOf, commitSettings, openRunFromUrl, openRunsView,
-   parseRunUrlParts, fillSettingsForm, renderProjectBar */
+   RunsUrl, fillSettingsForm, renderProjectBar */
 
 const Handoff = (() => {
   const FILE = 'handoff.json';
@@ -163,7 +163,7 @@ const Handoff = (() => {
   // an earlier push the tester never left.
   function showingRun(h) {
     if (!h.runUrl || (state.view !== 'run' && state.view !== 'test')) return false;
-    const parts = parseRunUrlParts(h.runUrl);
+    const parts = RunsUrl.parseParts(h.runUrl);
     return !!parts && parts.kind === 'run' && String(state.runId) === String(parts.id);
   }
 

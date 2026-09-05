@@ -1,7 +1,7 @@
 // Runs-list screen: dashboard/v2 runs plus rungroup folders, status-filter chips,
 // refresh, lazy nested loading, and run/group URL paste.
 
-/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons, RunsPaging */
+/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons, RunsPaging, RunsUrl */
 
 // ---------- runs list ----------
 
@@ -512,7 +512,7 @@ function setRunsFilter(key) {
 // PASTED url opens at once; a typed one waits for Enter (half-typed ids).
 function onRunsSearch(e) {
   const raw = $('runs-search').value;
-  const urlish = looksLikeRunUrl(raw);
+  const urlish = RunsUrl.looksLikeRunUrl(raw);
   const next = urlish ? '' : raw;
   const changed = state.runsSearch !== next;
   state.runsSearch = next;
@@ -529,9 +529,9 @@ const isPasteInput = (e) =>
 function onRunsSearchKeydown(e) {
   if (e.key !== 'Enter') return;
   const raw = $('runs-search').value;
-  if (looksLikeRunUrl(raw)) { e.preventDefault(); openRunsSearchUrl(); return; }
+  if (RunsUrl.looksLikeRunUrl(raw)) { e.preventDefault(); openRunsSearchUrl(); return; }
   // #57: a bare id opens its run on Enter, exactly as a pasted link does.
-  if (!looksLikeRunId(raw)) return;
+  if (!RunsUrl.looksLikeRunId(raw)) return;
   e.preventDefault();
   openRunsSearchId(raw.trim());
 }
@@ -798,7 +798,7 @@ function finishRunsRender(ul, { loaded, shown, constrained }) {
   Roving.attach(ul, { selector: RUNS_ROW_SELECTOR });
   if (!loaded) { renderRunsEmptyCta(ul); renderFilterChips(); return; }
   // #57: nothing loaded answered an id-shaped query — look the run up directly.
-  const probeId = constrained && !shown ? runsSearchRunId() : null;
+  const probeId = constrained && !shown ? RunsUrl.searchRunId() : null;
   syncRunIdProbe(probeId);
   if (constrained && !shown) {
     const probe = probeId ? runIdProbeFor(probeId) : null;
@@ -920,51 +920,6 @@ function runsNoMatchEmpty(idMiss = false) {
   });
 }
 
-// One message for every unresolvable link (#106) — wrong host, wrong project,
-// unknown id, no access. Deliberately blunt: no offer to switch project.
-const RUN_NOT_FOUND = 'Run not found';
-
-// The list's own line, because a toast is wiped by the next toast or status line and it is not.
-function reportRunNotFound(msg = RUN_NOT_FOUND) {
-  if (state.view === 'runs') setStatusLine('runs-status', msg, 'error');
-  else toast(msg, { error: true }); // a line on a hidden view would be invisible
-}
-
-// A scheme, or the bare `host/projects/…/runs/…` shape copied from the address
-// bar. Must stay narrow — a URL-shaped value is never used as a title filter.
-function looksLikeRunUrl(raw) {
-  const v = String(raw || '').trim();
-  if (!v || /\s/.test(v)) return false;
-  return /^https?:\/\//i.test(v) || /\/projects\/[^/]+\/runs\//.test(v);
-}
-
-// What the link itself says — no settings read, so a foreign host or project is the
-// caller's to judge. null for anything that is not a run/group link.
-function parseRunUrlParts(raw) {
-  const v = String(raw || '').trim();
-  let u;
-  try { u = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`); } catch { return null; }
-  // Group shape first — the run pattern would capture the literal "groups" as an id.
-  const gm = u.pathname.match(/\/projects\/([^/]+)\/runs\/groups\/([^/]+)/);
-  if (gm) return { host: u.hostname, projectId: gm[1], kind: 'group', id: gm[2] };
-  // The web's "Copy url" slugs the run segment (`<uid>-<kebab-title>`) and its
-  // route reads back only `id.split('-')[0]` — mirror it or every copied link 404s.
-  const rm = u.pathname.match(/\/projects\/([^/]+)\/runs\/([^/]+)/);
-  if (rm) return { host: u.hostname, projectId: rm[1], kind: 'run', id: rm[2].split('-')[0] };
-  return null;
-}
-
-// Resolved against the configured host + project; null for anything else.
-function parseRunsUrl(raw) {
-  const parts = parseRunUrlParts(raw);
-  if (!parts) return null;
-  let cfgHost;
-  try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { return null; }
-  if (parts.host !== cfgHost) return null;
-  if (parts.projectId !== state.settings.projectId) return null;
-  return { kind: parts.kind, id: parts.id };
-}
-
 // The run is probed first, so a bad id or a no-access run leaves the user on the
 // list with a toast instead of in a half-rendered run view.
 async function openParsedRunTarget(target) {
@@ -973,7 +928,7 @@ async function openParsedRunTarget(target) {
   let detail;
   try { detail = await TestomatAPI.getRun(target.id); }
   catch (e) {
-    if (e?.kind === 'notfound') { reportRunNotFound(); return false; }
+    if (e?.kind === 'notfound') { RunsUrl.reportNotFound(); return false; }
     handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
     return false;
   }
@@ -983,8 +938,8 @@ async function openParsedRunTarget(target) {
 }
 
 async function openRunsSearchUrl() {
-  const target = parseRunsUrl($('runs-search').value);
-  if (!target) { reportRunNotFound(); return; }
+  const target = RunsUrl.parse($('runs-search').value);
+  if (!target) { RunsUrl.reportNotFound(); return; }
   await openParsedRunTarget(target);
 }
 
@@ -993,8 +948,8 @@ async function openRunsSearchUrl() {
 // True when it LANDED the panel on a view — boot falls back to the restored session when a URL
 // dies on the way (a run that 404s used to leave the panel on nothing at all).
 async function openRunFromUrl(url) {
-  const parts = parseRunUrlParts(url);
-  if (!parts) { reportRunNotFound(); return false; }
+  const parts = RunsUrl.parseParts(url);
+  if (!parts) { RunsUrl.reportNotFound(); return false; }
   let cfgHost = null;
   try { cfgHost = new URL(state.settings.baseUrl).hostname; } catch { /* not connected yet */ }
   if (!cfgHost || parts.host !== cfgHost) {
@@ -1047,7 +1002,7 @@ async function openGroupFromUrl(groupId) {
     try { detail = await TestomatAPI.getRunGroup(groupId); }
     catch (e) {
       renderList();
-      if (e?.kind === 'notfound') reportRunNotFound();
+      if (e?.kind === 'notfound') RunsUrl.reportNotFound();
       else handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
       return;
     }
@@ -1055,10 +1010,10 @@ async function openGroupFromUrl(groupId) {
     chain.push(groupId);
     await expandGroupChain(chain);
     if (renderedGroupRow(groupId)) highlightGroup(groupId);
-    else reportRunNotFound();
+    else RunsUrl.reportNotFound();
     return;
   }
-  reportRunNotFound();
+  RunsUrl.reportNotFound();
 }
 
 function findGroupById(groupId) {
@@ -1088,11 +1043,6 @@ function highlightGroup(groupId) {
 // ---------- find a run by id (#57) ----------
 // The search reaches only the loaded rows, so an id that none of them answers is read
 // straight off /runs/{id} — the run may sit deep in a folder or far down the list.
-
-// Real ids are 8 hex chars; 6–12 tolerates a trimmed or over-copied paste. A bare id
-// can never be URL-shaped, so the two search intents cannot collide.
-const looksLikeRunId = (raw) => /^[0-9a-f]{6,12}$/i.test(String(raw || '').trim());
-const runsSearchRunId = () => (looksLikeRunId(state.runsSearch) ? state.runsSearch.trim() : null);
 
 // Long enough that the read waits for the typing to stop.
 const RUN_ID_PROBE_MS = 500;
@@ -1153,7 +1103,7 @@ async function openRunsSearchId(id) {
   let detail;
   try { detail = await TestomatAPI.getRun(id); }
   catch (e) {
-    if (e?.kind === 'notfound') { reportRunNotFound(); return; }
+    if (e?.kind === 'notfound') { RunsUrl.reportNotFound(); return; }
     handleApiError(e, 'runs-status'); // network/auth/http — the real reason wins
     return;
   }

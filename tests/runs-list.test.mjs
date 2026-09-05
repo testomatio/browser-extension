@@ -12,8 +12,10 @@
 // Rows 1-65 are the ticket's; 66+ are code the ticket left unspoken for. A lettered suffix is the
 // companion case that drives the same path the other way, so a row asserting "nothing happened"
 // cannot pass against a stub that never worked.
-// Rows 1-6 and 92 are gone to tests/runs-paging.test.mjs (#195): the arithmetic they drive is its own
-// file now, and this one loads it for real, so the rows below still assert against real cursors.
+// Rows 1-6 and 92 are gone to tests/runs-paging.test.mjs and rows 21-28, 72-73 and 84 to
+// tests/runs-url.test.mjs (#195): the arithmetic and the parsers they drive are their own files now,
+// and this one loads both for real, so the rows below still assert against real cursors and the real
+// parser — including the line-versus-toast split of row 33.
 // Run: node --test tests/runs-list.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -320,14 +322,15 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
-    // The REAL screens/runs-paging.js, in index.html's own order: every row below is about what this
-    // screen DOES with a cursor, so a stub here would be the thing under assertion (#195).
-    before: ['runs-paging'],
+    // The REAL screens/runs-paging.js and screens/runs-url.js, in index.html's own order: every row
+    // below is about what this screen DOES with a cursor or a pasted link, so a stub for either
+    // would be the thing under assertion (#195).
+    before: ['runs-paging', 'runs-url'],
     exported: `({ RUN_FILTERS, FILTER_KEYS, RUNS_FILTER_TINT, LOADING_ICON, filterLabel, matchesFilter,
       runsSearchActive, runsFilterActive, anyRunsConstraint, titleOf, searchNeedle, runMatchesSearch,
       groupTitleMatchesSearch, runPasses, groupSelfHit, runsEmptyMessage, childrenLoaded,
-      groupContentsLoaded, isPasteInput, envTags, isExpanded, RunsPaging,
-      renderedGroupRow, looksLikeRunId, runsSearchRunId, runIdProbeFor, RUN_NOT_FOUND, RUN_ID_PROBE_MS })`,
+      groupContentsLoaded, isPasteInput, envTags, isExpanded, RunsPaging, RunsUrl,
+      renderedGroupRow, runIdProbeFor, RUN_ID_PROBE_MS })`,
   });
 
   return {
@@ -626,90 +629,6 @@ test('71: a folder already read is not read again when the tester opens it a sec
   assert.deepEqual(h.apiNames(), []);
 });
 
-// ---------- the URL and id parsers — the security seam (rows 21-28, 72-73) ----------
-
-test('21: a value with a space in it is never treated as a link — it is what the tester typed', () => {
-  const h = load();
-  assert.equal(h.fn.looksLikeRunUrl('a b/projects/x/runs/1'), false);
-  assert.equal(h.fn.looksLikeRunUrl('/projects/x/runs/1'), true);
-  assert.equal(h.fn.looksLikeRunUrl('https://x'), true);
-  assert.equal(h.fn.looksLikeRunUrl(''), false);
-  assert.equal(h.fn.looksLikeRunUrl('Nightly regression'), false);
-});
-
-test('22: the folder shape is read first, so /runs/groups/12 is a folder and not a run called "groups"', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.parseRunUrlParts(`${HOST}/projects/abc/runs/groups/12`)),
-    { host: HOST, projectId: 'abc', kind: 'group', id: '12' });
-  // Without the groups segment the SAME path is a run, so the order above is a decision.
-  assert.deepEqual(plain(h.fn.parseRunUrlParts(`${HOST}/projects/abc/runs/12`)),
-    { host: HOST, projectId: 'abc', kind: 'run', id: '12' });
-});
-
-test('23: the web app’s "Copy url" slugs the run segment, and the panel cuts it back to the id', () => {
-  const h = load();
-  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc/runs/9f8e7d6c-my-title').id, '9f8e7d6c');
-  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc/runs/9f8e7d6c').id, '9f8e7d6c');
-});
-
-test('24: something that is not a URL, and a project link with no run in it, resolve to nothing', () => {
-  const h = load();
-  assert.equal(h.fn.parseRunUrlParts('not a url'), null);
-  assert.equal(h.fn.parseRunUrlParts('https://h/projects/abc'), null);
-  assert.equal(h.fn.parseRunUrlParts(''), null);
-  assert.equal(h.fn.parseRunUrlParts(null), null);
-});
-
-test('25: a run link on a FOREIGN host is never resolved against the project this panel is connected to', () => {
-  const h = load();
-  assert.equal(h.fn.parseRunsUrl(`https://evil.example/projects/${PROJECT}/runs/9f8e7d6c`), null);
-  // The identical path on the CONFIGURED host does resolve, so the null above is the host check.
-  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`)),
-    { kind: 'run', id: '9f8e7d6c' });
-});
-
-test('26: the right host with the wrong project is not this panel’s run either', () => {
-  const h = load();
-  assert.equal(h.fn.parseRunsUrl(`${BASE}/projects/someone-else/runs/9f8e7d6c`), null);
-  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/groups/12`)),
-    { kind: 'group', id: '12' });
-});
-
-test('27: a panel whose own base URL will not parse resolves nothing — never a bare-host match', () => {
-  const h = load({ settings: { baseUrl: 'not a url', projectId: PROJECT } });
-  assert.equal(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`), null);
-  // The same link with the base URL repaired resolves, so the branch above was really reached.
-  h.state.settings = { baseUrl: BASE, projectId: PROJECT };
-  assert.deepEqual(plain(h.fn.parseRunsUrl(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`)),
-    { kind: 'run', id: '9f8e7d6c' });
-});
-
-test('28: a bare run id is 6 to 12 hex characters, case-blind — anything else is a title search', () => {
-  const h = load();
-  assert.equal(h.lex.looksLikeRunId('9F8E7D6C'), true);
-  assert.equal(h.lex.looksLikeRunId('abcde'), false);          // five is too short
-  assert.equal(h.lex.looksLikeRunId('zzzzzz'), false);         // six, but not hex
-  assert.equal(h.lex.looksLikeRunId('1234567890123'), false);  // thirteen is too long
-  assert.equal(h.lex.looksLikeRunId('  9f8e7d  '), true);      // a trimmed paste still reads
-});
-
-test('72: a bare id can never look like a link, so the two jobs of the one field cannot collide', () => {
-  const h = load();
-  for (const id of ['9f8e7d', '9F8E7D6C', 'abcdef012345']) {
-    assert.equal(h.lex.looksLikeRunId(id), true);
-    assert.equal(h.fn.looksLikeRunUrl(id), false);
-  }
-  // And a link is never mistaken for an id.
-  assert.equal(h.lex.looksLikeRunId(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c`), false);
-});
-
-test('73: a link copied from deep inside a run still opens the run, and the id survives the query', () => {
-  const h = load();
-  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c/tests/42`).id, '9f8e7d6c');
-  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/9f8e7d6c?tab=all#top`).id, '9f8e7d6c');
-  assert.equal(h.fn.parseRunUrlParts(`${BASE}/projects/${PROJECT}/runs/groups/12/whatever`).kind, 'group');
-});
-
 // ---------- the two jobs of the search field (rows 29-32, 74-77) ----------
 
 test('29: paste and drop arrive carrying an inputType; a typed character does not', () => {
@@ -920,7 +839,7 @@ test('82: an empty project list on boot means "not read yet", so the projects ar
   assert.equal(h2.calls.projectRefreshes, 0);
 });
 
-// ---------- finding a run by its id (rows 38-43, 83-85) ----------
+// ---------- finding a run by its id (rows 38-43, 83, 85) ----------
 // fakeClock.tick() AWAITS each callback, so a probe whose read is deliberately left hanging is
 // ticked WITHOUT awaiting and joined once the answer has landed.
 
@@ -1087,16 +1006,6 @@ test('83: a probe answered before the project switched is never reused for the p
   // …so the next render arms a fresh read rather than repainting the other project's answer.
   h.fn.syncRunIdProbe('9f8e7d');
   assert.equal(h.clock.count(), 1);
-});
-
-test('84: only an id-shaped query is probed, and it is probed trimmed', () => {
-  const h = load();
-  h.state.runsSearch = '  9f8e7d  ';
-  assert.equal(h.lex.runsSearchRunId(), '9f8e7d');
-  h.state.runsSearch = 'nightly';
-  assert.equal(h.lex.runsSearchRunId(), null);
-  h.state.runsSearch = '';
-  assert.equal(h.lex.runsSearchRunId(), null);
 });
 
 test('85: the no-match plaque offers exactly the constraints that are on, and its buttons undo them', () => {
