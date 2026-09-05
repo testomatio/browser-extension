@@ -2,7 +2,7 @@
 // hand-off (read-only view for an existing test, editor for a new one).
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving,
-   StatusIcons, SuiteTree, TcQuickBar */
+   StatusIcons, SuiteTree, TcQuickBar, TcSuiteCreate */
 
 // ---------- TC Studio: suite tree + TC list ----------
 // The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
@@ -27,116 +27,6 @@ function rowActions(...kids) {
   cell.className = 'row-actions on-hover';
   cell.append(...kids);
   return cell;
-}
-
-// ---------- inline suite/folder creation (cycle 011) ----------
-
-// Suites created in THIS visit, newest first: the API appends a new suite to the
-// END of its parent's children, so server order would move it off-screen.
-const tcJustCreated = [];
-
-// Remove any open inline create row — only one may be active at a time.
-function closeSuiteInput() {
-  for (const el of document.querySelectorAll('.tc-new-suite')) el.remove();
-}
-
-// `mount(li)` places the row at the TOP of its list, one row under the button that
-// opened it. Enter or the tick create; Esc, the cross or losing focus dismiss.
-function openSuiteInput({ parentId, fileType, mount }) {
-  closeSuiteInput();
-  const folder = fileType === 'folder';
-  const li = document.createElement('li');
-  li.className = 'tc-item tree-node tc-new-suite';
-  const row = document.createElement('div');
-  row.className = 'list-row tc-row list-head tree-row tree-input-row';
-  row.classList.add('has-chevron');
-  row.append(folder ? StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron') : StatusIcons.treeSlot());
-  const mark = folder ? StatusIcons.FOLDER : StatusIcons.FILE;
-  row.append(StatusIcons.treeIcon(mark, folder ? 'folder-icon' : 'file-icon'));
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'tree-input';
-  input.autocomplete = 'off';
-  input.placeholder = folder ? 'Enter folder name' : 'Enter suite name';
-  input.setAttribute('aria-label', folder ? 'New folder name' : 'New suite name');
-
-  // Both hold the field's focus on mousedown: the row cancels on focusout, so a
-  // control that dismissed the row before its own click landed would never fire.
-  const iconBtn = (icon, cls, tip) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = `icon-btn size-xs ${cls}`;
-    b.append(StatusIcons.svgIcon(icon, 16));
-    b.setAttribute('aria-label', tip);
-    Tooltip.set(b, tip);
-    b.addEventListener('mousedown', (e) => e.preventDefault());
-    return b;
-  };
-  const ok = iconBtn('check', 'tc-new-suite-ok', folder ? 'Create folder' : 'Create suite');
-  const cancel = iconBtn('close', 'tc-new-suite-cancel', 'Cancel');
-  row.append(input, ok, cancel);
-  li.append(row);
-  mount(li);
-  input.focus();
-
-  let busy = false;
-  const submit = async () => {
-    const title = input.value.trim();
-    if (!title || busy) return;
-    busy = true;
-    ok.disabled = true; cancel.disabled = true;
-    try {
-      const made = await TestomatAPI.createSuite({ title, parentId, fileType });
-      if (made?.id) tcJustCreated.unshift(String(made.id)); // keeps it in the row it was named in
-      if (parentId) state.tcExpanded[String(parentId)] = true; // keep parent open
-      resetTcTreeSearch(); // a live filter would hide a node whose title misses it
-      state.tcSuites = await TestomatAPI.getSuiteTreeOrdered(); // the ordered tree, incl. the new node
-      rememberSuiteEmoji(state.tcSuites); // the run view's suite marks read the same tree
-      renderSuiteTree(state.tcSuites); // re-render replaces the input row
-    } catch (e) {
-      busy = false;
-      ok.disabled = false; cancel.disabled = false;
-      toast(e.message || String(e)); // keep the row + typed title
-    }
-  };
-  ok.addEventListener('click', submit);
-  cancel.addEventListener('click', closeSuiteInput);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); submit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); closeSuiteInput(); }
-  });
-  // Focus leaving the ROW cancels — Tab onto the tick or the cross is still
-  // inside it, and a create in flight owns the row until it answers.
-  row.addEventListener('focusout', (e) => {
-    if (busy || (e.relatedTarget && row.contains(e.relatedTarget))) return;
-    closeSuiteInput();
-  });
-}
-
-// Two skins: `.tc-new` is the pill revealed on hovering a tree row (style.css),
-// while the empty state passes the always-visible shared button class.
-function suiteAddButtons(openFor, cls = 'btn size-xs tc-new') {
-  const frag = document.createDocumentFragment();
-  const mk = (label, fileType, tip) => {
-    const b = document.createElement('button');
-    b.className = cls;
-    b.append(StatusIcons.svgIcon('add', 16), document.createTextNode(label));
-    Tooltip.set(b, tip);
-    b.addEventListener('click', (e) => { e.stopPropagation(); openFor(fileType); });
-    return b;
-  };
-  frag.append(mk('Suite', 'file', 'New test suite here'), mk('Folder', 'folder', 'New folder here'));
-  return frag;
-}
-
-// Mounts at the tree top and scrolls itself in, for a tree already scrolled down.
-function openRootSuiteInput(fileType) {
-  openSuiteInput({
-    parentId: null,
-    fileType,
-    mount: (row) => { $('tc-tree').prepend(row); row.scrollIntoView({ block: 'nearest' }); },
-  });
 }
 
 // What the arrows walk in either tree. `[data-id]` is what leaves out the inline create row,
@@ -183,7 +73,7 @@ function tcNode(node, ctx) {
     // fold that is not there.
     row.setAttribute('aria-expanded', String(open));
     // The picker draws the project's own order — picking is reading the tree.
-    const children = ctx.pick ? (node.children || []) : SuiteTree.hoist(node.children, tcJustCreated);
+    const children = ctx.pick ? (node.children || []) : SuiteTree.hoist(node.children, TcSuiteCreate.justCreated);
     for (const c of children) kids.append(tcNode(c, ctx));
     li.append(kids);
     if (open) row.classList.add('expanded');
@@ -196,12 +86,12 @@ function tcNode(node, ctx) {
     });
     // Studio mode: folders can spawn child suites/folders (not in the pick tree).
     if (!ctx.pick) {
-      row.append(rowActions(suiteAddButtons((fileType) => {
+      row.append(rowActions(TcSuiteCreate.addButtons((fileType) => {
         state.tcExpanded[String(node.id)] = true; // reveal the input inside kids
         kids.hidden = false;
         row.classList.add('expanded');
         row.setAttribute('aria-expanded', 'true');
-        openSuiteInput({
+        TcSuiteCreate.open({
           parentId: node.id,
           fileType,
           // First child of its folder, scrolled to — a folder opening low in the
@@ -264,7 +154,7 @@ function renderSuiteEmpty(ul, tail, canCreate) {
     text.push('Group your test cases into suites and folders — start with one here');
     if (hasLink) text.push(', or in ', webAppLink());
     text.push('.');
-    actions.push(suiteAddButtons(openRootSuiteInput, 'btn size-sm tc-add')); // a fragment of two
+    actions.push(TcSuiteCreate.addButtons(TcSuiteCreate.openRoot, 'btn size-sm tc-add')); // a fragment of two
   } else {
     text.push('Create one in ', hasLink ? webAppLink() : 'the web app', tail);
   }
@@ -346,7 +236,7 @@ function renderSuiteTree(roots) {
   const bar = $('tc-tree-bar');
   if (bar) bar.hidden = !roots.length && !q;
   // Hoist AFTER the filter — it returns copies, so reordering has to come last.
-  renderSuiteTreeInto($('tc-tree'), SuiteTree.hoist(SuiteTree.filter(roots, q), tcJustCreated), {
+  renderSuiteTreeInto($('tc-tree'), SuiteTree.hoist(SuiteTree.filter(roots, q), TcSuiteCreate.justCreated), {
     pick: false,
     expandAll: !!q,               // show the branch that leads to every match
     searching: !!q && !!roots.length, // "no match" only when there WAS something to match
@@ -377,7 +267,7 @@ async function openTcStudioView() {
     syncTcTreeSearchInput(); // read FROM state, as on the fresh path below
     // Before the paint, not after: the re-read below returns the project's own order,
     // and a hoist dropped afterwards would reshuffle the tree under the tester.
-    tcJustCreated.length = 0;
+    TcSuiteCreate.justCreated.length = 0;
     renderSuiteTree(state.tcSuites);
     // #155: still gated — a locked project replaces the tree with the blocking panel.
     if (await readonlyGate()) { applyReadonlyBlock(); return; }
@@ -404,7 +294,7 @@ async function openTcStudioView() {
   // it in state), so the field is read FROM state on every open.
   syncTcTreeSearchInput();
   // A fresh open is the project's own order again.
-  tcJustCreated.length = 0;
+  TcSuiteCreate.justCreated.length = 0;
   $('tc-tree').replaceChildren();
   const epoch = state.projectEpoch; // a project switch mid-fetch discards this tree
   try {

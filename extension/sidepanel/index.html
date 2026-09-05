@@ -939,6 +939,10 @@
   <!-- The Add-new-test bar under the TC list. Ahead of screens/tc-studio.js, which resets it, and of
        app.js, which wires it; its own call back into the screen is late-bound, as it always was. -->
   <script src="screens/tc-quick-bar.js"></script>
+  <!-- The inline new-folder / new-suite row on the tree. Ahead of screens/tc-studio.js, which
+       draws its buttons, and of app.js, which opens it at the root; its two calls back into
+       the screen are late-bound, as they always were. -->
+  <script src="screens/tc-suite-create.js"></script>
   <script src="screens/tc-studio.js"></script>
   <script src="app.js"></script>
 </body>

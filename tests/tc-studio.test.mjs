@@ -11,12 +11,14 @@
 // only its own — zero included, because a badge left off the row reads as "not loaded".
 // Rows 1-81 are the ticket's; a lettered suffix is the companion case that drives the same path the
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Rows 1-3, 5-18 and 40-63b are no longer here: the four algorithms behind the first left for
-// extension/sidepanel/core/suite-tree.js and the whole quick/bulk bar for
-// extension/sidepanel/screens/tc-quick-bar.js (#196), and tests/suite-tree.test.mjs and
-// tests/tc-quick-bar.test.mjs drive them with no screen at all. This file loads BOTH real modules
-// beside the screen, in index.html's own order, and keeps every row about what the SCREEN does with
-// them — the render, the suite open that wipes the bar, and row 59b where the two meet.
+// Rows 1-3, 5-18, 40-63b, 68, 69b and 70-73b are no longer here: the four algorithms behind the
+// first left for extension/sidepanel/core/suite-tree.js, the whole quick/bulk bar for
+// extension/sidepanel/screens/tc-quick-bar.js and the inline create row for
+// extension/sidepanel/screens/tc-suite-create.js (#196), and tests/suite-tree.test.mjs,
+// tests/tc-quick-bar.test.mjs and tests/tc-suite-create.test.mjs drive them with no screen at all.
+// This file loads all THREE real modules beside the screen, in index.html's own order, and keeps
+// every row about what the SCREEN does with them — the render, the suite open that wipes the bar,
+// and rows 69, 69c and 59b where the screen and a module meet.
 // Run: node --test tests/tc-studio.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -290,8 +292,8 @@ function load(opts = {}) {
     // index.html's own order: core/suite-tree.js and screens/tc-quick-bar.js both stand ahead of
     // this screen, which asks the first what a query keeps and the second to wipe the bar on every
     // suite open. Both REAL — a stub would leave the rows below asserting the stub (#196).
-    before: [['suite-tree', CORE_SRC], 'tc-quick-bar'],
-    exported: '({ tcExpanded, tcJustCreated, tcRowMatches, TcQuickBar })',
+    before: [['suite-tree', CORE_SRC], 'tc-quick-bar', 'tc-suite-create'],
+    exported: '({ tcExpanded, tcRowMatches, TcQuickBar, TcSuiteCreate })',
   });
 
   // app.js:62-72 wires the two search fields and the quick bar; the screen registers nothing at load,
@@ -367,7 +369,7 @@ test('4: a query nothing answers makes the screen say "No suites match" over an 
 
 test('19: a live query filters the tree and the suites made this visit still ride at the top of it', () => {
   const h = load({ suites: [folder('a', 'Alpha'), folder('b', 'Beta'), folder('c', 'Gamma')] });
-  h.lex.tcJustCreated.unshift('c');
+  h.lex.TcSuiteCreate.justCreated.unshift('c');
   h.state.tcTreeSearch = 'a'; // Alpha, Beta and Gamma all carry an "a"
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.deepEqual(h.rootIds(), ['c', 'a', 'b']);
@@ -394,7 +396,7 @@ test('19c: a folder draws its own children hoisted too, and its subtree comes wi
     suites: [folder('f1', 'Checkout', [file('s1', 'Guest'), file('s2', 'Card')])],
     expanded: { f1: true },
   });
-  h.lex.tcJustCreated.unshift('s2');
+  h.lex.TcSuiteCreate.justCreated.unshift('s2');
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.deepEqual(h.rowIds(), ['f1', 's2', 's1']);
   assert.deepEqual(h.state.tcSuites[0].children.map((n) => n.id), ['s1', 's2']);
@@ -506,22 +508,11 @@ test('75b: on the Tests screen the same empty state offers Suite and Folder inst
   assert.equal(h.newInput().placeholder, 'Enter folder name');
 });
 
-// ---------- inline suite and folder create (rows 68-73) ----------
-
-test('68: a blank name is not a suite — the row waits instead of sending it', async () => {
-  const h = load();
-  h.fn.openRootSuiteInput('file');
-  h.newInput().value = '   ';
-  fire(h.newInput(), 'keydown', { key: 'Enter' });
-  await settle();
-  assert.deepEqual(h.calls.createSuites, []);
-  assert.ok(h.newRow(), 'the row stays open for a real name');
-  // The same row, a real name, and it goes.
-  h.newInput().value = 'Checkout';
-  fire(h.newInput(), 'keydown', { key: 'Enter' });
-  await settle();
-  assert.deepEqual(h.calls.createSuites, [{ title: 'Checkout', parentId: null, fileType: 'file' }]);
-});
+// ---------- the tree and the inline create row, where they meet (rows 69, 69c) ----------
+// Rows 68, 69b and 70-73b are gone from here: the create row is its own module now, and
+// tests/tc-suite-create.test.mjs drives it with no screen at all (#196). These two are what neither
+// file can assert alone — a real folder row's pill opening the row, and the re-render that follows a
+// create replacing that row with the node it made.
 
 test('69: a folders own New suite sends the folder as the parent, keeps it open, and re-reads the tree', async () => {
   const h = load({ suites: [folder('f1', 'Checkout')] });
@@ -536,7 +527,7 @@ test('69: a folders own New suite sends the folder as the parent, keeps it open,
   await settle();
 
   assert.deepEqual(h.calls.createSuites, [{ title: 'Guest checkout', parentId: 'f1', fileType: 'file' }]);
-  assert.deepEqual([...h.lex.tcJustCreated], ['new-1']);
+  assert.deepEqual([...h.lex.TcSuiteCreate.justCreated], ['new-1']);
   assert.equal(h.state.tcExpanded.f1, true);
   assert.equal(h.state.tcTreeSearch, '');
   assert.equal(h.node.treeSearch.value, '');
@@ -567,109 +558,11 @@ test('69c: a folder the tester collapsed while naming is opened again, so the ne
   assert.deepEqual(h.rowIds(), ['f1', 'new-1']);
 });
 
-test('69b: the tick creates the same suite the Enter key does, and a folder row asks for a folder', async () => {
-  const h = load({ suites: [folder('f1', 'Checkout')] });
-  h.fn.renderSuiteTree(h.state.tcSuites);
-  fire(h.rowFor('f1').querySelectorAll('.tc-new')[1], 'click'); // the "Folder" pill
-  assert.equal(h.newInput().placeholder, 'Enter folder name');
-  h.newInput().value = 'Payments';
-  fire(h.newRow().querySelector('.tc-new-suite-ok'), 'click');
-  await settle();
-  assert.deepEqual(h.calls.createSuites, [{ title: 'Payments', parentId: 'f1', fileType: 'folder' }]);
-});
-
-test('70: a create the server refused keeps the row, the typed name and both buttons', async () => {
-  const h = load();
-  h.on.createSuite = async () => { throw new Error('403 not allowed'); };
-  h.fn.openRootSuiteInput('file');
-  h.newInput().value = 'Checkout';
-  fire(h.newInput(), 'keydown', { key: 'Enter' });
-  await settle();
-
-  assert.deepEqual(h.calls.toasts, ['403 not allowed']);
-  assert.ok(h.newRow());
-  assert.equal(h.newInput().value, 'Checkout');
-  assert.equal(h.newRow().querySelector('.tc-new-suite-ok').disabled, false);
-  assert.equal(h.newRow().querySelector('.tc-new-suite-cancel').disabled, false);
-  assert.equal(h.calls.treeReads, 0);
-  // The buttons really are live again: the retry goes out on the same row.
-  h.on.createSuite = async () => ({ id: 'new-1' });
-  fire(h.newRow().querySelector('.tc-new-suite-ok'), 'click');
-  await settle();
-  assert.equal(h.calls.createSuites.length, 2);
-});
-
-test('71: focus leaving the row while a create is in flight does not take the row away', async () => {
-  const h = load();
-  const answer = deferred();
-  h.on.createSuite = () => answer.promise;
-  h.fn.openRootSuiteInput('file');
-  h.newInput().value = 'Checkout';
-  fire(h.newInput(), 'keydown', { key: 'Enter' });
-  await settle();
-
-  const row = h.newRow().querySelector('.tree-input-row');
-  fire(row, 'focusout', { relatedTarget: null });
-  assert.ok(h.newRow(), 'a create owns its row until it answers');
-  answer.resolve({ id: 'new-1' });
-  await settle();
-
-  // With nothing in flight the very same event dismisses the row.
-  const idle = load();
-  idle.fn.openRootSuiteInput('file');
-  fire(idle.newRow().querySelector('.tree-input-row'), 'focusout', { relatedTarget: null });
-  assert.equal(idle.newRow(), null);
-});
-
-test('71b: tabbing onto the tick is still inside the row, so the row stays', () => {
-  const h = load();
-  h.fn.openRootSuiteInput('file');
-  const row = h.newRow().querySelector('.tree-input-row');
-  fire(row, 'focusout', { relatedTarget: row.querySelector('.tc-new-suite-ok') });
-  assert.ok(h.newRow());
-  fire(row, 'focusout', { relatedTarget: h.node.treeSearch });
-  assert.equal(h.newRow(), null);
-});
-
-test('72: Escape puts the row away, and so does the cross', () => {
-  const h = load();
-  h.fn.openRootSuiteInput('file');
-  const ev = fire(h.newInput(), 'keydown', { key: 'Escape' });
-  assert.equal(ev.defaultPrevented, true);
-  assert.equal(h.newRow(), null);
-
-  h.fn.openRootSuiteInput('file');
-  fire(h.newRow().querySelector('.tc-new-suite-cancel'), 'click');
-  assert.equal(h.newRow(), null);
-});
-
-test('73: only one inline row at a time — opening a second takes the first away', () => {
-  const h = load();
-  h.fn.openRootSuiteInput('file');
-  const first = h.newRow();
-  first.querySelector('.tree-input').value = 'half typed';
-  h.fn.openRootSuiteInput('folder');
-  assert.deepEqual(h.node.tree.querySelectorAll('.tc-new-suite').length, 1);
-  assert.notEqual(h.newRow(), first);
-  assert.equal(h.newInput().value ?? '', '');
-  assert.equal(h.newInput().placeholder, 'Enter folder name');
-});
-
-test('73b: the row mounts at the top of the tree and scrolls itself into view', () => {
-  const h = load({ suites: [folder('a', 'Alpha')] });
-  h.fn.renderSuiteTree(h.state.tcSuites);
-  const before = h.calls.scrolledInto;
-  h.fn.openRootSuiteInput('file');
-  assert.equal(h.node.tree.children[0].className.includes('tc-new-suite'), true);
-  assert.equal(h.calls.scrolledInto, before + 1);
-  assert.equal(h.doc.activeElement, h.newInput());
-});
-
 // ---------- opening the Tests screen, and the chip's own read (rows 76-80) ----------
 
 test('76: a tree already in memory is on screen before the re-read leaves, in the projects own order', async () => {
   const h = load({ suites: [folder('a', 'Alpha'), folder('b', 'Beta')] });
-  h.lex.tcJustCreated.unshift('b'); // last visit's creation must not reshuffle this paint
+  h.lex.TcSuiteCreate.justCreated.unshift('b'); // last visit's creation must not reshuffle this paint
   let onScreenAtRead = null;
   h.on.orderedTree = async () => {
     onScreenAtRead = h.rootIds();
@@ -678,7 +571,7 @@ test('76: a tree already in memory is on screen before the re-read leaves, in th
   await h.fn.openTcStudioView();
 
   assert.deepEqual(onScreenAtRead, ['a', 'b'], 'the cached rows were up before the fetch went out');
-  assert.deepEqual([...h.lex.tcJustCreated], []);
+  assert.deepEqual([...h.lex.TcSuiteCreate.justCreated], []);
   assert.deepEqual(h.rootIds(), ['a', 'b', 'c']);
   assert.deepEqual(h.calls.skeleton, [], 'no placeholder over rows that never left the screen');
   assert.deepEqual(h.calls.lines.at(-1), { id: 'tcstudio-status', text: '' });
@@ -1096,7 +989,7 @@ test('81b (#109): the suite PICKER is the same tree, so it gets the same keyboar
 test('81c (#109): the inline create field keeps every key typed into it, tree or no tree', () => {
   const h = load({ suites: [folder('f1', 'Checkout')] });
   h.fn.renderSuiteTree(h.state.tcSuites);
-  h.fn.openRootSuiteInput('file');
+  h.lex.TcSuiteCreate.openRoot('file');
   const input = h.newInput();
 
   // Space and the arrows are text and caret movement here — not "open the row under me".
