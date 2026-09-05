@@ -136,7 +136,7 @@ function load(opts = {}) {
     enqueue: async () => {},
     remove: async () => false,
     collectEnvMeta: async () => [],
-    uploadEvidenceLog: async () => '',
+    evidenceLog: async () => '',
     awaitRunState: async () => {},
   };
 
@@ -197,7 +197,9 @@ function load(opts = {}) {
     statusIcon: (s) => el('span', { className: 'md-icon', dataset: { icon: s } }),
     renderAttachmentList: () => { calls.attachmentLists += 1; },
     collectEnvMeta: async (settings) => { calls.envMeta.push(plain(settings)); return on.collectEnvMeta(settings); },
-    uploadEvidenceLog: async (record) => { calls.logUploads.push(record?.id ?? null); return on.uploadEvidenceLog(record); },
+    EvidenceUpload: {
+      log: async (record) => { calls.logUploads.push(record?.id ?? null); return on.evidenceLog(record); },
+    },
     // run-view.js's pair: the run's archived answer, which may still be in flight when a click lands.
     runStateProbe: o.probe,
     awaitRunState: async () => { calls.probes += 1; calls.order.push('probe'); return on.awaitRunState(); },
