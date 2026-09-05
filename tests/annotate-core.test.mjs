@@ -437,3 +437,113 @@ test('AC11: pressing Save twice hands the image back once', async () => {
   await settle();
   assert.equal(h.calls.applied.length, 1);
 });
+
+// ============ 2. Geometry, handles and hit-testing (AC22-AC29) ============
+
+test('AC22: the bend grip lands where the tester dropped it, not twice as far away', () => {
+  const h = load();
+  h.hooks.add({ tool: 'arrow', x1: 0, y1: 0, x2: 100, y2: 0 });
+  assert.equal(h.hooks.select(50, 0), 0);
+  assert.deepEqual(plain(h.hooks.handles()), [
+    { id: 'a', x: 0, y: 0 }, { id: 'bend', x: 50, y: 0 }, { id: 'b', x: 100, y: 0 },
+  ]);
+
+  assert.equal(h.hooks.dragHandle('bend', 50, 40), true);
+  const op = h.ops()[0];
+  assert.equal(op.cx, 50);
+  assert.equal(op.cy, 80, 'the control point is reflected so the CURVE passes through the grip');
+  assert.deepEqual(plain(h.hooks.handles())[1], { id: 'bend', x: 50, y: 40 });
+});
+
+test('AC23: dragging a bent arrow carries its bend along with both ends', () => {
+  const h = load();
+  h.hooks.add({ tool: 'arrow', x1: 0, y1: 0, x2: 100, y2: 0, cx: 50, cy: 80 });
+  assert.equal(h.hooks.select(50, 40), 0);
+  assert.equal(h.hooks.moveSelected(10, 20), true);
+
+  const op = h.ops()[0];
+  assert.deepEqual(
+    { x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2, cx: op.cx, cy: op.cy },
+    { x1: 10, y1: 20, x2: 110, y2: 20, cx: 60, cy: 100 },
+  );
+});
+
+test('AC24: a corner grip moves its own two edges and leaves the opposite corner alone', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(h.hooks.select(150, 150), 0);
+  assert.equal(h.hooks.dragHandle('x1y2', 40, 260), true);
+
+  const op = h.ops()[0];
+  assert.deepEqual({ x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 }, { x1: 40, y1: 100, x2: 200, y2: 260 });
+});
+
+test('AC25: the resize cursor follows the box as it stands, so one dragged right-to-left fits', () => {
+  const cursorAt = (op, x, y) => {
+    const h = load();
+    h.hooks.setTool('select');
+    h.hooks.add(op);
+    assert.equal(h.hooks.select((op.x1 + op.x2) / 2, (op.y1 + op.y2) / 2), 0);
+    h.fire(h.canvas(), 'pointermove', { clientX: x, clientY: y });
+    return h.canvas().style.cursor;
+  };
+  const upright = { tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 };
+  const flipped = { tool: 'rect', x1: 200, y1: 100, x2: 100, y2: 200 };
+
+  assert.equal(cursorAt(upright, 100, 100), 'nwse-resize');
+  assert.equal(cursorAt(upright, 200, 100), 'nesw-resize');
+  assert.equal(cursorAt(flipped, 200, 100), 'nesw-resize', 'the same grip, the other diagonal');
+  assert.equal(cursorAt(flipped, 100, 100), 'nwse-resize');
+});
+
+test('AC26: where a pen stroke crosses an earlier box, the click picks the stroke on top', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  h.hooks.add({ tool: 'pen', pts: [{ x: 120, y: 150 }, { x: 180, y: 150 }] });
+
+  assert.equal(h.hooks.select(150, 150), 1, 'the last mark drawn is the one on top');
+  h.hooks.deleteSelected();
+  assert.equal(h.hooks.select(150, 150), 0, 'and the box underneath was reachable all along');
+});
+
+test('AC27: a blur is grabbed only from inside it — unlike a box, it has no grab margin', () => {
+  const blur = load();
+  blur.hooks.add({ tool: 'pixelate', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(blur.hooks.select(199, 150), 0, 'inside the region');
+  assert.equal(blur.hooks.select(203, 150), null, 'three px outside is a miss');
+
+  const box = load();
+  box.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(box.hooks.select(203, 150), 0, 'a box the same size answers near its edge');
+});
+
+test('AC28: a single pen tap is still a dot, and is grabbed by how near the click lands', () => {
+  const h = load();
+  h.log.clear();
+  h.hooks.add({ tool: 'pen', pts: [{ x: 100, y: 100 }] });
+
+  assert.deepEqual(h.log.calls('lineTo'), [[100.01, 100]], 'a lone point is drawn as a dot');
+  assert.equal(h.hooks.select(100, 100), 0);
+  assert.equal(h.hooks.select(105, 100), 0, 'inside the grab tolerance');
+  assert.equal(h.hooks.select(120, 100), null);
+});
+
+test('AC29: the marker owns the width it is painted at, not the width of its path', () => {
+  const marquee = (tool) => {
+    const h = load();
+    h.hooks.add({ tool, pts: [{ x: 100, y: 100 }, { x: 200, y: 100 }] });
+    h.log.clear();
+    h.hooks.select(150, 100);
+    return h.log.calls('strokeRect')[0];
+  };
+  // The marker is stroked six times its weight, so its box is padded by half of that.
+  assert.deepEqual(marquee('highlight'), [87, 87, 126, 26]);
+  assert.deepEqual(marquee('pen'), [94.5, 94.5, 111, 11]);
+
+  const hl = load();
+  hl.hooks.add({ tool: 'highlight', pts: [{ x: 100, y: 100 }, { x: 200, y: 100 }] });
+  assert.equal(hl.hooks.select(150, 115), 0, 'a click on the painted band still grabs the marker');
+  const pen = load();
+  pen.hooks.add({ tool: 'pen', pts: [{ x: 100, y: 100 }, { x: 200, y: 100 }] });
+  assert.equal(pen.hooks.select(150, 115), null, 'the same click misses a pen line');
+});
