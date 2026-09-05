@@ -16,6 +16,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+import { loadInto } from './helpers/shared-harness.mjs';
+
+// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
+// keyboard row below is worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
+
+// A keypress from the row that has focus, which bubbles to the <ul> the helper is delegated on —
+// the same trip a real one makes.
+const key = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
 const BASE = 'https://app.testomat.io';
 const HOST = 'app.testomat.io';
@@ -204,6 +213,7 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    Roving: roving(),
     capabilities: { jwt: null, readonly: false },
     $: (id) => doc.getElementById(id),
     show: (view) => { calls.shows.push(view); calls.order.push(`show:${view}`); },
@@ -328,6 +338,10 @@ function load(opts = {}) {
     rowIds: () => node.list.children.map((li) => li.dataset.runId ?? li.dataset.groupId ?? null),
     groupRowFor: (id) => node.list.querySelectorAll('li.group').find((li) => String(li.dataset.groupId) === String(id)),
     kidsOf: (li) => li.querySelector('.group-children'),
+    // A run row wherever it sits — top level or inside a folder.
+    rowFor: (id) => node.list.querySelector(`li[data-run-id="${id}"]`),
+    // Every row's tabindex in document order — the shape the roving model is about.
+    rowTabs: () => node.list.querySelectorAll('li[data-run-id], .group-head').map((r) => r.getAttribute('tabindex')),
     chip: (key) => node.filter.querySelector(`[data-filter="${key}"]`),
     chipCount: (key) => node.filter.querySelector(`[data-filter="${key}"] .counter`)?.textContent ?? null,
     // The tester's own act on the field: type (no inputType) or paste (one).
@@ -1704,8 +1718,64 @@ test('63: the flash is state-driven, so it survives a re-render — and it lets 
   assert.deepEqual(h.clock.arms(), [2500, 2500, 2500]);
 });
 
-test.todo('64: run rows and folder heads carry no tabindex, no role and no keydown — the list is '
-  + 'mouse-only. Not asserted here: it would pin the gap in place. Blocked on #109.');
+// One roving tab stop for the whole list, not one per row: a run row already grows three status
+// buttons in the run view, so a stop per row would be hundreds of them. Tab enters the list once,
+// the arrows walk it, Enter opens. The helper's own contract is tests/roving.test.mjs.
+test('64 (#109): a run row and a folder head can be reached and opened from the keyboard', () => {
+  const h = load({
+    dashItems: [group('g1'), run('r2')],
+    subgroupsCache: { g1: [] },
+    childrenCache: { g1: [run('r1')] },
+  });
+  h.fn.renderDashboard();
+
+  const head = h.groupRowFor('g1').querySelector('.group-head');
+  assert.equal(head.getAttribute('role'), 'button', 'a reader is told the folder head is actionable');
+  assert.equal(head.getAttribute('tabindex'), '0');
+
+  // Down steps STRAIGHT over the folded folder's run — it is not on screen.
+  assert.equal(key(head, 'ArrowDown').defaultPrevented, true);
+  assert.equal(h.doc.activeElement, h.rowFor('r2'));
+  assert.deepEqual(h.rowTabs(), ['-1', '-1', '0'], 'exactly one row is a tab stop');
+
+  // Enter on the head opens the folder — the same act as clicking it, and NOT a left/right key.
+  assert.equal(key(head, 'Enter').defaultPrevented, true);
+  assert.deepEqual([...h.state.expandedGroups], ['g1']);
+  assert.equal(h.kidsOf(h.groupRowFor('g1')).hidden, false);
+
+  // …and now its run is somewhere the arrows can land, with nothing re-attached.
+  key(head, 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.rowFor('r1'));
+  assert.equal(key(h.rowFor('r1'), 'Enter').defaultPrevented, true);
+  assert.deepEqual(h.calls.opened, [['r1', 'Run r1']]);
+
+  // Space opens too, and is swallowed so the list does not scroll out from under the row.
+  assert.equal(key(h.rowFor('r2'), ' ').defaultPrevented, true);
+  assert.deepEqual(h.calls.opened, [['r1', 'Run r1'], ['r2', 'Run r2']]);
+});
+
+test('64b: a re-render leaves the list keyboard-ready again, and Load more stays an ordinary button', () => {
+  const h = load({
+    dashItems: [run('r1'), run('r2')],
+    listPaging: { page: 1, totalPages: 2, total: 40, perPage: 20 },
+  });
+  h.fn.renderDashboard();
+  key(h.rowFor('r1'), 'End');
+  assert.equal(h.doc.activeElement, h.rowFor('r2'));
+
+  // What every render does: brand-new rows into the same <ul>. Nothing is wired a second time.
+  h.fn.renderDashboard();
+  assert.equal(h.node.list.listeners.get('keydown').length, 1);
+  key(h.rowFor('r1'), 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.rowFor('r2'));
+  assert.deepEqual(h.rowTabs(), ['-1', '0']);
+
+  // The Load more row is a button of its own — it keeps its own tab stop and its own Enter.
+  const more = h.node.list.querySelector('.load-more');
+  assert.equal(more.getAttribute('role'), null);
+  key(h.rowFor('r2'), 'ArrowDown');
+  assert.equal(h.doc.activeElement, h.rowFor('r2'), 'the arrows stop at the last ROW');
+});
 
 test('101: in the degraded v2 mode there is nothing nested to hydrate, so the walk returns at once', async () => {
   const h = load({ listMode: 'v2', expandedGroups: ['gone'], dashItems: [] });

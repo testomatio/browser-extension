@@ -480,8 +480,11 @@ test('M47: body and documentElement are real nodes, and queries run under docume
 test('a real screen: tc-studio draws a folder row through mini-dom, and the row folds', () => {
   const source = readFileSync(join(repoRoot, 'extension/sidepanel/screens/tc-studio.js'), 'utf8');
   const doc = makeDocument(['ul#tc-tree']);
+  // The real helper, not a stub: the row below is drawn by whatever it stamps on a tree row.
+  const rovingSrc = readFileSync(join(repoRoot, 'extension/shared/roving.js'), 'utf8');
   const sandbox = {
     document: doc,
+    Roving: runInNewContext(`${rovingSrc}\nRoving`, {}),
     state: { tcExpanded: {}, tcTreeSearch: '', settings: {} },
     $: (id) => doc.getElementById(id),
     setTabCount: () => {},
@@ -784,4 +787,45 @@ test('M66: isContentEditable is inherited, and the nearest statement wins', () =
   assert.equal(off.isContentEditable, false);    // the nearer statement, not the outer one
   assert.equal(off.querySelector('i').isContentEditable, false);
   assert.equal(plain.isContentEditable, false);  // nothing above it says anything
+});
+
+test('M67: a bubbling event runs capture down, the target, then bubble up — and stopPropagation ends it', () => {
+  const doc = makeDocument();
+  const row = el('li');
+  const list = el('ul', null, row);
+  doc.body.append(list);
+  const seen = [];
+  doc.addEventListener('keydown', () => seen.push('doc capture'), true);
+  list.addEventListener('keydown', () => seen.push('list capture'), true);
+  list.addEventListener('keydown', (e) => seen.push(`list bubble ${e.currentTarget === list}`));
+  row.addEventListener('keydown', () => seen.push('row'));
+  doc.addEventListener('keydown', () => seen.push('doc bubble'));
+
+  const ev = fire(row, 'keydown', { key: 'ArrowDown', bubbles: true });
+  assert.deepEqual(seen, ['doc capture', 'list capture', 'row', 'list bubble true', 'doc bubble']);
+  assert.equal(ev.target, row);   // the target is the node it was fired on, all the way up
+
+  // Without `bubbles` nothing above the node hears it — the default this file is built on.
+  seen.length = 0;
+  fire(row, 'keydown', { key: 'ArrowDown' });
+  assert.deepEqual(seen, ['row']);
+
+  // stopPropagation on the row keeps the list's delegated listener out of it.
+  seen.length = 0;
+  row.addEventListener('keydown', (e) => e.stopPropagation());
+  fire(row, 'keydown', { key: 'ArrowDown', bubbles: true });
+  assert.deepEqual(seen, ['doc capture', 'list capture', 'row']);
+});
+
+test('M68: click() sends a real bubbling click from the node itself', () => {
+  const doc = makeDocument();
+  const row = el('li');
+  const list = el('ul', null, row);
+  doc.body.append(list);
+  const seen = [];
+  row.addEventListener('click', (e) => seen.push(`row ${e.type} ${e.target === row}`));
+  list.addEventListener('click', () => seen.push('list'));
+
+  row.click();
+  assert.deepEqual(seen, ['row click true', 'list']);
 });
