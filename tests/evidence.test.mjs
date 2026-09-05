@@ -13,6 +13,8 @@
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
 // Rows 1-17 — the formatting and escaping — moved to tests/evidence-format.test.mjs when their code
 // became screens/evidence-format.js; this file still loads that module and drives it through the UI.
+// Rows 55-59 — the FAIL upload — went the same way to tests/evidence-upload.test.mjs; the screen no
+// longer uploads anything itself, it only keeps the evSend and the gate that one reaches back for.
 // Run: node --test tests/evidence.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -37,21 +39,17 @@ const NOW = Date.UTC(2026, 8, 3, 14, 6, 9); // what the panel's clock reads
 const TS = Date.UTC(2026, 8, 3, 14, 5, 9);  // one minute earlier: every fixture entry's stamp
 const AT = '14:05:09';
 const SITE = 'https://shop.example.com';
-const UPLOADED = 'https://cdn.example/evidence.txt';
 const NO_TEST = 'Open a test to record its console & network log';
 const ATTACHED = 'Log snippet added to the comment';
 
-// new Date() stamps the .txt header and Date.now() names the upload and ages every card row. The
-// one-argument form stays real, because that is the entry timestamp evTime formats.
+// Date.now() ages every card row, and the no-argument form is pinned beside it. The one-argument
+// form stays real, because that is the entry timestamp the row stamp is formatted from.
 class PinnedDate extends Date {
   constructor(...args) { if (!args.length) super(NOW); else super(...args); }
   static now() { return NOW; }
 }
 
-// The two host objects the sandbox has no realm copy of.
-class FakeBlob {
-  constructor(parts, opts) { this.text = parts.join(''); this.type = opts && opts.type; }
-}
+// The host object the sandbox has no realm copy of.
 class FakeEvent {
   constructor(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); }
 }
@@ -88,7 +86,6 @@ function load(opts = {}) {
     reply: null,           // (msg) => the worker's answer; by default a stopped recorder
     onSend: null,          // runs as a message goes out — the seam for "the tester walked off"
     onMirror: null,        // runs as the capture-bodies flag is written, before the toggle
-    upload: { url: UPLOADED },
     ...opts,
   };
 
@@ -108,7 +105,6 @@ function load(opts = {}) {
     order: [],       // one ordered trace: "the flag, THEN the toggle, THEN the toast" is a row
     sends: [],
     toasts: [],
-    uploads: [],
     counters: [],
     empties: [],
     sections: [],    // showTestSection('status')
@@ -164,7 +160,6 @@ function load(opts = {}) {
     state,
     hasChrome: o.hasChrome,
     Date: PinnedDate,
-    Blob: FakeBlob,
     Event: FakeEvent,
     chrome: chromeStub,
     $: (id) => doc.getElementById(id),
@@ -197,13 +192,6 @@ function load(opts = {}) {
         for (const part of [].concat(text)) if (part) body.append(part);
         box.append(body);
         return box;
-      },
-    },
-    TestomatAPI: {
-      uploadAttachment: async (id, blob, name) => {
-        calls.uploads.push({ id: String(id), blob, name });
-        calls.order.push('upload');
-        return typeof o.upload === 'function' ? o.upload() : o.upload;
       },
     },
   };
@@ -1015,140 +1003,6 @@ test('54: a panel with no comment box to attach to is not a crash', () => {
   const box = load();
   box.fn.attachEvidenceEntry(con());
   assert.deepEqual(box.calls.toasts, [{ msg: ATTACHED }]);
-});
-
-// ---------- the upload on a failed test (rows 55-59) ----------
-
-const SNAP = {
-  ok: true,
-  entries: [con(), net({ url: 'https://x/y', bodySnippet: '{"a":1}' })],
-  status: { tabTitle: 'Shop', tabUrl: `${SITE}/cart`, windowSec: 60 },
-};
-const recorded = (m) => {
-  if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
-  if (m.type === 'EVIDENCE_SNAPSHOT') return SNAP;
-  return { ok: true, status: { recording: false } };
-};
-
-test('55: with no result to hang it on, or auto-attach off, the FAIL attaches nothing', async () => {
-  const none = load({ reply: recorded });
-  assert.equal(await none.fn.uploadEvidenceLog(null), '');
-  assert.equal(await none.fn.uploadEvidenceLog({}), '');
-  assert.equal(await none.fn.uploadEvidenceLog({ id: '' }), '');
-  assert.deepEqual(none.types(), []);
-
-  const off = load({ settings: { evidenceAutoAttach: false }, reply: recorded });
-  assert.equal(await off.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(off.types(), []);
-  assert.deepEqual(off.calls.uploads, []);
-
-  // The same record with the gate open goes all the way to the upload.
-  const on = load({ reply: recorded });
-  assert.equal(await on.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
-});
-
-test('56: a recorder that is not recording is asked for no snapshot at all', async () => {
-  const idle = load({ reply: (m) => (m.type === 'EVIDENCE_STATUS'
-    ? { ok: true, status: { recording: false } } : recorded(m)) });
-  assert.equal(await idle.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(idle.types(), ['EVIDENCE_STATUS']);
-
-  const gone = load({ reply: (m) => (m.type === 'EVIDENCE_STATUS' ? { ok: false, error: 'no-extension' } : recorded(m)) });
-  assert.equal(await gone.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(gone.types(), ['EVIDENCE_STATUS']);
-
-  // A snapshot the worker could not build stops one step later, before any blob is made.
-  const empty = load({ reply: (m) => (m.type === 'EVIDENCE_SNAPSHOT' ? { ok: false } : recorded(m)) });
-  assert.equal(await empty.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(empty.types(), ['EVIDENCE_STATUS', 'EVIDENCE_SNAPSHOT']);
-  assert.deepEqual(empty.calls.uploads, []);
-});
-
-test('57: the FAIL uploads the window as a named .txt, and hands back the URL the META key needs', async () => {
-  const h = load({ reply: recorded });
-  const url = await h.fn.uploadEvidenceLog({ id: '900', test_title: 'Test B' });
-  assert.equal(url, UPLOADED);
-  assert.deepEqual(h.types(), ['EVIDENCE_STATUS', 'EVIDENCE_SNAPSHOT']);
-  assert.equal(h.calls.uploads.length, 1);
-  const sent = h.calls.uploads[0];
-  assert.equal(sent.id, '900');
-  assert.equal(sent.name, `evidence-900-${NOW}.txt`);
-  assert.equal(sent.blob.type, 'text/plain');
-  // The run title comes from `state`, the test title from the record, the rows from the snapshot.
-  assert.ok(sent.blob.text.startsWith('Console & network log — Run A / Test B\nRecorded tab: Shop\n'), sent.blob.text);
-  assert.ok(sent.blob.text.includes('== Console (1) ==\n[14:05:09] console.error: boom'), sent.blob.text);
-  assert.ok(sent.blob.text.includes('== Network (1) ==\n[14:05:09] 500 GET https://x/y\n    {"a":1}'), sent.blob.text);
-  assert.equal(sent.blob.text, h.format.buildTxt('Run A', 'Test B', SNAP.entries, SNAP.status));
-});
-
-test('57b: a record with no title of its own borrows the one on screen', async () => {
-  const h = load({ testTitle: 'Checkout — guest', reply: recorded });
-  await h.fn.uploadEvidenceLog({ id: '900' });
-  assert.ok(h.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Checkout — guest\n'));
-  // With neither, the artifact still names itself rather than printing an empty half.
-  const bare = load({ reply: recorded, without: ['test-title'] });
-  await bare.fn.uploadEvidenceLog({ id: '900' });
-  assert.ok(bare.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Test\n'));
-});
-
-test('58: an upload that fails is non-fatal — the status write already landed', async () => {
-  const broke = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
-  assert.equal(await broke.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(broke.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
-  ]);
-
-  const silent = load({ reply: recorded, upload: () => ({}) });
-  assert.equal(await silent.fn.uploadEvidenceLog({ id: '900' }), '');
-  assert.deepEqual(silent.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (upload returned no url)", error: true },
-  ]);
-  // A landing upload says nothing at all: the sentence is the failure's, not the flow's.
-  const ok = load({ reply: recorded });
-  assert.equal(await ok.fn.uploadEvidenceLog({ id: '900' }), UPLOADED);
-  assert.deepEqual(ok.calls.toasts, []);
-});
-
-test('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
-  const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
-  await h.fn.uploadEvidenceLog({ id: '900' });
-  // The status write landed and the evidence did not — the sentence saying so used to look
-  // exactly like the sentences that mean everything went fine.
-  assert.deepEqual(h.calls.toasts, [
-    { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
-  ]);
-  // Those sentences are still unflagged: the upload that landed says nothing at all…
-  const ok = load({ reply: recorded });
-  await ok.fn.uploadEvidenceLog({ id: '900' });
-  assert.deepEqual(ok.calls.toasts, []);
-  // …and the one confirmation this screen does print stays a confirmation.
-  const attached = load();
-  attached.fn.attachEvidenceEntry(con());
-  assert.deepEqual(attached.calls.toasts, [{ msg: ATTACHED }]);
-});
-
-// #107: the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here. This
-// window cannot be parked with the entry — up to 1000 entries carrying a 16KB body each, against
-// storage.local's 10MB — so the two rows below are why the replay path skips this function outright.
-test('59 (#107): the log is the recorder\'s window NOW, whatever the record it is handed carries', async () => {
-  const atFailTime = [con({ text: 'the error the tester saw' })];
-  const rightNow = [con({ text: 'an unrelated page open at replay time' })];
-  const h = load({ reply: (m) => {
-    if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
-    if (m.type === 'EVIDENCE_SNAPSHOT') return { ok: true, entries: rightNow, status: { windowSec: 60 } };
-    return { ok: true, status: { recording: false } };
-  } });
-  await h.fn.uploadEvidenceLog({ id: '900', test_title: 'T', queuedAt: NOW - 3_600_000, entries: atFailTime });
-  const txt = h.calls.uploads[0].blob.text;
-  assert.ok(txt.includes('an unrelated page open at replay time'), txt);
-  assert.ok(!txt.includes('the error the tester saw'), txt);
-});
-
-test('59b (#107): and hours later the recorder is usually stopped, so a replay would attach nothing', async () => {
-  const idle = load({ reply: () => ({ ok: true, status: { recording: false } }) });
-  assert.equal(await idle.fn.uploadEvidenceLog({ id: '900', test_title: 'T' }), '');
-  assert.deepEqual(idle.calls.uploads, []);
-  assert.deepEqual(idle.calls.toasts, []); // silent: the missing key is not a failure to report here
 });
 
 // ---------- wiring, messaging and the card (rows 60-64) ----------

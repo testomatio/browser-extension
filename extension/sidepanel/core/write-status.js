@@ -7,11 +7,11 @@
 // CALLER rolls back: this returns what the server said, or `{queued, reason}` when the failure
 // was one the queue takes, and throws anything else.
 //
-// `uploadEvidenceLog` lives in screens/evidence.js, so this core does reach into a screen. That
-// edge is smaller than the one it replaces and is left alone deliberately.
+// `EvidenceUpload.log` lives in screens/evidence-upload.js, so this core does reach into a screen.
+// That edge is smaller than the one it replaces and is left alone deliberately.
 
 /* global TestomatAPI, OfflineQueue, CommentDrafts, state, recordFor, recordWriteLock,
-   collectEnvMeta, uploadEvidenceLog, syncBeginWrite, syncEndWrite */
+   collectEnvMeta, EvidenceUpload, syncBeginWrite, syncEndWrite */
 
 const WriteCore = (() => {
   // Runs AFTER the status write (#116): the meta keys hang off an id a not-yet-graded
@@ -29,7 +29,7 @@ const WriteCore = (() => {
     // The two toggles are independent: env-info OFF still lets the log key through. The recorder's
     // window is not parked with the entry, so a replay attaches no log.
     if (status === 'failed' && !opts.replay) {
-      const url = await uploadEvidenceLog(record);
+      const url = await EvidenceUpload.log(record);
       if (url) entries.push(['Console & network log', url]);
     }
     if (!entries.length) return;

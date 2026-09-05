@@ -264,7 +264,7 @@ test('15: nothing captured is still a readable file — both sections say (none)
 test('15 (#269): a snapshot with no window still writes a number into the uploaded .txt', () => {
   const h = load();
   const win = (txt) => txt.split('\n').find((l) => l.startsWith('Window:'));
-  // uploadEvidenceLog hands evBuildTxt `snap.status || {}`, so this is a shape it really gets.
+  // EvidenceUpload.log hands buildTxt `snap.status || {}`, so this is a shape it really gets.
   // Was: 'Window: last undefineds · 0 entries · …', in a file uploaded onto the result.
   assert.match(win(h.f.buildTxt('Run A', 'Test B', [], {})), /^Window: last \d+s · 0 entries · /);
   // The stand-in is the panel's own kept window, not a figure invented for the header.

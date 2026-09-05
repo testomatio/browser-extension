@@ -59,7 +59,7 @@ function load(opts = {}) {
     remove: async () => false,
     forcedError: () => null,
     collectEnvMeta: async () => [],
-    uploadEvidenceLog: async () => '',
+    evidenceLog: async () => '',
     setTestrunMeta: async () => undefined,
   };
 
@@ -75,7 +75,7 @@ function load(opts = {}) {
     syncEndWrite: () => { calls.endWrites += 1; calls.order.push('endWrite'); },
     CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },
     collectEnvMeta: async (settings) => { calls.envMeta.push(plain(settings)); return on.collectEnvMeta(); },
-    uploadEvidenceLog: async (record) => { calls.logUploads.push(record?.id); return on.uploadEvidenceLog(record); },
+    EvidenceUpload: { log: async (record) => { calls.logUploads.push(record?.id); return on.evidenceLog(record); } },
     TestomatAPI: {
       ApiError,
       jwtAvailable: () => o.jwtAvailable,
@@ -242,7 +242,7 @@ test('82: livesync is paused and released exactly once on every path', async () 
 test('83: a failed result carries the environment AND the log, in that order', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  h.on.evidenceLog = async () => 'https://files.test/log.txt';
   await h.fn.writeEnvMeta(h.state.records[0], 'failed');
   assert.deepEqual(h.calls.meta, [{
     id: 7,
@@ -253,7 +253,7 @@ test('83: a failed result carries the environment AND the log, in that order', a
 test('83b: a passed result never uploads a log', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  h.on.evidenceLog = async () => 'https://files.test/log.txt';
   await h.fn.writeEnvMeta(h.state.records[0], 'passed');
   assert.deepEqual(h.calls.logUploads, []);
   assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['URL', 'https://shop.test/cart']] }]);
@@ -307,7 +307,7 @@ test('86: nothing to say is no request — both toggles off is the common case',
 test('86b: …and the log alone is still worth a request when env-info is off', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  h.on.evidenceLog = async () => 'https://files.test/log.txt';
   await h.fn.writeEnvMeta(h.state.records[0], 'failed');
   assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['Console & network log', 'https://files.test/log.txt']] }]);
 });
@@ -320,7 +320,7 @@ test('86b: …and the log alone is still worth a request when env-info is off', 
 test('87 (#107): a replay writes the environment PARKED with the entry, not the tab open now', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [['URL', 'https://unrelated.test/inbox']]; // where the tester is now
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  h.on.evidenceLog = async () => 'https://files.test/log.txt';
   await h.fn.writeEnvMeta({ id: 42 }, 'failed', {
     replay: true, envMeta: [['URL', 'https://shop.test/cart'], ['Viewport', '1280×720']],
   });
@@ -358,7 +358,7 @@ test('87c (#107): an entry from an older build has no snapshot, so it writes no 
 test('87d (#107): the NORMAL write is untouched — it still collects fresh and still uploads its log', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
-  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  h.on.evidenceLog = async () => 'https://files.test/log.txt';
   await h.fn.writeStatus(h.state.records[0], 'failed', 'card declined', null);
   await settle();
   assert.deepEqual(h.calls.envMeta, [{ baseUrl: 'https://app.testomat.io' }]);
