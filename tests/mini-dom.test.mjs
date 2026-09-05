@@ -485,14 +485,11 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
   // Real too, and free to be: core/suite-tree.js decides the order these rows come out in and
   // takes no stub of its own — a bare `{}` is the whole sandbox it needs.
   const treeSrc = readFileSync(join(repoRoot, 'extension/sidepanel/core/suite-tree.js'), 'utf8');
-  const sandbox = {
+  // Real as well: the folder row below wears the Suite/Folder pair this module builds, and the row
+  // order it is drawn in reads the id array this module owns (#196).
+  const createSrc = readFileSync(join(repoRoot, 'extension/sidepanel/screens/tc-suite-create.js'), 'utf8');
+  const drawing = {
     document: doc,
-    Roving: runInNewContext(`${rovingSrc}\nRoving`, {}),
-    SuiteTree: runInNewContext(`${treeSrc}\nSuiteTree`, {}),
-    state: { tcExpanded: {}, tcTreeSearch: '', settings: {} },
-    $: (id) => doc.getElementById(id),
-    setTabCount: () => {},
-    EmptyState: { build: () => el('li', { className: 'empty-state' }) },
     Tooltip: { set: () => {} },
     StatusIcons: {
       svgIcon: (name) => el('span', { className: `icon icon-${name}` }),
@@ -502,6 +499,16 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
       FOLDER: 'tree_folder',
       FILE: 'tree_suite',
     },
+  };
+  const sandbox = {
+    ...drawing,
+    Roving: runInNewContext(`${rovingSrc}\nRoving`, {}),
+    SuiteTree: runInNewContext(`${treeSrc}\nSuiteTree`, {}),
+    TcSuiteCreate: runInNewContext(`${createSrc}\nTcSuiteCreate`, { ...drawing }),
+    state: { tcExpanded: {}, tcTreeSearch: '', settings: {} },
+    $: (id) => doc.getElementById(id),
+    setTabCount: () => {},
+    EmptyState: { build: () => el('li', { className: 'empty-state' }) },
   };
   const { renderSuiteTreeInto } = runInNewContext(`${source}\n({ renderSuiteTreeInto })`, sandbox);
 

@@ -2,7 +2,7 @@
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
-   RunLock, RunInfo, TcQuickBar */
+   RunLock, RunInfo, TcQuickBar, TcSuiteCreate */
 
 // ---------- init ----------
 
@@ -19,8 +19,8 @@ async function init() {
   $('tab-runs').addEventListener('click', () => switchTab('runs'));
   $('tab-settings').addEventListener('click', () => switchTab('settings'));
   $('tc-add-test-root').addEventListener('click', openTestSuitePicker); // + New test → suite picker → editor
-  $('tc-add-suite-root').addEventListener('click', () => openRootSuiteInput('file'));
-  $('tc-add-folder-root').addEventListener('click', () => openRootSuiteInput('folder'));
+  $('tc-add-suite-root').addEventListener('click', () => TcSuiteCreate.openRoot('file'));
+  $('tc-add-folder-root').addEventListener('click', () => TcSuiteCreate.openRoot('folder'));
   $('tc-list-new').addEventListener('click', () => {
     if (state.tcSuiteId) {
       openEditor({ suite: state.tcSuiteId, suiteId: state.tcSuiteId, suiteTitle: state.tcSuiteTitle });
