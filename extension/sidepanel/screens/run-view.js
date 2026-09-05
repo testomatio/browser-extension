@@ -1,8 +1,8 @@
 // Run view: the run tests list with progress, status chips, search, suite
 // sections, the Finish run button, and the run session probe.
 
-/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   Fmt, CommentDrafts, WriteCore, byRecordId, Roving, StatusIcons, RunLock */
+/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons,
+   CommentDrafts, WriteCore, byRecordId, Roving, StatusIcons, RunLock, RunInfo */
 
 // ---------- run view ----------
 
@@ -72,7 +72,7 @@ async function openRunView(runId, title) {
       state.runTitle = detail.clean_title || detail.title || state.runTitle;
       state.runStatus = detail.status || null; // 'running' while unfinished; terminal after finish
       state.runKind = detail.kind || null;     // v2 run detail carries `kind`
-      state.runInfo = runInfoFromDetail(detail);
+      state.runInfo = RunInfo.fromDetail(detail);
     }
     // Merged OVER the v2 base, the order the probe applied these in when it was the
     // one reading them (#112). null whenever the read was not part of the batch.
@@ -100,7 +100,7 @@ async function openRunView(runId, title) {
       Skeleton.hide(sk);
       // The card painted while the placeholder held it hidden, and both Run info measures
       // need layout to read — so they are taken again now that it is back on screen.
-      paintRunInfo();
+      RunInfo.paint();
     }
   }
 }
@@ -135,7 +135,7 @@ async function probeRunSession(runId, { infoRead = false } = {}) {
   if (state.runId !== runId) return;
   // Row marks are JWT-gated, so the first (pre-probe) paint carried none (#109/#52).
   if ((gotExamples || state.records.some((r) => r.substatus)) && state.view === 'run') renderRunSections();
-  if (!infoRead && await refreshRunInfo(runId)) { paintRunProgress(); renderRunInfo(); RunLock.applyRunLock(); }
+  if (!infoRead && await refreshRunInfo(runId)) { paintRunProgress(); RunInfo.render(); RunLock.applyRunLock(); }
   if (state.runId !== runId) return;
   probeRunAssignees(runId); // detached — see above
 }
@@ -144,7 +144,7 @@ async function probeRunSession(runId, { infoRead = false } = {}) {
 // read is unconditional (#200): the viewer's profile timezone rides the same record.
 async function probeRunAssignees(runId) {
   await loadProjectUsers();
-  if (state.runId === runId && state.view === 'run') { renderRunSections(); renderRunInfo(); }
+  if (state.runId === runId && state.view === 'run') { renderRunSections(); RunInfo.render(); }
 }
 
 // One JSON:API read for both the counters (#109) and the four Run info fields v2
@@ -183,7 +183,7 @@ async function refreshRunFinished(runId) {
     const detail = await TestomatAPI.getRun(runId);
     if (!detail || state.runId !== runId) return;
     state.runStatus = detail.status || null;
-    applyRunInfo(runInfoFromDetail(detail)); // the v2 half of Run info rides along
+    applyRunInfo(RunInfo.fromDetail(detail)); // the v2 half of Run info rides along
   } catch { /* keep what we had */ }
 }
 
@@ -317,314 +317,6 @@ function renderRunHeader() {
   // NOT `show('run')`, which is a view SWITCH: a poll tick or a late fetch would
   // throw the tester out of the test they were reading (#215).
   refreshContextBar();
-}
-
-// ---- Run info (#112) ----
-// Two sources, no extra fetch: Status/Tests/Created/Description ride the v2 detail
-// (so they survive basic mode); Duration/Executed/Started/Build URL are JWT-only.
-
-// Open by default; the toggle persists the choice (core/storage.js, restored at
-// boot). Only an explicit close reads as closed, so a profile predating the key opens.
-let runInfoOpen = true;
-
-// The v2 half of the fields. Kept verbatim; formatting/skipping happens at render.
-function runInfoFromDetail(detail) {
-  const info = {
-    status: detail.status || null,
-    // v2 show merges response_test_counts — `total_tests` is the authoritative
-    // count there (`tests_count` is the pre-merge value on the same payload).
-    testsCount: Number(detail.total_tests ?? detail.tests_count),
-    createdAt: detail.created_at || null,
-    description: typeof detail.description === 'string' ? detail.description.trim() : '',
-  };
-  // The spellings seen first, then any key that MEANS the same thing; a key that
-  // says nothing is left off — never written as null over what a read already found.
-  const executedBy = UserCell.normalize(detail.executed_by ?? detail.launched_by ?? detail.user)
-    || flatPeople(detail, /^(executed|launched|started|ran)(_by)?$/)[0];
-  const createdBy = UserCell.normalize(detail.created_by ?? detail.author ?? detail.owner)
-    || flatPeople(detail, /^(created_by|creator|author|owner)$/)[0];
-  const assignees = flatPeople(detail, /assign/);
-  if (executedBy) info.executedBy = executedBy;
-  if (createdBy) info.createdBy = createdBy;
-  if (assignees.length) info.assignees = assignees;
-  // Both are v2's own fields (`to_response_hash` serves env + plans, verified live),
-  // so they survive basic mode. Written only when the payload said something.
-  const envs = envList(detail.env);
-  const plans = planList(detail.plans ?? detail.plan ?? detail.test_plans ?? detail.test_plan);
-  if (envs.length) info.envs = envs;
-  if (plans.length) info.plans = plans;
-  return info;
-}
-
-// v2 sends env as an array on some routes and as one comma-joined string on others.
-function envList(env) {
-  const raw = Array.isArray(env) ? env : String(env ?? '').split(',');
-  return raw.map((one) => String(one ?? '').trim()).filter(Boolean);
-}
-
-// Nothing pins the plan shape on the flat payload — a title, a record, or a bare
-// id — so an entry that does not NAME a plan contributes nothing, not "4831".
-function planList(plans) {
-  const out = [];
-  for (const one of Array.isArray(plans) ? plans : (plans == null ? [] : [plans])) {
-    const title = typeof one === 'string' ? one.trim()
-      : String(one?.title || one?.clean_title || one?.name || '').trim();
-    if (title) out.push(title);
-  }
-  return out;
-}
-
-// A matching key counts only if what it holds is person-shaped: `assignee_ids: [3,7]`
-// contributes nobody, and "assign_mode": "none" is a setting, not a tester called none.
-const FLAT_SETTING_KEY = /(strategy|mode|policy|method|kind|type|option|enabled|state|status|auto|allow)/i;
-const FLAT_NOBODY = /^(none|nobody|no[-_\s]?one|unassigned|not[-_\s]?assigned|n\/?a|null|nil|false|true|any|all|auto|everyone|manual)$/i;
-function flatPeople(obj, pattern) {
-  const out = [];
-  for (const [key, value] of Object.entries(obj || {})) {
-    if (!pattern.test(key) || /(^|_)ids?$|count/i.test(key)) continue;
-    if (FLAT_SETTING_KEY.test(key)) continue;
-    for (const one of Array.isArray(value) ? value : [value]) {
-      const u = UserCell.normalize(one);
-      if (!u) continue;
-      if (!u.email && !/\p{L}/u.test(u.name)) continue;
-      if (!u.email && FLAT_NOBODY.test(u.name.trim())) continue;
-      out.push(u);
-    }
-  }
-  return out;
-}
-
-// Web parity (#200): the ACCOUNT PROFILE timezone, not the machine's. `lll` is
-// `MMM D, YYYY h:mm A` — en-US adds a comma before the hour, so parts are assembled.
-function formatTimeIn(iso, timeZone) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const opts = { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true };
-  let parts;
-  try {
-    parts = new Intl.DateTimeFormat('en-US', timeZone ? { ...opts, timeZone } : opts).formatToParts(d);
-  } catch { parts = new Intl.DateTimeFormat('en-US', opts).formatToParts(d); }
-  const p = {};
-  for (const part of parts) p[part.type] = part.value;
-  return `${p.month} ${p.day}, ${p.year} ${p.hour}:${p.minute} ${p.dayPeriod}`;
-}
-
-// null on an absent or unparseable value, which drops the whole row.
-function runInfoTime(iso) {
-  if (!iso) return null;
-  const text = formatTimeIn(iso, viewerTimezone());
-  if (!text) return null;
-  const span = document.createElement('span');
-  span.className = 'run-info-time';
-  span.dataset.time = iso; // the raw stamp, zone- and locale-free
-  Tooltip.set(span, iso);
-  span.textContent = text;
-  return span;
-}
-
-// Only http(s): the value is server data, and `javascript:` is the hole an href must not open.
-function ciBuildLink(url) {
-  const raw = typeof url === 'string' ? url.trim() : '';
-  if (!/^https?:\/\//i.test(raw)) return null;
-  const a = document.createElement('a');
-  a.className = 'run-info-link';
-  a.href = raw;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  Tooltip.set(a, raw);       // the raw URL is a tooltip, never the label (#112)
-  a.append('Open CI build ', StatusIcons.svgIcon('open_in_new', 14, 'link-out-icon'));
-  return a;
-}
-
-// The whole string rides the tooltip: a pill too long for the panel is cut, not widened.
-function runInfoTags(list) {
-  if (!list.length) return null;
-  const box = document.createElement('span');
-  box.className = 'env-tags';
-  for (const name of list) {
-    const pill = document.createElement('span');
-    pill.className = 'badge env';
-    pill.textContent = name;
-    Tooltip.set(pill, name);
-    box.append(pill);
-  }
-  return box;
-}
-
-function runInfoStatus(status) {
-  const span = document.createElement('span');
-  span.className = 'status-text';
-  span.dataset.status = StatusIcons.normStatus(status);
-  span.append(StatusIcons.statusIcon(status));
-  const label = document.createElement('span');
-  label.textContent = status;
-  span.append(label);
-  return span;
-}
-
-// Resolved through the project's members: only that read carries the AVATAR (the
-// run payload names people, it does not describe them). What the payload said wins.
-function runInfoUser(person) {
-  const u = UserCell.normalize(person);
-  if (!u) return null;
-  const member = u.email ? assigneeUser(u.email) : null;
-  return UserCell.cell({
-    name: u.name || member?.name || assigneeName(u.email),
-    email: u.email || member?.email || '',
-    avatar: u.avatar || member?.avatar || '',
-  });
-}
-
-// The union of both places the answer lives: a run can be handed to a tester who
-// holds no row, and a row to somebody the run itself never named. Keyed by address.
-function runInfoAssignees() {
-  const people = [...(state.runInfo?.assignees || []), ...state.records.map((r) => r.assigned_to)];
-  const seen = new Set();
-  const cells = [];
-  for (const person of people) {
-    const u = UserCell.normalize(person);
-    if (!u) continue;
-    const key = (u.email || u.name).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const cell = runInfoUser(u);
-    if (cell) cells.push(cell);
-  }
-  if (cells.length === 0) return null;
-  const box = document.createElement('span');
-  box.className = 'user-cells';
-  box.append(...cells);
-  return box;
-}
-
-// A MEASUREMENT, not a head count (the panel is resizable): the list wraps, so a
-// box taller than one of its cells is one that did not fit. Needs a VISIBLE body.
-function measureRunInfoPeople() {
-  const body = $('run-info-body');
-  if (!body || body.hidden) return;
-  for (const box of body.querySelectorAll('.user-cells:not(.is-stacked)')) {
-    const first = box.firstElementChild;
-    if (!first) continue;
-    if (box.getBoundingClientRect().height > first.getBoundingClientRect().height + 1) {
-      box.classList.add('is-stacked');
-    }
-  }
-}
-
-// #159: a reporter can write a whole session report here, so the value renders clamped.
-function runInfoDescription(text) {
-  const el = document.createElement('div');
-  el.className = 'run-info-desc-text is-clamped';
-  el.textContent = text;
-  return el;
-}
-
-function runInfoDescExpander(text) {
-  const more = document.createElement('button');
-  more.type = 'button';
-  more.className = 'link-btn run-info-desc-more';
-  more.textContent = 'Show more';
-  more.setAttribute('aria-expanded', 'false');
-  more.addEventListener('click', () => {
-    const clamped = text.classList.toggle('is-clamped');
-    more.textContent = clamped ? 'Show more' : 'Show less';
-    more.setAttribute('aria-expanded', clamped ? 'false' : 'true');
-  });
-  return more;
-}
-
-// Needs the section open — a hidden body has no layout to measure.
-function measureRunInfoDesc() {
-  const body = $('run-info-body');
-  if (!body || body.hidden) return;
-  const text = body.querySelector('.run-info-desc-text');
-  if (!text || !text.classList.contains('is-clamped')) return;
-  if (text.scrollHeight <= text.clientHeight + 1) return; // sub-pixel line heights
-  if (!text.parentElement.querySelector('.run-info-desc-more')) {
-    text.after(runInfoDescExpander(text));
-  }
-}
-
-// Ordered [label, value] pairs; a null/empty value drops its row entirely.
-function runInfoRows() {
-  const info = state.runInfo || {};
-  const started = runInfoTime(info.launchedAt);
-  const finished = runInfoTime(info.finishedAt);
-  const rows = [];
-  if (info.status) rows.push(['Status', runInfoStatus(info.status)]);
-  // Duration is SECONDS here (RunSerializer), ms in Fmt.humanDuration; 0 while unfinished.
-  if (info.duration > 0) rows.push(['Duration', Fmt.humanDuration(info.duration * 1000)]);
-  // Never below the checklist: the server's count trails the rows after a run is created.
-  const tests = Math.max(Number(info.testsCount) || 0, state.records.length);
-  if (tests > 0) rows.push(['Tests', String(tests)]);
-  // The web's own order: Environment then Test plan, under Tests.
-  const envs = runInfoTags(info.envs || []);
-  if (envs) rows.push(['Environment', envs]);
-  if (info.plans && info.plans.length) rows.push(['Test plan', info.plans.join(', ')]);
-  // Web parity: a finished run shows the executed span, a live one just its start.
-  if (started && finished) {
-    const span = document.createDocumentFragment();
-    // Bare glyph: the row is a flex line (`.kv.rows`), so the gap is the cell's own.
-    span.append(started, '→', finished);
-    rows.push(['Executed', span]);
-  } else if (started) {
-    rows.push(['Started', started]);
-  }
-  const executedBy = runInfoUser(info.executedBy);
-  if (executedBy) rows.push(['Executed by', executedBy]);
-  const assignees = runInfoAssignees();
-  if (assignees) rows.push(['Assigned to', assignees]);
-  const link = ciBuildLink(info.ciBuildUrl);
-  if (link) rows.push(['Build URL', link]);
-  // One row — the web's "Created by <person>, <date>"; nobody named → the date alone.
-  const created = runInfoTime(info.createdAt);
-  const createdBy = runInfoUser(info.createdBy);
-  if (createdBy) {
-    const made = document.createDocumentFragment();
-    made.append(createdBy);
-    if (created) made.append(created);
-    rows.push(['Created by', made]);
-  } else if (created) {
-    rows.push(['Created', created]);
-  }
-  if (info.description) rows.push(['Description', runInfoDescription(info.description)]);
-  return rows;
-}
-
-function renderRunInfo() {
-  const box = $('run-info');
-  const body = $('run-info-body');
-  if (!box || !body) return;
-  paintRunState(); // the same fields feed the card's status pill — repaint together
-  const rows = runInfoRows();
-  box.hidden = rows.length === 0; // nothing read (meta failed) → no empty section
-  body.replaceChildren();
-  for (const [label, value] of rows) {
-    const dt = document.createElement('dt');
-    dt.textContent = label;
-    const dd = document.createElement('dd');
-    if (typeof value === 'string') dd.textContent = value;
-    else dd.append(value);
-    if (label === 'Description') dd.classList.add('run-info-desc');
-    body.append(dt, dd);
-  }
-  paintRunInfo();
-}
-
-function paintRunInfo() {
-  const head = $('run-info-head');
-  const body = $('run-info-body');
-  if (head) head.setAttribute('aria-expanded', runInfoOpen ? 'true' : 'false');
-  if (body) body.hidden = !runInfoOpen;
-  // Both measures need a VISIBLE body — a hidden one has no layout to read.
-  measureRunInfoPeople();
-  measureRunInfoDesc();
-}
-
-function toggleRunInfo() {
-  runInfoOpen = !runInfoOpen;
-  paintRunInfo();
-  persistSession(); // the user's choice outlives this panel (#112)
 }
 
 function renderTestProgress() {
@@ -1161,7 +853,7 @@ function renderRunSections() {
 
 function renderRunView() {
   renderRunHeader();
-  renderRunInfo();
+  RunInfo.render();
   renderRunFilterChips();
   syncRunSearch();
   renderRunSections();

@@ -738,8 +738,8 @@ test('140: a refusal is remembered as a refusal, and the raw row keeps the link 
 
 // ===================== links, the viewer and the tiles (rows 141-146, 159) =====================
 
-// 141: the url is server data, so it is resolved and then checked — the same rule ciBuildLink
-// (run-view.js:582-585) applies to the same kind of value on the same kind of element.
+// 141: the url is server data, so it is resolved and then checked — the same rule
+// RunInfo.ciBuildLink (screens/run-info.js) applies to the same kind of value on the same element.
 test('141: an attachment url that is not http(s) never becomes an href', () => {
   const h = load();
   const link = h.mod.attachmentLink({ name: 'a', url: 'javascript:alert(1)' });

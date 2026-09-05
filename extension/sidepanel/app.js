@@ -2,7 +2,7 @@
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
-   RunLock */
+   RunLock, RunInfo */
 
 // ---------- init ----------
 
@@ -88,7 +88,7 @@ async function init() {
   // Full-page capture checkbox: persisted, and mirrored wherever else it shows.
   $('fullpage-test').addEventListener('change', (e) => TestGates.setFullPageCapture(e.target.checked));
   $('btn-finish-run').addEventListener('click', RunLock.finishRun);
-  $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
+  $('run-info-head').addEventListener('click', RunInfo.toggle); // Run info disclosure (#112)
   TestMeta.initSubstatus();
   TestMeta.initAssignee();
   $('attachments-head').addEventListener('click', TestGates.toggleAttachmentsDisclosure);
@@ -149,7 +149,7 @@ async function init() {
   state.expandedGroups = Array.isArray(session?.expandedGroups) ? session.expandedGroups : [];
   state.runsFilter = FILTER_KEYS.has(session?.runsFilter) ? session.runsFilter : 'all';
   // Open unless this user closed it — no key (old session, fresh profile) means the default, open.
-  runInfoOpen = session?.runInfoOpen !== false;
+  RunInfo.open = session?.runInfoOpen !== false;
   state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
 
   // The host's run, then a "Run in Extension" click — both outrank the editor breadcrumb and the

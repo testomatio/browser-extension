@@ -121,7 +121,9 @@ function load(opts = {}) {
     renderRunFilterChips: () => { calls.renderRunFilterChips += 1; },
     renderRunView: () => { calls.renderRunView += 1; },
     renderTestProgress: () => { calls.renderTestProgress += 1; },
-    renderRunInfo: () => { calls.renderRunInfo += 1; },
+    // A recorder, not the real screens/run-info.js: these rows are about the poll ASKING for a
+    // repaint. What the card then prints is tests/run-info.test.mjs's (#194).
+    RunInfo: { render: () => { calls.renderRunInfo += 1; } },
     RunLock: { applyRunLock: () => { calls.applyRunLock += 1; } },
     // #153's gate moved to screens/test-meta.js; livesync only asks it to re-run after a
     // colleague's write, so the stub records the ask and tests/test-meta.test.mjs owns the rule.

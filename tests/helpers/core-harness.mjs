@@ -22,8 +22,10 @@
 
 // TRAPS. `startReadonlyWatch` arms a 60 s interval, so the timers here are fakes and h.tick() is
 // what advances them; a real one keeps the node test process alive. `persistSession` is
-// fire-and-forget, so await settle() before reading the recorded write. `runInfoOpen` belongs to
-// screens/run-view.js and must be a sandbox property — a sandbox without it throws by design.
+// fire-and-forget, so await settle() before reading the recorded write. The session's
+// `runInfoOpen` key is read off `RunInfo.open`, which belongs to screens/run-info.js: storage.js is
+// a CORE file reaching FORWARD into a screen, so the real module is evaluated ahead of it here —
+// a context without it throws by design, which is what `withRunInfo: false` reproduces.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,8 +35,10 @@ import { makeDocument } from './mini-dom.mjs';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 // CORE_SRC points the whole suite at a mutated COPY of the core directory, so a falsification run
-// never has to edit the shipped files and risk leaving them edited.
+// never has to edit the shipped files and risk leaving them edited. SCREENS_SRC is the same knob
+// for the one screen a core file reaches forward into, spelled as panel-harness.mjs spells it.
 export const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
+export const SCREENS_SRC = process.env.SCREENS_SRC || join(repoRoot, 'extension/sidepanel/screens');
 
 const DEFAULT_MODULES = {
   state: join(CORE_SRC, 'state.js'),
@@ -248,27 +252,34 @@ export function loadState(opts = {}) {
 // state.js first, storage.js second — index.html's order, and the only way storage.js sees the real
 // `state`/`hasChrome`/`hostOf` instead of hand-written copies of them.
 export function loadStorage(opts = {}) {
-  const { hasChrome = true, runInfoOpen = true, withRunInfoOpen = true } = opts;
+  const { hasChrome = true, runInfoOpen = true, withRunInfo = true } = opts;
   const store = opts.store || fakeStorage(opts.seed);
   const api = apiStub(opts.api || {});
   const sandbox = { console, URL, TestomatAPI: api.api, document: makeDocument([]) };
   if (hasChrome) sandbox.chrome = store.chrome;
-  // Row 17 wants a sandbox that GENUINELY lacks it, not one where it is undefined.
-  if (withRunInfoOpen) sandbox.runInfoOpen = runInfoOpen;
 
   const context = createContext(sandbox);
   const stateFile = CORE_MODULES.state;
   const shared = runInContext(`${sourceOf(stateFile)}\n({ state, hasChrome, hostOf })`, context,
     { filename: stateFile });
+  // The REAL screens/run-info.js, so the disclosure's default and its accessor are the shipped
+  // ones. Row 17 wants a context that GENUINELY lacks it, not one where it is undefined.
+  let RunInfo = null;
+  if (withRunInfo) {
+    const infoFile = join(SCREENS_SRC, 'run-info.js');
+    RunInfo = runInContext(`${sourceOf(infoFile)}\nRunInfo;`, context, { filename: infoFile });
+    RunInfo.open = runInfoOpen;
+  }
   const storageFile = CORE_MODULES.storage;
   runInContext(sourceOf(storageFile), context, { filename: storageFile });
 
   return {
     ...shared,
     fn: sandbox,          // loadStored, migrateHostSettings, dropAiApiKey, dropOnboardingState, persistSession
-    sandbox, store, api,
-    // The script reads `runInfoOpen` as a free variable, so the sandbox property is what it sees.
-    setRunInfoOpen: (v) => { sandbox.runInfoOpen = v; },
+    sandbox, store, api, RunInfo,
+    // `RunInfo` is a lexical const of this context, never a sandbox property — the same seam
+    // index.html gives storage.js, which reads it as a free variable.
+    setRunInfoOpen: (v) => { RunInfo.open = v; },
     settle,
   };
 }
