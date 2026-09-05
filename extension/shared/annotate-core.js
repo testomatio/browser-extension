@@ -1,7 +1,7 @@
 // Annotator core: the DOM-agnostic toolbar + canvas engine behind editor/annotate.js and
 // overlay/annotate-overlay.js — it knows nothing of chrome.storage, tabs or shadow roots.
 
-/* global chrome, AnnotGeometry, Icons, Tooltip */
+/* global chrome, AnnotGeometry, AnnotHistory, Icons, Tooltip */
 window.AnnotateCore = (() => {
   'use strict';
 
@@ -31,7 +31,8 @@ window.AnnotateCore = (() => {
   const BLUR_R = 10;        // blur radius, same units
   const JPEG_Q = 0.85;
   const HIT_CSS = 8;        // select-tool grab tolerance, in CSS px (scaled to natural)
-  const HISTORY_MAX = 50;
+  // Read here, at load, so a host that forgot annot-history.js throws now, not on the first undo.
+  const HISTORY_MAX = AnnotHistory.HISTORY_MAX;
   const TEXT_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   const HL_ALPHA = 0.35;
   const HL_WIDTH = AnnotGeometry.HL_WIDTH;
@@ -95,8 +96,6 @@ window.AnnotateCore = (() => {
     let H = 0;
     let crop = null;          // {x, y, w, h} in ORIGINAL image coords
     const ops = [];           // vector list, in canvas (cropped) coords
-    const history = [];       // undo: {ops, crop} snapshots
-    const future = [];        // redo: the mirror stack
     let selected = null;      // index into ops
     let tool = 'arrow';
     let color = STROKE;
@@ -427,25 +426,21 @@ window.AnnotateCore = (() => {
     }
 
     // ---- history ----------------------------------------------------------
-    // Snapshots of {ops, crop} pushed BEFORE every mutation: ops.pop() would only undo
-    // an add, and a crop is not in ops at all. A fresh mutation clears the redo stack.
-    const copyOps = () => ops.map((o) => (o.pts ? { ...o, pts: o.pts.map((p) => ({ ...p })) } : { ...o }));
-    const snapshot = () => ({ ops: copyOps(), crop: { ...crop } });
-    function restore(snap) {
-      ops.splice(0, ops.length, ...snap.ops);
-      selected = null;
-      // The snapshot's ops are already in its crop coords — resize WITHOUT the shift.
-      resizeToCrop(snap.crop);
-    }
-    function pushHistory(snap) {
-      history.push(snap || snapshot());
-      if (history.length > HISTORY_MAX) history.shift();
-      future.length = 0;
-      syncHistoryBtns();
-    }
+    // The stack itself is AnnotHistory's; what stays here is the editor state it cannot see —
+    // the live ops array it splices, the crop in force, and the selection a restore drops.
+    const copyOps = () => AnnotHistory.copyOps(ops);
+    const hist = AnnotHistory.makeHistory({
+      ops,
+      getCrop: () => crop,
+      restoreCrop: (next) => { selected = null; resizeToCrop(next); },
+      onChange: () => syncHistoryBtns(),
+      max: HISTORY_MAX,
+    });
+    const snapshot = () => hist.snapshot();
+    const pushHistory = (snap) => hist.push(snap);
     function syncHistoryBtns() {
-      if (undoBtn) undoBtn.disabled = !history.length;
-      if (redoBtn) redoBtn.disabled = !future.length;
+      if (undoBtn) undoBtn.disabled = !hist.canUndo();
+      if (redoBtn) redoBtn.disabled = !hist.canRedo();
       if (deleteBtn) deleteBtn.disabled = selected == null;
     }
 
@@ -825,19 +820,6 @@ window.AnnotateCore = (() => {
       restyleSelected();
     }
 
-    function undo() {
-      if (!history.length) return;
-      future.push(snapshot());
-      restore(history.pop());
-      syncHistoryBtns();
-    }
-    function redo() {
-      if (!future.length) return;
-      history.push(snapshot());
-      restore(future.pop());
-      syncHistoryBtns();
-    }
-
     function deleteSelected() {
       if (selected == null || !ops[selected]) return false;
       pushHistory();
@@ -932,15 +914,15 @@ window.AnnotateCore = (() => {
       await onCancel();
     }
 
-    // Confirm only when work was actually done — a crop counts (history.length).
+    // Confirm only when work was actually done — a crop counts (there is something to undo).
     function requestDiscard() {
-      if ((ops.length || history.length) && !confirmDiscard()) return;
+      if ((ops.length || hist.canUndo()) && !confirmDiscard()) return;
       discardResult();
     }
 
     // Keeping the original is a loss too: it un-hides every blur, so it asks on the same trigger.
     function requestKeep() {
-      if ((ops.length || history.length) && !confirmKeep(ops.some((o) => o.tool === 'pixelate'))) return;
+      if ((ops.length || hist.canUndo()) && !confirmKeep(ops.some((o) => o.tool === 'pixelate'))) return;
       keepResult();
     }
 
@@ -1170,8 +1152,8 @@ window.AnnotateCore = (() => {
       wrap.append(bar, stage);
       mount.append(wrap);
 
-      undoBtn.addEventListener('click', undo);
-      redoBtn.addEventListener('click', redo);
+      undoBtn.addEventListener('click', hist.undo);
+      redoBtn.addEventListener('click', hist.redo);
       deleteBtn.addEventListener('click', deleteSelected);
       copyBtn.addEventListener('click', copyImage);
       saveBtn.addEventListener('click', downloadImage);
@@ -1211,8 +1193,8 @@ window.AnnotateCore = (() => {
         return;
       }
       if (mod && (e.key === 'Enter' || e.key === 'NumpadEnter')) { e.preventDefault(); applyResult(); return; }
-      if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); (e.shiftKey ? redo : undo)(); return; }
-      if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return; }
+      if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); (e.shiftKey ? hist.redo : hist.undo)(); return; }
+      if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); hist.redo(); return; }
       if (mod || e.altKey) return;   // every binding below is a bare key
       if ((e.key === 'Delete' || e.key === 'Backspace') && selected != null && !textInput) {
         e.preventDefault();
@@ -1274,8 +1256,8 @@ window.AnnotateCore = (() => {
         }
         render();
       },
-      undo,
-      redo,
+      undo: hist.undo,
+      redo: hist.redo,
       // Returns the index, or null for empty space (a deselecting click).
       select: (x, y) => {
         selected = AnnotGeometry.hitTest(ops, x, y, geoEnv());

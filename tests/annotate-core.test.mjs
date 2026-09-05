@@ -265,9 +265,9 @@ function load(over = {}) {
     console,
   };
   const context = createContext(sandbox);
-  // annot-geometry.js first, exactly as both hosts load it: the core reads two of its constants
-  // while it evaluates, and every box, grab and grip below comes out of it.
-  for (const rel of ['shared/annot-geometry.js', 'shared/annotate-core.js']) {
+  // annot-geometry.js and annot-history.js first, exactly as both hosts load them: the core reads a
+  // constant off each while it evaluates, and every box, grab, grip and undo below comes out of them.
+  for (const rel of ['shared/annot-geometry.js', 'shared/annot-history.js', 'shared/annotate-core.js']) {
     const path = sharedPath(rel);
     runInContext(sourceOf(path), context, { filename: path });
   }
@@ -597,6 +597,46 @@ test('AC17: a crop drag off the edge of the picture is clamped to the picture in
 
   assert.deepEqual(plain(h.hooks.crop()), { x: 100, y: 100, w: 200, h: 200 },
     'clamped to the CURRENT canvas, and composed onto the crop already in force');
+});
+
+// Drawing after an undo forks the history: what the tester undid is gone for good, and the Redo
+// arrow must say so. Without this the redone mark comes back on top of the one drawn instead of it.
+test('AC16b: drawing after an undo throws away what was undone, and greys out Redo', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 20, y2: 20 });
+  h.hooks.add({ tool: 'rect', x1: 30, y1: 30, x2: 40, y2: 40 });
+  h.hooks.undo();
+  h.hooks.add({ tool: 'ellipse', x1: 50, y1: 50, x2: 60, y2: 60 });
+
+  assert.equal(h.btn('annot-redo').disabled, true, 'there is nothing left to redo');
+  h.hooks.redo();
+  assert.deepEqual(h.ops().map((o) => o.tool), ['rect', 'ellipse'], 'the undone mark does not come back');
+});
+
+// Redo on a fresh editor is the reflex press of a tester who has drawn nothing yet.
+test('AC16c: Redo is greyed out and does nothing until something has been undone', () => {
+  const h = load();
+  assert.equal(h.btn('annot-redo').disabled, true);
+  h.hooks.redo();
+  assert.deepEqual(h.ops(), []);
+  h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 20, y2: 20 });
+  assert.equal(h.btn('annot-redo').disabled, true, 'drawing is not something to redo');
+  h.hooks.undo();
+  assert.equal(h.btn('annot-redo').disabled, false);
+  h.hooks.redo();
+  assert.equal(h.btn('annot-redo').disabled, true, 'and it is spent once it has been pressed');
+});
+
+// A snapshot has to own its points, not borrow them: moving the stroke afterwards would otherwise
+// drag the snapshot along, and Undo would put the stroke back exactly where it already is.
+test('AC18b: undoing a dragged pen stroke puts every one of its points back', () => {
+  const h = load();
+  h.hooks.add({ tool: 'pen', pts: [{ x: 10, y: 10 }, { x: 20, y: 20 }, { x: 30, y: 30 }] });
+  h.hooks.select(20, 20);
+  h.hooks.moveSelected(100, 5);
+
+  h.hooks.undo();
+  assert.deepEqual(plain(h.ops()[0].pts), [{ x: 10, y: 10 }, { x: 20, y: 20 }, { x: 30, y: 30 }]);
 });
 
 test('AC18: the undo stack stops at fifty steps, and the marks below it are stranded', () => {
