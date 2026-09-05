@@ -265,9 +265,10 @@ function load(over = {}) {
     console,
   };
   const context = createContext(sandbox);
-  // annot-geometry.js and annot-history.js first, exactly as both hosts load them: the core reads a
-  // constant off each while it evaluates, and every box, grab, grip and undo below comes out of them.
-  for (const rel of ['shared/annot-geometry.js', 'shared/annot-history.js', 'shared/annotate-core.js']) {
+  // annot-geometry.js, annot-history.js and annot-keys.js first, exactly as both hosts load them:
+  // the core reads something off each while it evaluates, and every box, grab, grip, undo and
+  // keystroke below comes out of them.
+  for (const rel of ['shared/annot-geometry.js', 'shared/annot-history.js', 'shared/annot-keys.js', 'shared/annotate-core.js']) {
     const path = sharedPath(rel);
     runInContext(sourceOf(path), context, { filename: path });
   }

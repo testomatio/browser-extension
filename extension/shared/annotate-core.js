@@ -1,7 +1,7 @@
 // Annotator core: the DOM-agnostic toolbar + canvas engine behind editor/annotate.js and
 // overlay/annotate-overlay.js — it knows nothing of chrome.storage, tabs or shadow roots.
 
-/* global chrome, AnnotGeometry, AnnotHistory, Icons, Tooltip */
+/* global chrome, AnnotGeometry, AnnotHistory, AnnotKeys, Icons, Tooltip */
 window.AnnotateCore = (() => {
   'use strict';
 
@@ -79,6 +79,8 @@ window.AnnotateCore = (() => {
   ];
   const INKED = new Set(['pen', 'arrow', 'line', 'rect', 'ellipse', 'highlight', 'text', 'number']);
   const FREEHAND = new Set(['pen', 'highlight']);
+  // Read here, at load, so a host that forgot annot-keys.js throws now, not on the first keystroke.
+  const keyAction = AnnotKeys.keyAction;
 
   function create(opts) {
     const doc = opts.doc || (opts.mount && opts.mount.ownerDocument) || document;
@@ -1181,39 +1183,35 @@ window.AnnotateCore = (() => {
 
     // ---- keyboard ---------------------------------------------------------
     // Nothing here fires while the text input owns the keyboard (its keydown stops it).
+    // AnnotKeys decides what the key means; the switch below is all that touches the editor.
     function onKey(e) {
-      const mod = e.metaKey || e.ctrlKey;
-      if (e.key === 'Escape') {
-        if (inkMenu && !inkMenu.hidden) { e.preventDefault(); e.stopPropagation(); closeInkMenu(true); return; }
-        if (!helpBox.hidden) { e.preventDefault(); e.stopPropagation(); toggleHelp(false); return; }
-        if (selected != null) { e.preventDefault(); e.stopPropagation(); selected = null; syncHistoryBtns(); render(); return; }
-        e.preventDefault();
-        // The reflex key must never attach an un-redacted shot, so it discards (asking first).
-        requestDiscard();
-        return;
+      const act = keyAction(e, {
+        inkOpen: !!(inkMenu && !inkMenu.hidden),
+        helpOpen: !helpBox.hidden,
+        selected,
+        textOpen: !!textInput,
+        weight,
+        palette: PALETTE,
+        tools: TOOLS,
+        weights: WEIGHTS,
+      });
+      if (!act) return;
+      if (act.preventDefault) e.preventDefault();
+      if (act.stopPropagation) e.stopPropagation();
+      switch (act.action) {
+        case 'closeInk': closeInkMenu(act.arg); break;
+        case 'help': toggleHelp(act.arg); break;
+        case 'deselect': selected = null; syncHistoryBtns(); render(); break;
+        case 'discard': requestDiscard(); break;
+        case 'apply': applyResult(); break;
+        case 'undo': hist.undo(); break;
+        case 'redo': hist.redo(); break;
+        case 'delete': deleteSelected(); break;
+        case 'weight': setWeight(act.arg); break;
+        case 'color': setColor(act.arg); break;
+        case 'tool': setTool(act.arg); break;
+        default: break;   // a claimed key with nothing behind it
       }
-      if (mod && (e.key === 'Enter' || e.key === 'NumpadEnter')) { e.preventDefault(); applyResult(); return; }
-      if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); (e.shiftKey ? hist.redo : hist.undo)(); return; }
-      if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); hist.redo(); return; }
-      if (mod || e.altKey) return;   // every binding below is a bare key
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected != null && !textInput) {
-        e.preventDefault();
-        deleteSelected();
-        return;
-      }
-      if (textInput) return;
-      if (e.key === '?') { e.preventDefault(); toggleHelp(); return; }
-      if (e.key === '[') { e.preventDefault(); stepWeight(-1); return; }
-      if (e.key === ']') { e.preventDefault(); stepWeight(1); return; }
-      const digit = Number(e.key);
-      if (digit >= 1 && digit <= PALETTE.length) { e.preventDefault(); setColor(PALETTE[digit - 1].hex); return; }
-      const spec = TOOLS.find((t) => t.key === e.key.toLowerCase());
-      if (spec) { e.preventDefault(); setTool(spec.id); }
-    }
-    function stepWeight(dir) {
-      const i = WEIGHTS.findIndex((s) => s.w === weight);
-      const next = WEIGHTS[Math.max(0, Math.min(WEIGHTS.length - 1, (i < 0 ? 1 : i) + dir))];
-      if (next) setWeight(next.w);
     }
 
     function fail(text) {
