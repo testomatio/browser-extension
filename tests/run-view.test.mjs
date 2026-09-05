@@ -2265,11 +2265,47 @@ test('45 (#274): a row the tester just marked flashes to say it saved', async ()
   assert.equal(queued.li.querySelector('.saved-flash'), null);
 });
 
-// 46: STATUS_ICON.skipped and NEUTRAL_ICON are the same glyph, so skipped and pending differ by
-// colour alone — unreadable to a colour-blind tester and invisible in a greyscale screenshot.
-test.todo('46 (#115): skipped and pending are told apart by their shape, not only their colour', () => {
+// 46: STATUS_ICON.skipped WAS NEUTRAL_ICON's own ring, so skipped and pending differed by colour
+// alone — unreadable to a colour-blind tester and invisible in a greyscale screenshot.
+test('46 (#115): skipped and pending are told apart by their shape, not only their colour', () => {
   const h = load();
-  assert.notEqual(h.fn.statusIcon('skipped').dataset.icon, h.fn.statusIcon('pending').dataset.icon);
+  const skipped = h.fn.statusIcon('skipped');
+  assert.notEqual(skipped.dataset.icon, h.fn.statusIcon('pending').dataset.icon);
+  assert.equal(skipped.dataset.icon, 'block');
+  // The crossed ring fills the same 16px slot the plain one did, and the tint keys on data-status.
+  assert.equal(skipped.dataset.size, '16');
+  assert.equal(skipped.dataset.status, 'skipped');
+  assert.ok(skipped.classList.contains('status-icon'));
+
+  // The ring stays for the four that genuinely have not been run — and stays ONE ring for all
+  // four, so separating skipped out has not quietly told THEM apart from each other.
+  const ring = ['pending', 'scheduled', 'queued', 'unknown'].map((s) => h.fn.statusIcon(s).dataset.icon);
+  assert.deepEqual(ring, Array(4).fill('status_record'));
+  assert.ok(!ring.includes(skipped.dataset.icon), 'skipped fell back to the ring');
+});
+
+// 46a: the panel draws statuses in two languages and the fix has to respect both. The big verdict
+// buttons wear the same filled marks as the list, so they move together; the compact row buttons and
+// the step marks wear bare ones and stay put — exactly as `failed` already does (close vs the disc).
+test('46a (#115): the verdict button follows the list mark, and the bare marks stay where they are', () => {
+  const h = load();
+  const mark = h.fn.statusIcon('skipped').dataset.icon;
+
+  // The test view's own big Skipped button is drawn from the same set, at its own 18px.
+  // index.html is read raw: no fixture stands in for it, so nothing else would catch a drift.
+  const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
+  const btn = (id) => /data-icon="([^"]+)"[^>]*data-icon-size="([^"]+)"/
+    .exec(new RegExp(`<button id="${id}"[^>]*>[\\s\\S]{0,120}`).exec(html)[0]);
+  assert.deepEqual(btn('btn-skipped').slice(1, 3), [mark, '18']);
+  // …and its neighbours still wear theirs, so the set was not half-migrated.
+  assert.deepEqual(btn('btn-passed').slice(1, 3), ['status_passed', '18']);
+  assert.deepEqual(btn('btn-failed').slice(1, 3), ['status_failed', '18']);
+
+  // The compact row button keeps the bare minus on purpose: `failed` reads `close` there while its
+  // list mark is a filled disc, so an action and a state are allowed to look different.
+  const rowBtn = h.fn.testRow(rec(1)).querySelector('.row-st[data-status="skipped"]');
+  assert.equal(rowBtn.querySelector('.md-icon').dataset.icon, 'remove');
+  assert.notEqual(rowBtn.querySelector('.md-icon').dataset.icon, mark);
 });
 
 // 47 (#275): updateRunActions compared state.runStatus to 'running' literally while the rest of the

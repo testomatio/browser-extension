@@ -10,7 +10,9 @@
 const STATUS_ICON = {
   passed: 'status_passed',
   failed: 'status_failed',
-  skipped: 'status_record',
+  // Its own crossed ring: the plain ring below belongs to a test nobody has run, so the two
+  // are told apart by shape and not by colour alone.
+  skipped: 'block',
   terminated: 'status_terminated',
 };
 // Pending, scheduled, queued, unknown — one ring-with-a-dot for all of them.
