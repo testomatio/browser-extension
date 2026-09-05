@@ -2,7 +2,7 @@
 // status chips, search, suite sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast, Fmt, CommentDrafts, WriteCore, byRecordId */
+   progressToast, Fmt, CommentDrafts, WriteCore, byRecordId, Roving */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -1092,6 +1092,8 @@ function rowStatusButtons(r, li) {
     btn.type = 'button';
     btn.className = 'btn icon size-xs row-st';
     btn.dataset.status = status;
+    // Three tab stops per row is what made a 200-test run 600 of them; ←→ from the row reach these.
+    btn.setAttribute('tabindex', '-1');
     btn.append(svgIcon(icon, 14));
     btn.disabled = !!lock;
     Tooltip.set(btn, lock || label);
@@ -1144,7 +1146,50 @@ function testRow(r) {
   li.append(rowStatusButtons(r, li));
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.decorateRow(li, r.id); // «queued» marker on (re)render
   li.addEventListener('click', () => openTestView(r.id));
-  return li;
+  return Roving.item(li);
+}
+
+// ---- the row's own cells ----
+// Roving walks this list vertically and never sees ←→, so the step from a row INTO its three status
+// buttons — and back out — is a second delegated listener on the same <ul>.
+const RUN_ROW_SELECTOR = 'li.test-row, .suite-head';
+
+// A write lock kills all three, and a row with nothing live has nothing to step into.
+const rowCells = (li) => [...li.querySelectorAll('.row-actions .row-st')].filter((b) => !b.disabled);
+
+function onRunRowArrow(ev) {
+  if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+  const node = ev.target;
+  if (!node || typeof node.matches !== 'function') return;
+  const cell = node.matches('.row-actions .row-st') ? node : null;
+  // A suite head is neither, and answers ←→ with nothing: Enter is what folds it.
+  if (!cell && !node.matches('li.test-row')) return;
+  const li = cell ? node.closest('li.test-row') : node;
+  if (!li) return;
+  const cells = rowCells(li);
+  if (!cell) {
+    if (ev.key !== 'ArrowRight' || !cells.length) return;
+    ev.preventDefault();
+    cells[0].focus();
+    return;
+  }
+  const at = cells.indexOf(cell);
+  if (at < 0) return;
+  ev.preventDefault();
+  // Clamped at both ends, as Roving is; ← off the first cell is the way back to the row.
+  if (ev.key === 'ArrowRight') cells[Math.min(at + 1, cells.length - 1)].focus();
+  else if (at === 0) li.focus();
+  else cells[at - 1].focus();
+}
+
+// The <ul> outlives every replaceChildren(), so the walk is delegated to it once — a per-render
+// wiring would stack one listener per draw.
+const cellsWired = new WeakSet();
+
+function wireRunRowCells(ul) {
+  if (!ul || cellsWired.has(ul)) return;
+  cellsWired.add(ul);
+  ul.addEventListener('keydown', onRunRowArrow);
 }
 
 // The values one example row was run with (#52); the names ride the tooltip, positional to them.
@@ -1267,6 +1312,8 @@ function suiteSection(sec, rows, single) {
   if (!expanded) li.classList.add('collapsed');
   const head = document.createElement('div');
   head.className = 'list-row list-head suite-head tree-row has-chevron';
+  // A head that folds a section has to SAY whether it is open — the chevron is a picture.
+  head.setAttribute('aria-expanded', String(expanded));
   const title = document.createElement('div');
   title.className = 'title';
   title.textContent = sec.title || 'No suite';
@@ -1279,9 +1326,12 @@ function suiteSection(sec, rows, single) {
   head.append(treeIcon(CHEVRON_ICON, 'chevron'),
     treeIcon(FILE_ICON, 'file-icon', suiteEmojiOf(sec.title)), title, frac);
   head.addEventListener('click', () => toggleSuite(sec.key, li));
-  li.append(head);
+  li.append(Roving.item(head));
   const rowsUl = document.createElement('ul');
   rowsUl.className = 'suite-rows tree-children';
+  // The class alone hides them in CSS; `hidden` is what also takes a folded suite's rows out of
+  // the arrow walk and out of a reader's way.
+  rowsUl.hidden = !expanded;
   for (const r of rows) rowsUl.append(testRow(r));
   li.append(rowsUl);
   return li;
@@ -1290,6 +1340,10 @@ function suiteSection(sec, rows, single) {
 function toggleSuite(key, li) {
   const collapsed = li.classList.toggle('collapsed');
   state.expandedSuites[key] = !collapsed; // explicit pref overrides the default
+  const rowsUl = li.querySelector(':scope > .suite-rows');
+  if (rowsUl) rowsUl.hidden = collapsed;
+  const head = li.querySelector(':scope > .suite-head');
+  if (head) head.setAttribute('aria-expanded', String(!collapsed));
 }
 
 // An actually empty run — nearly always one created outside the web UI.
@@ -1351,6 +1405,10 @@ function runNoMatchEmpty() {
 
 function renderRunSections() {
   const ul = $('run-tests');
+  // Ahead of the empty-state return below: an empty run is one a tester adds to, and the keyboard
+  // must not depend on which draw came first.
+  Roving.attach(ul, { selector: RUN_ROW_SELECTOR });
+  wireRunRowCells(ul);
   ul.replaceChildren();
   setStatusLine('run-status', '');
   if (!state.records.length) { ul.append(runNoTestsEmpty()); return; }

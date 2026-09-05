@@ -666,6 +666,8 @@ function groupHead(group) {
   // A real `.list-row` — its own rule, inset to the glyph column by
   // `tree-row has-chevron`, and the library's padding rather than its own.
   head.className = 'list-row list-head group-head tree-row has-chevron';
+  // A head that folds a folder has to SAY whether it is open — the chevron is a picture.
+  head.setAttribute('aria-expanded', String(isExpanded(group.id)));
   const chevron = treeIcon(CHEVRON_ICON, 'chevron');
   // A v2 rungroup row may carry a project `emoji` that stands in for the folder mark.
   const folder = treeIcon(FOLDER_ICON, 'folder-icon', group.emoji);
@@ -790,6 +792,8 @@ function toggleGroup(groupId, li) {
   else { state.expandedGroups.splice(i, 1); li.classList.remove('expanded'); }
   const kids = li.querySelector(':scope > .group-children');
   if (kids) kids.hidden = !expanding;
+  const head = li.querySelector(':scope > .group-head');
+  if (head) head.setAttribute('aria-expanded', String(expanding));
   persistSession();
   if (expanding && state.listMode === 'dashboard' && !groupContentsLoaded(groupId)) {
     loadGroupContents(groupId);

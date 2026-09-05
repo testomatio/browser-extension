@@ -186,6 +186,9 @@ function tcNode(node, ctx) {
     const kids = document.createElement('ul');
     kids.className = 'tc-children tree-children';
     kids.hidden = !open;
+    // Only a FOLDER folds, so only a folder says so; on a file row the attribute would claim a
+    // fold that is not there.
+    row.setAttribute('aria-expanded', String(open));
     // The picker draws the project's own order — picking is reading the tree.
     const children = ctx.pick ? (node.children || []) : hoistJustCreated(node.children);
     for (const c of children) kids.append(tcNode(c, ctx));
@@ -196,6 +199,7 @@ function tcNode(node, ctx) {
       state.tcExpanded[String(node.id)] = open;
       kids.hidden = !open;
       row.classList.toggle('expanded', open);
+      row.setAttribute('aria-expanded', String(open));
     });
     // Studio mode: folders can spawn child suites/folders (not in the pick tree).
     if (!ctx.pick) {
@@ -203,6 +207,7 @@ function tcNode(node, ctx) {
         state.tcExpanded[String(node.id)] = true; // reveal the input inside kids
         kids.hidden = false;
         row.classList.add('expanded');
+        row.setAttribute('aria-expanded', 'true');
         openSuiteInput({
           parentId: node.id,
           fileType,
