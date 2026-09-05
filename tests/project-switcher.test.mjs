@@ -560,7 +560,7 @@ test('27: an arrow pressed with the cursor on nothing lands on the first row, wh
 });
 
 test('27b: an arrow over an empty list is a no-op, not a crash', () => {
-  const h = load({ projects: [] , settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' } });
+  const h = load({ projects: [], settings: { baseUrl: 'https://a.io', apiToken: 'TOKEN' } });
   h.fn.renderProjectOptions();
   h.fn.moveProjectActive(1);
   assert.equal(h.peek().projectActiveId, null);
@@ -1063,3 +1063,180 @@ test('55c: the dropdown is wired once, to the three controls it owns', () => {
   assert.equal(h.peek().projectFilter, 'bill');
 });
 
+// ---------- P1-P15: the whole-screen version of the same list ----------
+
+test('P1: the choose-a-project screen folds in NO saved project — that pick is what it is there for', () => {
+  const h = load({ settings: { ...SETTINGS, projectId: 'p9' } });
+  assert.deepEqual(plain(h.fn.projectRows()), [{ id: 'p9', title: '' }, CHECKOUT, BILLING]);
+  assert.deepEqual(plain(h.mod.pickRows()), [CHECKOUT, BILLING]);
+});
+
+test('P2: its rows are the popup’s rows in the screen’s own skin, and picking one switches straight away', () => {
+  const h = load();
+  const switches = h.stub('switchProject');
+  h.fn.renderPickRows();
+  const [first] = h.node.pickList.children;
+  assert.equal(first.id, 'pick-opt-p1');
+  assert.equal(first.className, 'project-option active'); // no `menu-option` — that skin is the popup's
+  assert.equal(first.getAttribute('role'), 'option');
+  assert.equal(first.getAttribute('aria-selected'), 'false'); // nothing is the active project yet
+  assert.equal(first.querySelector('.row-count').textContent, '12');
+  first.dispatchEvent({ type: 'click' });
+  assert.deepEqual(switches, [['p1']]);
+});
+
+test('P3: a filter that matches nobody empties the cursor and shows the screen’s own empty state', () => {
+  const h = load();
+  h.node.pickFilter.value = 'zzz';
+  h.fn.onPickFilterInput();
+  assert.deepEqual(h.pickIds(), []);
+  assert.equal(h.peek().pickActiveId, null);
+  assert.equal(h.node.pickEmpty.hidden, false);
+  assert.equal(h.node.pickFilter.getAttribute('aria-activedescendant'), null);
+});
+
+test('P4: the arrows STOP at the ends here too', () => {
+  const h = load({ projects: [CHECKOUT, BILLING, PLAIN] });
+  h.fn.renderPickRows();
+  h.fn.movePickActive(1);
+  h.fn.movePickActive(1);
+  h.fn.movePickActive(1);
+  assert.equal(h.peek().pickActiveId, 'p3');
+  assert.equal(h.pickActive(), 'p3');
+  h.fn.movePickActive(-1);
+  h.fn.movePickActive(-1);
+  h.fn.movePickActive(-1);
+  assert.equal(h.peek().pickActiveId, 'p1');
+  h.fn.movePickActive(-1);
+  assert.equal(h.peek().pickActiveId, 'p1');
+});
+
+test('P4b: an arrow over an empty screen is a no-op', () => {
+  const h = load({ projects: [] });
+  h.fn.renderPickRows();
+  h.fn.movePickActive(1);
+  assert.equal(h.peek().pickActiveId, null);
+});
+
+test('P5: typing narrows the rows, offers the clear button and puts the cursor on the first match', () => {
+  const h = load();
+  h.node.pickFilter.value = 'bill';
+  h.fn.onPickFilterInput();
+  assert.deepEqual(h.pickIds(), ['p2']);
+  assert.equal(h.node.pickFilterClear.hidden, false);
+  assert.equal(h.peek().pickActiveId, 'p2');
+  assert.equal(h.node.pickFilter.getAttribute('aria-activedescendant'), 'pick-opt-p2');
+});
+
+test('P6: whitespace is not a search — the clear button stays away', () => {
+  const h = load();
+  h.node.pickFilter.value = '   ';
+  h.fn.onPickFilterInput();
+  assert.equal(h.node.pickFilterClear.hidden, true);
+  assert.deepEqual(h.pickIds(), ['p1', 'p2']); // and nothing is filtered out either
+});
+
+test('P7: clearing empties the box, brings every row back and leaves the caret where it can type', () => {
+  const h = load();
+  h.node.pickFilter.value = 'bill';
+  h.fn.onPickFilterInput();
+  h.calls.order.length = 0;
+  h.fn.clearPickFilter();
+  assert.equal(h.peek().pickFilter, '');
+  assert.equal(h.node.pickFilter.value, '');
+  assert.equal(h.node.pickFilterClear.hidden, true);
+  assert.deepEqual(h.pickIds(), ['p1', 'p2']);
+  assert.ok(h.calls.order.includes('focus:pick-filter'));
+});
+
+test('P8: the arrows are typed at the filter box and walk the list from there', () => {
+  const h = load({ projects: [CHECKOUT, BILLING] });
+  h.fn.initProjectPick();
+  h.fn.renderPickRows();
+  const down = fire(h.node.pickFilter, 'keydown', { key: 'ArrowDown' });
+  assert.equal(down.defaultPrevented, true);
+  assert.equal(h.peek().pickActiveId, 'p2');
+  const up = fire(h.node.pickFilter, 'keydown', { key: 'ArrowUp' });
+  assert.equal(up.defaultPrevented, true);
+  assert.equal(h.peek().pickActiveId, 'p1');
+});
+
+test('P9: Enter takes the row under the cursor', () => {
+  const h = load();
+  h.fn.initProjectPick();
+  h.fn.renderPickRows();
+  h.fn.movePickActive(1);
+  const switches = h.stub('switchProject');
+  const ev = fire(h.node.pickFilter, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, true);
+  assert.deepEqual(switches, [['p2']]);
+});
+
+test('P10: Enter with nothing under the cursor takes nothing, and lets the key through', () => {
+  const h = load({ projects: [] });
+  h.fn.initProjectPick();
+  h.fn.renderPickRows();
+  const switches = h.stub('switchProject');
+  const ev = fire(h.node.pickFilter, 'keydown', { key: 'Enter' });
+  assert.equal(ev.defaultPrevented, false);
+  assert.deepEqual(switches, []);
+  // A key the screen does not own is left alone too.
+  const other = fire(h.node.pickFilter, 'keydown', { key: 'a' });
+  assert.equal(other.defaultPrevented, false);
+});
+
+test('P11: the screen is entered FRESH — a filter left by the last visit would hide rows nobody typed at', () => {
+  const h = load();
+  h.node.pickFilter.value = 'bill';
+  h.fn.onPickFilterInput();
+  h.fn.movePickActive(1);
+  h.fn.openProjectPickView();
+  assert.equal(h.peek().pickFilter, '');
+  assert.equal(h.node.pickFilter.value, '');
+  assert.equal(h.node.pickFilterClear.hidden, true);
+  assert.deepEqual(h.pickIds(), ['p1', 'p2']);
+  assert.equal(h.peek().pickActiveId, 'p1');
+  assert.deepEqual(h.calls.lines, [{ id: 'pick-status', text: '' }]);
+});
+
+test('P12: the footer names the instance, and the caret goes in only AFTER the screen is on', () => {
+  const h = load();
+  h.fn.openProjectPickView();
+  assert.equal(h.node.pickHost.textContent, 'a.io');
+  assert.deepEqual(h.calls.shows, ['pick']);
+  assert.ok(h.at('show') < h.at('focus:pick-filter')); // a hidden field cannot take focus
+});
+
+test('P13: an instance address that is not an address leaves the footer blank rather than break the screen', () => {
+  const h = load({ settings: { baseUrl: 'garbage', apiToken: 'TOKEN' } });
+  h.fn.openProjectPickView();
+  assert.equal(h.node.pickHost.textContent, '');
+  const bare = load({ settings: null });
+  bare.fn.openProjectPickView();
+  assert.equal(bare.node.pickHost.textContent, '');
+});
+
+test('P14: the two surfaces filter independently — the header popup keeps what the tester typed there', () => {
+  const h = load();
+  h.fn.openProjectMenu();
+  h.node.projectFilter.value = 'check';
+  h.fn.onProjectFilterInput();
+
+  h.node.pickFilter.value = 'bill';
+  h.fn.onPickFilterInput();
+  assert.equal(h.peek().projectFilter, 'check');
+  assert.deepEqual(h.optionIds(), ['p1']);
+  assert.deepEqual(h.pickIds(), ['p2']);
+
+  h.fn.openProjectPickView();               // and the screen's own reset leaves the popup alone
+  assert.equal(h.peek().projectFilter, 'check');
+  assert.equal(h.peek().pickFilter, '');
+});
+
+test('P15: Disconnect from this screen speaks on THIS screen’s line — the Connection card is unreachable from here', () => {
+  const h = load();
+  h.fn.initProjectPick();
+  assert.deepEqual([...h.node.pickFilter.listeners.keys()], ['input', 'keydown']);
+  fire(h.node.pickDisconnect, 'click');
+  assert.deepEqual(h.calls.lines, [{ disconnect: { statusId: 'pick-status' } }]);
+});
