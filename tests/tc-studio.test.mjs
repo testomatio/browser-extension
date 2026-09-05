@@ -11,10 +11,12 @@
 // only its own — zero included, because a badge left off the row reads as "not loaded".
 // Rows 1-81 are the ticket's; a lettered suffix is the companion case that drives the same path the
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Rows 1-3 and 5-18 are no longer here: the four algorithms behind them left for
-// extension/sidepanel/core/suite-tree.js (#196), and tests/suite-tree.test.mjs drives them with no
-// stubs at all. This file loads the REAL module beside the screen, in index.html's own order, and
-// keeps every row about what the RENDER does with the answers.
+// Rows 1-3, 5-18 and 40-63b are no longer here: the four algorithms behind the first left for
+// extension/sidepanel/core/suite-tree.js and the whole quick/bulk bar for
+// extension/sidepanel/screens/tc-quick-bar.js (#196), and tests/suite-tree.test.mjs and
+// tests/tc-quick-bar.test.mjs drive them with no screen at all. This file loads BOTH real modules
+// beside the screen, in index.html's own order, and keeps every row about what the SCREEN does with
+// them — the render, the suite open that wipes the bar, and row 59b where the two meet.
 // Run: node --test tests/tc-studio.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -285,27 +287,26 @@ function load(opts = {}) {
     globals,
     document: doc,
     window: win,
-    // index.html's own order: core/suite-tree.js stands ahead of this screen, whose every paint
-    // asks it what a query keeps, what the chip counts and which rows ride at the top. The REAL
-    // one — a stub would leave the rows below asserting the stub's order, not the panel's (#196).
-    before: [['suite-tree', CORE_SRC]],
-    exported: `({ tcExpanded, tcJustCreated, tcRowMatches,
-      tcQuickBulkOn, tcQuickTitle, tcQuickLines, tcQuickTitles, onTcQuickInput })`,
+    // index.html's own order: core/suite-tree.js and screens/tc-quick-bar.js both stand ahead of
+    // this screen, which asks the first what a query keeps and the second to wipe the bar on every
+    // suite open. Both REAL — a stub would leave the rows below asserting the stub (#196).
+    before: [['suite-tree', CORE_SRC], 'tc-quick-bar'],
+    exported: '({ tcExpanded, tcJustCreated, tcRowMatches, TcQuickBar })',
   });
 
-  // app.js:61-71 wires the two search fields and the quick bar; the screen registers nothing at load,
+  // app.js:62-72 wires the two search fields and the quick bar; the screen registers nothing at load,
   // so the fixture stands in for index.html's own wiring and every row below drives real listeners.
   node.search.addEventListener('input', h.fn.onTcSearch);
   node.searchClear.addEventListener('click', h.fn.clearTcSearch);
   node.treeSearch.addEventListener('input', h.fn.onTcTreeSearch);
   node.treeClear.addEventListener('click', h.fn.clearTcTreeSearch);
   if (o.quickBar) {
-    node.title.addEventListener('input', h.screen.onTcQuickInput);
-    node.title.addEventListener('keydown', h.fn.onTcQuickKeydown);
-    node.titles.addEventListener('input', h.screen.onTcQuickInput);
-    node.titles.addEventListener('keydown', h.fn.onTcQuickKeydown);
-    node.create.addEventListener('click', h.fn.submitTcQuick);
-    node.bulk.addEventListener('change', h.fn.onTcQuickBulkToggle);
+    node.title.addEventListener('input', h.screen.TcQuickBar.onInput);
+    node.title.addEventListener('keydown', h.screen.TcQuickBar.onKeydown);
+    node.titles.addEventListener('input', h.screen.TcQuickBar.onInput);
+    node.titles.addEventListener('keydown', h.screen.TcQuickBar.onKeydown);
+    node.create.addEventListener('click', h.screen.TcQuickBar.submit);
+    node.bulk.addEventListener('change', h.screen.TcQuickBar.onBulkToggle);
   }
 
   return {
@@ -335,11 +336,8 @@ function load(opts = {}) {
     listRows: () => node.list.children.filter((li) => li.dataset.id != null),
     listTitles: () => node.list.children.filter((li) => li.dataset.id != null).map((li) => li.textContent),
     emptyTitle: (ul) => ul.querySelector('.empty-title')?.textContent ?? null,
-    // The tester's own two acts on the bar.
+    // The tester typing into any of the four fields this screen still owns.
     type: (fieldNode, value) => { fieldNode.value = value; fire(fieldNode, 'input'); },
-    switchBulk: (on2) => { node.bulk.checked = on2; fire(node.bulk, 'change'); },
-    // The web session answering differently later — it can lapse while the bar is open.
-    setJwt: (v) => { o.jwt = v; },
     // The open inline create row, and the field inside it.
     newRow: () => node.tree.querySelector('.tc-new-suite'),
     newInput: () => node.tree.querySelector('.tc-new-suite .tree-input'),
@@ -1232,383 +1230,30 @@ test('30c: the list reset drops the query without redrawing and without taking t
   h.fn.resetTcSearch();
 });
 
-// ---------- the quick / bulk create bar (rows 40-63) ----------
+// ---------- the bar and the list, where they meet (row 59b) ----------
+// Rows 40-63b are gone from here: the quick/bulk bar is its own module now, and
+// tests/tc-quick-bar.test.mjs drives it over four field stubs with no screen at all (#196). What is
+// left is the one thing neither file can assert alone — the bar dropping the screen's live filter
+// and the screen then drawing the row that filter would have hidden.
 
-test('40: a title is trimmed at the ends and collapsed in the middle, the way the web trims one', () => {
-  const h = load();
-  h.node.title.value = '  Log   in  ';
-  assert.equal(h.lex.tcQuickTitle(), 'Log in');
-  h.node.title.value = '\tLog\nin\t';
-  assert.equal(h.lex.tcQuickTitle(), 'Log in');
-  h.node.title.value = '   ';
-  assert.equal(h.lex.tcQuickTitle(), '');
-});
-
-test('41: a pasted list keeps its order and its duplicates, and drops only the blank lines', () => {
-  const h = load();
-  h.node.titles.value = 'a\n\n b \nb';
-  assert.deepEqual([...h.lex.tcQuickLines()], ['a', 'b', 'b']);
-});
-
-test('42: a list pasted from a Windows editor loses its carriage returns to the same trim', () => {
-  const h = load();
-  h.node.titles.value = 'a\r\nb';
-  assert.deepEqual([...h.lex.tcQuickLines()], ['a', 'b']);
-});
-
-test('43: an empty quick field has nothing to send, so Create is dead', () => {
-  const h = load();
-  h.type(h.node.title, '   ');
-  assert.deepEqual([...h.lex.tcQuickTitles()], []);
-  assert.equal(h.node.create.disabled, true);
-  // One real word and the very same button is live.
-  h.type(h.node.title, 'Login');
-  assert.deepEqual([...h.lex.tcQuickTitles()], ['Login']);
-  assert.equal(h.node.create.disabled, false);
-});
-
-test('44: a send already on the wire leaves Create dead however much is typed under it', () => {
-  const h = load();
-  h.type(h.node.title, 'Login');
-  assert.equal(h.node.create.disabled, false);
-  h.fn.setTcQuickBusy(true);
-  assert.equal(h.node.create.disabled, true);
-  h.type(h.node.title, 'Login again');
-  assert.equal(h.node.create.disabled, true);
-  h.fn.setTcQuickBusy(false);
-  assert.equal(h.node.create.disabled, false);
-});
-
-test('45: Bulk takes the typed title with it as the first line, and hands the caret to the list', () => {
-  const h = load();
-  h.type(h.node.title, 'first');
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, 'first');
-  assert.equal(h.node.title.value, '');
-  assert.equal(h.node.title.hidden, true);
-  assert.equal(h.node.titles.hidden, false);
-  assert.equal(h.doc.activeElement, h.node.titles);
-  // Nothing was parked on the way in: the round trip brings back that one line and no more.
-  h.switchBulk(false);
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, 'first');
-});
-
-test('46: the lines the quick field could not show waited in memory for Bulk to come back', () => {
-  const h = load();
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb\nc');
-  h.switchBulk(false);              // b and c park; the field shows a
-  h.type(h.node.title, 'first');    // the tester renames the one line they can see
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, 'first\nb\nc');
-});
-
-test('47: leaving Bulk keeps the first line in the field and parks the rest', () => {
-  const h = load();
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb\nc');
-  h.switchBulk(false);
-  assert.equal(h.node.title.value, 'a');
-  assert.equal(h.node.titles.value, '');
-  assert.equal(h.node.title.hidden, false);
-  assert.equal(h.node.titles.hidden, true);
-  assert.equal(h.doc.activeElement, h.node.title);
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, 'a\nb\nc', 'b and c really were parked');
-});
-
-test('48: leaving an empty Bulk list parks nothing and leaves an empty field', () => {
-  const h = load();
-  h.switchBulk(true);
-  h.switchBulk(false);
-  assert.equal(h.node.title.value, '');
-  assert.equal(h.node.create.disabled, true);
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, '', 'nothing was parked to come back');
-});
-
-test('49: Enter in the quick field creates, and the key never reaches the panel', async () => {
-  const h = load({ suiteId: 's1' });
-  h.type(h.node.title, 'Login');
-  const ev = fire(h.node.title, 'keydown', { key: 'Enter' });
-  await settle();
-  assert.equal(ev.defaultPrevented, true);
-  assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
-});
-
-test('50: a modifier held with Enter in the quick field is somebody elses shortcut', async () => {
-  for (const mod of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey']) {
-    const h = load({ suiteId: 's1' });
-    h.type(h.node.title, 'Login');
-    const ev = fire(h.node.title, 'keydown', { key: 'Enter', [mod]: true });
-    await settle();
-    assert.deepEqual(h.calls.createTests, [], mod);
-    assert.equal(ev.defaultPrevented, false, mod);
-  }
-  // The same key with no modifier on it does create.
-  const bare = load({ suiteId: 's1' });
-  bare.type(bare.node.title, 'Login');
-  fire(bare.node.title, 'keydown', { key: 'Enter' });
-  await settle();
-  assert.equal(bare.calls.createTests.length, 1);
-});
-
-test('51: in Bulk a bare Enter is a newline, not a send', async () => {
-  const h = load({ suiteId: 's1' });
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb');
-  const ev = fire(h.node.titles, 'keydown', { key: 'Enter' });
-  await settle();
-  assert.deepEqual(h.calls.bulks, []);
-  assert.equal(ev.defaultPrevented, false);
-  // The same key with Cmd held, in the same box, does send it.
-  fire(h.node.titles, 'keydown', { key: 'Enter', metaKey: true });
-  await settle();
-  assert.deepEqual(h.calls.bulks, [{ suiteId: 's1', titles: ['a', 'b'] }]);
-});
-
-test('52: in Bulk it is Cmd or Ctrl with Enter that sends the list', async () => {
-  for (const mod of ['metaKey', 'ctrlKey']) {
-    const h = load({ suiteId: 's1' });
-    h.switchBulk(true);
-    h.type(h.node.titles, 'a\nb');
-    const ev = fire(h.node.titles, 'keydown', { key: 'Enter', [mod]: true });
-    await settle();
-    assert.deepEqual(h.calls.bulks, [{ suiteId: 's1', titles: ['a', 'b'] }], mod);
-    assert.equal(ev.defaultPrevented, true, mod);
-  }
-});
-
-test('53: every other key is just typing', async () => {
-  const h = load({ suiteId: 's1' });
-  h.type(h.node.title, 'Login');
-  for (const key of ['a', 'Escape', 'Tab', 'ArrowDown']) {
-    const ev = fire(h.node.title, 'keydown', { key });
-    assert.equal(ev.defaultPrevented, false, key);
-  }
-  await settle();
-  assert.deepEqual(h.calls.createTests, []);
-  // Enter into the very same field does create, so the four above are the key check.
-  fire(h.node.title, 'keydown', { key: 'Enter' });
-  await settle();
-  assert.equal(h.calls.createTests.length, 1);
-});
-
-test('54: one title creates one test in the open suite, then the bar clears and the list re-reads', async () => {
-  const h = load({ suiteId: 's1' });
-  h.on.tests = async () => [{ id: 'made-1', title: 'Login' }];
-  h.type(h.node.title, '  Log   in  ');
-  fire(h.node.create, 'click');
-  await settle();
-
-  assert.deepEqual(h.calls.createTests, [{ title: 'Log in', suite_id: 's1' }]);
-  assert.deepEqual(h.calls.bulks, []);
-  assert.equal(h.node.title.value, '');
-  assert.deepEqual(h.calls.listReads, ['s1']);
-  assert.deepEqual(h.calls.skeleton, [], 'the re-read is quiet — the rows are still up');
-  assert.deepEqual(h.calls.scrolls, [{ top: 4321 }]);
-  assert.equal(h.doc.activeElement, h.node.title, 'the caret goes back for the next title');
-  assert.equal(h.node.create.textContent, 'Create');
-});
-
-test('55: a whole pasted list is one request, not one per line', async () => {
-  const h = load({ suiteId: 's1' });
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\n\nb\nc');
-  fire(h.node.create, 'click');
-  await settle();
-
-  assert.deepEqual(h.calls.bulks, [{ suiteId: 's1', titles: ['a', 'b', 'c'] }]);
-  assert.deepEqual(h.calls.createTests, []);
-  assert.equal(h.node.titles.value, '');
-  assert.deepEqual(h.calls.listReads, ['s1']);
-  // And what it cleared is really gone: coming back out of Bulk finds nothing parked.
-  h.switchBulk(false);
-  assert.equal(h.node.title.value, '');
-});
-
-test('56: with no suite open there is nothing to create in', async () => {
-  const h = load({ suiteId: null });
-  h.type(h.node.title, 'Login');
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.createTests, []);
-  assert.deepEqual(h.calls.listReads, []);
-  // The identical press once a suite is open does create.
-  h.state.tcSuiteId = 's1';
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
-});
-
-test('57: a second press while the first create is on the wire sends nothing', async () => {
-  const h = load({ suiteId: 's1' });
-  const answer = deferred();
-  h.on.createTest = () => answer.promise;
-  h.type(h.node.title, 'Login');
-  const first = h.fn.submitTcQuick();
-  await settle();
-  assert.equal(h.node.create.disabled, true);
-  await h.fn.submitTcQuick();
-  assert.equal(h.calls.createTests.length, 1);
-  answer.resolve({ id: 'made-1' });
-  await first;
-  // Once it lands the button is live again, and the next press really does go out.
-  h.type(h.node.title, 'Logout');
-  await h.fn.submitTcQuick();
-  assert.equal(h.calls.createTests.length, 2);
-});
-
-test('58: a create the server refused keeps the typed titles, lets the button go and gives the caret back', async () => {
-  const h = load({ suiteId: 's1' });
-  h.on.createTest = async () => { throw new Error('422 title taken'); };
-  h.type(h.node.title, 'Login');
-  await h.fn.submitTcQuick();
-
-  assert.deepEqual(h.calls.toasts, ['422 title taken']);
-  assert.equal(h.node.title.value, 'Login');
-  assert.equal(h.node.title.readOnly, false);
-  assert.equal(h.node.create.disabled, false);
-  assert.equal(h.node.create.textContent, 'Create');
-  assert.equal(h.doc.activeElement, h.node.title);
-  assert.deepEqual(h.calls.listReads, [], 'nothing was made, so there is nothing to read back');
-});
-
-test('58b: a refused bulk keeps the whole pasted list in the box', async () => {
-  const h = load({ suiteId: 's1' });
-  h.on.bulk = async () => { throw new Error('Bulk needs a web session'); };
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb\nc');
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.toasts, ['Bulk needs a web session']);
-  assert.equal(h.node.titles.value, 'a\nb\nc');
-  assert.equal(h.doc.activeElement, h.node.titles);
-});
-
-test('59: a live search would hide the very row just made, so it is dropped before the re-read', async () => {
+test('59b (#196): the bar drops the live search before its re-read, so the row it just made shows', async () => {
   const h = load({ suiteId: 's1', tests: [{ id: 't0', title: 'Checkout' }] });
   h.type(h.node.search, 'checkout');
   assert.deepEqual(h.listTitles(), ['Checkout']);
 
-  let queryAtRead = null;
-  h.on.tests = async () => {
-    queryAtRead = h.state.tcSearch;
-    return [{ id: 't0', title: 'Checkout' }, { id: 'made-1', title: 'Login' }];
-  };
+  h.on.tests = async () => [{ id: 't0', title: 'Checkout' }, { id: 'made-1', title: 'Login' }];
   h.type(h.node.title, 'Login');
-  await h.fn.submitTcQuick();
+  fire(h.node.create, 'click');     // the real module, wired the way app.js wires it
+  await settle();
 
-  assert.equal(queryAtRead, '', 'the query was dropped BEFORE the rows came back');
-  assert.equal(h.node.search.value, '');
+  assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
+  assert.equal(h.node.search.value, '', 'the screens own reset really ran');
   assert.equal(h.node.searchClear.hidden, true);
+  assert.deepEqual(h.calls.skeleton, [], 'the re-read is quiet — the rows are still up');
   assert.deepEqual(h.listTitles(), ['Checkout', 'Login']);
   // With the query still up that same row would have been drawn away — which is what this is for.
   h.type(h.node.search, 'checkout');
   assert.deepEqual(h.listTitles(), ['Checkout']);
-});
-
-test('60: a suite opened while the create was in flight is not scrolled and does not lose its caret', async () => {
-  const h = load({ suiteId: 's1' });
-  h.on.createTest = async () => { h.state.tcSuiteId = 's2'; return { id: 'made-1' }; };
-  h.type(h.node.title, 'Login');
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.scrolls, []);
-  assert.equal(h.doc.activeElement, null);
-  assert.deepEqual(h.listTitles(), [], 'and the new suites list was not painted with the old ones row');
-  // The same create with the tester still on that suite scrolls to the end and takes the caret back.
-  const stayed = load({ suiteId: 's1' });
-  stayed.type(stayed.node.title, 'Login');
-  await stayed.fn.submitTcQuick();
-  assert.deepEqual(stayed.calls.scrolls, [{ top: 4321 }]);
-  assert.equal(stayed.doc.activeElement, stayed.node.title);
-});
-
-test('61: a title in flight is still the testers to read — the fields go read-only, not disabled', () => {
-  const h = load();
-  h.fn.setTcQuickBusy(true);
-  assert.equal(h.node.title.readOnly, true);
-  assert.equal(h.node.titles.readOnly, true);
-  assert.equal(h.node.title.disabled, false);
-  assert.equal(h.node.titles.disabled, false);
-  assert.equal(h.node.bulk.disabled, true);
-  assert.equal(h.node.create.textContent, 'Creating…');
-  h.fn.setTcQuickBusy(false);
-  assert.equal(h.node.title.readOnly, false);
-  assert.equal(h.node.titles.readOnly, false);
-  assert.equal(h.node.bulk.disabled, false);
-  assert.equal(h.node.create.textContent, 'Create');
-});
-
-test('62: every suite open starts the bar clean — quick mode, both fields empty, nothing parked', () => {
-  const h = load();
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb\nc');
-  h.switchBulk(false);            // b and c are parked
-  h.type(h.node.title, 'a');
-  h.fn.setTcQuickBusy(true);
-
-  h.fn.resetTcQuickBar();
-  assert.equal(h.node.title.value, '');
-  assert.equal(h.node.titles.value, '');
-  assert.equal(h.node.bulk.checked, false);
-  assert.equal(h.node.title.hidden, false);
-  assert.equal(h.node.titles.hidden, true);
-  assert.equal(h.node.title.readOnly, false);
-  assert.equal(h.node.create.textContent, 'Create');
-  assert.equal(h.node.create.disabled, true);
-  // The parked lines are gone too: Bulk comes back to an empty box.
-  h.switchBulk(true);
-  assert.equal(h.node.titles.value, '');
-});
-
-test('63: a panel drawn without the bar is not a crash', () => {
-  load({ quickBar: false }).fn.resetTcQuickBar();
-  // Half a bar is not one either — the reset wants both fields before it touches anything.
-  const half = load();
-  half.type(half.node.title, 'Login');
-  half.node.titles.remove();
-  half.fn.resetTcQuickBar();
-  assert.equal(half.node.title.value, 'Login');
-  // And with the whole bar in the page it really does clear it, so the two above are not stubs.
-  const full = load();
-  full.type(full.node.title, 'Login');
-  full.fn.resetTcQuickBar();
-  assert.equal(full.node.title.value, '');
-});
-
-// ---------- the switch nobody gates (#263) ----------
-
-test('63b: Bulk is not offered on a token-only connection, and the session is re-asked at submit (#263)', async () => {
-  // bulkCreateTests goes through jwtRequest and needs an active web session; createTest does not.
-  const none = load({ suiteId: 's1', jwt: false });
-  none.fn.resetTcQuickBar();
-  assert.equal(none.node.bulk.disabled, true);
-  assert.match(none.node.bulkLabel.dataset.tip, /web login/);
-
-  // The same bar WITH a session offers it, and keeps its ordinary tip — so the row above is not
-  // asserting a switch that is disabled whatever happens.
-  const h = load({ suiteId: 's1', jwt: true });
-  h.fn.resetTcQuickBar();
-  assert.equal(h.node.bulk.disabled, false);
-  assert.equal(h.node.bulkLabel.dataset.tip, 'Add more');
-
-  // Still probing is not a refusal: an 'unknown' answer must never take the switch away.
-  const probing = load({ suiteId: 's1', jwt: 'unknown' });
-  probing.fn.resetTcQuickBar();
-  assert.equal(probing.node.bulk.disabled, false);
-
-  // And the session can lapse after the bar was drawn: the submit asks again and sends nothing.
-  h.switchBulk(true);
-  h.type(h.node.titles, 'a\nb');
-  h.setJwt(false);
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.bulks, []);
-  assert.match(h.calls.toasts.at(-1), /web login/);
-
-  // The single-title path never needed the web session and still does not.
-  h.switchBulk(false);
-  h.type(h.node.title, 'Login');
-  await h.fn.submitTcQuick();
-  assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
 });
 
 // ---------- the hand-off to the test page (rows 64-67) ----------

@@ -2,7 +2,7 @@
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
-   RunLock, RunInfo */
+   RunLock, RunInfo, TcQuickBar */
 
 // ---------- init ----------
 
@@ -62,12 +62,12 @@ async function init() {
   $('tc-search').addEventListener('input', onTcSearch);
   $('tc-search-clear').addEventListener('click', clearTcSearch);
   // Add new test (#3): the bar at the panel's bottom — one title, or a list of them under Bulk.
-  $('tc-quick-title').addEventListener('input', onTcQuickInput);
-  $('tc-quick-title').addEventListener('keydown', onTcQuickKeydown);
-  $('tc-quick-titles').addEventListener('input', onTcQuickInput);
-  $('tc-quick-titles').addEventListener('keydown', onTcQuickKeydown);
-  $('tc-quick-create').addEventListener('click', submitTcQuick);
-  $('tc-quick-bulk').addEventListener('change', onTcQuickBulkToggle);
+  $('tc-quick-title').addEventListener('input', TcQuickBar.onInput);
+  $('tc-quick-title').addEventListener('keydown', TcQuickBar.onKeydown);
+  $('tc-quick-titles').addEventListener('input', TcQuickBar.onInput);
+  $('tc-quick-titles').addEventListener('keydown', TcQuickBar.onKeydown);
+  $('tc-quick-create').addEventListener('click', TcQuickBar.submit);
+  $('tc-quick-bulk').addEventListener('change', TcQuickBar.onBulkToggle);
   $('tc-tree-search').addEventListener('input', onTcTreeSearch);
   $('tc-tree-search-clear').addEventListener('click', clearTcTreeSearch);
   $('btn-passed').addEventListener('click', () => clickStatus('passed'));
