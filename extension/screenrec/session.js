@@ -6,7 +6,12 @@
 // Where that grant is missing the recording falls back to CDP screencast over chrome.debugger,
 // which needs no gesture at all, at the price of Chrome's "…is debugging" bar for its duration.
 
-/* global resolveSiteTab, SiteTab, dbgIsForeignFrame, foreignFramesOut, foreignFramesBack */
+/* global resolveSiteTab, SiteTab, dbgIsForeignFrame, foreignFramesOut, foreignFramesBack,
+   SrecParked */
+
+// The parked take's record and its transitions live in screenrec/parked.js; the bare names keep this
+// file's call sites and its worker surface — srecName has no caller here, but stays reachable.
+const { srecName, buildParked, applyReviewed, applyTrimmed } = SrecParked;
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
@@ -180,13 +185,6 @@ async function srecTeardownCast(st) {
 
 // ---- start / stop ----------------------------------------------------------
 
-function srecName() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `screen-recording-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-    + `-${p(d.getHours())}${p(d.getMinutes())}.webm`;
-}
-
 async function srecStart({ recordId = null, tab = null } = {}) {
   const live = await srecGet();
   if (live && live.recording) return { ok: false, reason: 'A screen recording is already running' };
@@ -259,15 +257,7 @@ async function srecFinish(file, st, reason) {
     srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: reason || 'user' });
     return;
   }
-  const parked = {
-    url: file.url,
-    size: file.size,
-    ms: file.ms || 0,
-    reason: file.reason || reason || 'user',
-    name: srecName(),
-    recordId: (st && st.recordId) || null,
-    reviewed: false,
-  };
+  const parked = buildParked(file, st, reason);
   await chrome.storage.session.set({ [SREC_FILE_KEY]: parked });
   srecTell({ type: 'SCREENREC_EVENT', event: 'review', file: parked });
   await srecOpenReview((st && st.tabId) != null ? st.tabId : null);
@@ -445,7 +435,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'SCREENREC_REVIEWED':
       srecParked().then(async (parked) => {
         if (!parked) return sendResponse({ ok: false });
-        const reviewed = { ...parked, reviewed: true };
+        const reviewed = applyReviewed(parked);
         await chrome.storage.session.set({ [SREC_FILE_KEY]: reviewed });
         srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: reviewed });
         return sendResponse({ ok: true });
@@ -456,15 +446,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'SCREENREC_TRIMMED':
       srecParked().then(async (parked) => {
         if (!parked || !msg.url) return sendResponse({ ok: false });
-        const trimmed = {
-          url: msg.url,
-          size: msg.size || 0,
-          ms: msg.ms || 0,
-          reason: parked.reason,
-          name: parked.name,
-          recordId: parked.recordId,
-          reviewed: true,
-        };
+        const trimmed = applyTrimmed(parked, msg);
         await chrome.storage.session.set({ [SREC_FILE_KEY]: trimmed });
         srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: trimmed });
         return sendResponse({ ok: true });

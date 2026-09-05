@@ -15,6 +15,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 // historical check — so a falsification run never has to edit the shipped module.
 const SRC = process.env.SREC_SRC || join(repoRoot, 'extension/screenrec/session.js');
 const source = readFileSync(SRC, 'utf8');
+// The worker's own sibling, evaluated in the SAME realm below rather than stubbed: a stub would keep
+// every parked row green while testing nothing. SREC_PARKED_SRC points it at a mutated copy.
+const PARKED_SRC = process.env.SREC_PARKED_SRC || join(repoRoot, 'extension/screenrec/parked.js');
+const parkedSource = readFileSync(PARKED_SRC, 'utf8');
 const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
@@ -206,6 +210,9 @@ function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
+  // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` — and
+  // the bare names this file destructures off it — resolve here.
+  runInContext(parkedSource, context, { filename: PARKED_SRC });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
   const makePort = (name, o = {}) => {
