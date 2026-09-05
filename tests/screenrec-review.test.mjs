@@ -278,6 +278,16 @@ test('2b: a quarter of a second is the smallest cut the screen keeps', async () 
   assert.deepEqual(h.cuts(), [{ start: 3, end: 3.25 }]);
 });
 
+// Every other cut row drags left to right. A tester who trims the END first and the BEGINNING
+// second hands normalizeCuts an unsorted list, and the merge only ever looks at the last entry.
+test('2c: trimming the end first and the beginning second keeps both cuts', async () => {
+  const h = await load();
+  h.drag(5, 6);
+  h.drag(1, 2);
+  assert.equal(h.cuts().length, 2, 'the second cut is not swallowed by the first');
+  assert.equal(h.after(), '0:10 → 0:08 after cuts');
+});
+
 test('3: two cuts a frame apart become one, not two touching ones', async () => {
   const h = await load();
   h.drag(1, 3);
@@ -444,6 +454,17 @@ test('12c: the ✕ on a chip gives those seconds back', async () => {
   assert.equal(h.after(), '0:10 → 0:08 after cuts');
 });
 
+// 12c takes the FIRST chip away, where "remove this one" and "remove the first one" look alike.
+// This is the row that tells them apart — the tester's ✕ has to hit the cut it is drawn on.
+test('12d: the ✕ takes away the cut it sits on, not whichever came first', async () => {
+  const h = await load();
+  h.drag(1, 3);
+  h.drag(6, 8);
+  fire(h.$('chips').children[1].querySelector('button'), 'click');
+  assert.deepEqual(h.cuts(), [{ start: 1, end: 3 }]);
+  assert.equal(h.after(), '0:10 → 0:08 after cuts');
+});
+
 // ---- C: the gestures ----------------------------------------------------------
 
 test('16: a click on the timeline moves the playhead, it does not start a cut', async () => {
@@ -569,6 +590,20 @@ test('26: a five-megabyte trim reaches the recorder page in three chunks and not
   assert.equal(back.length, 5 * 1024 * 1024);
   assert.ok(back.equals(Buffer.from(bytes(5 * 1024 * 1024))));
   assert.deepEqual(swap(h), { type: 'SCREENREC_OFF', cmd: 'trim-swap', oldUrl: 'blob:take-1', ms: 8000 });
+});
+
+// 18 pins that the screen is frozen WHILE the export runs. This is the other half: it has to thaw.
+// Without the reset the tester's review is dead after one attach — every control ignored, forever.
+test('18b: once the export is over the screen answers the tester again', async () => {
+  const h = await load();
+  h.drag(2, 4);
+  await attach(h, { ends: [2, 10] });
+  const seeks = h.seeks.length;
+
+  h.tap(1);
+  assert.ok(h.seeks.length > seeks, 'a tap on the timeline still seeks');
+  h.key('Escape');
+  assert.ok(h.posts.some((p) => p.data && p.data.type === 'TESTOMAT_REVIEW_CLOSE'), 'and Escape still closes');
 });
 
 test('26b: a trim that is exactly one chunk long is sent once, not twice', async () => {
@@ -765,4 +800,4 @@ test('32: a recording whose bytes are gone still draws a full timeline, because 
   assert.notEqual(h.$('btn-attach').disabled, true);
 });
 
-test.todo('32b (#176 row 32): a recording whose blob URL is dead should say so instead of offering a timeline over a video that cannot play');
+test.todo('32b (#337): a recording whose blob URL is dead should say so instead of offering a timeline over a video that cannot play');
