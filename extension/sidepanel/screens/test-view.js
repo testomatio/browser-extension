@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons, CommentDrafts, WriteCore, TestSummary,
    TestMeta, TestGates, renderPendingAnnotation, Roving, Skeleton, EmptyState,
-   ImgHydrate, progressToast, hideToast */
+   ImgHydrate, progressToast, hideToast, StatusIcons */
 
 // The description body's object-URL group (shared/img-hydrate.js) — repainted and released
 // on its own occasion. The summary card's four are its own (screens/test-summary.js).
@@ -295,7 +295,7 @@ const STEP_ICON = { passed: 'check', failed: 'close', skipped: 'remove' };
 
 function paintStepMark(el, status, size, unset = '') {
   const name = STEP_ICON[status] || unset;
-  el.replaceChildren(...(name ? [svgIcon(name, size)] : []));
+  el.replaceChildren(...(name ? [StatusIcons.svgIcon(name, size)] : []));
 }
 
 // Matched by `pos`; GET .../steps is unsorted (contract), stale entries ignored.

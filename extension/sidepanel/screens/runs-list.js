@@ -1,7 +1,7 @@
 // Runs-list screen: dashboard/v2 runs plus rungroup folders, status-filter chips,
 // refresh, lazy nested loading, and run/group URL paste.
 
-/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving */
+/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons */
 
 // ---------- runs list ----------
 
@@ -20,7 +20,7 @@ const FILTER_KEYS = new Set(RUN_FILTERS.map(([k]) => k));
 const RUNS_FILTER_TINT = { passed: 'passed', failed: 'failed' };
 const LOADING_ICON = 'progress_activity';
 const filterLabel = (key) => (RUN_FILTERS.find(([k]) => k === key) || [, key])[1];
-const matchesFilter = (status) => state.runsFilter === 'all' || normStatus(status) === state.runsFilter;
+const matchesFilter = (status) => state.runsFilter === 'all' || StatusIcons.normStatus(status) === state.runsFilter;
 
 // Live title search over runs + group titles, ANDed with the status chip. A group
 // matching the SEARCH reveals all its status-passing contents.
@@ -429,7 +429,7 @@ function loadMoreRow({ remaining, loading, loaded, total, onClick, label = 'Load
     ? 'Loading…'
     : (remaining ? `${label} (${remaining} more)` : label);
   // One class PER ARGUMENT: Icons.el feeds them to classList.add, which throws on a token holding a space (#215).
-  if (loading) btn.append(svgIcon(LOADING_ICON, 14, 'spin', 'load-more-spinner'));
+  if (loading) btn.append(StatusIcons.svgIcon(LOADING_ICON, 14, 'spin', 'load-more-spinner'));
   btn.append(text);
   btn.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
   li.append(btn);
@@ -502,7 +502,7 @@ async function ensureTopLevelGroupLoaded(groupId) {
 function statusCounts(runs) {
   const counts = { all: runs.length, running: 0, passed: 0, failed: 0, scheduled: 0, terminated: 0 };
   for (const r of runs) {
-    const s = normStatus(r.status);
+    const s = StatusIcons.normStatus(r.status);
     if (s !== 'all' && counts[s] !== undefined) counts[s] += 1;
   }
   return counts;
@@ -615,13 +615,13 @@ function runRow(run, { child = false, showId = false } = {}) {
   const li = document.createElement('li');
   li.className = child ? 'group-child' : 'run';
   li.dataset.runId = run.id;
-  li.dataset.status = normStatus(run.status);
+  li.dataset.status = StatusIcons.normStatus(run.status);
   const head = document.createElement('div');
   head.className = 'list-head';
-  head.append(statusIcon(run.status));
+  head.append(StatusIcons.statusIcon(run.status));
   // status icon → type → title is the web list's own order (list-runs.hbs). The
   // shared `.type-mark` carries the word on its tooltip; unknown kind renders nothing.
-  const kind = typeof TestType !== 'undefined' ? TestType.mark(runKind(run.kind)) : null;
+  const kind = typeof TestType !== 'undefined' ? TestType.mark(StatusIcons.runKind(run.kind)) : null;
   if (kind) head.append(kind);
   // `.list-lines`: the text block a head lays out beside its marks (shared/components.css).
   const lines = document.createElement('div');
@@ -668,9 +668,9 @@ function groupHead(group) {
   head.className = 'list-row list-head group-head tree-row has-chevron';
   // A head that folds a folder has to SAY whether it is open — the chevron is a picture.
   head.setAttribute('aria-expanded', String(isExpanded(group.id)));
-  const chevron = treeIcon(CHEVRON_ICON, 'chevron');
+  const chevron = StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron');
   // A v2 rungroup row may carry a project `emoji` that stands in for the folder mark.
-  const folder = treeIcon(FOLDER_ICON, 'folder-icon', group.emoji);
+  const folder = StatusIcons.treeIcon(StatusIcons.FOLDER, 'folder-icon', group.emoji);
   const title = document.createElement('div');
   title.className = 'title';
   title.textContent = group.clean_title || group.title || `Group ${group.id}`;
@@ -693,7 +693,7 @@ function groupShell(group) {
   const li = document.createElement('li');
   li.className = 'group tree-node';
   li.dataset.groupId = group.id;
-  li.dataset.status = normStatus(group.status);
+  li.dataset.status = StatusIcons.normStatus(group.status);
   if (isExpanded(group.id)) li.classList.add('expanded');
   // Paste flash re-applied from state so it survives any re-render.
   if (String(state.highlightedGroup) === String(group.id)) li.classList.add('group-highlight');
@@ -926,7 +926,7 @@ function renderRunsEmptyCta(ul) {
     a.href = `${s.baseUrl}/projects/${encodeURIComponent(s.projectId)}/runs/new`;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.append(svgIcon('add', 16), document.createTextNode('New run'));
+    a.append(StatusIcons.svgIcon('add', 16), document.createTextNode('New run'));
     actions.push(a);
   }
   const paste = document.createElement('button');

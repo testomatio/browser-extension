@@ -126,7 +126,9 @@ function load(opts = {}) {
       },
       IMG_GROUP_ATTS: 'result-attachments',
     },
-    svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
+    StatusIcons: {
+      svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
+    },
     confirmDialog: async (message, label) => {
       calls.order.push('confirm');
       calls.confirms.push({ message, label });

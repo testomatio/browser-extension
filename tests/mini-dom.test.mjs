@@ -490,12 +490,14 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
     setTabCount: () => {},
     EmptyState: { build: () => el('li', { className: 'empty-state' }) },
     Tooltip: { set: () => {} },
-    svgIcon: (name) => el('span', { className: `icon icon-${name}` }),
-    treeIcon: (name, cls) => el('span', { className: `tree-icon ${cls}` }),
-    treeSlot: () => el('span', { className: 'tree-icon' }),
-    CHEVRON_ICON: 'chevron_right',
-    FOLDER_ICON: 'tree_folder',
-    FILE_ICON: 'tree_suite',
+    StatusIcons: {
+      svgIcon: (name) => el('span', { className: `icon icon-${name}` }),
+      treeIcon: (name, cls) => el('span', { className: `tree-icon ${cls}` }),
+      treeSlot: () => el('span', { className: 'tree-icon' }),
+      CHEVRON: 'chevron_right',
+      FOLDER: 'tree_folder',
+      FILE: 'tree_suite',
+    },
   };
   const { renderSuiteTreeInto } = runInNewContext(`${source}\n({ renderSuiteTreeInto })`, sandbox);
 

@@ -3,7 +3,7 @@
 // recorder is the source of truth.
 
 /* global chrome, state, hasChrome, $, toast, resolveSiteTab, Tooltip,
-   HoverCard, EmptyState, paintCounter, svgIcon, showTestSection, EvidenceFormat */
+   HoverCard, EmptyState, paintCounter, showTestSection, EvidenceFormat, StatusIcons */
 
 // The window is NOT mirrored here — evWindowSeconds() reads state.settings, which
 // leads the recorder's copy. `expanded` must outlive the 2 s poll repaint (#150).
@@ -194,7 +194,7 @@ function evCardRow(e) {
   icon.className = 'ev-icon';
   const mark = EvidenceFormat.icon(e);
   icon.dataset.kind = mark.kind;
-  icon.append(svgIcon(mark.name, 14));
+  icon.append(StatusIcons.svgIcon(mark.name, 14));
   const txt = document.createElement('span');
   txt.className = 'hovercard-text';
   txt.textContent = evCardRowText(e);
@@ -418,7 +418,7 @@ function evRow(e) {
   icon.className = 'ev-icon';
   const mark = EvidenceFormat.icon(e);
   icon.dataset.kind = mark.kind;
-  icon.append(svgIcon(mark.name, 14));
+  icon.append(StatusIcons.svgIcon(mark.name, 14));
   const txt = document.createElement('span');
   txt.className = 'ev-text';
   txt.textContent = EvidenceFormat.rowText(e);

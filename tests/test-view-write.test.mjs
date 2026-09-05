@@ -180,11 +180,10 @@ function load(opts = {}) {
     baseUrlHost: () => HOST,
     // core/state.js:79's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // run-view.js:351 — one reason for every row here; the rows that need the per-record scoping
+    // run-view.js:253 — one reason for every row here; the rows that need the per-record scoping
     // drive it through whether the record is in the OPEN run at all.
     recordWriteLock: () => o.lock,
     displayStatus: (r) => (r?.status && r.status !== 'pending' ? r.status : 'untested'),
-    normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
     orderedRecords: () => state.records,
     rowVisible,
     visibleRecords: () => state.records.filter(rowVisible),
@@ -193,8 +192,11 @@ function load(opts = {}) {
     refreshContextBar: () => { calls.contextBars += 1; },
     syncBeginWrite: () => { calls.beginWrites += 1; calls.order.push('beginWrite'); },
     syncEndWrite: () => { calls.endWrites += 1; calls.order.push('endWrite'); },
-    svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
-    statusIcon: (s) => el('span', { className: 'md-icon', dataset: { icon: s } }),
+    StatusIcons: {
+      normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
+      svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
+      statusIcon: (s) => el('span', { className: 'md-icon', dataset: { icon: s } }),
+    },
     renderAttachmentList: () => { calls.attachmentLists += 1; },
     collectEnvMeta: async (settings) => { calls.envMeta.push(plain(settings)); return on.collectEnvMeta(settings); },
     EvidenceUpload: {

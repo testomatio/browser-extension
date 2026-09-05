@@ -268,31 +268,34 @@ function load(opts = {}) {
     },
     TestType: { mark: (kind) => (kind ? el('span', { className: `type-mark ${kind}`, dataset: { kind } }) : null) },
 
-    // ---- run-view.js's globals, STUBBED. Loading run-view into this context would couple the two
-    // test files: a mutation there would redden rows here that have nothing to do with it.
-    normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
-    statusIcon: (status) => el('span', {
-      className: 'status-icon',
-      dataset: { status: status === 'launching' ? 'running' : status || 'unknown' },
-    }),
-    // Icons.el does `svg.classList.add('md-icon', ...cls)` (shared/icons.js:209) and classList.add
-    // THROWS on a token holding a space — so the arity is the contract, and this stub enforces it.
-    svgIcon: (name, size = 16, ...cls) => {
-      calls.icons.push({ name, size, cls: [...cls] });
-      const icon = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
-      for (const c of cls) {
-        if (/\s/.test(String(c))) throw new Error(`svgIcon: "${c}" is not one class token — classList.add throws on that`);
-        icon.classList.add(c);
-      }
-      return icon;
+    // ---- core/status-icons.js's vocabulary, STUBBED. Loading the real module here would couple
+    // the two test files: its own rows live in tests/status-icons.test.mjs.
+    StatusIcons: {
+      normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
+      statusIcon: (status) => el('span', {
+        className: 'status-icon',
+        dataset: { status: status === 'launching' ? 'running' : status || 'unknown' },
+      }),
+      // Icons.el does `svg.classList.add('md-icon', ...cls)` (shared/icons.js:209) and classList.add
+      // THROWS on a token holding a space — so the arity is the contract, and this stub enforces it.
+      svgIcon: (name, size = 16, ...cls) => {
+        calls.icons.push({ name, size, cls: [...cls] });
+        const icon = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
+        for (const c of cls) {
+          if (/\s/.test(String(c))) throw new Error(`svgIcon: "${c}" is not one class token — classList.add throws on that`);
+          icon.classList.add(c);
+        }
+        return icon;
+      },
+      treeIcon: (name, cls, emoji) => el('span', { className: `tree-icon ${cls}`, dataset: { icon: name, emoji: emoji || '' } }),
+      runKind: (kind) => (['manual', 'automated', 'mixed'].includes(String(kind || '').toLowerCase())
+        ? String(kind).toLowerCase()
+        : null),
+      CHEVRON: 'chevron_right',
+      FOLDER: 'tree_folder',
     },
-    treeIcon: (name, cls, emoji) => el('span', { className: `tree-icon ${cls}`, dataset: { icon: name, emoji: emoji || '' } }),
-    runKind: (kind) => (['manual', 'automated', 'mixed'].includes(String(kind || '').toLowerCase())
-      ? String(kind).toLowerCase()
-      : null),
+    // run-view.js's own, and still a late-bound global: runs-list.js loads BEFORE that screen.
     openRunView: async (id, title) => { calls.opened.push([id, title]); calls.order.push('openRun'); },
-    CHEVRON_ICON: 'chevron_right',
-    FOLDER_ICON: 'tree_folder',
 
     TestomatAPI: {
       jwtAvailable: () => o.jwt,

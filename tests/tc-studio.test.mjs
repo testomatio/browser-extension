@@ -151,7 +151,7 @@ function load(opts = {}) {
   };
 
   // shared/icons.js's own rule: an empty value or an unresolved `:shortcode:` draws nothing, so the
-  // caller falls back to the glyph — treeIcon below is run-view.js's, which tc-studio.js borrows.
+  // caller falls back to the glyph — treeIcon below is core/status-icons.js's, which this screen borrows.
   const emojiSpan = (value, cls = '') => {
     const s = String(value || '').trim();
     if (!s || /^:[a-z0-9_+-]+:$/i.test(s)) return null;
@@ -233,12 +233,14 @@ function load(opts = {}) {
       },
     },
     Icons: { emoji: emojiSpan },
-    svgIcon: (name) => el('span', { className: 'md-icon', dataset: { icon: name } }),
-    treeIcon,
-    treeSlot: () => el('span', { className: 'tree-icon' }),
-    CHEVRON_ICON: 'chevron_right',
-    FOLDER_ICON: 'tree_folder',
-    FILE_ICON: 'tree_suite',
+    StatusIcons: {
+      svgIcon: (name) => el('span', { className: 'md-icon', dataset: { icon: name } }),
+      treeIcon,
+      treeSlot: () => el('span', { className: 'tree-icon' }),
+      CHEVRON: 'chevron_right',
+      FOLDER: 'tree_folder',
+      FILE: 'tree_suite',
+    },
     EmptyState: { build: buildEmpty },
     // PriorityIcons and TestType are deliberately absent: renderTcList reaches for both behind a
     // `typeof` guard, so leaving them out is a valid panel and exercises the fallback row.

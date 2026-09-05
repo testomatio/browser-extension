@@ -1,7 +1,8 @@
 // TC Studio screen: the suite tree, the per-suite TC list, and the test-page
 // hand-off (read-only view for an existing test, editor for a new one).
 
-/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving */
+/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving,
+   StatusIcons */
 
 // ---------- TC Studio: suite tree + TC list ----------
 // The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
@@ -58,8 +59,9 @@ function openSuiteInput({ parentId, fileType, mount }) {
   const row = document.createElement('div');
   row.className = 'list-row tc-row list-head tree-row tree-input-row';
   row.classList.add('has-chevron');
-  row.append(folder ? treeIcon(CHEVRON_ICON, 'chevron') : treeSlot());
-  row.append(treeIcon(folder ? FOLDER_ICON : FILE_ICON, folder ? 'folder-icon' : 'file-icon'));
+  row.append(folder ? StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron') : StatusIcons.treeSlot());
+  const mark = folder ? StatusIcons.FOLDER : StatusIcons.FILE;
+  row.append(StatusIcons.treeIcon(mark, folder ? 'folder-icon' : 'file-icon'));
 
   const input = document.createElement('input');
   input.type = 'text';
@@ -74,7 +76,7 @@ function openSuiteInput({ parentId, fileType, mount }) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = `icon-btn size-xs ${cls}`;
-    b.append(svgIcon(icon, 16));
+    b.append(StatusIcons.svgIcon(icon, 16));
     b.setAttribute('aria-label', tip);
     Tooltip.set(b, tip);
     b.addEventListener('mousedown', (e) => e.preventDefault());
@@ -128,7 +130,7 @@ function suiteAddButtons(openFor, cls = 'btn size-xs tc-new') {
   const mk = (label, fileType, tip) => {
     const b = document.createElement('button');
     b.className = cls;
-    b.append(svgIcon('add', 16), document.createTextNode(label));
+    b.append(StatusIcons.svgIcon('add', 16), document.createTextNode(label));
     Tooltip.set(b, tip);
     b.addEventListener('click', (e) => { e.stopPropagation(); openFor(fileType); });
     return b;
@@ -168,10 +170,10 @@ function tcNode(node, ctx) {
 
   if (node.file_type === 'folder') {
     row.classList.add('tc-folder', 'has-chevron');
-    row.append(treeIcon(CHEVRON_ICON, 'chevron'));
+    row.append(StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron'));
     // `node.emoji` (api.js normSuiteNode) is the project's own mark for the
     // folder; the folder glyph is the fallback for a node without one.
-    row.append(treeIcon(FOLDER_ICON, 'folder-icon', node.emoji));
+    row.append(StatusIcons.treeIcon(StatusIcons.FOLDER, 'folder-icon', node.emoji));
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = node.title || '(untitled)';
@@ -219,7 +221,7 @@ function tcNode(node, ctx) {
     }
   } else {
     row.classList.add('tc-file', 'has-chevron');
-    row.append(treeSlot(), treeIcon(FILE_ICON, 'file-icon', node.emoji));
+    row.append(StatusIcons.treeSlot(), StatusIcons.treeIcon(StatusIcons.FILE, 'file-icon', node.emoji));
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = node.title || '(untitled)';
@@ -234,7 +236,7 @@ function tcNode(node, ctx) {
     } else {
       const add = document.createElement('button');
       add.className = 'btn size-xs tc-new';
-      add.append(svgIcon('add', 16), document.createTextNode('New test'));
+      add.append(StatusIcons.svgIcon('add', 16), document.createTextNode('New test'));
       Tooltip.set(add, 'New test in this suite');
       add.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -486,7 +488,7 @@ function tcListEmpty(searching) {
   const add = document.createElement('button');
   add.type = 'button';
   add.className = 'btn primary size-sm';
-  add.append(svgIcon('add', 16), document.createTextNode('New test'));
+  add.append(StatusIcons.svgIcon('add', 16), document.createTextNode('New test'));
   add.addEventListener('click', () => $('tc-list-new')?.click());
   return EmptyState.build({
     tag: 'li',

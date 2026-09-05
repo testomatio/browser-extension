@@ -8,7 +8,7 @@
 // the same `fileTileItem` and releases the same group — hence this file loads before it.
 
 /* global TestomatAPI, Md, Fmt, Sk, EmptyState, ImgHydrate, Tooltip, state, hasChrome, $,
-   svgIcon, statusIcon, normStatus, treeSlot, CHEVRON_ICON, paintStepMark */
+   paintStepMark, StatusIcons */
 
 const TestSummary = (() => {
   // Object-URL groups (shared/img-hydrate.js) — four, because each is repainted and released
@@ -107,11 +107,11 @@ const TestSummary = (() => {
     const label = STATUS_LABEL[status] || status;
     // `data-status` stays: the machine-readable value a script reads off the element.
     const el = $('summary-status');
-    el.className = `status-label ${TEST_STATE_TINT[normStatus(status)] || 'neutral'}`;
+    el.className = `status-label ${TEST_STATE_TINT[StatusIcons.normStatus(status)] || 'neutral'}`;
     el.dataset.status = status;
     const word = document.createElement('span');
     word.textContent = label;
-    el.replaceChildren(statusIcon(status), word);
+    el.replaceChildren(StatusIcons.statusIcon(status), word);
     const dur = Fmt.humanDuration(attrs['run-time']);
     $('summary-duration').textContent = dur ? `· ${dur}` : '';
     renderSummaryFailure(attrs);
@@ -123,7 +123,7 @@ const TestSummary = (() => {
       .some((id) => $(id) && !$(id).hidden);
     box.hidden = !filled;
     paintSummaryEmpty(filled ? '' : 'bare');
-    paintSectionMark(filled ? normStatus(status) : '');
+    paintSectionMark(filled ? StatusIcons.normStatus(status) : '');
   }
 
   // `status` and `message` are the ONLY fields the panel can change, so they are
@@ -417,7 +417,7 @@ const TestSummary = (() => {
     btn.type = 'button';
     btn.className = 'summary-step-att-link is-play';
     btn.title = att?.name || 'attachment';
-    btn.append(svgIcon('play_arrow', 12), document.createTextNode(att?.name || 'attachment'));
+    btn.append(StatusIcons.svgIcon('play_arrow', 12), document.createTextNode(att?.name || 'attachment'));
     btn.addEventListener('click', () => openFileViewer(att, url));
     return btn;
   }
@@ -445,7 +445,7 @@ const TestSummary = (() => {
     const badge = document.createElement('span');
     badge.className = 'file-tile-badge';
     badge.textContent = fileExt(att) || 'FILE';
-    host.append(svgIcon(kind === 'video' ? 'play_arrow' : 'description', 24), badge);
+    host.append(StatusIcons.svgIcon(kind === 'video' ? 'play_arrow' : 'description', 24), badge);
   }
 
   function fileTile(att, group, resolvedUrl) {
@@ -483,7 +483,7 @@ const TestSummary = (() => {
 
   // The web's `file-image-outline` marker, in the panel's own icon set.
   function imageMarker() {
-    return svgIcon('photo_camera', 13, 'summary-step-marker');
+    return StatusIcons.svgIcon('photo_camera', 13, 'summary-step-marker');
   }
 
   // A step block is a TREE NODE, drawn with the library's own tree parts: a chevron
@@ -517,7 +517,7 @@ const TestSummary = (() => {
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'tree-icon chevron summary-step-toggle';
-      toggle.append(svgIcon(CHEVRON_ICON, 16));
+      toggle.append(StatusIcons.svgIcon(StatusIcons.CHEVRON, 16));
       const paint = (open) => {
         kids.hidden = !open;
         toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -527,7 +527,7 @@ const TestSummary = (() => {
       toggle.addEventListener('click', () => paint(kids.hidden));
       row.append(toggle);
     } else {
-      row.append(treeSlot()); // a leaf still pays for the chevron column, or the marks below it stagger
+      row.append(StatusIcons.treeSlot()); // a leaf still pays for the chevron column, or the marks below it stagger
     }
     const dot = document.createElement('span');
     dot.className = 'tree-icon summary-step-dot';
@@ -592,7 +592,7 @@ const TestSummary = (() => {
       b.id = id;
       b.type = 'button';
       b.className = 'btn icon size-xs';
-      b.append(svgIcon(icon, 16));
+      b.append(StatusIcons.svgIcon(icon, 16));
       b.setAttribute('aria-label', label);
       Tooltip.set(b, label);
       b.addEventListener('click', () => {

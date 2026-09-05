@@ -246,7 +246,10 @@ export function loadScreen(name, opts = {}) {
   const source = sourceOf(file);
   const context = createContext(sandbox);
   for (const dep of before) {
-    const path = join(dir, `${dep}.js`);
+    // A name in `dir`, or [name, otherDir] for a script index.html loads from another folder —
+    // core/status-icons.js stands ahead of every screen, and CORE_SRC has to stay switchable.
+    const [depName, depDir = dir] = [].concat(dep);
+    const path = join(depDir, `${depName}.js`);
     runInContext(sourceOf(path), context, { filename: path });
   }
   const screen = runInContext(exported ? `${source}\n${exported};` : source, context, { filename: file });
