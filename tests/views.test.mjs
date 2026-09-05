@@ -817,3 +817,337 @@ test('V39: a run or test whose id is not known yet is left alone rather than re-
   await h.fn.refreshCurrentView();
   assert.deepEqual(h.calls.opens, []);
 });
+
+// ---------- the filter row that sends its overflow to a menu ----------
+
+// A row that measures the way a browser measures one: what it reports is the chips it is still
+// SHOWING, plus the "…" trigger once that is up. screens/runs-list.js:457 is the chip's real shape.
+const TRIGGER_W = 32;
+function filterBar(h, widths, clientWidth) {
+  const bar = el('div', { className: 'filter-bar' });
+  const chips = widths.map((w, i) => {
+    const chip = el('button', { className: 'btn secondary size-sm filter-chip', dataset: { filter: `f${i}` } });
+    chip.append(el('span', { className: 'filter-label' }, `Filter ${i}`),
+      el('span', { className: 'counter' }, String(i)));
+    chip.w = w;
+    return chip;
+  });
+  bar.append(...chips);
+  h.doc.body.append(bar);
+  bar.clientWidth = clientWidth;
+  Object.defineProperty(bar, 'scrollWidth', {
+    configurable: true,
+    get: () => {
+      const wrap = bar.querySelector('.filter-more');
+      return chips.filter((c) => !c.hidden).reduce((n, c) => n + c.w, 0)
+        + (wrap && !wrap.hidden ? TRIGGER_W : 0);
+    },
+  });
+  return { bar, chips };
+}
+
+test('V40: a row whose chips all fit keeps every one of them, and the "…" never appears', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50], 300);
+  h.fn.fitFilterChips(bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [false, false]);
+  const wrap = bar.querySelector('.filter-more');
+  assert.equal(wrap.hidden, true);
+  assert.equal(wrap.querySelector('.filter-more-menu').childNodes.length, 0);
+});
+
+test('V41: a row dragged narrow gives up chips from the right, and the menu lists them in row order', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  h.fn.fitFilterChips(bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [false, false, true, true]);
+
+  const options = bar.querySelectorAll('.menu-option');
+  assert.deepEqual(options.map((li) => li.childNodes[0].textContent), ['Filter 2', 'Filter 3']);
+  assert.deepEqual(options.map((li) => li.childNodes[1].className), ['counter', 'counter'],
+    'each option carries the chip’s own count, cloned');
+
+  // Dragged wide again the row re-fits from the WIDE state, never from where the last fit left it.
+  bar.clientWidth = 400;
+  h.fn.fitFilterChips(bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [false, false, false, false]);
+});
+
+test('V42: however narrow the pane gets, "All" is the one chip that never goes', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [200, 200], 100);
+  h.fn.fitFilterChips(bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [false, true],
+    'a row with no chip left showing would tell the tester nothing about what it is filtered to');
+  assert.equal(bar.querySelectorAll('.menu-option').length, 1);
+});
+
+test('V43: a filter row built on a hidden screen is armed to fit itself the moment the screen opens', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50], 0);
+  h.fn.fitFilterChips(bar);
+  assert.equal(h.observers.length, 1, 'armed BEFORE the measuring, which is what a hidden row needs');
+  assert.equal(h.observers[0].node, bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [undefined, undefined, undefined], 'and nothing was fitted');
+  assert.equal(bar.querySelector('.filter-more'), null);
+
+  bar.clientWidth = 150; // the screen opens and the observer brings the row back
+  h.observers[0].cb();
+  assert.deepEqual(chips.map((c) => c.hidden), [false, false, false]);
+  assert.equal(h.observers.length, 1, 'still the one observer — a second would re-fit forever');
+});
+
+test('V44: the "…" menu is built once, so a re-fit cannot close it under the tester’s pointer', () => {
+  const h = load();
+  const { bar } = filterBar(h, [50, 50, 50, 50], 150);
+  h.fn.fitFilterChips(bar);
+  const first = h.fn.ensureFilterMore(bar);
+  first.trigger.click();
+  assert.equal(first.menu.hidden, false);
+  assert.equal(first.trigger.getAttribute('aria-expanded'), 'true');
+
+  h.fn.fitFilterChips(bar); // the pane was nudged; the row re-fits under the open menu
+  assert.equal(h.fn.ensureFilterMore(bar), first, 'the same menu, not a torn-down and rebuilt one');
+  assert.equal(first.menu.hidden, false, 'and it is still open');
+});
+
+test('V45: the "…" stands in for what it hides — including the filter that is currently chosen', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  chips[3].classList.add('selected');
+  h.fn.fitFilterChips(bar);
+
+  const { trigger, menu } = h.fn.ensureFilterMore(bar);
+  const options = menu.querySelectorAll('.menu-option');
+  assert.equal(options.length, 2);
+  assert.deepEqual(options.map((li) => li.getAttribute('role')), ['menuitem', 'menuitem']);
+  assert.deepEqual(options.map((li) => li.tabIndex), [0, 0]);
+  assert.deepEqual(options.map((li) => li.getAttribute('aria-selected')), ['false', 'true']);
+  assert.equal(trigger.classList.contains('selected'), true, 'or the row would look unfiltered');
+  assert.equal(trigger.classList.contains('secondary'), false);
+  assert.equal(trigger.getAttribute('aria-label'), 'More filters', 'a glyph-only button needs a name');
+
+  chips[3].classList.remove('selected');
+  h.fn.fitFilterChips(bar);
+  assert.equal(h.fn.ensureFilterMore(bar).trigger.classList.contains('selected'), false);
+  assert.equal(h.fn.ensureFilterMore(bar).trigger.classList.contains('secondary'), true);
+});
+
+test('V46: when the row grows wide enough for every chip, an open menu closes with it', () => {
+  const h = load();
+  const { bar } = filterBar(h, [50, 50, 50, 50], 150);
+  h.fn.fitFilterChips(bar);
+  const { wrap, trigger, menu } = h.fn.ensureFilterMore(bar);
+  trigger.click();
+  assert.equal(menu.hidden, false);
+
+  bar.clientWidth = 400; // the tester drags the pane wide
+  h.fn.fitFilterChips(bar);
+  assert.equal(wrap.hidden, true);
+  assert.equal(menu.hidden, true, 'a menu left open over a hidden trigger cannot be dismissed');
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false');
+  assert.equal((h.doc.listeners.get('click') || []).length, 0, 'and its document-level closer went too');
+});
+
+test('V47: picking a filter out of the "…" runs the real chip, and the menu closes behind it', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  const picked = [];
+  for (const c of chips) c.addEventListener('click', () => picked.push(c.dataset.filter));
+  h.fn.fitFilterChips(bar);
+  const { trigger, menu } = h.fn.ensureFilterMore(bar);
+
+  trigger.click();
+  fire(menu.querySelectorAll('.menu-option')[0], 'keydown', { key: 'Enter' });
+  assert.deepEqual(picked, ['f2'], 'the hidden chip itself was clicked, so its own listener ran');
+  assert.equal(menu.hidden, true);
+
+  trigger.click();
+  fire(menu.querySelectorAll('.menu-option')[1], 'keydown', { key: ' ' });
+  assert.deepEqual(picked, ['f2', 'f3']);
+  assert.equal(menu.hidden, true);
+});
+
+test('V48: any other key on a menu option does nothing and leaves the menu standing', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  const picked = [];
+  for (const c of chips) c.addEventListener('click', () => picked.push(c.dataset.filter));
+  h.fn.fitFilterChips(bar);
+  const { trigger, menu } = h.fn.ensureFilterMore(bar);
+
+  trigger.click();
+  const ev = fire(menu.querySelectorAll('.menu-option')[0], 'keydown', { key: 'a' });
+  assert.deepEqual(picked, []);
+  assert.equal(menu.hidden, false);
+  assert.equal(ev.defaultPrevented, false);
+});
+
+test('V49: Escape hands the caret back to the "…"; picking an option does not, and that is a gap', () => {
+  const h = load();
+  const { bar } = filterBar(h, [50, 50, 50, 50], 150);
+  h.fn.fitFilterChips(bar);
+  const { trigger, menu } = h.fn.ensureFilterMore(bar);
+
+  trigger.click();
+  fire(menu, 'keydown', { key: 'Escape', bubbles: true });
+  assert.equal(menu.hidden, true);
+  assert.equal(h.doc.activeElement, trigger, 'Escape puts the caret back where the tester left it');
+
+  // Picking asks for the same thing — but the chip's own click reaches the document-level closer
+  // FIRST, so the menu is already shut when the focus request runs, and it returns having moved
+  // nothing. Today's behaviour, pinned: the caret is left on a row the next render throws away.
+  h.doc.body.focus();
+  trigger.click();
+  const option = menu.querySelectorAll('.menu-option')[0];
+  option.focus();
+  fire(option, 'keydown', { key: 'Enter' });
+  assert.equal(menu.hidden, true);
+  assert.equal(h.doc.activeElement, option);
+});
+
+// ---------- the create-button labels ----------
+
+function labelBar(h, fieldWidth) {
+  const bar = el('div', { className: 'toolbar' });
+  const field = el('div', { className: 'field' });
+  const btn = el('button', { className: 'btn primary fit-label', dataset: { label: 'New run' } });
+  bar.append(field, btn);
+  h.doc.body.append(bar);
+  bar.clientWidth = 300;
+  field.clientWidth = fieldWidth;
+  return { bar, field, btn };
+}
+
+test('V50: when the search box gets too narrow the button drops a word but keeps its whole name', () => {
+  const h = load();
+  const { bar, field, btn } = labelBar(h, 143);
+  h.fn.fitActionLabels(bar);
+  assert.equal(btn.classList.contains('is-short'), true);
+  assert.equal(btn.getAttribute('aria-label'), 'New run', 'the reader still hears all of it');
+
+  field.clientWidth = 144; // one pixel more is the whole rule
+  h.fn.fitActionLabels(bar);
+  assert.equal(btn.classList.contains('is-short'), false);
+  assert.equal(btn.getAttribute('aria-label'), null, 'and the name is not announced twice over');
+  assert.equal(h.lex.LABEL_FIT_MIN_FIELD, 144);
+});
+
+test('V51: every toolbar is armed once at boot, and re-fits itself when the pane really moves', () => {
+  const h = load();
+  const { bar, field, btn } = labelBar(h, 200);
+  const second = el('button', { className: 'btn fit-label', dataset: { label: 'New test' } });
+  bar.append(second);
+
+  h.fn.initActionLabelFit();
+  assert.equal(h.observers.length, 1, 'one observer for the bar, not one per button on it');
+  assert.equal(btn.classList.contains('is-short'), false);
+
+  field.clientWidth = 100;
+  bar.clientWidth = 200;
+  h.observers[0].cb();
+  assert.deepEqual([btn, second].map((b) => b.classList.contains('is-short')), [true, true]);
+
+  h.observers[0].cb(); // the same width again: the guard is what stops the row re-fitting forever
+  assert.equal(h.observers.length, 1);
+});
+
+// ---------- the read-only lockout ----------
+
+test('V52: the read-only lockout takes the run screen away before the tester can press anything on it', () => {
+  const h = load({ readonly: true });
+  h.state.runId = '7';
+  h.fn.show('run');
+
+  assert.equal(h.node['readonly-block'].hidden, false);
+  assert.deepEqual(VIEWS.filter((v) => !h.node[`view-${v}`].hidden), [],
+    'v2 refuses every request on a locked project, GET included — there is nothing behind the block');
+  assert.equal(h.node['context-bar'].hidden, true);
+  assert.equal(h.node['btn-back'].hidden, true, 'Back would be lying: nothing is open behind it');
+  assert.equal(h.doc.body.dataset.immersive, 'false', 'and the panel is not immersed in anything');
+  assert.equal(h.doc.body.dataset.readonly, 'true');
+});
+
+test('V53: Settings is the way out of the lockout, so that one screen is never blocked', () => {
+  const h = load({ readonly: true });
+  h.fn.show('settings');
+  assert.equal(h.node['readonly-block'].hidden, true);
+  assert.equal(h.node['view-settings'].hidden, false, 'or the tester could not switch project or sign out');
+  assert.equal(h.doc.body.dataset.readonly, 'true', 'the panel still knows the project is locked');
+});
+
+test('V54: unlocking a project gives the open screen and its header row straight back', () => {
+  const h = load({ readonly: true });
+  h.state.runId = '7';
+  h.state.runTitle = 'Nightly';
+  h.fn.show('run');
+  assert.equal(h.node['view-run'].hidden, true);
+
+  h.fn.capabilities.readonly = false;
+  h.node['context-title'].replaceChildren(); // whatever the block left standing there
+  h.fn.applyReadonlyBlock();
+  assert.equal(h.node['readonly-block'].hidden, true);
+  assert.deepEqual(VIEWS.filter((v) => !h.node[`view-${v}`].hidden), ['run']);
+  assert.equal(h.node['context-title'].textContent, 'Nightly', 'the header row was repainted with it');
+  assert.equal(h.doc.body.dataset.readonly, 'false');
+});
+
+// ---------- the basic-mode strip ----------
+
+test('V55: the basic-mode strip appears only once the missing web login is PROVEN, never on a maybe', () => {
+  const unknown = load({ jwt: 'unknown' });
+  unknown.fn.show('runs');
+  assert.equal(unknown.node['degraded-banner'].hidden, true);
+
+  const proven = load({ jwt: false });
+  proven.fn.show('runs');
+  assert.equal(proven.node['degraded-banner'].hidden, false);
+});
+
+test('V56: the strip names the site to sign in to, taken from the settings that were saved', () => {
+  const h = load({ jwt: false, settings: { baseUrl: 'https://a.io', projectId: 'p1' } });
+  h.fn.show('runs');
+  assert.equal(h.node['degraded-banner'].querySelector('.degraded-banner-text').textContent,
+    'Basic mode — steps are local-only; finish run, priority and custom statuses '
+    + 'need an active a.io web login. Sign in there, then Refresh.');
+  assert.equal(h.fn.baseUrlHost(), 'a.io');
+});
+
+test('V57: the strip belongs to the two run screens — nowhere else carries it', () => {
+  const h = load({ jwt: false });
+  for (const v of ['runs', 'run']) {
+    h.fn.show(v);
+    assert.equal(h.node['degraded-banner'].hidden, false, v);
+  }
+  for (const v of ['settings', 'tcstudio', 'test', 'tclist']) {
+    h.fn.show(v);
+    assert.equal(h.node['degraded-banner'].hidden, true, v);
+  }
+});
+
+test('V58: dismissing the strip keeps it down for the rest of the panel session', () => {
+  const h = load({ jwt: false });
+  h.fn.show('runs');
+  assert.equal(h.node['degraded-banner'].hidden, false);
+
+  h.fn.dismissDegradedBanner();
+  assert.equal(h.node['degraded-banner'].hidden, true);
+  h.fn.show('run');
+  h.fn.show('runs');
+  assert.equal(h.node['degraded-banner'].hidden, true, 'it does not come back on the next screen');
+});
+
+test('V59: under the lockout there is no basic mode to explain, so the strip stays down', () => {
+  const h = load({ jwt: false, readonly: true });
+  h.fn.show('runs');
+  assert.equal(h.node['degraded-banner'].hidden, true);
+});
+
+test('V60: with nothing saved the strip still reads as a sentence rather than as an error', () => {
+  const h = load({ jwt: false, settings: null });
+  assert.equal(h.fn.baseUrlHost(), 'the web app');
+  h.state.view = 'runs';
+  h.fn.updateDegradedBanner();
+  assert.match(h.node['degraded-banner'].querySelector('.degraded-banner-text').textContent,
+    /an active the web app web login/);
+});
