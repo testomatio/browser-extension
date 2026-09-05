@@ -134,9 +134,15 @@ function load(opts = {}) {
   // ---- chrome -----------------------------------------------------------------------------
   const bus = (throws = false) => {
     const fns = [];
+    const filters = []; // chrome.webRequest takes a second argument, and the wrong one records nothing
     return {
       fns,
-      addListener: (fn) => { if (throws) throw new Error('permission missing'); fns.push(fn); },
+      filters,
+      addListener: (fn, filter) => {
+        if (throws) throw new Error('permission missing');
+        fns.push(fn);
+        filters.push(plain(filter));
+      },
       removeListener: (fn) => { const i = fns.indexOf(fn); if (i >= 0) fns.splice(i, 1); },
     };
   };
@@ -823,10 +829,10 @@ test('36a: a redirect for an id with no row still opens the target\'s row', asyn
 test('36b: the four webRequest events are wired up at load, not at start', async () => {
   const h = await ready();
   const wr = h.chrome.webRequest;
-  assert.deepEqual(
-    [wr.onBeforeRequest, wr.onCompleted, wr.onErrorOccurred, wr.onBeforeRedirect].map((b) => b.fns.length),
-    [1, 1, 1, 1],
-  );
+  const events = [wr.onBeforeRequest, wr.onCompleted, wr.onErrorOccurred, wr.onBeforeRedirect];
+  assert.deepEqual(events.map((b) => b.fns.length), [1, 1, 1, 1]);
+  // A narrower filter would quietly leave the tester's cross-origin API calls out of the log.
+  assert.deepEqual(events.map((b) => b.filters[0]), Array(4).fill({ urls: ['<all_urls>'] }));
   h.st.session = { tabId: TAB };
   h.wr('onBeforeRequest', wrq({ requestId: 'r1', type: 'script' }));
   h.wr('onCompleted', { requestId: 'r1', statusCode: 500 });
