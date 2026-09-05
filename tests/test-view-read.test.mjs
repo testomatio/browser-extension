@@ -177,7 +177,9 @@ function load(opts = {}) {
         return made;
       },
     },
-    svgIcon: (name, size, ...cls) => el('span', { className: ['icon', ...cls].join(' '), dataset: { icon: name } }),
+    StatusIcons: {
+      svgIcon: (name, size, ...cls) => el('span', { className: ['icon', ...cls].join(' '), dataset: { icon: name } }),
+    },
     persistSession: () => {},
     toast: () => {},
   };

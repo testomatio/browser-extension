@@ -108,9 +108,9 @@ function load(opts = {}) {
     baseUrlHost: () => HOST,
     // core/state.js:79's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // run-view.js:351 — one reason for every row here; the per-record scoping is that screen's.
+    // run-view.js:253 — one reason for every row here; the per-record scoping is that screen's.
     recordWriteLock: () => o.lock,
-    normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
+    StatusIcons: { normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown') },
     renderAttachmentList: () => { calls.attachmentLists += 1; },
     // The real one writes data-tip on the node it is given (shared/tooltip.js:257,267); a recorder
     // alone could not tell a tip that landed on the right element from one that went nowhere.

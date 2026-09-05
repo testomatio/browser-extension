@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
    TestGates, Tooltip, ImgHydrate, TestSummary,
-   svgIcon, confirmDialog, paintCounter */
+   confirmDialog, paintCounter, StatusIcons */
 
 // Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
 // only on reopen, so a just-picked file would otherwise vanish from it.
@@ -79,7 +79,7 @@ function attDeleteBtn(a) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn icon size-xs attachment-del';
-  btn.append(svgIcon('delete', 14));
+  btn.append(StatusIcons.svgIcon('delete', 14));
   const lock = attDeleteLock(a);
   btn.disabled = !!lock;
   btn.setAttribute('aria-label', `Delete ${a.name}`);
@@ -168,7 +168,7 @@ function attDropzone() {
 
   const mark = document.createElement('span');
   mark.className = 'dropzone-mark';
-  mark.append(svgIcon('upload_file', 20));
+  mark.append(StatusIcons.svgIcon('upload_file', 20));
 
   const body = document.createElement('div');
   body.className = 'dropzone-body';

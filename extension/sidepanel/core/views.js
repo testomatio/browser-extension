@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, Handoff, Icons, Roving, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
    PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
-   openTcStudioView, refreshTcList, openTestSuitePicker */
+   openTcStudioView, refreshTcList, openTestSuitePicker, StatusIcons */
 
 // ---------- tab model ----------
 // `promote` is the suite picker's historical view name (see tc-studio.js).
@@ -70,7 +70,7 @@ function contextTitleFor(view) {
 // Marks set at the head of the title, in list-row order: priority, then type.
 // A run carries none — its kind and status are pills right under this row.
 function contextTitleMarks(view) {
-  if (view === 'tclist') return [treeIcon(FILE_ICON, 'file-icon', state.tcSuiteEmoji)];
+  if (view === 'tclist') return [StatusIcons.treeIcon(StatusIcons.FILE, 'file-icon', state.tcSuiteEmoji)];
   if (view === 'test') {
     const rec = typeof recordFor === 'function' ? recordFor(state.currentRecordId) : null;
     return [
@@ -621,8 +621,8 @@ function toastDuration(msg) {
   return Math.min(8000, 3500 + over * 50);
 }
 
-// Drawn from `Icons` (shared/icons.js), not the screens' `svgIcon` alias: this file
-// is core, and icons.js is the first script the page loads.
+// Drawn from `Icons` (shared/icons.js), not the `StatusIcons.svgIcon` alias: the toast is
+// this file's own, and icons.js is the first script the page loads.
 const ALERT_ICON = 'error';
 const PROGRESS_ICON = 'progress_activity';
 

@@ -139,7 +139,7 @@ function load(opts = {}) {
     setAuthExpiredLine: (id) => { calls.authLines.push(id); },
     // core/state.js:79's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // run-view.js:351 — one reason for every row here; the per-record scoping is that screen's.
+    // run-view.js:253 — one reason for every row here; the per-record scoping is that screen's.
     recordWriteLock: () => o.lock,
     displayStatus: (r) => (r?.status && r.status !== 'pending' ? r.status : 'untested'),
     runRepliesFor: (status) => o.replies[status] || [],

@@ -170,7 +170,9 @@ function load(opts = {}) {
       if (!n || n.textContent === String(value)) return;
       n.textContent = String(value);
     },
-    svgIcon: (name, size) => el('span', { className: 'icon', dataset: { icon: name, size: String(size) } }),
+    StatusIcons: {
+      svgIcon: (name, size) => el('span', { className: 'icon', dataset: { icon: name, size: String(size) } }),
+    },
     showTestSection: (name) => { calls.sections.push(name); },
     resolveSiteTab: o.resolveSiteTab || (async (args) => {
       calls.order.push('resolveSiteTab');

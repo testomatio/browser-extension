@@ -95,9 +95,11 @@ function load(opts = {}) {
     openRunsView: () => {},
     openRunView: () => {},
     openTcStudioView: () => {},
-    // screens/run-view.js:22,36 — the suite mark a tclist title carries.
-    FILE_ICON: 'tree_suite',
-    treeIcon: (name, cls) => el('span', { className: cls, dataset: { icon: name } }),
+    // core/status-icons.js — the suite mark a tclist title carries.
+    StatusIcons: {
+      FILE: 'tree_suite',
+      treeIcon: (name, cls) => el('span', { className: cls, dataset: { icon: name } }),
+    },
   };
 
   const h = loadScreen('views', {

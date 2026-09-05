@@ -13,7 +13,7 @@
 // em dashes, the delete path's is bare — because unifying the wording is a product decision.
 
 /* global TestomatAPI, Tooltip, Dropdown, state, hasChrome, $, recordFor, recordWriteLock,
-   renderAttachmentList, normStatus, baseUrlHost */
+   renderAttachmentList, baseUrlHost, StatusIcons */
 
 const TestGates = (() => {
   // ---- full-page capture toggle ----
@@ -49,7 +49,7 @@ const TestGates = (() => {
 
   // The buttons double as the result display: the matching one takes the `.solid` fill.
   function paintStatusButtons(status) {
-    const s = status && status !== 'pending' ? normStatus(status) : '';
+    const s = status && status !== 'pending' ? StatusIcons.normStatus(status) : '';
     for (const st of ['passed', 'failed', 'skipped']) {
       const btn = $(`btn-${st}`);
       if (!btn) continue;

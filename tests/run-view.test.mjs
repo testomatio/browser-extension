@@ -13,6 +13,8 @@
 // code — the lock painting, the run-state pill, the substatus counters, the three best-effort
 // re-reads, the probe and the chip bar. A lettered suffix is the companion case that drives the same
 // path the other way, so a row asserting "nothing happened" cannot pass against a broken fixture.
+// Rows 1, 46, 85, 86, 87 and 88 left with the icon vocabulary (#194) — they are
+// tests/status-icons.test.mjs now, and the real module is loaded here beside the screen.
 // Run: node --test tests/run-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -413,12 +415,15 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
+    // index.html's own order: core/status-icons.js stands ahead of every screen, and this screen
+    // draws its glyphs through it. The REAL one — stubbing it would test the stub (#194).
+    before: [['status-icons', CORE_SRC]],
     // Every name below is a lexical `const` — invisible as a sandbox property, reachable only off
     // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
-    exported: `({ normStatus, statusLabel, treeSlot, runStatusTerminal, runArchived, runAutomated,
+    exported: `({ statusLabel, runStatusTerminal, runArchived, runAutomated,
       matchesRunFilter, exampleOf, rowVisible, suiteKeyOf, suiteEmojiOf, orderedRecords,
       visibleRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
-      STATUS_ICON, NEUTRAL_ICON, FILE_ICON, FOLDER_ICON, CHEVRON_ICON, NO_SUITE, PROBE_WAIT_MS,
+      NO_SUITE, PROBE_WAIT_MS, StatusIcons,
       RUN_STATE_TINT, ROW_BTN_LABEL, RUN_LOCK_REASON, ARCHIVED_LOCK_REASON, AUTOMATED_LOCK_REASON })`,
   });
 
@@ -826,15 +831,7 @@ test('81a: Esc on the dialog reads as a cancel, not as a confirmation', async ()
   assert.equal(h.state.runStatus, 'running');
 });
 
-// ---------- the status vocabulary and the counters (rows 1-3, 5-6, 82-88) ----------
-
-test('1: a launching run reads as running, and nothing at all reads as unknown', () => {
-  const h = load();
-  assert.equal(h.lex.normStatus('launching'), 'running');
-  assert.equal(h.lex.normStatus(''), 'unknown');
-  assert.equal(h.lex.normStatus(undefined), 'unknown');
-  assert.equal(h.lex.normStatus('passed'), 'passed');
-});
+// ---------- the status vocabulary and the counters (rows 2-3, 5-6, 82-84, 86a, 88a) ----------
 
 test('2: pending, blank and no record at all are one word to this screen — untested', () => {
   const h = load();
@@ -928,33 +925,6 @@ test('84a: neither source answered — the pill hides rather than printing an em
   assert.equal(h.node.runState.textContent, '');
 });
 
-test('85: a running test draws the two-circle ring, not a glyph — and both measure the same slot', () => {
-  const h = load();
-  const spinner = h.fn.statusIcon('launching');
-  assert.equal(spinner.className, 'spinner');
-  assert.equal(spinner.dataset.status, 'running', 'launching folds into running here too');
-  assert.equal(spinner.dataset.tip, 'running');
-  assert.deepEqual(spinner.children.map((c) => c.className), ['spinner-track', 'spinner-head']);
-  assert.equal(spinner.children[1].getAttribute('stroke-dasharray'), '25 75');
-  assert.equal(spinner.children[0].getAttribute('stroke-dasharray'), null);
-  // Every other status IS a glyph, so the branch above is a decision and not the only path.
-  const glyph = h.fn.statusIcon('passed');
-  assert.equal(glyph.dataset.icon, 'status_passed');
-  assert.ok(glyph.classList.contains('status-icon'));
-  assert.equal(glyph.dataset.status, 'passed');
-});
-
-test('86: three kinds are a run kind; a rungroup\'s own kind draws no badge', () => {
-  const h = load();
-  for (const k of ['manual', 'AUTOMATED', 'Mixed']) assert.equal(h.fn.runKind(k), k.toLowerCase());
-  for (const k of ['multienv', '', null, undefined, 5]) assert.equal(h.fn.runKind(k), null, String(k));
-  const badge = h.fn.kindBadge('mixed');
-  assert.equal(badge.dataset.kind, 'mixed');
-  assert.equal(badge.dataset.text, 'true', 'the header badge carries its word');
-  assert.equal(badge.dataset.tip, 'mixed run');
-  assert.equal(h.fn.kindBadge('multienv'), null);
-});
-
 test('86a: the kind pill hides itself when the run has no kind to show', () => {
   const h = load({ runKind: 'manual' });
   h.fn.paintRunKind();
@@ -964,28 +934,6 @@ test('86a: the kind pill hides itself when the run has no kind to show', () => {
   h.fn.paintRunKind();
   assert.equal(h.node.runKind.hidden, true);
   assert.deepEqual(h.node.runKind.children, []);
-});
-
-test('87: a project emoji replaces the suite glyph and says so through data-emoji', () => {
-  const h = load();
-  const plainIcon = h.fn.treeIcon('tree_suite', 'file-icon', null);
-  assert.equal(plainIcon.className, 'tree-icon file-icon');
-  assert.equal(plainIcon.dataset.emoji, undefined);
-  assert.equal(plainIcon.children[0].dataset.icon, 'tree_suite');
-  const marked = h.fn.treeIcon('tree_suite', 'file-icon', '🔥');
-  assert.equal(marked.dataset.emoji, '🔥');
-  assert.equal(marked.textContent, '🔥');
-  // An unresolved shortcode is not a mark — it falls back to the glyph, carrying no data-emoji.
-  const shortcode = h.fn.treeIcon('tree_suite', 'file-icon', ':fire:');
-  assert.equal(shortcode.dataset.emoji, undefined);
-  assert.equal(shortcode.children[0].dataset.icon, 'tree_suite');
-});
-
-test('88: an unfoldable row keeps the empty slot, so its title lines up with a foldable sibling', () => {
-  const h = load();
-  const slot = h.lex.treeSlot();
-  assert.equal(slot.className, 'tree-icon');
-  assert.deepEqual(slot.childNodes, []);
 });
 
 test('88a: the test view reuses the same counts line, into its own band', () => {
@@ -2281,31 +2229,12 @@ test('45 (#274): a row the tester just marked flashes to say it saved', async ()
   assert.equal(queued.li.querySelector('.saved-flash'), null);
 });
 
-// 46: STATUS_ICON.skipped WAS NEUTRAL_ICON's own ring, so skipped and pending differed by colour
-// alone — unreadable to a colour-blind tester and invisible in a greyscale screenshot.
-test('46 (#115): skipped and pending are told apart by their shape, not only their colour', () => {
-  const h = load();
-  const skipped = h.fn.statusIcon('skipped');
-  assert.notEqual(skipped.dataset.icon, h.fn.statusIcon('pending').dataset.icon);
-  assert.equal(skipped.dataset.icon, 'block');
-  // The crossed ring fills the same 16px slot the plain one did, and the tint keys on data-status.
-  assert.equal(skipped.dataset.size, '16');
-  assert.equal(skipped.dataset.status, 'skipped');
-  assert.ok(skipped.classList.contains('status-icon'));
-
-  // The ring stays for the four that genuinely have not been run — and stays ONE ring for all
-  // four, so separating skipped out has not quietly told THEM apart from each other.
-  const ring = ['pending', 'scheduled', 'queued', 'unknown'].map((s) => h.fn.statusIcon(s).dataset.icon);
-  assert.deepEqual(ring, Array(4).fill('status_record'));
-  assert.ok(!ring.includes(skipped.dataset.icon), 'skipped fell back to the ring');
-});
-
 // 46a: the panel draws statuses in two languages and the fix has to respect both. The big verdict
 // buttons wear the same filled marks as the list, so they move together; the compact row buttons and
 // the step marks wear bare ones and stay put — exactly as `failed` already does (close vs the disc).
 test('46a (#115): the verdict button follows the list mark, and the bare marks stay where they are', () => {
   const h = load();
-  const mark = h.fn.statusIcon('skipped').dataset.icon;
+  const mark = h.lex.StatusIcons.statusIcon('skipped').dataset.icon;
 
   // The test view's own big Skipped button is drawn from the same set, at its own 18px.
   // index.html is read raw: no fixture stands in for it, so nothing else would catch a drift.
