@@ -265,8 +265,12 @@ function load(over = {}) {
     console,
   };
   const context = createContext(sandbox);
-  const path = sharedPath('shared/annotate-core.js');
-  runInContext(sourceOf(path), context, { filename: path });
+  // annot-geometry.js first, exactly as both hosts load it: the core reads two of its constants
+  // while it evaluates, and every box, grab and grip below comes out of it.
+  for (const rel of ['shared/annot-geometry.js', 'shared/annotate-core.js']) {
+    const path = sharedPath(rel);
+    runInContext(sourceOf(path), context, { filename: path });
+  }
   const Core = sandbox.window.AnnotateCore;
 
   const calls = { applied: [], cancelled: [], discardAsked: 0, keepAsked: [], ready: null };
