@@ -85,6 +85,7 @@ function load(opts = {}) {
     off: {},
     offDefault: { ok: true },
     sendMessage: null,            // set to take the whole broadcast channel over
+    storageSet: null,             // set to intercept a write; throwing from it is a failed write
     getContexts: () => [{ documentId: 'doc-1' }],
     createDocument: async () => {},
     closeDocument: async () => {},
@@ -143,7 +144,11 @@ function load(opts = {}) {
   const storageArea = (store, area) => ({
     get: async (keys) => { log(`storage.${area}.get`, keys); return plain(readKeys(store, keys)); },
     // Chrome structured-clones on the way in; an alias would hide what a read-modify-write guards.
-    set: async (obj) => { log(`storage.${area}.set`, obj); Object.assign(store, plain(obj)); },
+    set: async (obj) => {
+      log(`storage.${area}.set`, obj);
+      if (hooks.storageSet) await hooks.storageSet(area, plain(obj));
+      Object.assign(store, plain(obj));
+    },
     remove: async (key) => {
       log(`storage.${area}.remove`, key);
       for (const k of Array.isArray(key) ? key : [key]) delete store[k];
@@ -752,6 +757,26 @@ test('44: two panels asking in the same tick still leave exactly one owner', asy
   ]);
   assert.equal(both.filter((r) => r.ok).length, 1);
   assert.equal(h.parked().claim.by, 'A');
+});
+
+// Claims take turns in one queue, so a claim that throws must not take the queue down with it: the
+// panel behind it in the line is a second document waiting for an answer that would never come.
+test('44b: a claim whose write fails still lets the panel behind it be answered', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  h.hooks.storageSet = () => { h.hooks.storageSet = null; throw new Error('quota'); };
+  let answer = 'the second panel was never answered';
+  h.message({ type: 'SCREENREC_CLAIM', by: 'A' }).then(() => {}, () => {});
+  h.message({ type: 'SCREENREC_CLAIM', by: 'B' }).then((v) => { answer = v; });
+  await h.settle(6);
+  assert.deepEqual(answer, { ok: true });
+});
+
+// 40-44 only ever read `.claim`, so a claim that rebuilt the record instead of merging would gut the
+// take and no row would notice. The bytes belong to the tester; only the owner changes.
+test('40b: claiming the take changes who holds it and nothing else about it', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  assert.deepEqual(await h.message({ type: 'SCREENREC_CLAIM', by: 'A' }), { ok: true });
+  assert.deepEqual(h.parked(), TAKE({ claim: { by: 'A', at: NOW } }));
 });
 
 test('45: with no take parked there is nothing to claim', async () => {
