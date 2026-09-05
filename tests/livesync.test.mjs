@@ -8,6 +8,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, settle } from './helpers/panel-harness.mjs';
+import { loadState } from './helpers/core-harness.mjs';
+
+// The REAL comparator out of core/state.js, not a hand-written copy: #258 was three copies of one
+// sort rule, and a stub here would be a fourth free to drift. Its own rows live in state.test.mjs.
+const { byRecordId } = loadState();
 
 // screens/run-view.js's own two one-liners. Stubs that answered `record.status` verbatim would let
 // the pending/untested rows pass without the module ever comparing a DISPLAY status.
@@ -122,6 +127,7 @@ function load(opts = {}) {
     // colleague's write, so the stub records the ask and tests/test-meta.test.mjs owns the rule.
     TestMeta: { applyAssigneeGate: (rec) => { calls.applyAssigneeGate.push(rec ? String(rec.id) : rec); } },
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
+    byRecordId,
     toast: (msg) => { calls.toasts.push(msg); },
     refreshRunInfo: async (runId) => { calls.refreshRunInfo.push(String(runId)); return o.runInfoChanged; },
     refreshRunFinished: async (runId) => { calls.refreshRunFinished.push(String(runId)); },
@@ -476,24 +482,33 @@ test('20: Refresh resumes a loop an expired session parked', async () => {
 
 // ---------- the remote-wins diff (rows 21-33) ----------
 
-test("21: today's sort is a string compare, so a record id of '10' lands before '9'", async () => {
-  const strings = load({ records: [], answer: () => Promise.resolve([{ id: '9' }, { id: '10' }]) });
-  await strings.fn.startLiveSync();
-  await strings.clock.tick();
-  assert.deepEqual(strings.state.records.map((r) => r.id), ['10', '9']);
-
-  // The same two ids as numbers compare numerically and do come out in run order.
-  const numbers = load({ records: [], answer: () => Promise.resolve([{ id: 9 }, { id: 10 }]) });
+test('21: the poll re-sorts by record id, and a newest-first payload comes out in run order', async () => {
+  const numbers = load({ records: [], answer: () => Promise.resolve([{ id: 10 }, { id: 9 }]) });
   await numbers.fn.startLiveSync();
   await numbers.clock.tick();
   assert.deepEqual(numbers.state.records.map((r) => r.id), [9, 10]);
+
+  // The poll re-sorts the payload rather than the LIST, so the server's array is left alone.
+  const payload = [{ id: 10 }, { id: 9 }];
+  const untouched = load({ records: [], answer: () => Promise.resolve(payload) });
+  await untouched.fn.startLiveSync();
+  await untouched.clock.tick();
+  assert.deepEqual(payload.map((r) => r.id), [10, 9]);
 });
 
-test.todo("21 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
+test("21 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
   const h = load({ records: [], answer: () => Promise.resolve([{ id: '9' }, { id: '10' }]) });
   await h.fn.startLiveSync();
   await h.clock.tick();
   assert.deepEqual(h.state.records.map((r) => r.id), ['9', '10']);
+
+  // Every 20 s tick re-sorts, so a wrong order here is the one a refresh never settles.
+  const hundred = load({ records: [], answer: () => Promise.resolve([{ id: '100' }, { id: '99' }]) });
+  await hundred.fn.startLiveSync();
+  await hundred.clock.tick();
+  assert.deepEqual(hundred.state.records.map((r) => r.id), ['99', '100']);
+  await hundred.clock.tick();
+  assert.deepEqual(hundred.state.records.map((r) => r.id), ['99', '100'], 'and it stays settled');
 });
 
 test('22: a record added remotely replaces the list and repaints the run view', () => {

@@ -425,9 +425,11 @@ async function onEvidenceToggle() {
 
 // ---- test-view "Evidence" section ----------------------------------------
 
-// Absent -> 60, clamp 10-600 — mirrors recorder.js evClampWindow.
+// Absent or null -> 60, clamp 10-600 — mirrors recorder.js evClampWindow behind the same
+// `!= null` guard: settings not loaded yet, or a refused out-of-range value, is not a 0.
 function evWindowSeconds() {
   const raw = state.settings && state.settings.evidenceWindowSec;
+  if (raw == null) return 60;
   const n = Number(raw);
   if (!Number.isFinite(n)) return 60;
   return Math.min(600, Math.max(10, Math.round(n)));

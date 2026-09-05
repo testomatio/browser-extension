@@ -555,9 +555,26 @@ test('23: the kept window mirrors the recorder\'s clamp — 10 to 600, rounded, 
   assert.equal(at(60), 60);
   h.state.settings = undefined;
   assert.equal(h.fn.evWindowSeconds(), 60);
-  // TODAY, and NOT what the recorder answers: state.settings starts life as null (core/state.js),
-  // and Number(null) is a finite 0, so the clamp floors it at 10. See the todo at the end.
+  // state.settings starts life as null (core/state.js) and Number(null) is a finite 0, so an
+  // unguarded clamp floored it at 10 while the recorder kept 60. The row below is the whole rule.
   h.state.settings = null;
+  assert.equal(h.fn.evWindowSeconds(), 60);
+});
+
+// The three ways the value can be missing, every one of which the recorder answers 60 for: the
+// settings not loaded yet, the key never written, and the null stored for an out-of-range entry.
+test('23 (#264): every way the window can go missing quotes the recorder\'s 60s, not 10s', () => {
+  const h = load({ settings: null });
+  assert.equal(h.fn.evWindowSeconds(), 60, 'nothing loaded yet — the panel a tester opens cold');
+  h.state.settings = { evidenceWindowSec: null };
+  assert.equal(h.fn.evWindowSeconds(), 60, 'settings.js stores null when what was typed is refused');
+  h.state.settings = { baseUrl: 'https://app.testomat.io' };
+  assert.equal(h.fn.evWindowSeconds(), 60, 'the key never written at all');
+  // A 0 the tester actually typed is a VALUE, not a gap: the `!= null` guard must not swallow it,
+  // and the recorder floors it at 10 the same way.
+  h.state.settings = { evidenceWindowSec: 0 };
+  assert.equal(h.fn.evWindowSeconds(), 10);
+  h.state.settings = { evidenceWindowSec: '0' };
   assert.equal(h.fn.evWindowSeconds(), 10);
 });
 
@@ -1513,15 +1530,7 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 
 // 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 23: the panel says it mirrors the recorder's clamp, and the recorder guards with `!= null` before
-// clamping. This one does not, and state.settings starts life as null (core/state.js), so an
-// unconfigured panel tells the tester it keeps ten seconds while the recorder keeps sixty.
-test.todo('23 (#264): a panel with no settings loaded yet quotes the recorder\'s 60s, not 10s', () => {
-  const h = load({ settings: null });
-  assert.equal(h.fn.evWindowSeconds(), 60);
-  h.state.settings = { evidenceWindowSec: null };
-  assert.equal(h.fn.evWindowSeconds(), 60);
-});
+// 23 (#264) was one of these and is fixed — it reads as a rule up with the settings gates now.
 
 // 59 (#107): the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here, and
 // a queue entry carries no snapshot. What gets uploaded is the recorder's buffer at REPLAY time —

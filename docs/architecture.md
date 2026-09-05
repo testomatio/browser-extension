@@ -581,7 +581,7 @@ Advanced) and `#signout-status`.
 
 | File | Owns |
 |---|---|
-| `core/state.js` | The single `state` object; `$()`; `recordFor()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
+| `core/state.js` | The single `state` object; `$()`; `recordFor()`; `byRecordId()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
 | `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` — the only writers of the `session` key. |
 | `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()` / `progressToast()` / `hideToast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
 | `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). Two of its parts are shared with the choose-a-project screen rather than copied into it: `matchProjects(rows, filter)` (title AND slug) and `projectRowEl()`, the one project row — two lines plus the trailing count, and the `dataset.projectId` the e2e reads. `askForProject()` is what sends a connection with no project to that screen. |
@@ -1973,7 +1973,10 @@ switch. Grep before you touch either.
 throughout — a parametrized test case has one record per example row and they
 all share `test_id` (`core/state.js:27-30`). `recordFor()` compares stringified
 because ids cross the session boundary as numbers or strings. Every diff, cache
-and repaint in `livesync.js` and `run-view.js` keys on record id.
+and repaint in `livesync.js` and `run-view.js` keys on record id. Sorting has the
+same trap and one shared answer: `byRecordId()` — numeric ids as numbers, anything
+else as text after them — is what all three run-order sorts must use, because a
+plain `>` puts `'10'` before `'9'`.
 
 **4. Real-time push is not available, and it is not your bug.** Live sync is a
 20-second poll on purpose. ActionCable from an extension is blocked by **two**

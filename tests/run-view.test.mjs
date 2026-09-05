@@ -21,12 +21,17 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+import { loadState } from './helpers/core-harness.mjs';
 
 // The REAL formatter, not a stub: the Run info rows assert the duration a tester reads, and a
 // fake would let them pass against a wording the panel never prints (tests/format.test.mjs).
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
+
+// The REAL comparator, for the same reason: #258 was one sort rule written out three times, and a
+// stub here would be a fourth free to drift. Its own rows live in tests/state.test.mjs.
+const { byRecordId } = loadState();
 
 // formatTimeIn falls back to the MACHINE zone when the profile zone is junk (row 18). Pinned to a
 // zone that is neither UTC nor the repo's own, so the fallback is distinguishable from a honoured
@@ -290,6 +295,7 @@ function load(opts = {}) {
     fitFilterChips: (bar) => { calls.fitChips += 1; calls.order.push('chips'); if (bar) bar.dataset.fitted = '1'; },
     baseUrlHost: () => 'app.testomat.io',
     readonlyGate: async () => { calls.order.push('gate'); return o.gate; },
+    byRecordId,
     // core/state.js:79's own, stringified on both sides; every lock read goes through it.
     recordFor: (recordId) => {
       calls.order.push('lock-read');
@@ -2227,7 +2233,7 @@ test('131: Finish waits while an inline write is still in flight, and goes on th
 });
 
 // ---------- the bugs these tests found (rows 4, 45, 46, 47, 52, 53, 64, 65) ----------
-// Five of them are fixed in this PR and read as rules; the three still deferred name their issue.
+// Six of them are fixed and read as rules; the two still deferred name their issue.
 
 // 4 (#273): a running row used to be counted by nothing but All, so the chips summed to less than
 // the total and no chip could show that row. It counts as Pending now — it has no result yet.
@@ -2294,13 +2300,27 @@ test('52 (#276): a save still in flight stops the finish instead of being closed
   assert.equal(clear.calls.sleeps.length, 0);
 });
 
-// 53: three copies of `(a, b) => a.id > b.id ? 1 : -1` compare ids as TEXT (run-view.js:182 and
-// :451, screens/livesync.js:80), so a run past its ninth record lists 10 before 9.
-test.todo("53 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
+// 53 (#258): three copies of `(a, b) => a.id > b.id ? 1 : -1` compared ids as TEXT, so a run past
+// its ninth record listed 10 before 9. This file owns two of them — open and finish.
+test("53 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
   const h = load({ runId: 'r0' });
   h.on.listTestruns = async () => [rec('9'), rec('10')];
   await h.fn.openRunView('r1');
   assert.deepEqual([...h.state.records].map((r) => r.id), ['9', '10']);
+  assert.deepEqual(h.rowIds(), ['9', '10'], 'and that is the order the checklist was drawn in');
+});
+
+test('53a (#258): finishing the run re-sorts the re-read the same way, not as text', async () => {
+  const h = load({ runStatus: 'running', records: [rec('99')] });
+  h.on.finishRun = async () => ({ id: 'r1', status: 'finished' });
+  h.on.runInfoOf = (payload) => ({ status: payload.status });
+  h.on.listTestruns = async () => [rec('100'), rec('99')];
+  const done = h.fn.finishRun();
+  await openConfirm(h);
+  fire(h.node.confirmOk, 'click');
+  await done;
+  assert.deepEqual(h.state.records.map((r) => r.id), ['99', '100']);
+  assert.deepEqual(h.rowIds(), ['99', '100']);
 });
 
 // 64: testRow (1107-1127) and the suiteSection head (1239-1266) carry a click listener and nothing

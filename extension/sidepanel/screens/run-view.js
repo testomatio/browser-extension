@@ -2,7 +2,7 @@
 // status chips, search, suite sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast, Fmt, CommentDrafts, WriteCore */
+   progressToast, Fmt, CommentDrafts, WriteCore, byRecordId */
 
 // ---------- status icons ----------
 // `running` is deliberately absent: it is the LOADER, a drawn ring rather than a
@@ -179,7 +179,7 @@ async function openRunView(runId, title) {
     // show() painted the header off the passed-in title — repaint with the real one.
     refreshContextBar();
     // v2 returns newest-first; run order = creation order = id ASC.
-    state.records = recordsRes.value.sort((a, b) => (a.id > b.id ? 1 : -1));
+    state.records = recordsRes.value.sort(byRecordId);
     // #52: best-effort like the info leg — a failed read leaves the parametrized rows bare.
     state.runExamples = (examplesRes.status === 'fulfilled' && examplesRes.value) || {};
     renderRunView();
@@ -456,7 +456,7 @@ async function finishRun() {
     applyRunInfo(TestomatAPI.runInfoOf(await TestomatAPI.finishRun(state.runId)));
     // v2 run counts lag (async) — re-read testruns as the authoritative source.
     const records = await TestomatAPI.listTestruns(state.runId);
-    state.records = records.sort((a, b) => (a.id > b.id ? 1 : -1));
+    state.records = records.sort(byRecordId);
     state.runStatus = 'finished';  // any non-'running' value hides the button
     renderRunView();               // pending rows now render as skipped
     setStatusLine('run-status', 'Run finished ✓', 'ok');
