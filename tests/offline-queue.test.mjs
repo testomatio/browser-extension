@@ -183,7 +183,7 @@ test('7: an entry carries the connection it was written on', async () => {
   assert.deepEqual(h.stored(), {
     5: {
       recordId: 5, runId: 'r1', status: 'failed', comment: 'flaky',
-      queuedAt: 1700, reason: null, host: 'a.io', projectId: 'p1',
+      queuedAt: 1700, reason: null, envMeta: null, host: 'a.io', projectId: 'p1',
     },
   });
 });
@@ -283,6 +283,7 @@ test('17: the drain replays oldest click first, whatever order the entries were 
   assert.deepEqual(h.repaints, ['a', 'b', 'c']); // each row loses its badge as its write lands
   assert.equal(h.Q.count(), 0);
   assert.equal(h.writes[0].opts.noQueue, true); // a replay that fails must not re-queue itself
+  assert.equal(h.writes[0].opts.replay, true); // …and it writes no fresh environment either (#107)
 });
 
 test('18: a foreign entry is not thrown at this connection, and its run is not resolved here either', async () => {
@@ -817,4 +818,83 @@ test('54: the forced-failure cycle — queue while it fails, and a later success
   assert.deepEqual(h.writes, []); // nothing left, so the old «failed» cannot land on top
   assert.equal(server[5], 'passed');
   assert.equal(h.Q.count(), 0);
+});
+
+// ---------- the environment snapshot and the log it cannot park (rows 55-58) ----------
+
+// #107: what the entry carries is what the replay writes. Collecting the environment at drain time
+// described the tab the tester happened to be on hours later, and the log attached beside it was
+// the recorder's window on some other page — a developer triaging the result went to the wrong page.
+
+test('55 (#107): an entry keeps the environment it was marked in, and the drain hands it back', async () => {
+  const h = load();
+  const env = [['URL', 'https://shop.example/cart'], ['Viewport', '1280×720']];
+  await h.Q.enqueue({ recordId: 5, runId: 'r1', status: 'failed', comment: 'card declined', envMeta: env });
+  assert.deepEqual(h.stored()[5].envMeta, env); // parked, so a panel reload still has it
+
+  await h.Q.replay();
+  assert.deepEqual(h.writes[0].opts.envMeta, env);
+  assert.equal(h.writes[0].opts.replay, true); // core/write-status.js writes THAT instead of collecting
+});
+
+test('56 (#107): an entry from an older build carries no snapshot, and the drain invents none', async () => {
+  const h = load();
+  // Straight into storage the way an older build left it — no envMeta key at all.
+  const h2 = load({ local: { offlineQueue: { 5: { recordId: 5, runId: 'r1', status: 'failed', comment: '', queuedAt: 1 } } } });
+  await h2.Q.init();
+  await h2.Q.replay();
+  assert.deepEqual([...h2.writes[0].opts.envMeta], []); // empty, so write-status writes no meta at all
+  assert.equal(h2.writes[0].opts.replay, true);
+
+  // A non-array from anywhere else is stored as «none» rather than passed on as it is.
+  await h.Q.enqueue({ recordId: 6, status: 'failed', envMeta: 'not a list' });
+  assert.equal(h.stored()[6].envMeta, null);
+});
+
+test('57 (#107): a synced FAIL says once that it carries no log; a synced PASS says nothing', async () => {
+  const one = load();
+  await enqueue(one, { recordId: 1, status: 'failed', queuedAt: 1 });
+  await one.Q.replay();
+  assert.deepEqual(one.toasts, [
+    { msg: '1 synced result has no console & network log — it is not kept offline', error: false },
+  ]);
+
+  const many = load();
+  for (const i of [1, 2]) await enqueue(many, { recordId: i, status: 'failed', queuedAt: i });
+  await enqueue(many, { recordId: 3, status: 'passed', queuedAt: 3 });
+  await many.Q.replay();
+  assert.deepEqual(many.toasts, [
+    { msg: '2 synced results have no console & network log — it is not kept offline', error: false },
+  ]);
+
+  // Nothing failed, so there is no missing attachment to explain.
+  const passing = load();
+  await enqueue(passing, { recordId: 1, status: 'passed' });
+  await passing.Q.replay();
+  assert.deepEqual(passing.toasts, []);
+});
+
+test('58 (#107): the log clause joins the drop clauses in ONE toast, and only lands writes count', async () => {
+  const h = load({
+    getRun: async (id) => (id === 'rf' ? { status: 'finished' } : null),
+    write: async (rec) => { if (String(rec.id) === '2') throw err('notfound', 'Not found'); },
+  });
+  await enqueue(h, { recordId: 1, runId: 'rf', status: 'failed', queuedAt: 1 }); // dropped, never written
+  await enqueue(h, { recordId: 2, runId: 'r1', status: 'failed', queuedAt: 2 }); // permanent failure
+  await enqueue(h, { recordId: 3, runId: 'r1', status: 'failed', queuedAt: 3 }); // the only one that lands
+
+  await h.Q.replay();
+  assert.deepEqual(h.toasts, [{
+    msg: 'Run finished — 1 queued result was not written'
+      + " · A queued status couldn't be saved and was dropped: Not found"
+      + ' · 1 synced result has no console & network log — it is not kept offline',
+    error: true,
+  }]);
+
+  // A pass that never got to write says nothing at all — the entries are all still queued.
+  const offline = load({ write: async () => { throw err('network', 'offline'); } });
+  await enqueue(offline, { recordId: 1, status: 'failed' });
+  await offline.Q.replay();
+  assert.deepEqual(offline.toasts, []);
+  assert.equal(offline.Q.count(), 1);
 });

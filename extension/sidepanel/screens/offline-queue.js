@@ -6,7 +6,7 @@
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
-let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, comment, queuedAt, host, projectId} }
+let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, comment, queuedAt, envMeta, host, projectId} }
 let queueDraining = false;  // FIFO, one drain at a time — no retry storm
 let queueRedrainRequested = false; // #192: a trigger that arrived mid-drain, honoured once after it
 let queueLastPass = false;         // the running pass is the last one — no more can be promised
@@ -63,12 +63,15 @@ async function persistQueue() {
   try { await chrome.storage.local.set({ [QUEUE_KEY]: queueCache }); } catch { /* best effort */ }
 }
 
-// Add or REPLACE (newer click wins). The stored comment is the RAW tester text —
-// replay re-derives the env-info/evidence suffix at replay time.
-async function queueEnqueue({ recordId, runId, status, comment, queuedAt, reason }) {
+// Add or REPLACE (newer click wins). Stored: the RAW tester text, and the environment AS IT WAS
+// when the tester marked it — the replay writes that back instead of reading the tab open then.
+async function queueEnqueue({ recordId, runId, status, comment, queuedAt, reason, envMeta }) {
+  // The recorder's window is NOT parked here: up to 1000 entries carrying a 16KB body each,
+  // against storage.local's 10MB — a quota overrun would lose the queued result itself.
   queueCache[qKey(recordId)] = {
     recordId, runId, status, comment: comment || '', queuedAt: queuedAt || Date.now(),
     reason: normalizeFlag(reason), // WORDING only — the replay treats every entry alike
+    envMeta: Array.isArray(envMeta) ? envMeta : null, // older entries have none: they write no meta
     ...queueIdentity(), // the connection this write belongs to — replay elsewhere 404s
   };
   await persistQueue();
@@ -129,25 +132,31 @@ async function drainPass() {
   // ids below resolve against the current project — a foreign one would 404 there.
   const list = Object.values(queueCache).filter(queueEntryActive).sort((a, b) => a.queuedAt - b.queuedAt);
   if (!list.length) return;
-  // ONE toast, not one per reason — a second toast() replaces the first in the DOM.
-  const dropped = Object.entries(await dropLockedRunEntries(list))
+  // ONE toast, not one per reason — a second toast() replaces the first in the DOM. It is raised
+  // at the END: what the pass has to say about the log is only known once the writes have landed.
+  const notes = Object.entries(await dropLockedRunEntries(list))
     .map(([reason, n]) => `${reason} — ${n} queued ${n === 1 ? 'result was' : 'results were'} not written`);
-  if (dropped.length) toast(dropped.join(' · '), { error: true });
+  let problems = notes.length; // clauses about results that did NOT land — they colour the toast
+  let logless = 0; // replayed FAILs — the log was never parked, so none of them carries one
   for (const entry of list) {
     const snap = queueCache[qKey(entry.recordId)];
     if (!snap) continue; // removed/replaced/dropped since the snapshot list was taken
     if (!queueEntryActive(snap)) continue; // the connection moved mid-drain — keep it for its own
     const record = (typeof recordFor === 'function' && recordFor(snap.recordId)) || { id: snap.recordId };
     try {
-      await WriteCore.writeStatus(record, snap.status, snap.comment, null, { noQueue: true });
+      // The entry's own environment goes back with it; `replay` is what stops a fresh collect.
+      await WriteCore.writeStatus(record, snap.status, snap.comment, null,
+        { noQueue: true, replay: true, envMeta: snap.envMeta || [] });
     } catch (e) {
       // #155: read-only is not a permanent failure of THIS entry — a role change
       // can still land it, so it keeps the queue like an offline failure does.
       if (queueQualifies(e) || isReadonlyError(e)) break; // keep all, retry on the next trigger
       await queueRemove(snap.recordId); // permanent failure — drop so the banner can clear
-      toast(`A queued status couldn't be saved and was dropped: ${e.message}`, { error: true });
+      notes.push(`A queued status couldn't be saved and was dropped: ${e.message}`);
+      problems += 1;
       continue;
     }
+    if (snap.status === 'failed') logless += 1;
     // Success — remove only if a newer click hasn't replaced it mid-drain.
     const cur = queueCache[qKey(snap.recordId)];
     if (cur && cur.queuedAt === snap.queuedAt) await queueRemove(snap.recordId);
@@ -155,6 +164,13 @@ async function drainPass() {
     const r = typeof recordFor === 'function' ? recordFor(snap.recordId) : null;
     if (li && r && typeof repaintRow === 'function') repaintRow(li, r);
   }
+  // Said once, and only about failures that actually landed: the tester goes looking for that
+  // attachment otherwise, and the environment beside it IS the one they marked the result in.
+  if (logless) {
+    notes.push(`${logless} synced ${logless === 1 ? 'result has' : 'results have'} no console & network log`
+      + ' — it is not kept offline');
+  }
+  if (notes.length) toast(notes.join(' · '), { error: problems > 0 });
 }
 
 // Triggers: `online`, a successful poll tick, the banner Retry, panel/run open.
