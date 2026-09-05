@@ -1092,7 +1092,7 @@ window.AnnotateCore = (() => {
     async function applyResult() {
       if (done) return;
       done = true;
-      selected = null;              // never flatten the selection marquee
+      // The marquee comes off inside exportJpeg — clearing it here would leave nothing to hide.
       const resultDataUrl = exportJpeg();
       dropImg();
       await onApply(resultDataUrl);
