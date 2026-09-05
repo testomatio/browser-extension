@@ -1188,3 +1188,419 @@ test('52a: with no chrome the panel still holds the config, it just persists not
   assert.deepEqual(plain(h.state.hostHistory), ['a.io']);
   assert.equal(h.store.ops('local', 'set').length, 0);
 });
+
+// ============================================================================
+// The erase paths — the ordering is the safety property (rows 53-75)
+// ============================================================================
+
+test('53: a destructive control never retargets itself off a half-typed Instance field', () => {
+  const h = load({ ...CONFIGURED, baseUrl: 'nonsense' });
+  assert.equal(h.fn.settingsFormHost(), null);
+});
+
+test('54: an empty field means the instance the panel is on', () => {
+  const h = load({ ...CONFIGURED, baseUrl: '   ' });
+  assert.equal(h.fn.settingsFormHost(), 'a.io');
+});
+
+test('54a: an empty field with nothing saved targets nothing at all', () => {
+  const h = load({ baseUrl: '', settings: null });
+  assert.equal(h.fn.settingsFormHost(), null);
+});
+
+test('55: Forget on an unparsable instance says nothing was forgotten, and forgets nothing', async () => {
+  const h = load({ ...CONFIGURED, baseUrl: 'nonsense' });
+  await h.fn.forgetInstance();
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status',
+    msg: '"nonsense" is not a valid instance URL — nothing was forgotten',
+    cls: 'error',
+  });
+  assert.deepEqual(h.order, ['status:settings-forget-status']);
+  assert.equal(h.calls.confirms.length, 0);
+});
+
+test('55a: Forget with an empty field and nothing saved has nothing to forget', async () => {
+  const h = load({ baseUrl: '', settings: null });
+  await h.fn.forgetInstance();
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status', msg: 'No instance to forget', cls: 'error',
+  });
+});
+
+test('56: an instance we never held is never reported as erased', async () => {
+  const h = load(CONFIGURED);
+  await h.fn.forgetInstance({ host: 'z.io' });
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status', msg: 'Nothing saved for z.io', cls: 'error',
+  });
+  assert.equal(h.calls.confirms.length, 0);
+  assert.equal(h.store.ops('local', 'set').length, 0);
+});
+
+test('57: answering No to the confirm changes absolutely nothing', async () => {
+  const h = load({ ...CONFIGURED, confirm: false });
+  await h.fn.forgetInstance();
+  assert.deepEqual(h.order, ['confirm']);
+  assert.equal(h.state.settings.apiToken, 'tok-1');
+  assert.deepEqual(plain(h.state.hostSettings), CONFIGURED.hostSettings);
+  assert.equal(h.calls.reloads, 0);
+  assert.equal(h.calls.status.length, 0);
+});
+
+test('58: forgetting the instance in use warns about the queued results too', async () => {
+  const active = load({ ...CONFIGURED, confirm: false });
+  await active.fn.forgetInstance();
+  const msg = active.calls.confirms[0].message;
+  assert.equal(active.calls.confirms[0].label, 'Forget');
+  assert.match(msg, /^Forget a\.io\? Its saved token, project and preferences are deleted from this browser/);
+  assert.match(msg, /any queued results still waiting to be sent/);
+  assert.match(msg, /a running recording is stopped for you/);
+  assert.match(msg, /Other instances are kept\.$/);
+});
+
+test('58a: forgetting an instance we are NOT on promises only what it can deliver', async () => {
+  const h = load({
+    ...CONFIGURED,
+    hostSettings: { ...CONFIGURED.hostSettings, 'b.io': { baseUrl: 'https://b.io' } },
+    confirm: false,
+  });
+  await h.fn.forgetInstance({ host: 'b.io' });
+  const msg = h.calls.confirms[0].message;
+  assert.match(msg, /^Forget b\.io\?/);
+  assert.equal(/queued results/.test(msg), false);
+  assert.equal(/running recording/.test(msg), false);
+});
+
+test('59: the erase writes STORAGE first and in-memory state only after, in one fixed order', async () => {
+  const h = load({
+    settings: { baseUrl: 'https://a.io', apiToken: 'tok-1', projectId: 'p1', handoff: true },
+    hostSettings: { 'a.io': { baseUrl: 'https://a.io' }, 'b.io': { baseUrl: 'https://b.io' } },
+    hostHistory: ['a.io', 'b.io'],
+    baseUrl: 'https://a.io',
+  });
+  await h.fn.forgetInstance();
+  assert.deepEqual(h.order, [
+    'confirm',
+    'state.booting=true',
+    'send:EVIDENCE_WIPE',
+    'local.set',
+    'local.remove(settings,session,offlineQueue)',
+    'session.clear',
+    'Handoff.decline',
+    'state.hostSettings',
+    'state.hostHistory',
+    'state.settings=null',
+    'reload',
+  ]);
+  assert.deepEqual(h.stored().hostSettings, { 'b.io': { baseUrl: 'https://b.io' } });
+  assert.deepEqual(h.stored().hostHistory, ['b.io']);
+  assert.equal(h.state.settings, null);
+  assert.equal(h.calls.reloads, 1);
+});
+
+test('59a: an instance with no handoff behind it declines no offer', async () => {
+  const h = load(CONFIGURED);
+  await h.fn.forgetInstance();
+  assert.equal(h.calls.declines, 0);
+  assert.equal(h.order.includes('local.remove(settings,session,offlineQueue)'), true);
+});
+
+test('59b: an older Chrome with no session area still finishes the erase', async () => {
+  const h = load({ ...CONFIGURED, sessionArea: false });
+  await h.fn.forgetInstance();
+  assert.equal(h.order.includes('session.clear'), false);
+  assert.equal(h.calls.reloads, 1);
+});
+
+test('60: HOST_SCOPED_KEYS is the promise that queued results do not survive a Forget', async () => {
+  const h = load(CONFIGURED);
+  assert.deepEqual(plain(h.screen.HOST_SCOPED_KEYS), ['settings', 'session', 'offlineQueue']);
+  await h.fn.forgetInstance();
+  const removed = h.store.ops('local', 'remove');
+  assert.equal(removed.length, 1);
+  assert.deepEqual(plain(removed[0].arg), ['settings', 'session', 'offlineQueue']);
+});
+
+test('61: a storage write that is refused leaves the panel exactly as it was', async () => {
+  const h = load({ ...CONFIGURED, fail: { set: new Error('quota exceeded') } });
+  await h.fn.forgetInstance();
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status',
+    msg: "Couldn't finish forgetting a.io: quota exceeded — assume the data is still on this machine, try again",
+    cls: 'error',
+  });
+  assert.equal(h.state.booting, false); // the session writer may run again
+  assert.equal(h.state.settings.apiToken, 'tok-1');
+  assert.deepEqual(plain(h.state.hostSettings), CONFIGURED.hostSettings);
+  assert.deepEqual(plain(h.state.hostHistory), ['a.io']);
+  assert.equal(h.calls.reloads, 0);
+  assert.deepEqual(h.order.filter((s) => s.startsWith('state.')), ['state.booting=true', 'state.booting=false']);
+});
+
+test('61a: the host-scoped removal failing is the same guarantee, not a half-erase', async () => {
+  const h = load({ ...CONFIGURED, fail: { remove: new Error('disk gone') } });
+  await h.fn.forgetInstance();
+  assert.match(h.lineOf('settings-forget-status').msg, /^Couldn't finish forgetting a\.io: disk gone/);
+  assert.equal(h.state.settings.apiToken, 'tok-1');
+  assert.deepEqual(plain(h.state.hostSettings), CONFIGURED.hostSettings);
+  assert.equal(h.calls.reloads, 0);
+});
+
+test('61b: a failure with no message still names something the tester can act on', async () => {
+  const h = load({ ...CONFIGURED, fail: { set: 'the disk is full' } });
+  await h.fn.forgetInstance();
+  assert.equal(h.lineOf('settings-forget-status').msg,
+    "Couldn't finish forgetting a.io: the disk is full — assume the data is still on this machine, try again");
+});
+
+test('62: a recorder that will not stop does not hold up the erase — the warning rides the reload', async () => {
+  const h = load({ ...CONFIGURED, reply: async () => ({ ok: false, error: 'busy' }) });
+  await h.fn.forgetInstance();
+  assert.equal(h.calls.reloads, 1);
+  assert.equal(h.state.settings, null);
+  assert.equal(h.sess[WARN_KEY],
+    'Instance forgotten — but the console & network recording could not be stopped: busy. '
+    + 'Assume its log is still on this machine until you restart the browser.');
+  assert.equal(h.calls.status.length, 0); // the doomed document prints nothing
+});
+
+test('62a: a clean recorder stop leaves no warning behind for the next panel', async () => {
+  const h = load(CONFIGURED);
+  await h.fn.forgetInstance();
+  assert.equal(h.sess[WARN_KEY], undefined);
+});
+
+test('63: forgetting an instance we are not on refills the form instead of reloading', async () => {
+  const h = load({
+    ...CONFIGURED,
+    hostSettings: { ...CONFIGURED.hostSettings, 'b.io': { baseUrl: 'https://b.io', apiToken: 'tok-b' } },
+    hostHistory: ['b.io', 'a.io'],
+    baseUrl: 'https://b.io',
+  });
+  await h.fn.forgetInstance();
+  assert.equal(h.calls.reloads, 0);
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status', msg: 'b.io forgotten', cls: 'ok',
+  });
+  assert.equal(h.node.setBaseurl.value, 'https://a.io'); // back to the active instance
+  assert.equal(h.node.viewSettings.dataset.token, 'off');
+  assert.deepEqual(plain(h.state.hostHistory), ['a.io']);
+  assert.equal(h.state.settings.apiToken, 'tok-1'); // the panel keeps running on a.io
+  // Nothing session-scoped is touched: it belongs to the instance still in use.
+  assert.equal(h.store.ops('local', 'remove').length, 0);
+  assert.equal(h.order.includes('send:EVIDENCE_WIPE'), false);
+  assert.equal(h.order.includes('state.booting=true'), false);
+});
+
+test('64: Disconnect takes back the instance the panel is ON, whatever the field shows', async () => {
+  const h = load({
+    ...CONFIGURED,
+    hostSettings: { ...CONFIGURED.hostSettings, 'b.io': { baseUrl: 'https://b.io' } },
+    hostHistory: ['a.io', 'b.io'],
+    baseUrl: 'https://b.io',
+    confirm: false,
+  });
+  await h.fn.disconnectInstance();
+  assert.equal(h.calls.confirms[0].label, 'Disconnect');
+  assert.match(h.calls.confirms[0].message, /^Disconnect a\.io\?/);
+  assert.match(h.calls.confirms[0].message, /any queued results still waiting to be sent/);
+});
+
+test('65: Disconnect from the choose-a-project screen reports on THAT screen\'s line', async () => {
+  const h = load({ settings: null, hostSettings: {}, baseUrl: 'https://b.io' });
+  await h.fn.disconnectInstance({ statusId: 'pick-status' });
+  assert.deepEqual(h.lineOf('pick-status'), {
+    id: 'pick-status', msg: 'Nothing saved for b.io', cls: 'error',
+  });
+  assert.equal(h.lineOf('connection-status'), null);
+});
+
+test('65a: with nothing saved anywhere, Disconnect defaults to the Connection card\'s own line', async () => {
+  const h = load({ settings: null, hostSettings: {}, baseUrl: '' });
+  await h.fn.disconnectInstance();
+  assert.deepEqual(h.lineOf('connection-status'), {
+    id: 'connection-status', msg: 'No instance to forget', cls: 'error',
+  });
+});
+
+test('66: a recorder that answers cleanly lets the wipe resolve', async () => {
+  const h = load({ reply: async () => ({ ok: true }) });
+  await h.fn.wipeEvidenceRecording();
+  assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_WIPE' }]);
+});
+
+test('67: a recorder that refuses hands its own reason up, so the tester reads it', async () => {
+  const h = load({ reply: async () => ({ ok: false, error: 'busy' }) });
+  assert.equal((await rejection(h.fn.wipeEvidenceRecording())).message, 'busy');
+});
+
+test('67a: a refusal with no reason still fails loudly rather than passing for a wipe', async () => {
+  for (const reply of [async () => ({ ok: false }), async () => null, async () => ({ ok: 'true' })]) {
+    const h = load({ reply });
+    assert.equal((await rejection(h.fn.wipeEvidenceRecording())).message,
+      'the recorder could not be stopped');
+  }
+});
+
+test('68: no worker to answer means no recording to stop, so the erase proceeds', async () => {
+  for (const why of ['Could not establish connection. Receiving end does not exist.',
+    'The message port closed before a response was received: receiving end']) {
+    const h = load({ reply: async () => { throw new Error(why); } });
+    await h.fn.wipeEvidenceRecording();
+  }
+});
+
+test('68a: any other messaging failure is a failure, not a silent success', async () => {
+  const h = load({ reply: async () => { throw new Error('extension context invalidated'); } });
+  assert.equal((await rejection(h.fn.wipeEvidenceRecording())).message,
+    'extension context invalidated');
+});
+
+test('69: a recorder that never answers is a FAILURE after five seconds, not a success', async () => {
+  const h = load({ reply: () => new Promise(() => {}) });
+  const p = rejection(h.fn.wipeEvidenceRecording());
+  await settle();
+  assert.deepEqual(h.clock.arms(), [5000]);
+  assert.equal(h.screen.EVIDENCE_WIPE_MS, 5000);
+  await h.clock.tick();
+  assert.equal((await p).message, 'the recorder did not answer in 5s');
+});
+
+test('69a: with no runtime to ask, there is no recorder and no failure', async () => {
+  await load({ runtime: false }).fn.wipeEvidenceRecording();
+  await load({ hasChrome: false }).fn.wipeEvidenceRecording();
+});
+
+test('70: Sign out carries the theme and the surface ACROSS the wipe, and reloads last', async () => {
+  const h = load({ ...CONFIGURED, theme: 'dark', surface: 'tab' });
+  await h.fn.signOut();
+  assert.deepEqual(h.order, [
+    'confirm',
+    'state.booting=true',
+    'send:EVIDENCE_WIPE',
+    'Theme.get',
+    'ViewMode.mode',
+    'local.clear',
+    'session.clear',
+    'Theme.set',
+    'ViewMode.setMode',
+    'state.settings=null',
+    'reload',
+  ]);
+  assert.deepEqual(h.calls.themeSet, ['dark']);
+  assert.deepEqual(h.calls.surfaceSet, ['tab']);
+  assert.deepEqual(h.stored(), {});
+});
+
+test('70a: Sign out asks first, and No leaves every token where it is', async () => {
+  const h = load({ ...CONFIGURED, confirm: false });
+  await h.fn.signOut();
+  assert.match(h.calls.confirms[0].message, /^Sign out\? Every saved token, instance, history entry/);
+  assert.equal(h.calls.confirms[0].label, 'Sign out');
+  assert.deepEqual(h.order, ['confirm']);
+  assert.equal(h.state.settings.apiToken, 'tok-1');
+});
+
+test('71: a clear that is refused aborts on Sign out\'s OWN line, not inside a folded section', async () => {
+  const h = load({ ...CONFIGURED, fail: { clear: new Error('storage locked') } });
+  await h.fn.signOut();
+  assert.deepEqual(h.lineOf('signout-status'), {
+    id: 'signout-status',
+    msg: "Couldn't finish signing out: storage locked — assume the data is still on this machine, try again",
+    cls: 'error',
+  });
+  assert.equal(h.lineOf('settings-forget-status'), null);
+  assert.equal(h.state.settings.apiToken, 'tok-1');
+  assert.equal(h.state.booting, false);
+  assert.equal(h.calls.reloads, 0);
+});
+
+test('72: the two defaults are not written back — nothing to carry across means nothing to restore', async () => {
+  const h = load({ ...CONFIGURED, theme: 'system', surface: 'sidepanel' });
+  await h.fn.signOut();
+  assert.deepEqual(h.calls.themeSet, []);
+  assert.deepEqual(h.calls.surfaceSet, []);
+  assert.equal(h.calls.reloads, 1);
+});
+
+test('72a: Sign out with a recorder that will not stop still erases, and leaves the warning', async () => {
+  const h = load({ ...CONFIGURED, reply: async () => ({ ok: false, error: 'busy' }) });
+  await h.fn.signOut();
+  assert.deepEqual(h.stored(), {});
+  assert.equal(h.calls.reloads, 1);
+  assert.equal(h.sess[WARN_KEY],
+    'Signed out — but the console & network recording could not be stopped: busy. '
+    + 'Assume its log is still on this machine until you restart the browser.');
+});
+
+test('72b: with no chrome there is nothing to clear, and Sign out still ends on the connect screen', async () => {
+  const h = load({ ...CONFIGURED, hasChrome: false });
+  await h.fn.signOut();
+  assert.equal(h.order.includes('local.clear'), false);
+  assert.equal(h.state.settings, null);
+  assert.equal(h.calls.reloads, 1);
+});
+
+test('73: the warning an erase left behind is printed once and then gone', () => {
+  const h = load({ sessionSeed: { [WARN_KEY]: 'Signed out — but the recorder could not be stopped' } });
+  h.fn.takeRecorderWarning();
+  assert.deepEqual(h.lineOf('settings-forget-status'), {
+    id: 'settings-forget-status',
+    msg: 'Signed out — but the recorder could not be stopped',
+    cls: 'error',
+  });
+  assert.equal(h.sess[WARN_KEY], undefined);
+  assert.equal(h.screen.EVIDENCE_WIPE_WARN_KEY, WARN_KEY);
+  h.calls.status.length = 0;
+  h.fn.takeRecorderWarning(); // a second entry into Settings says nothing
+  assert.deepEqual(h.calls.status, []);
+});
+
+test('73a: no warning stored means no line at all, not an empty one', () => {
+  const h = load();
+  h.fn.takeRecorderWarning();
+  assert.deepEqual(h.calls.status, []);
+});
+
+test('74: a browser that refuses sessionStorage neither throws nor invents a warning', () => {
+  const h = load({ sessionThrows: true });
+  h.fn.takeRecorderWarning();
+  assert.deepEqual(h.calls.status, []);
+  h.fn.leaveRecorderWarning(new Error('busy'), 'Signed out'); // the write side, same guarantee
+});
+
+test('75: the welcome checklist is still called on every fill, and still renders nothing', () => {
+  const h = load({ ...CONFIGURED, onboarding: true });
+  h.fn.fillSettingsForm();
+  assert.equal(h.calls.lookups.includes('onboarding-card'), true);
+  assert.equal(h.doc.getElementById('onboarding-card'), null);
+  assert.equal(h.doc.getElementById('onboarding-step-token'), null);
+});
+
+test('75a: with no checklist loaded at all, filling the form is unaffected', () => {
+  const h = load({ ...CONFIGURED, onboardingStub: true });
+  h.fn.fillSettingsForm();
+  assert.equal(h.calls.onboardingRender, 1);
+  const bare = load(CONFIGURED);
+  bare.fn.fillSettingsForm();
+  assert.equal(bare.node.setBaseurl.value, 'https://a.io');
+});
+
+test('75b: filling the form paints the fields, the history, the card and the token box in one pass', () => {
+  const h = load({
+    settings: { baseUrl: 'https://self.host', apiToken: 'tok-1', projectId: 'p1' },
+    hostSettings: { 'self.host': { baseUrl: 'https://self.host' }, 'b.io': { baseUrl: 'https://b.io' } },
+    hostHistory: ['self.host', 'b.io'],
+    baseUrl: '',
+    theme: 'light',
+  });
+  h.fn.fillSettingsForm();
+  assert.equal(h.node.setBaseurl.value, 'https://self.host');
+  assert.equal(h.dd.hidden, false);
+  assert.equal(h.node.themeLight.getAttribute('aria-pressed'), 'true');
+  assert.equal(h.node.settingsAdvancedBody.hidden, false); // self-hosted opens Advanced
+  assert.equal(h.node.tokenHelpLink.href, 'https://self.host/account/access_tokens');
+  assert.equal(h.node.connectionCard.dataset.state, 'ready');
+  assert.equal(h.node.viewSettings.dataset.token, 'off');
+});
