@@ -2,7 +2,7 @@
 // status writes and the priority icon.
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons, CommentDrafts, WriteCore, TestSummary,
-   TestMeta, TestGates, renderPendingAnnotation, Skeleton, EmptyState,
+   TestMeta, TestGates, renderPendingAnnotation, Roving, Skeleton, EmptyState,
    ImgHydrate, progressToast, hideToast */
 
 // The description body's object-URL group (shared/img-hydrate.js) — repainted and released
@@ -104,9 +104,16 @@ function showTestSection(name) {
     const on = key === chosen;
     const tab = $(ids.tab);
     const pane = $(ids.pane);
-    if (tab) tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (tab) {
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      // One tab stop for the bar, the arrows between the three — the tablist convention.
+      tab.setAttribute('tabindex', on ? '0' : '-1');
+    }
     if (pane) pane.hidden = !on;
   }
+  // Wired once per container and free on every later call. Roving.item() is NOT used here: it
+  // writes role="button" over the role="tab" the markup already carries.
+  Roving.attach($('test-sections'), { selector: '.tab', orientation: 'horizontal' });
 }
 
 // WHICH lists are step lists is the renderer's answer (shared/markdown.js

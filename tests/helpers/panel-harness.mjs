@@ -32,8 +32,10 @@ export { makeDocument, el, text, fire, event };
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
 // SCREENS_SRC points the whole suite at a mutated COPY of the screens directory, so a falsification
-// run never has to edit the shipped files and risk leaving them edited.
+// run never has to edit the shipped files and risk leaving them edited. CORE_SRC is the same knob
+// for extension/sidepanel/core, spelled the way tests/helpers/core-harness.mjs already spells it.
 export const SCREENS_SRC = process.env.SCREENS_SRC || join(repoRoot, 'extension/sidepanel/screens');
+export const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 
 const sources = new Map();
 const sourceOf = (path) => {
@@ -203,9 +205,11 @@ export function fakeClock() {
 // ---------- the loader ----------
 
 // `exported` names the screen's published `const` — the trailing completion expression. `globals` is
-// the screen's own panel globals, which this file deliberately knows nothing about.
+// the screen's own panel globals, which this file deliberately knows nothing about. `dir` is the
+// directory to read from: core/views.js is a plain script of the same shape, one folder over.
 export function loadScreen(name, opts = {}) {
   const {
+    dir = SCREENS_SRC,
     exported = null,
     globals = {},
     ids = [],
@@ -235,7 +239,7 @@ export function loadScreen(name, opts = {}) {
     sandbox.Date = new Proxy(Date, { get: (t, k) => (k === 'now' ? at : Reflect.get(t, k)) });
   }
 
-  const file = join(SCREENS_SRC, `${name}.js`);
+  const file = join(dir, `${name}.js`);
   const source = sourceOf(file);
   const context = createContext(sandbox);
   const screen = runInContext(exported ? `${source}\n${exported};` : source, context, { filename: file });

@@ -22,14 +22,15 @@ const Roving = (() => {
 
   // A collapsed group's rows are still in the DOM — the runs list and the suite tree both put
   // `hidden` on the container that holds them — so the walk stops at the list itself.
-  function shown(container, node) {
-    for (let n = node; n && n !== container; n = n.parentElement) if (n.hidden) return false;
+  // A disabled item is out for the same reason: it cannot take focus, so the caret would stick.
+  function reachable(container, node) {
+    for (let n = node; n && n !== container; n = n.parentElement) if (n.hidden || n.disabled) return false;
     return true;
   }
 
   // Fresh on every keypress: a filter, a fold or a re-render may have changed the list since.
   const itemsOf = (container, selector) =>
-    [...container.querySelectorAll(selector)].filter((n) => shown(container, n));
+    [...container.querySelectorAll(selector)].filter((n) => reachable(container, n));
 
   // The one act that moves the tab stop: exactly one item at 0, the rest at -1, focus on it.
   function select(container, selector, item) {

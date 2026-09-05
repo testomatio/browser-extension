@@ -22,6 +22,7 @@ import { createContext, runInContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeClock, makeDocument, el, plain, settle, rejection, ApiError } from './helpers/panel-harness.mjs';
+import { loadInto } from './helpers/shared-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
@@ -159,6 +160,9 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    // The real helper, not a stub: a landed write moves the screen to Status, and showTestSection
+    // wires the section bar's arrows on its way through (#109).
+    Roving: loadInto({ console }, [['shared/roving.js', 'Roving']]).value,
     capabilities: { jwt: o.jwt, readonly: false },
     hasChrome: o.hasChrome,
     $: (id) => doc.getElementById(id),
