@@ -284,7 +284,7 @@ test('pressing the button routes to the surface this document is NOT on', async 
   assert.deepEqual(window.sent, []);
 });
 
-test('a click landing before boot has finished takes the side-panel branch — today’s behaviour', async () => {
+test('17b (#350): a click landing before boot has finished opens a second window instead of docking', async () => {
   // app.js:53 calls initViewSwitch() without awaiting it, so the click listener (14) is live a
   // whole await before `inPanelWindow` is known, and an unknown surface reads as the side panel.
   const h = loadViewSwitch({ inPanelWindow: true, normalWindowId: 7 });
