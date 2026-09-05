@@ -247,7 +247,26 @@ test('R6: the overlay reports its own failure — that sentence is the toast, an
   assert.equal(run.settled, false);
 });
 
-test.todo('R7: the tester closes the fallback tab without applying and the panel uploads the un-redacted original (#205)');
+// #205: the third door #119 left open, after Esc and pagehide — a raw close must attach nothing.
+test('R7: the tester closes the annotator tab without applying — nothing is attached, and they are told so', async () => {
+  const h = load({ overlayUp: false });
+  const run = h.start();
+  await settle();
+  h.fireTimers();
+  await settle();
+  assert.deepEqual(h.rec.created, [{ url: TAB_URL }]);
+
+  h.closeTab(42);
+  await settle();
+
+  assert.equal(run.settled, true);
+  assert.equal(run.value, null); // never the raw dataUrl: the tester may have blurred a token
+  assert.deepEqual(h.rec.toasts, [
+    "The annotator didn't come up on that page — opened it in a tab.",
+    'Closed the annotator — nothing was attached.',
+  ]);
+  assert.deepEqual(h.rec.removes, [KEY]);
+});
 
 test('R8: some other tab closing while the annotator tab is open is none of the handoff\'s business', async () => {
   const h = load({ overlayUp: false });

@@ -117,8 +117,12 @@ const CaptureAnnotate = (() => {
         else if (v.ready) { if (onReady) onReady('ok'); }
         else if (v.error) { toast(v.error); if (onReady) onReady('failed'); }
       };
-      // A raw close of the editor tab (no storage write) maps to Keep original, not Discard.
-      const onRemoved = (id) => { if (fallbackTabId != null && id === fallbackTabId) finish(dataUrl); };
+      // A raw close attaches nothing: whatever the tester blurred must not leave with the original.
+      const onRemoved = (id) => {
+        if (fallbackTabId == null || id !== fallbackTabId) return;
+        toast('Closed the annotator — nothing was attached.');
+        finish(null);
+      };
       chrome.storage.session.onChanged.addListener(onChanged);
       chrome.tabs.onRemoved.addListener(onRemoved);
       (async () => {
