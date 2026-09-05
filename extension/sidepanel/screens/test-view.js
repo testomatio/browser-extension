@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, TestomatParams, Md, PriorityIcons, CommentDrafts, WriteCore, TestSummary,
    TestMeta, TestGates, renderPendingAnnotation, Roving, Skeleton, EmptyState,
-   ImgHydrate, progressToast, hideToast, StatusIcons */
+   ImgHydrate, progressToast, hideToast, StatusIcons, RunLock */
 
 // The description body's object-URL group (shared/img-hydrate.js) — repainted and released
 // on its own occasion. The summary card's four are its own (screens/test-summary.js).
@@ -338,7 +338,7 @@ function cycleStep(s, record) {
   if (s.saving) return;
   // #152/#154 — catches the race past the disabled circles. On an automated testrun
   // `Testrun#add_step!` returns early while still answering 200.
-  if (recordWriteLock(record)) return;
+  if (RunLock.recordWriteLock(record)) return;
   const prev = s.state;
   const next = STEP_OPTIONS[(STEP_OPTIONS.indexOf(prev) + 1) % STEP_OPTIONS.length];
   s.state = next;          // optimistic
@@ -386,7 +386,7 @@ async function clickStatus(status) {
   }
   // #152/#154: covers the hotkeys too, which have no disabled state — a hotkey on
   // a locked result must no-op VISIBLY. Keyed on the RECORD (a mixed run).
-  const lock = typeof recordWriteLock === 'function' ? recordWriteLock(record) : '';
+  const lock = typeof RunLock !== 'undefined' ? RunLock.recordWriteLock(record) : '';
   if (lock) {
     setStatusLine('test-status', lock, 'error');
     TestGates.update();

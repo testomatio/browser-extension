@@ -1,7 +1,7 @@
 // Test-view hotkeys (web-runner parity) and the tab-screenshot capture helpers.
 
 /* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, TestGates, attRemember,
-   renderAttachmentList, progressToast, hideToast */
+   renderAttachmentList, progressToast, hideToast, RunLock */
 
 // ---------- hotkeys (US5) ----------
 // Cmd/Ctrl+Enter/U/I mark passed/failed/skipped through the SAME clickStatus the
@@ -115,7 +115,7 @@ function onHotkey(e) {
 let pendingAnnotation = null; // { dataUrl, name, recordId } — dropped once saved to disk
 
 // Shown only on the record it was drawn for; the SLOT itself survives navigation.
-// NOT gated by recordWriteLock — this writes to the tester's disk, not the server.
+// NOT gated by RunLock — this writes to the tester's disk, not the server.
 function renderPendingAnnotation() {
   const btn = $('btn-save-annotation');
   if (!btn) return;
@@ -171,7 +171,7 @@ async function attachScreenshotAnnotated() {
   const btn = $('btn-screenshot-annotate');
   if (btn?.disabled) return; // gated (no result / basic mode / finished or automated run) or a capture in flight
   const record = recordFor(state.currentRecordId);
-  if (recordWriteLock(record)) return; // #152/#154 — re-asked at the upload (#187)
+  if (RunLock.recordWriteLock(record)) return; // #152/#154 — re-asked at the upload (#187)
   if (!record?.id) return;
   if (!hasChrome || !chrome.runtime?.sendMessage) {
     toast('Screenshots need the extension context');
@@ -210,7 +210,7 @@ async function attachScreenshotAnnotated() {
     if (!annotated) { hideToast(); return; } // Discard — no upload, no state change
     // #187: the annotator is interactive and the run can finish under it, so the
     // lock is re-asked immediately before the write.
-    const lock = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
+    const lock = RunLock.recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
     // #192: refuse the upload, keep the drawing — the Save button is the way out.
     if (lock) { keepRefusedAnnotation(annotated, record.id); setStatusLine('test-status', lock, 'error'); return; }
     const blob = await (await fetch(annotated)).blob();

@@ -12,7 +12,7 @@
 // is carried across exactly as it stands — the recorder's sentence uses commas where the others use
 // em dashes, the delete path's is bare — because unifying the wording is a product decision.
 
-/* global TestomatAPI, Tooltip, Dropdown, state, hasChrome, $, recordFor, recordWriteLock,
+/* global TestomatAPI, Tooltip, Dropdown, state, hasChrome, $, recordFor, RunLock,
    renderAttachmentList, baseUrlHost, StatusIcons */
 
 const TestGates = (() => {
@@ -91,7 +91,7 @@ const TestGates = (() => {
     const record = recordFor(state.currentRecordId);
     // #152/#154: the lock outranks every other gate here — "no saved result yet"
     // would invite a click that can no longer create one. Per RECORD since #154.
-    const lock = typeof recordWriteLock === 'function' ? recordWriteLock(record) : '';
+    const lock = typeof RunLock !== 'undefined' ? RunLock.recordWriteLock(record) : '';
     // The three buttons share ONE reason paragraph, so they are gated together.
     for (const id of ['btn-passed', 'btn-failed', 'btn-skipped']) applyActionGate(id, null, lock);
     const lockNote = $('status-lock-reason');

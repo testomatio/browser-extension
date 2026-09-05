@@ -541,7 +541,7 @@
         </div>
         <div id="run-progress"></div>
         <!-- #152/#154: a finished or automated run is fully read-only. ONE note for the view, shown only
-             when the reason holds for EVERY row (a mixed run explains itself per row). applyRunLock(). -->
+             when the reason holds for EVERY row (a mixed run explains itself per row). RunLock.applyRunLock(). -->
         <p id="run-lock-note" class="lock-note run-lock-note" hidden></p>
         <!-- Run info (#112): the web run sidebar's fields folded into the foot of the card. Open by default,
              and the open/closed state is remembered across panel sessions. -->
@@ -900,6 +900,9 @@
   <script src="screens/project-pick.js"></script>
   <script src="screens/settings.js"></script>
   <script src="screens/runs-list.js"></script>
+  <!-- The write gate every result write asks. Ahead of run-view.js, which paints its note, and of
+       the eight screens after it; core/write-status.js asks it late-bound, as it always has. -->
+  <script src="screens/run-lock.js"></script>
   <script src="screens/run-view.js"></script>
   <!-- The unsent comment box, reached by the run open, the project switch and app init too. -->
   <script src="screens/test-drafts.js"></script>
