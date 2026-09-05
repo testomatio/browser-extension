@@ -118,6 +118,8 @@ code, pre { font-family: var(--font-mono); }
 /* The picker is the shared .menu, living in THIS page's stacking order (the annotator stage sits
    above the shared popup level). */
 .tc-priority-menu { right: 0; z-index: var(--z-stage); }
+/* The open list holds the caret, so the ring is drawn there — the button behind it is not focused. */
+.tc-priority-menu:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .tc-priority-menu .menu-option svg { flex: none; }
 /* Open-list canon colours (priority/icons.hbs) — icon only, as on the web (#28). */
 .tc-priority-menu li[data-priority="low"] .tc-priority-ico { color: var(--priority-low); }
