@@ -650,6 +650,8 @@ test('21: another panel document holding the claim makes this one give up in sil
   assert.equal(h.calls.uploads.length, 0);
   assert.equal(h.reason(), '');
   assert.deepEqual(h.calls.toasts, []);
+  // Nor a plaque: the other document is doing the uploading, and nothing here would take ours down.
+  assert.deepEqual(h.calls.progress, []);
   assert.equal(h.node.btnScreenRec.disabled, false); // never taken over, so never taken dead
 });
 
@@ -660,9 +662,29 @@ test('21a: the worker not answering the claim is the same as a refusal', async (
   assert.equal(h.calls.uploads.length, 0);
 });
 
+// The claim only means anything if two panel documents are two different claimants. A constant
+// token would let the second document take a take the first is already uploading.
+test('21d: two panel documents are two different claimants', () => {
+  const a = load({ records: [OPEN], currentRecordId: OPEN.id });
+  const b = load({ records: [OPEN], currentRecordId: OPEN.id });
+  assert.ok(a.screen.SREC_ME, 'a document knows who it is');
+  assert.notEqual(a.screen.SREC_ME, b.screen.SREC_ME, 'and it is not who the other one is');
+});
+
+// srecAttach guards on the record AND on its id. A record with no id cannot be attached to.
+test('21e: a record with no id of its own is not something a take can be bound to', async () => {
+  const h = load({ records: [{ ...OPEN, id: '' }], currentRecordId: '' });
+  await h.fn.srecAttach(TAKE({ recordId: '' }));
+  await settle();
+  assert.deepEqual(h.types(), [], 'nothing is claimed and nothing is sent');
+  assert.equal(h.calls.uploads.length, 0);
+});
+
 test('22: the take of the open test is remembered, finished with the worker, and shown', async () => {
   const h = load({ records: [OPEN, BESIDE], currentRecordId: OPEN.id });
   const file = TAKE({ recordId: OPEN.id });
+  // A refusal the tester saw a moment ago must not still be standing over a take that then worked.
+  h.fn.srecReason('This recording belongs to another test');
   await h.fn.srecAttach(file);
   await settle();
   assert.deepEqual(h.calls.remembered, [{
