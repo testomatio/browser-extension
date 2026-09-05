@@ -547,3 +547,87 @@ test('AC29: the marker owns the width it is painted at, not the width of its pat
   pen.hooks.add({ tool: 'pen', pts: [{ x: 100, y: 100 }, { x: 200, y: 100 }] });
   assert.equal(pen.hooks.select(150, 115), null, 'the same click misses a pen line');
 });
+
+// ================= 3. Crop and the undo stack (AC13-AC19) =================
+
+test('AC13: a crop drag too short to mean anything is a mis-click, not a crop', () => {
+  const h = load();
+  const before = h.bytes();
+  assert.equal(h.hooks.applyCrop({ x1: 0, y1: 0, x2: 5, y2: 5 }), false);
+  assert.deepEqual(plain(h.hooks.crop()), { x: 0, y: 0, w: 800, h: 600 });
+  assert.equal(h.btn('annot-undo').disabled, true, 'nothing to undo — no history entry was made');
+  assert.equal(h.bytes(), before, 'the picture is untouched');
+});
+
+test('AC14: cropping re-bases every mark onto the part the tester kept', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 110, y1: 110, x2: 150, y2: 150 });
+  assert.equal(h.hooks.applyCrop({ x1: 100, y1: 100, x2: 300, y2: 300 }), true);
+
+  assert.deepEqual(plain(h.hooks.crop()), { x: 100, y: 100, w: 200, h: 200 });
+  assert.deepEqual(plain(h.hooks.natural()), { w: 200, h: 200 });
+  const op = h.ops()[0];
+  assert.deepEqual({ x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 }, { x1: 10, y1: 10, x2: 50, y2: 50 });
+});
+
+test('AC15: undoing a crop brings back the whole shot with the mark where it was', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 110, y1: 110, x2: 150, y2: 150 });
+  h.hooks.applyCrop({ x1: 100, y1: 100, x2: 300, y2: 300 });
+  h.hooks.undo();
+
+  assert.deepEqual(plain(h.hooks.crop()), { x: 0, y: 0, w: 800, h: 600 });
+  assert.deepEqual(plain(h.hooks.natural()), { w: 800, h: 600 });
+  const op = h.ops()[0];
+  assert.deepEqual({ x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 }, { x1: 110, y1: 110, x2: 150, y2: 150 },
+    'a snapshot is already in its own crop coords — restoring must not shift it a second time');
+});
+
+test('AC16: redoing the crop puts the mark back in the cropped picture', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 110, y1: 110, x2: 150, y2: 150 });
+  h.hooks.applyCrop({ x1: 100, y1: 100, x2: 300, y2: 300 });
+  h.hooks.undo();
+  h.hooks.redo();
+
+  assert.deepEqual(plain(h.hooks.crop()), { x: 100, y: 100, w: 200, h: 200 });
+  const op = h.ops()[0];
+  assert.deepEqual({ x1: op.x1, y1: op.y1, x2: op.x2, y2: op.y2 }, { x1: 10, y1: 10, x2: 50, y2: 50 });
+});
+
+test('AC17: a crop drag off the edge of the picture is clamped to the picture in force', () => {
+  const h = load();
+  h.hooks.applyCrop({ x1: 100, y1: 100, x2: 300, y2: 300 });
+  assert.equal(h.hooks.applyCrop({ x1: -50, y1: -50, x2: 5000, y2: 5000 }), true);
+
+  assert.deepEqual(plain(h.hooks.crop()), { x: 100, y: 100, w: 200, h: 200 },
+    'clamped to the CURRENT canvas, and composed onto the crop already in force');
+});
+
+test('AC18: the undo stack stops at fifty steps, and the marks below it are stranded', () => {
+  const h = load({ w: 60, h: 40 });
+  for (let i = 0; i < 60; i += 1) h.hooks.add({ tool: 'rect', x1: i, y1: i, x2: i + 5, y2: i + 5 });
+  assert.equal(h.ops().length, 60);
+
+  let steps = 0;
+  for (let guard = 0; guard < 200; guard += 1) {
+    const before = h.ops().length;
+    h.hooks.undo();
+    if (h.ops().length === before) break;
+    steps += 1;
+  }
+  assert.equal(steps, 50);
+  assert.equal(h.ops().length, 10, 'the first ten marks can never be undone again');
+  assert.equal(h.btn('annot-undo').disabled, true);
+});
+
+test.todo('AC19 (#317): restyling floods the undo history — ten taps should still be one step back', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(h.hooks.select(150, 150), 0);
+  for (let i = 0; i < 10; i += 1) h.btn(i % 2 === 0 ? 'annot-size-l' : 'annot-size-s').click();
+  assert.equal(h.ops()[0].width, 2);
+
+  h.hooks.undo();
+  assert.equal(h.ops()[0].width, 3, 'one undo should take the tester back past the restyling');
+});
