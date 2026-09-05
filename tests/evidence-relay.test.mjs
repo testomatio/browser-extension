@@ -370,7 +370,7 @@ test('22: the page can forge a batch, and today the relay forwards it to the wor
     'pinned so the day a guard lands, this row is the one that changes');
 });
 
-test.todo('22 (A-P2-1): a batch the page forged is refused — only the hook we injected is believed', () => {
+test.todo('22 (#342): a batch the page forged is refused — only the hook we injected is believed', () => {
   const h = load();
   h.page(batch([{ t: 'net', status: 500, url: 'https://bank.example.com/statement' }]));
   assert.deepEqual(h.sent(), []);
