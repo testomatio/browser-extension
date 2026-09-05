@@ -392,6 +392,34 @@ test('AC7: Esc on an untouched screenshot leaves at once, with nothing to ask ab
   assert.deepEqual(h.calls.applied, []);
 });
 
+// AC4-AC6 each open exactly one thing, so no row ever crosses two rungs of the ladder. These do:
+// one Esc must take the topmost rung only, and the rung below it must still be standing.
+test('AC6b: with two things open, one Esc closes the top one and leaves the rest alone', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(h.hooks.select(150, 150), 0);
+  assert.equal(h.hooks.help(true), true);
+
+  h.key({ key: 'Escape' });
+  assert.equal(h.btn('annot-help').hidden, true, 'the card goes first');
+  assert.equal(h.hooks.selected(), 0, 'and the selection is still there');
+
+  h.btn('annot-color').click();
+  h.key({ key: 'Escape' });
+  assert.equal(h.btn('annot-color-menu').hidden, true, 'the menu outranks the selection too');
+  assert.equal(h.hooks.selected(), 0);
+  assert.equal(h.calls.discardAsked, 0, 'and nothing has been thrown away');
+});
+
+// The other three rungs consume the Esc; this one must not. The annotator sits over the page under
+// test, and a tester pressing Esc to leave should not be silently swallowing the page's own handler.
+test('AC7b: the Esc that reaches the exit is the one Esc the page is still allowed to see', () => {
+  const h = load();
+  const ev = h.key({ key: 'Escape' });
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.propagationStopped, false);
+});
+
 test('AC8: Keep original after a blur names the blur in the question, then hands back the raw shot', () => {
   const h = load();
   h.hooks.add({ tool: 'pixelate', x1: 100, y1: 100, x2: 200, y2: 200 });
@@ -795,6 +823,67 @@ test('AC38: a letter typed into a label input is typing, not a tool shortcut', (
 
   h.key({ key: 'r' });
   assert.equal(h.hooks.tool(), 'text', 'the shortcut map stands down while the input is open');
+});
+
+// Retyping a label selects it AND opens the input, so Delete arrives with something selected. It
+// must reach the text, not the shape — otherwise a tester correcting a typo loses the whole label.
+test('AC38b: Delete while retyping a label edits the text, it does not delete the label', () => {
+  const h = load();
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'staging' });
+  h.hooks.editTextAt(100, 100);
+  assert.ok(h.textEl(), 'the label should be open for retyping');
+
+  h.key({ key: 'Delete' });
+  h.key({ key: 'Backspace' });
+  assert.equal(h.ops().length, 1, 'the label the tester is correcting is still there');
+});
+
+// Save and Undo from the keyboard are printed on the help card, and nothing covered them.
+test('AC51: the modifier shortcuts on the help card do what the card says', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 20, y2: 20 });
+
+  h.key({ key: 'z', metaKey: true });
+  assert.deepEqual(h.ops(), [], 'Cmd+Z takes the mark back');
+  h.key({ key: 'z', metaKey: true, shiftKey: true });
+  assert.equal(h.ops().length, 1, 'Shift+Cmd+Z puts it back');
+  h.key({ key: 'z', ctrlKey: true });
+  assert.deepEqual(h.ops(), [], 'Ctrl is the same key on Windows');
+  h.key({ key: 'y', metaKey: true });
+  assert.equal(h.ops().length, 1, 'Cmd+Y redoes as well');
+
+  h.key({ key: 'Enter', metaKey: true });
+  assert.equal(h.calls.applied.length, 1, 'Cmd+Enter saves');
+  assert.equal(h.calls.discardAsked, 0);
+});
+
+// A shortcut of the browser's or the page's must not be eaten by the tool letters underneath it.
+test('AC52: a browser shortcut passes through instead of switching tool', () => {
+  const h = load();
+  assert.equal(h.hooks.tool(), 'arrow');
+  for (const props of [{ key: 'c', metaKey: true }, { key: 'r', ctrlKey: true }, { key: 'p', altKey: true }]) {
+    const ev = h.key(props);
+    assert.equal(ev.defaultPrevented, false, `${props.key} with a modifier is not ours`);
+  }
+  assert.equal(h.hooks.tool(), 'arrow');
+});
+
+test('AC53: the ? key is what opens and closes the keyboard card', () => {
+  const h = load();
+  assert.equal(h.btn('annot-help').hidden, true);
+  h.key({ key: '?' });
+  assert.equal(h.btn('annot-help').hidden, false);
+  h.key({ key: '?' });
+  assert.equal(h.btn('annot-help').hidden, true);
+});
+
+// The colours are numbered from one on the card, so zero is not one of them.
+test('AC54: pressing 0 is not a colour, and is left to the page', () => {
+  const h = load();
+  const before = h.hooks.color();
+  const ev = h.key({ key: '0' });
+  assert.equal(ev.defaultPrevented, false);
+  assert.equal(h.hooks.color(), before);
 });
 
 test('AC40: a label saved without a size is drawn at the size the picture asks for', () => {
