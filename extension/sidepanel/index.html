@@ -878,6 +878,9 @@
   <!-- The icon vocabulary every row draws with. Core rather than the run screen it came from:
        core/views.js calls it for the tclist crumb, so it stands before that and every screen. -->
   <script src="core/status-icons.js"></script>
+  <!-- The suite tree's four pure algorithms. Nothing here runs at load, so the position is only
+       the convention "before the file that uses it" — screens/tc-studio.js, and the next caller. -->
+  <script src="core/suite-tree.js"></script>
   <!-- The one confirm dialog above. Core rather than the run screen it came from: settings.js,
        run-view.js and attachments.js all ask it, and settings.js is the earliest of the three. -->
   <script src="core/dialog.js"></script>

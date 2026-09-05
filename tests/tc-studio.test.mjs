@@ -11,10 +11,14 @@
 // only its own — zero included, because a badge left off the row reads as "not loaded".
 // Rows 1-81 are the ticket's; a lettered suffix is the companion case that drives the same path the
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
+// Rows 1-3 and 5-18 are no longer here: the four algorithms behind them left for
+// extension/sidepanel/core/suite-tree.js (#196), and tests/suite-tree.test.mjs drives them with no
+// stubs at all. This file loads the REAL module beside the screen, in index.html's own order, and
+// keeps every row about what the RENDER does with the answers.
 // Run: node --test tests/tc-studio.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+import { loadScreen, CORE_SRC, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
 import { loadInto } from './helpers/shared-harness.mjs';
 
 // The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
@@ -281,7 +285,11 @@ function load(opts = {}) {
     globals,
     document: doc,
     window: win,
-    exported: `({ tcExpanded, tcJustCreated, treeTestCount, tcRowMatches,
+    // index.html's own order: core/suite-tree.js stands ahead of this screen, whose every paint
+    // asks it what a query keeps, what the chip counts and which rows ride at the top. The REAL
+    // one — a stub would leave the rows below asserting the stub's order, not the panel's (#196).
+    before: [['suite-tree', CORE_SRC]],
+    exported: `({ tcExpanded, tcJustCreated, tcRowMatches,
       tcQuickBulkOn, tcQuickTitle, tcQuickLines, tcQuickTitles, onTcQuickInput })`,
   });
 
@@ -338,36 +346,14 @@ function load(opts = {}) {
   };
 }
 
-// ---------- the pure tree: what a query keeps, what a count means (rows 1-18) ----------
+// ---------- what the screen makes of the filter (row 4) ----------
+// Rows 1-3, 5-18 are the algorithms themselves and now live in tests/suite-tree.test.mjs, which
+// drives extension/sidepanel/core/suite-tree.js with no stubs at all.
 
 const CHECKOUT = [folder('f1', 'Checkout', [file('s1', 'Guest'), file('s2', 'Card')])];
 
-test('1: a cleared query is not a filter — the tester gets their own tree object back, untouched', () => {
-  const h = load();
-  const roots = CHECKOUT;
-  assert.equal(h.fn.filterSuiteTree(roots, ''), roots);
-  assert.equal(h.fn.filterSuiteTree(roots, '   '), roots);
-  // A query that IS one hands back something else, so the identity above is a decision, not a stub.
-  assert.notEqual(h.fn.filterSuiteTree(roots, 'guest'), roots);
-});
-
-test('2: a folder whose own name matches keeps its whole subtree, not just the matching rows', () => {
-  const h = load();
-  const out = plain(h.fn.filterSuiteTree(CHECKOUT, 'check'));
-  assert.deepEqual(out.map((n) => n.title), ['Checkout']);
-  assert.deepEqual(out[0].children.map((n) => n.title), ['Guest', 'Card']);
-});
-
-test('3: a folder kept only for a child shows just the branch that leads there', () => {
-  const h = load();
-  const out = plain(h.fn.filterSuiteTree(CHECKOUT, 'guest'));
-  assert.deepEqual(out.map((n) => n.title), ['Checkout']);
-  assert.deepEqual(out[0].children.map((n) => n.title), ['Guest']);
-});
-
-test('4: a query nothing answers is an empty tree, and the screen says "No suites match" over it', () => {
+test('4: a query nothing answers makes the screen say "No suites match" over an empty tree', () => {
   const h = load({ suites: CHECKOUT });
-  assert.deepEqual(plain(h.fn.filterSuiteTree(CHECKOUT, 'zzz')), []);
   h.state.tcTreeSearch = 'zzz';
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.equal(h.emptyTitle(h.node.tree), 'No suites match');
@@ -377,113 +363,6 @@ test('4: a query nothing answers is an empty tree, and the screen says "No suite
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.equal(h.emptyTitle(h.node.tree), null);
   assert.deepEqual(h.rowIds(), ['f1', 's1']);
-});
-
-test('5: the search is case-blind on both sides', () => {
-  const h = load();
-  const hit = (q, title) => plain(h.fn.filterSuiteTree([{ title }], q)).length === 1;
-  assert.equal(hit('CHECK', 'checkout'), true);
-  assert.equal(hit('check', 'CHECKOUT'), true);
-  assert.equal(hit('xyz', 'CHECKOUT'), false);
-});
-
-test('6: a node the server sent with no title at all is filtered, not thrown over', () => {
-  const h = load();
-  const roots = [{ id: 'a' }, { id: 'b', title: 'Checkout' }];
-  assert.deepEqual(plain(h.fn.filterSuiteTree(roots, 'check')).map((n) => n.id), ['b']);
-  // …and a childless node with no title survives an empty query the same way.
-  assert.equal(h.fn.filterSuiteTree(roots, ''), roots);
-});
-
-test('7: no tree at all filters to nothing rather than throwing', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.filterSuiteTree(null, 'x')), []);
-  assert.deepEqual(plain(h.fn.filterSuiteTree(undefined, 'x')), []);
-});
-
-test('8: the filter hands back copies, so state.tcSuites keeps the order and shape the server sent', () => {
-  const h = load();
-  const roots = [folder('f1', 'Checkout', [file('s1', 'Guest')])];
-  const out = h.fn.filterSuiteTree(roots, 'guest');
-  assert.notEqual(out[0], roots[0]);
-  out[0].title = 'rewritten';
-  out[0].children.length = 0;
-  assert.equal(roots[0].title, 'Checkout');
-  assert.deepEqual(roots[0].children.map((n) => n.id), ['s1']);
-});
-
-test('9: a count is a number however the server spelled it, and a row without one counts nothing', () => {
-  const h = load();
-  assert.equal(h.lex.treeTestCount([{ test_count: 3 }, { test_count: '4' }, {}]), 7);
-  assert.equal(h.lex.treeTestCount([{ test_count: 'many' }]), 0);
-});
-
-test('10: a folder already carries its subtree total, so the children are not summed on top of it', () => {
-  const h = load();
-  const roots = [folder('f1', 'Checkout', [file('s1', 'Guest', { test_count: 4 })], { test_count: 6 })];
-  assert.equal(h.lex.treeTestCount(roots), 6);
-  // Two roots ARE added together — the sum is over the roots, not over nothing.
-  assert.equal(h.lex.treeTestCount([...roots, file('s9', 'Other', { test_count: 2 })]), 8);
-});
-
-test('11: no tree is a count of zero', () => {
-  const h = load();
-  assert.equal(h.lex.treeTestCount(null), 0);
-  assert.equal(h.lex.treeTestCount([]), 0);
-});
-
-test('12: a suite mark is found however deep the node sits', () => {
-  const h = load();
-  const tree = [folder('f1', 'Checkout', [folder('f2', 'Guest', [file('s3', 'Card', { emoji: '🔥' })])])];
-  assert.equal(h.fn.suiteNodeEmoji(tree, 's3'), '🔥');
-});
-
-test('13: a node that exists without a mark answers null — "draw the glyph", not "keep looking"', () => {
-  const h = load();
-  const tree = [folder('f1', 'Checkout', [file('s1', 'Guest')])];
-  assert.equal(h.fn.suiteNodeEmoji(tree, 's1'), null);
-  // The same tree with a mark on that node answers it, so the null above is the node's own answer.
-  assert.equal(h.fn.suiteNodeEmoji([folder('f1', 'C', [file('s1', 'Guest', { emoji: '🧪' })])], 's1'), '🧪');
-});
-
-test('14: an empty tree and an id that is not in it are the same null', () => {
-  const h = load();
-  assert.equal(h.fn.suiteNodeEmoji([], 's1'), null);
-  assert.equal(h.fn.suiteNodeEmoji(null, 's1'), null);
-  assert.equal(h.fn.suiteNodeEmoji([file('s1', 'Guest', { emoji: '🔥' })], 's2'), null);
-});
-
-test('15: a numeric id and the string the tree holds are the same suite', () => {
-  const h = load();
-  assert.equal(h.fn.suiteNodeEmoji([file('7', 'Guest', { emoji: '🔥' })], 7), '🔥');
-  assert.equal(h.fn.suiteNodeEmoji([file(7, 'Guest', { emoji: '🔥' })], '7'), '🔥');
-});
-
-test('16: suites made in this visit ride at the top, newest first, the rest in the servers order', () => {
-  const h = load();
-  h.lex.tcJustCreated.unshift('b'); // the order openSuiteInput writes them in
-  h.lex.tcJustCreated.unshift('c');
-  const list = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
-  assert.deepEqual(plain(h.fn.hoistJustCreated(list)).map((n) => n.id), ['c', 'b', 'a']);
-});
-
-test('17: nothing created this visit leaves the list exactly as it came, same array and all', () => {
-  const h = load();
-  const list = [{ id: 'a' }, { id: 'b' }];
-  assert.equal(h.fn.hoistJustCreated(list), list);
-  // A creation that is not in THIS list is not a reorder either.
-  h.lex.tcJustCreated.unshift('zz');
-  assert.equal(h.fn.hoistJustCreated(list), list);
-  // …and one that is changes the order, so the identity above is a decision.
-  h.lex.tcJustCreated.unshift('b');
-  assert.deepEqual(plain(h.fn.hoistJustCreated(list)).map((n) => n.id), ['b', 'a']);
-});
-
-test('18: an empty list of children is nothing to hoist', () => {
-  const h = load();
-  h.lex.tcJustCreated.unshift('b');
-  assert.deepEqual(plain(h.fn.hoistJustCreated([])), []);
-  assert.deepEqual(plain(h.fn.hoistJustCreated(null)), []);
 });
 
 // ---------- what the tree render decides (rows 19-24, 74-75) ----------
