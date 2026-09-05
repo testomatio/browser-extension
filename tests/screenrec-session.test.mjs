@@ -19,6 +19,10 @@ const source = readFileSync(SRC, 'utf8');
 // every parked row green while testing nothing. SREC_PARKED_SRC points it at a mutated copy.
 const PARKED_SRC = process.env.SREC_PARKED_SRC || join(repoRoot, 'extension/screenrec/parked.js');
 const parkedSource = readFileSync(PARKED_SRC, 'utf8');
+// The claim's own sibling, same rule: the real module, in the same realm, so the claim rows below
+// exercise it rather than a stub. SREC_CLAIM_SRC points it at a mutated copy.
+const CLAIM_SRC = process.env.SREC_CLAIM_SRC || join(repoRoot, 'extension/screenrec/claim.js');
+const claimSource = readFileSync(CLAIM_SRC, 'utf8');
 const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
@@ -213,6 +217,7 @@ function load(opts = {}) {
   // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` — and
   // the bare names this file destructures off it — resolve here.
   runInContext(parkedSource, context, { filename: PARKED_SRC });
+  runInContext(claimSource, context, { filename: CLAIM_SRC });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
   const makePort = (name, o = {}) => {
