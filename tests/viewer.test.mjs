@@ -319,6 +319,42 @@ test('12: an image that arrives but will not decode says so where the image was'
   assert.equal(h.child().tagName, 'P');
 });
 
+// The tester opens a recording to WATCH it, so the player has to be a player. Nothing else in this
+// file notices if the controls, the autoplay or the error handler quietly go away.
+test('12b: a recording opens as a player the tester can actually drive', async () => {
+  const h = await load({ url: NEUTRAL, name: 'take.webm' });
+  assert.equal(h.kind(), 'video');
+  const el = h.child();
+  assert.equal(el.controls, true, 'without controls there is no way to scrub to the bug');
+  assert.equal(el.autoplay, true);
+  assert.equal(el.playsInline, true);
+});
+
+test('12c: a recording that will not play says so where the player was, the way a broken image does', async () => {
+  const h = await load({ url: NEUTRAL, name: 'take.webm' });
+  fire(h.child(), 'error');
+  assert.equal(h.text(), BROKEN);
+  assert.equal(h.child().tagName, 'P');
+});
+
+// A log body is whatever the server sent. It is shown, never parsed — an attachment must not be able
+// to put markup, let alone a script tag, into a page that holds the tester's extension origin.
+test('12d: a log is shown as the text it is, not parsed as markup', async () => {
+  const body = '<b>total</b> 3 failures <script>x</script>';
+  const h = await load({ url: NEUTRAL, name: 'console.log', asset: okAsset(body) });
+  assert.equal(h.kind(), 'text');
+  const el = h.child();
+  assert.equal(el.childNodes.length, 1, 'one text node, not a parsed tree');
+  assert.equal(el.textContent, body);
+});
+
+test('12e: a picture carries the file name as its alt text, and the note keeps its styling', async () => {
+  const h = await load({ url: NEUTRAL, name: 'shot.png' });
+  assert.equal(h.child().alt, 'shot.png');
+  fire(h.child(), 'error');
+  assert.equal(h.child().className, 'viewer-note');
+});
+
 // ---- where the bytes come from ------------------------------------------------
 
 test('13: the fetch is told not to refuse an off-instance host — this page presigned nothing', async () => {
