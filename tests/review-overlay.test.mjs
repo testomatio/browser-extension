@@ -248,4 +248,4 @@ test('10b: any other key is left for the page under test', () => {
 // The iframe is created, given a src and appended with no load, error or timeout handler
 // (review-overlay.js:46-48), so a page whose CSP blocks the frame shows a dark rectangle and a ✕
 // with nothing said. Verified still open against the shipped file.
-test.todo('11: a review whose frame never loads tells the tester why');
+test.todo('11 (#332): a review whose frame never loads tells the tester why');
