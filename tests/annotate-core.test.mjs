@@ -306,7 +306,7 @@ function load(over = {}) {
 
 // ================= 1. Export and the three exits (AC1-AC11) =================
 
-test.todo('AC1 (#204): Save with a shape selected still bakes the selection marquee into the JPEG', () => {
+test('AC1: Save with a shape still selected hands back the picture without the selection marquee', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
   const clean = h.hooks.exportDataUrl();
