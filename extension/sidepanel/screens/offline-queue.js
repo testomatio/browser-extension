@@ -2,7 +2,7 @@
 // 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
 /* global TestomatAPI, state, capabilities, hasChrome, hostOf, isReadonlyError, recordFor,
-   runRowEl, repaintRow, toast, WriteCore, runStatusTerminal, $, Tooltip */
+   runRowEl, repaintRow, toast, WriteCore, RunLock, $, Tooltip */
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
@@ -102,7 +102,7 @@ async function runDropReason(runId) {
   ]);
   if (info && info.isArchived === true) return QUEUE_DROP_ARCHIVED; // outranks the other two
   if (!detail) return ''; // unknown state → replay as before
-  if (runStatusTerminal(detail.status)) return QUEUE_DROP_FINISHED;
+  if (RunLock.runStatusTerminal(detail.status)) return QUEUE_DROP_FINISHED;
   if (String(detail.kind || '').toLowerCase() === 'automated') return QUEUE_DROP_AUTOMATED;
   return '';
 }

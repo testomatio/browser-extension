@@ -48,7 +48,7 @@ function load(opts = {}) {
     recordId: 7,
     records: null,        // default: one untested record, id 7
     jwt: true,            // capabilities.jwt
-    lock: '',             // recordWriteLock()'s answer
+    lock: '',             // RunLock.recordWriteLock()'s answer
     users: [],            // usersList
     replies: {},          // runRepliesFor(status)
     dropdown: true,       // a panel where TestMeta.initSubstatus already ran
@@ -139,8 +139,8 @@ function load(opts = {}) {
     setAuthExpiredLine: (id) => { calls.authLines.push(id); },
     // core/state.js:79's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // run-view.js:253 — one reason for every row here; the per-record scoping is that screen's.
-    recordWriteLock: () => o.lock,
+    // screens/run-lock.js — one reason for every row here; the per-record scoping is that module's.
+    RunLock: { recordWriteLock: () => o.lock },
     displayStatus: (r) => (r?.status && r.status !== 'pending' ? r.status : 'untested'),
     runRepliesFor: (status) => o.replies[status] || [],
     syncBeginWrite: () => { calls.beginWrites += 1; },

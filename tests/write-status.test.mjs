@@ -36,7 +36,7 @@ function load(opts = {}) {
   const o = {
     records: null,        // default: one pending record, id 7
     runId: 'r1',
-    lock: '',             // recordWriteLock()'s answer for a record in the OPEN run
+    lock: '',             // RunLock.recordWriteLock()'s answer for a record in the OPEN run
     jwtAvailable: true,   // true | false | 'unknown'
     now: 1700000000000,
     ...opts,
@@ -70,7 +70,7 @@ function load(opts = {}) {
     state,
     // Scoped to the OPEN run: a record the open run does not carry is a replay into another one.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)) || null,
-    recordWriteLock: () => o.lock,
+    RunLock: { recordWriteLock: () => o.lock },
     syncBeginWrite: () => { calls.beginWrites += 1; calls.order.push('beginWrite'); },
     syncEndWrite: () => { calls.endWrites += 1; calls.order.push('endWrite'); },
     CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },

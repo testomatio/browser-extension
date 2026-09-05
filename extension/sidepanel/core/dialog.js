@@ -1,5 +1,5 @@
 // The panel's one confirm dialog: the message, the labelled OK, and a promise for the answer.
-// Core, not a screen — settings.js, attachments.js and run-view.js all ask the same one.
+// Core, not a screen — settings.js, attachments.js and run-lock.js all ask the same one.
 
 /* global $ */
 

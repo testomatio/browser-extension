@@ -1,7 +1,7 @@
 // Local-file attachments on a test result (#107). A picked File IS a Blob, so it
 // rides TestomatAPI.uploadAttachment; the button's gate lives in test-gates.js.
 
-/* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine, progressToast,
+/* global TestomatAPI, state, recordFor, RunLock, $, toast, setStatusLine, progressToast,
    TestGates, Tooltip, ImgHydrate, TestSummary,
    ConfirmDialog, paintCounter, StatusIcons */
 
@@ -96,7 +96,7 @@ function attDeleteLock(a) {
   // does not exist yet is answered before a lock, and the missing id after both.
   const copy = TestGates.gateReason({ need: 'delete' });
   if (!record || !record.id) return copy.noResult;
-  const lock = recordWriteLock(record);
+  const lock = RunLock.recordWriteLock(record);
   if (lock) return lock;
   if (TestomatAPI.jwtAvailable() === false) return copy.degraded;
   if (!a.id) return 'This file carries no id here — remove it in the web app';
@@ -145,7 +145,7 @@ function attUploadLock() {
   const record = recordFor(state.currentRecordId);
   const copy = TestGates.gateReason({ need: 'file' });
   if (!record?.id) return copy.noResult;
-  const lock = recordWriteLock(record);
+  const lock = RunLock.recordWriteLock(record);
   if (lock) return lock;
   // 'unknown' is still probing and must never gate (#107).
   if (TestomatAPI.jwtAvailable() === false) return copy.degraded;
@@ -271,7 +271,7 @@ async function attUploadFiles(files) {
   try {
     for (let i = 0; i < files.length; i++) {
       // #187: the picker outlives the click-time gate, and a slow pick the lock itself.
-      stopped = recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
+      stopped = RunLock.recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
       if (stopped) break; // at a file boundary — never half-way through an upload
       const f = files[i];
       progressToast(files.length === 1

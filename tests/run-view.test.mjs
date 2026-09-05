@@ -15,8 +15,9 @@
 // path the other way, so a row asserting "nothing happened" cannot pass against a broken fixture.
 // Rows 1, 46, 85, 86, 87 and 88 left with the icon vocabulary (#194) — they are
 // tests/status-icons.test.mjs now, and the real module is loaded here beside the screen. Rows 81
-// and 81a left the same way with the confirm dialog, to tests/dialog.test.mjs; the finish rows
-// below still drive the REAL one, because what they are about is what finishRun does with its answer.
+// and 81a left the same way with the confirm dialog, to tests/dialog.test.mjs. Rows 7-13, 49-50,
+// 52, 66-71, 78-80a, 118 and 131 left with the write gate, to tests/run-lock.test.mjs; what stays
+// here is what that gate PAINTS over real checklist rows, and it drives the real module to do it.
 // Run: node --test tests/run-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -417,22 +418,26 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
-    // index.html's own order: core/status-icons.js and core/dialog.js stand ahead of every screen,
-    // and this screen draws its glyphs and asks its confirm through them. The REAL ones — the
-    // finish rows are about the answer finishRun gets, and a stub would test the stub (#194).
-    before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC]],
+    // index.html's own order: core/status-icons.js, core/dialog.js and screens/run-lock.js all
+    // stand ahead of this screen, which draws its glyphs, asks its confirm and paints its lock
+    // through them. The REAL ones — the rows below are about what the lock does to a row a stub
+    // would never have built, and finishRun's answer comes from that same real dialog (#194).
+    before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC], 'run-lock'],
     // Every name below is a lexical `const` — invisible as a sandbox property, reachable only off
     // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
-    exported: `({ statusLabel, runStatusTerminal, runArchived, runAutomated,
+    exported: `({ statusLabel,
       matchesRunFilter, exampleOf, rowVisible, suiteKeyOf, suiteEmojiOf, orderedRecords,
       visibleRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
-      NO_SUITE, PROBE_WAIT_MS, StatusIcons,
-      RUN_STATE_TINT, ROW_BTN_LABEL, RUN_LOCK_REASON, ARCHIVED_LOCK_REASON, AUTOMATED_LOCK_REASON })`,
+      NO_SUITE, PROBE_WAIT_MS, StatusIcons, RunLock,
+      RUN_STATE_TINT, ROW_BTN_LABEL })`,
   });
 
   return {
     ...h,
     lex: h.screen,
+    // The real screens/run-lock.js, loaded above: a lexical const, so it comes back off the
+    // completion value like every other name — never as a property of the sandbox.
+    lock: h.screen.RunLock,
     state, calls, on, node, doc, clock,
     // The held sleeps, so a row can let the 2000 ms probe timeout win the race on purpose.
     releaseSleeps: () => { for (const d of held.splice(0)) d.resolve(); },
@@ -486,121 +491,13 @@ function flashTarget(h, li) {
   return () => li.querySelector('.row-status');
 }
 
-// ---------- the write gate: three reasons, ranked (rows 7-13, 66-71) ----------
-
-test('7: an archived run that also finished and is automated says ARCHIVED — the actual reason', () => {
-  const h = load({ runInfo: { isArchived: true }, runStatus: 'finished', runKind: 'automated' });
-  assert.equal(h.fn.runWriteLock(), ARCHIVED);
-});
-
-test('8: take the archive away and the same run says FINISHED', () => {
-  const h = load({ runInfo: {}, runStatus: 'finished', runKind: 'automated' });
-  assert.equal(h.fn.runWriteLock(), FINISHED);
-});
-
-test('9: an automated run bars every row but leaves Finish run alive', () => {
-  const h = load({ runStatus: 'running', runKind: 'automated' });
-  assert.equal(h.fn.runWriteLock(), AUTOMATED);
-  assert.equal(h.fn.finishBlockedReason(), '');
-  // …and the two reasons Finish DOES answer to, driven the same way.
-  h.state.runInfo = { isArchived: true };
-  assert.equal(h.fn.finishBlockedReason(), ARCHIVED);
-  h.state.runInfo = {};
-  h.state.runStatus = 'passed';
-  assert.equal(h.fn.finishBlockedReason(), FINISHED);
-});
-
-test('10: no run open at all is not a lock — the screen is simply empty', () => {
-  const h = load({ runId: null, runInfo: { isArchived: true }, runStatus: 'finished' });
-  assert.equal(h.fn.runWriteLock(), '');
-  // The identical state WITH a run id locks, so the guard is what answered and not the flags.
-  h.state.runId = 'r1';
-  assert.equal(h.fn.runWriteLock(), ARCHIVED);
-});
-
-test('11: a run still reported running is finished once it carries a finishedAt', () => {
-  const h = load({ runStatus: 'running', runInfo: { finishedAt: '2026-01-01T00:00:00Z' } });
-  assert.equal(h.fn.runFinished(), true);
-  assert.equal(h.fn.runWriteLock(), FINISHED);
-  h.state.runInfo = { finishedAt: null };
-  assert.equal(h.fn.runFinished(), false);
-});
-
-test('12: the open row consults the JSON:API detail, and the id is compared as text', () => {
-  const h = load({ currentRecordId: 7, testrunDetail: { data: { attributes: { automated: true } } } });
-  assert.equal(h.fn.recordAutomated({ id: '7' }), true);
-  // A different row on the same screen is not the one the detail describes.
-  assert.equal(h.fn.recordAutomated({ id: '8' }), false);
-  assert.equal(h.fn.recordAutomated(null), false);
-});
-
-test('13: the lock signature carries the automated rows, so a mid-poll flip repaints', () => {
-  const h = load({ records: [{ id: 1, automated: true }, { id: 2 }] });
-  assert.equal(h.fn.lockSignature(''), ' | 1');
-  // The second row flipping is a DIFFERENT signature — which is the whole point of listing them.
-  h.state.records[1].automated = true;
-  assert.equal(h.fn.lockSignature(''), ' | 1,2');
-  assert.equal(h.fn.lockSignature(FINISHED), `${FINISHED} | 1,2`);
-});
-
-test('66: a run-level reason is the row\'s reason too, and outranks its own flag', () => {
-  const h = load({ runStatus: 'finished' });
-  assert.equal(h.fn.recordWriteLock({ id: 1, automated: true }), FINISHED);
-  h.state.runStatus = 'running';
-  assert.equal(h.fn.recordWriteLock({ id: 1, automated: true }), AUTOMATED);
-  assert.equal(h.fn.recordWriteLock({ id: 2 }), '');
-});
-
-test('67: only the four terminal words are terminal, whatever their case', () => {
-  const h = load();
-  for (const s of ['passed', 'FAILED', 'Terminated', 'finished']) {
-    assert.equal(h.lex.runStatusTerminal(s), true, s);
-  }
-  for (const s of ['running', 'launching', 'scheduled', '', null, undefined]) {
-    assert.equal(h.lex.runStatusTerminal(s), false, String(s));
-  }
-});
-
-test('68: the run detail is a second source of "finished" — the status the card shows counts', () => {
-  const h = load({ runStatus: 'running', runInfo: { status: 'passed' } });
-  assert.equal(h.fn.runFinished(), true);
-  assert.equal(h.fn.runWriteLock(), FINISHED);
-});
-
-test('69: archived is one signal only — a run info that never said so is not archived', () => {
-  const h = load({ runInfo: {} });
-  assert.equal(h.lex.runArchived(), false);
-  h.state.runInfo = { isArchived: false };
-  assert.equal(h.lex.runArchived(), false);
-  h.state.runInfo = { isArchived: 'true' }; // a string is not the flag: basic mode stays blind
-  assert.equal(h.lex.runArchived(), false);
-  h.state.runInfo = { isArchived: true };
-  assert.equal(h.lex.runArchived(), true);
-});
-
-test('70: only the word `automated` locks the run — a rungroup kind draws nothing here', () => {
-  const h = load({ runKind: 'AUTOMATED' });
-  assert.equal(h.lex.runAutomated(), true);
-  for (const k of ['manual', 'mixed', 'multienv', null]) {
-    h.state.runKind = k;
-    assert.equal(h.lex.runAutomated(), false, String(k));
-  }
-});
-
-test('71: a row flagged automated by the server locks without the run being automated at all', () => {
-  const h = load({ runStatus: 'running', runKind: 'mixed' });
-  assert.equal(h.fn.runWriteLock(), '');
-  assert.equal(h.fn.recordAutomated({ id: 9, automated: true }), true);
-  assert.equal(h.fn.recordWriteLock({ id: 9, automated: true }), AUTOMATED);
-});
-
-// ---------- painting the lock: the memoised signature (rows 72-75) ----------
+// ---------- painting the lock: the memoised signature (rows 72-76) ----------
 
 test('72: the note carries the reason and the rows go dead with it', () => {
   const h = load({ runStatus: 'finished', records: [rec(1), rec(2)] });
   h.fn.renderRunSections();
   assert.deepEqual(h.rowIds(), ['1', '2']);
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.textContent, FINISHED);
   assert.equal(h.node.runLockNote.hidden, false);
   const buttons = h.node.runTests.querySelectorAll('.row-actions .row-st');
@@ -612,7 +509,7 @@ test('72: the note carries the reason and the rows go dead with it', () => {
 test('72a: an unlocked run paints an empty note and live buttons, driven the same way', () => {
   const h = load({ runStatus: 'running', records: [rec(1)] });
   h.fn.renderRunSections();
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.textContent, '');
   assert.equal(h.node.runLockNote.hidden, true);
   const buttons = h.node.runTests.querySelectorAll('.row-actions .row-st');
@@ -623,25 +520,25 @@ test('72a: an unlocked run paints an empty note and live buttons, driven the sam
 test('73: the paint is memoised — a second call with the same reason leaves a rebuilt DOM bare', () => {
   const h = load({ runStatus: 'finished', records: [rec(1)] });
   h.fn.renderRunSections();
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.textContent, FINISHED);
   // The section rebuilds under it (a poll tick), taking the note and the disabled buttons with it.
   h.node.runLockNote.textContent = '';
   h.fn.renderRunSections();
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.textContent, '', 'the same signature is a no-op');
   // …and `force` is what a rebuilt DOM needs.
-  h.fn.applyRunLock({ force: true });
+  h.lock.applyRunLock({ force: true });
   assert.equal(h.node.runLockNote.textContent, FINISHED);
 });
 
 test('74: a reason that CHANGED repaints without force — the signature is what is compared', () => {
   const h = load({ runStatus: 'running', records: [rec(1)] });
   h.fn.renderRunSections();
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.hidden, true);
   h.state.runInfo = { isArchived: true };
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.node.runLockNote.textContent, ARCHIVED);
   assert.equal(h.node.runLockNote.hidden, false);
 });
@@ -649,12 +546,12 @@ test('74: a reason that CHANGED repaints without force — the signature is what
 test('75: one row turning automated mid-poll repaints, though the run-level reason never moved', () => {
   const h = load({ runStatus: 'running', runKind: 'mixed', records: [rec(1), rec(2)] });
   h.fn.renderRunSections();
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   const tipOf = (id) => h.node.runTests
     .querySelector(`li[data-record-id="${id}"] .row-actions .row-st`).dataset.tip;
   assert.equal(tipOf(2), 'Mark passed');
   h.state.records[1].automated = true;   // a reporter result lands on row 2
-  h.fn.applyRunLock();                   // no force: the ROW list is what changed
+  h.lock.applyRunLock();                   // no force: the ROW list is what changed
   assert.equal(tipOf(2), AUTOMATED);
   assert.equal(tipOf(1), 'Mark passed', 'the manual row beside it stays writable');
   assert.equal(h.node.runLockNote.hidden, true, 'and the run-level note stays silent');
@@ -662,12 +559,12 @@ test('75: one row turning automated mid-poll repaints, though the run-level reas
 
 test('76: applyRunLock re-asks the Finish button and the test view, when there is one', () => {
   const h = load({ runStatus: 'running', jwtAvailable: true });
-  h.fn.applyRunLock();
+  h.lock.applyRunLock();
   assert.equal(h.calls.testActions, 1);
   assert.equal(h.node.btnFinishRun.hidden, false);
   // A panel that never loaded screens/test-gates.js has no TestGates at all, and survives it.
   const bare = load({ runStatus: 'running', noTestActions: true });
-  bare.fn.applyRunLock();
+  bare.lock.applyRunLock();
   assert.equal(bare.calls.testActions, 0);
   assert.equal(bare.node.btnFinishRun.hidden, false);
 });
@@ -705,7 +602,7 @@ test('77: a re-run archived run is "running" again — Finish stays hidden anywa
   assert.doesNotThrow(() => bare.fn.updateRunActions());
 });
 
-// ---------- finishing a run (rows 49-51, 78-80a) ----------
+// ---------- finishing a run (rows 51, 53a) ----------
 
 // The dialog is answered from outside, the way a tester answers it: start the call, let it reach
 // showModal, then click. `settle()` is the turn in between — never await the finishRun promise here,
@@ -715,38 +612,12 @@ async function openConfirm(h) {
   assert.equal(h.node.confirmDialog.open, true, 'the dialog should be open by now');
 }
 
-test('49: the archive landing while the confirm sits open is caught by the second gate', async () => {
-  const h = load({ runStatus: 'running', records: [rec(1)] });
-  const done = h.fn.finishRun();
-  await openConfirm(h);
-  h.state.runInfo = { isArchived: true }; // a colleague archives it while the tester reads
-  fire(h.node.confirmOk, 'click');
-  await done;
-  assert.deepEqual(h.calls.reads.finish, [], 'no PUT');
-  assert.deepEqual(h.calls.toasts, [{ msg: ARCHIVED }]);
-  assert.equal(h.node.runLockNote.textContent, ARCHIVED, 'and the lock is force-painted');
-  assert.equal(h.state.runStatus, 'running');
-});
-
-test('50: dismissing the dialog is a no-op — no PUT, no state change', async () => {
-  const h = load({ runStatus: 'running' });
-  const done = h.fn.finishRun();
-  await openConfirm(h);
-  fire(h.node.confirmCancel, 'click');
-  await done;
-  assert.deepEqual(h.calls.reads.finish, []);
-  assert.equal(h.state.runStatus, 'running');
-  assert.deepEqual(h.calls.toasts, []);
-  assert.deepEqual(h.calls.progressToasts, []);
-  assert.equal(h.node.confirmDialog.open, false);
-});
-
 test('51: confirming finishes the run, re-reads the checklist and says so on the status line', async () => {
   const h = load({ runStatus: 'running', records: [rec(1)] });
   h.on.finishRun = async () => ({ id: 'r1', status: 'finished' });
   h.on.runInfoOf = (payload) => ({ status: payload.status, finishedAt: '2026-01-02T00:00:00Z' });
   h.on.listTestruns = async () => [rec(2, { status: 'skipped' }), rec(1, { status: 'passed' })];
-  const done = h.fn.finishRun();
+  const done = h.lock.finishRun();
   await openConfirm(h);
   fire(h.node.confirmOk, 'click');
   await done;
@@ -758,53 +629,6 @@ test('51: confirming finishes the run, re-reads the checklist and says so on the
   assert.deepEqual(h.calls.lines.at(-1), { id: 'run-status', text: 'Run finished ✓', tone: 'ok' });
   assert.deepEqual(h.rowIds(), ['1', '2'], 'and the checklist repainted');
   assert.equal(h.node.runLockNote.textContent, FINISHED);
-});
-
-test('78: the FIRST gate bites before the dialog is ever shown', async () => {
-  const h = load({ runStatus: 'finished' });
-  await h.fn.finishRun();
-  assert.equal(h.node.confirmDialog.open, false);
-  assert.ok(!h.calls.order.includes('showModal'));
-  assert.deepEqual(h.calls.toasts, [{ msg: FINISHED }]);
-  assert.deepEqual(h.calls.reads.finish, []);
-  assert.equal(h.node.runLockNote.textContent, FINISHED);
-});
-
-test('79: with no run open Finish does nothing at all — not even the state probe', async () => {
-  const h = load({ runId: null, runStatus: 'running' });
-  await h.fn.finishRun();
-  assert.deepEqual(h.calls.order, []);
-  // The same call WITH a run id gets as far as the dialog, so the guard is what stopped it.
-  const open = load({ runStatus: 'running' });
-  const done = open.fn.finishRun();
-  await settle();
-  assert.equal(open.node.confirmDialog.open, true);
-  fire(open.node.confirmCancel, 'click');
-  await done;
-});
-
-test('80: a failed PUT is reported inline, the button comes back, and the run is untouched', async () => {
-  const h = load({ runStatus: 'running' });
-  h.on.finishRun = async () => { throw Object.assign(new Error('boom'), { kind: 'http' }); };
-  const done = h.fn.finishRun();
-  await openConfirm(h);
-  fire(h.node.confirmOk, 'click');
-  await done;
-  assert.deepEqual(h.calls.apiErrors, [{ message: 'boom', id: 'run-status', opts: { inlineAuth: true } }]);
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Finish failed: boom', error: true }]);
-  assert.equal(h.state.runStatus, 'running');
-  assert.equal(h.node.btnFinishRun.disabled, false, 'released in the finally');
-});
-
-test('80a: an expired session is handled inline WITHOUT a second toast on top of it', async () => {
-  const h = load({ runStatus: 'running' });
-  h.on.finishRun = async () => { throw Object.assign(new Error('nope'), { kind: 'auth' }); };
-  const done = h.fn.finishRun();
-  await openConfirm(h);
-  fire(h.node.confirmOk, 'click');
-  await done;
-  assert.equal(h.calls.apiErrors.length, 1);
-  assert.deepEqual(h.calls.toasts, []);
 });
 
 // Rows 81 and 81a are tests/dialog.test.mjs now — the sentence, the label and the three ways of
@@ -1557,7 +1381,7 @@ test('110: the lock un-paints too — a run that reopened restores each button\'
   const li = h.node.runTests.querySelector('li.test-row');
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [true, true, true]);
   h.state.runStatus = 'running';
-  h.fn.applyRowLock(li);
+  h.lock.applyRowLock(li);
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.dataset.tip),
     ['Mark passed', 'Mark failed', 'Mark skipped']);
@@ -1773,12 +1597,6 @@ test('117b: a probe that REJECTED is swallowed — the write goes on rather than
   assert.deepEqual(h.calls.writes, [{ id: 1, status: 'passed', comment: '' }]);
 });
 
-test('118: with nothing pending, Finish waits for nobody', async () => {
-  const h = load({ saving: false });
-  await h.fn.settlePendingWrites();
-  assert.deepEqual(h.calls.sleeps, []);
-});
-
 // ---------- opening a run (rows 54-60, 119-125) ----------
 
 test('54: a failed meta read still paints the checklist, and says so above it', async () => {
@@ -1868,7 +1686,7 @@ test('60: un-archiving is something the payload SAID — false lands, absent doe
   assert.equal(h.state.runInfo.isArchived, true, 'silence changes nothing');
   h.fn.applyRunInfo({ isArchived: false });
   assert.equal(h.state.runInfo.isArchived, false);
-  assert.equal(h.fn.runWriteLock(), '');
+  assert.equal(h.lock.runWriteLock(), '');
 });
 
 test('60a: everything else on the payload is merged over the v2 base', () => {
@@ -1987,7 +1805,7 @@ test('124: only a token-only panel re-reads v2 to learn a colleague finished the
   await basic.fn.refreshRunFinished('r1');
   assert.equal(basic.state.runStatus, 'finished');
   assert.equal(basic.state.runInfo.testsCount, 4, 'and the v2 half of the card rides along');
-  assert.equal(basic.fn.runWriteLock(), FINISHED);
+  assert.equal(basic.lock.runWriteLock(), FINISHED);
 });
 
 test('124a: a failed or stale v2 re-read keeps what the panel had', async () => {
@@ -2163,20 +1981,8 @@ test('130: every chip counts what its rows DISPLAY, and All is the whole run', (
   assert.equal(counts.passed + counts.failed + counts.skipped + counts.untested, counts.all);
 });
 
-test('131: Finish waits while an inline write is still in flight, and goes on the moment it lands', async () => {
-  const h = load({ holdSleep: true });
-  h.state.inlineWrites = 1;
-  const settling = h.fn.settlePendingWrites();
-  await settle();
-  assert.deepEqual(h.calls.sleeps.map((s) => s.ms), [25], 'it is waiting, not returning');
-  h.state.inlineWrites = 0;
-  h.releaseSleeps();
-  await settling;
-  assert.equal(h.calls.sleeps.length, 1, 'and it stops the moment the write lands');
-});
-
-// ---------- the bugs these tests found (rows 4, 45, 46, 47, 52, 53, 64, 65) ----------
-// Six of them are fixed and read as rules; the two still deferred name their issue.
+// ---------- the bugs these tests found (rows 4, 45, 46, 47, 53, 64, 65) ----------
+// Five of them are fixed and read as rules; the two still deferred name their issue.
 
 // 4 (#273): a running row used to be counted by nothing but All, so the chips summed to less than
 // the total and no chip could show that row. It counts as Pending now — it has no result yet.
@@ -2247,19 +2053,6 @@ test('47 (#275): a launching run is a running run, and can be finished', () => {
   assert.equal(done.node.btnFinishRun.hidden, true);
 });
 
-// 52 (#276): the wait still gives up after 200 × 25 ms, but it now SAYS so — a finished run takes no
-// more writes, so closing the run over a save still in flight lost the result the tester had marked.
-test('52 (#276): a save still in flight stops the finish instead of being closed over', async () => {
-  const stuck = load({ saving: true });
-  assert.equal(await stuck.fn.settlePendingWrites(), false,
-    `gave up after ${stuck.calls.sleeps.length} × 25 ms and said so`);
-
-  // Nothing pending: it answers true, so the false above is a report and not a constant.
-  const clear = load();
-  assert.equal(await clear.fn.settlePendingWrites(), true);
-  assert.equal(clear.calls.sleeps.length, 0);
-});
-
 // 53 (#258): three copies of `(a, b) => a.id > b.id ? 1 : -1` compared ids as TEXT, so a run past
 // its ninth record listed 10 before 9. This file owns two of them — open and finish.
 test("53 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
@@ -2275,7 +2068,7 @@ test('53a (#258): finishing the run re-sorts the re-read the same way, not as te
   h.on.finishRun = async () => ({ id: 'r1', status: 'finished' });
   h.on.runInfoOf = (payload) => ({ status: payload.status });
   h.on.listTestruns = async () => [rec('100'), rec('99')];
-  const done = h.fn.finishRun();
+  const done = h.lock.finishRun();
   await openConfirm(h);
   fire(h.node.confirmOk, 'click');
   await done;

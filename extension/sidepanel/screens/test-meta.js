@@ -8,7 +8,7 @@
 // neither a monogram nor a filter box — hence the cursor, the keyboard block and the popup below.
 
 /* global TestomatAPI, Dropdown, Tooltip, UserCell, Icons, state, capabilities, usersList, $,
-   recordFor, recordWriteLock, displayStatus, runRepliesFor, syncBeginWrite, syncEndWrite,
+   recordFor, RunLock, displayStatus, runRepliesFor, syncBeginWrite, syncEndWrite,
    isAuthError, setAuthExpiredLine, toast */
 
 const TestMeta = (() => {
@@ -321,7 +321,7 @@ const TestMeta = (() => {
     if (!record?.id) return;
     const resync = () => dd.setValue(record.substatus || '');
     if (substatusWriting) { resync(); return; }                    // ignore + re-sync
-    if (recordWriteLock(record)) { resync(); return; }             // #152/#154 — locked, re-sync
+    if (RunLock.recordWriteLock(record)) { resync(); return; }     // #152/#154 — locked, re-sync
     const prev = record.substatus || '';
     substatusWriting = true;
     syncBeginWrite();

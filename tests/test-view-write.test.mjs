@@ -67,7 +67,7 @@ function load(opts = {}) {
     jwt: true,            // capabilities.jwt
     jwtAvailable: true,   // TestomatAPI.jwtAvailable(): true | false | 'unknown'
     hasChrome: true,
-    lock: '',             // recordWriteLock()'s answer
+    lock: '',             // RunLock.recordWriteLock()'s answer
     hidden: [],           // ids rowVisible() answers false for
     dropdown: true,       // a panel where TestMeta.initSubstatus already ran
     stepButtons: 0,       // `.step-state` circles inside #test-steps
@@ -180,9 +180,9 @@ function load(opts = {}) {
     baseUrlHost: () => HOST,
     // core/state.js:79's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // run-view.js:253 — one reason for every row here; the rows that need the per-record scoping
-    // drive it through whether the record is in the OPEN run at all.
-    recordWriteLock: () => o.lock,
+    // screens/run-lock.js — one reason for every row here; the rows that need the per-record
+    // scoping drive it through whether the record is in the OPEN run at all.
+    RunLock: { recordWriteLock: () => o.lock },
     displayStatus: (r) => (r?.status && r.status !== 'pending' ? r.status : 'untested'),
     orderedRecords: () => state.records,
     rowVisible,

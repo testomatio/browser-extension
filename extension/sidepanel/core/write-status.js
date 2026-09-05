@@ -10,7 +10,7 @@
 // `EvidenceUpload.log` lives in screens/evidence-upload.js, so this core does reach into a screen.
 // That edge is smaller than the one it replaces and is left alone deliberately.
 
-/* global TestomatAPI, OfflineQueue, CommentDrafts, state, recordFor, recordWriteLock,
+/* global TestomatAPI, OfflineQueue, CommentDrafts, state, recordFor, RunLock,
    collectEnvMeta, EvidenceUpload, syncBeginWrite, syncEndWrite */
 
 const WriteCore = (() => {
@@ -21,7 +21,7 @@ const WriteCore = (() => {
     // #152/#154: a locked result skips both. Scoped to the OPEN run (recordFor) — an
     // offline-queue replay into another, still-live run must keep writing its meta.
     const open = recordFor(record.id);
-    if (open && typeof recordWriteLock === 'function' && recordWriteLock(open)) return;
+    if (open && typeof RunLock !== 'undefined' && RunLock.recordWriteLock(open)) return;
     if (TestomatAPI.jwtAvailable() === false) return;
     // A replay writes the environment SNAPSHOTTED at enqueue: collecting now describes the tab open
     // now. An entry from an older build carries none, and says nothing rather than something wrong.

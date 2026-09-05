@@ -29,7 +29,7 @@ function load(opts = {}) {
   const o = {
     view: 'test',
     recordId: 7,
-    records: [{ id: 7 }],  // `lock` on a row is what recordWriteLock answers for it
+    records: [{ id: 7 }],  // `lock` on a row is what RunLock.recordWriteLock answers for it
     server: null,          // state.testrunDetail's attachments; null = no detail fetched at all
     jwt: true,             // what TestomatAPI.jwtAvailable() answers
     controls: true,        // the Attach button and its <input> present in the DOM
@@ -101,7 +101,7 @@ function load(opts = {}) {
     Blob,
     state,
     recordFor: (id) => records.get(String(id)) || null,
-    recordWriteLock: (rec) => (rec && rec.lock) || '',
+    RunLock: { recordWriteLock: (rec) => (rec && rec.lock) || '' },
     $: (id) => doc.getElementById(id),
     toast: (msg, tOpts) => { calls.toasts.push({ msg, ...(tOpts || {}) }); },
     setStatusLine: (id, text, cls) => {
@@ -537,7 +537,7 @@ test('35: a gate that closes mid-drag stops the drop — it is re-asked at drop 
   assert.deepEqual(h.calls.uploads, []);
 
   // A session that expired mid-drag is the half only THIS gate catches: the upload loop re-asks
-  // recordWriteLock alone, so without the drop-time attUploadLock() the file would go up regardless.
+  // RunLock.recordWriteLock alone, so without the drop-time attUploadLock() the file would go up regardless.
   const gone = load();
   const zone2 = gone.zone();
   gone.jwt(false);

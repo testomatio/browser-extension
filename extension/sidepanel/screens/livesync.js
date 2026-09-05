@@ -4,7 +4,7 @@
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
    refreshRunInfo, refreshRunFinished, renderRunInfo, refreshSuiteFraction, renderRunView,
-   renderTestProgress, applyRunLock, TestMeta, recordFor, byRecordId, toast, OfflineQueue,
+   renderTestProgress, RunLock, TestMeta, recordFor, byRecordId, toast, OfflineQueue,
    $, setStatusLine */
 
 let syncTimer = null;
@@ -110,7 +110,7 @@ async function syncTick() {
     if (epoch !== syncEpoch || state.runId !== runId) return;
     // The lock engages (or lifts) within one poll interval of a remote finish
     // (#152), an automated flip (#154) or an archive (#186). Unconditional: free.
-    applyRunLock();
+    RunLock.applyRunLock();
   } catch (e) {
     // A token 401/403 on the poll path parks the loop (no toast spam); Refresh
     // resumes it via openRunView. Other errors are skipped — the next tick retries.

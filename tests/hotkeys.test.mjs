@@ -156,9 +156,11 @@ function load(opts = {}) {
     clickStatus: (s) => { calls.clickStatus.push(s); calls.order.push('clickStatus'); },
     nextTest: () => { calls.nextTest += 1; calls.order.push('nextTest'); },
     recordFor: (id) => o.records.find((r) => String(r.id) === String(id)) || null,
-    recordWriteLock: (record) => {
-      calls.locks.push(record ? String(record.id) : record);
-      return typeof o.lock === 'function' ? o.lock(calls.locks.length, record) : o.lock;
+    RunLock: {
+      recordWriteLock: (record) => {
+        calls.locks.push(record ? String(record.id) : record);
+        return typeof o.lock === 'function' ? o.lock(calls.locks.length, record) : o.lock;
+      },
     },
     setStatusLine: (id, txt, cls) => { calls.statusLines.push({ id, text: txt, cls }); calls.order.push('status'); },
     toast: (msg, tOpts) => { calls.toasts.push({ msg, ...(tOpts || {}) }); calls.order.push('toast'); },

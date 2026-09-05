@@ -1,7 +1,7 @@
 // Screen recording (#68), panel side: the button, what it says while a recording runs, and the
 // upload of the file the worker parks when it stops. The worker owns the capture, this owns the JWT.
 
-/* global TestomatAPI, state, recordFor, recordWriteLock, $, toast, setStatusLine,
+/* global TestomatAPI, state, recordFor, RunLock, $, toast, setStatusLine,
    TestGates, attRemember, renderAttachmentList, progressToast, hideToast */
 
 const SREC_COMMAND = 'toggle-screen-recording';
@@ -117,7 +117,7 @@ async function srecAttach(file) {
     return;
   }
   if (!record || !record.id) { srecReason('Open a test result and the recording attaches to it.'); return; }
-  const lock = recordWriteLock(record);
+  const lock = RunLock.recordWriteLock(record);
   if (lock) { srecReason(lock); return; }
   // Refused: another panel document is already uploading this take — not this tester's problem.
   const claim = await srecSend({ type: 'SCREENREC_CLAIM', by: SREC_ME });

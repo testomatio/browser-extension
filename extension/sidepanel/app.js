@@ -1,7 +1,8 @@
 // Panel bootstrap: wire controls, restore settings/session, pick the initial view.
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
-/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates */
+/* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
+   RunLock */
 
 // ---------- init ----------
 
@@ -86,7 +87,7 @@ async function init() {
   $('btn-save-annotation').addEventListener('click', savePendingAnnotation);
   // Full-page capture checkbox: persisted, and mirrored wherever else it shows.
   $('fullpage-test').addEventListener('change', (e) => TestGates.setFullPageCapture(e.target.checked));
-  $('btn-finish-run').addEventListener('click', finishRun);
+  $('btn-finish-run').addEventListener('click', RunLock.finishRun);
   $('run-info-head').addEventListener('click', toggleRunInfo); // Run info disclosure (#112)
   TestMeta.initSubstatus();
   TestMeta.initAssignee();

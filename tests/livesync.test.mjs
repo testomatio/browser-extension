@@ -122,7 +122,7 @@ function load(opts = {}) {
     renderRunView: () => { calls.renderRunView += 1; },
     renderTestProgress: () => { calls.renderTestProgress += 1; },
     renderRunInfo: () => { calls.renderRunInfo += 1; },
-    applyRunLock: () => { calls.applyRunLock += 1; },
+    RunLock: { applyRunLock: () => { calls.applyRunLock += 1; } },
     // #153's gate moved to screens/test-meta.js; livesync only asks it to re-run after a
     // colleague's write, so the stub records the ask and tests/test-meta.test.mjs owns the rule.
     TestMeta: { applyAssigneeGate: (rec) => { calls.applyAssigneeGate.push(rec ? String(rec.id) : rec); } },

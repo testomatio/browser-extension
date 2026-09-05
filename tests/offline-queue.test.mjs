@@ -10,9 +10,6 @@ import { loadScreen, makeDocument, el, fire, settle } from './helpers/panel-harn
 // core/state.js's own one-liner. A stub that answered the whole URL would let the connection-stamp
 // rows pass without the module ever comparing a host.
 const hostOf = (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } };
-// screens/run-view.js's own set — the drain asks it whether a run is closed.
-const TERMINAL = new Set(['passed', 'failed', 'terminated', 'finished']);
-
 const HERE = { baseUrl: 'https://a.io', projectId: 'p1' };
 const ELSEWHERE = { baseUrl: 'https://b.io', projectId: 'p9' };
 
@@ -66,7 +63,6 @@ function load(opts = {}) {
     hasChrome: o.hasChrome,
     hostOf,
     isReadonlyError: (e) => !!e && e.kind === 'readonly',
-    runStatusTerminal: (s) => TERMINAL.has(String(s || '').toLowerCase()),
     recordFor: (id) => records.get(String(id)) || null,
     runRowEl: (id) => doc.querySelector(`#run-tests li.test-row[data-record-id="${id}"]`),
     repaintRow: (li, r) => { repaints.push(String(r.id)); },
@@ -89,6 +85,9 @@ function load(opts = {}) {
   };
 
   const h = loadScreen('offline-queue', {
+    // index.html's own order: screens/run-lock.js stands ahead of this screen, and the drain asks
+    // it whether a run is closed. The REAL one — a stub here would be a second copy of that set.
+    before: ['run-lock'],
     exported: 'OfflineQueue',
     globals,
     document: doc,
