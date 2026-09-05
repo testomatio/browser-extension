@@ -298,7 +298,7 @@ async function onEvidenceToggle() {
 
 // ---- test-view "Evidence" section ----------------------------------------
 
-// Absent or null -> 60, clamp 10-600 — mirrors recorder.js evClampWindow behind the same
+// Absent or null -> 60, clamp 10-600 — mirrors buffer.js EvBuffer.clampWindow behind the same
 // `!= null` guard: settings not loaded yet, or a refused out-of-range value, is not a 0.
 function evWindowSeconds() {
   const raw = state.settings && state.settings.evidenceWindowSec;
