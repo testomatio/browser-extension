@@ -356,7 +356,7 @@ test('13c: a saved project the list does not carry is still named, by its slug',
   assert.equal(h.node.projectTrigger.dataset.projectId, 'p9');
 });
 
-test('14: pinned, the trigger says so in the tooltip and stays hoverable — aria-disabled, never disabled', () => {
+test('14 (#334): pinned, the trigger says so in the tooltip and stays hoverable — aria-disabled, never disabled', () => {
   const h = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true }, offer: null });
   h.fn.renderProjectBar();
   assert.equal(h.node.projectTrigger.getAttribute('aria-disabled'), 'true');
@@ -365,7 +365,7 @@ test('14: pinned, the trigger says so in the tooltip and stays hoverable — ari
     'Project chosen by the app that opened this browser — switch it there');
 });
 
-test('14b: an offer that is still live is not a pin at all — the bar stays the tester’s to use', () => {
+test('14b (#334): an offer that is still live is not a pin at all — the bar stays the tester’s to use', () => {
   // projectPinned() IS `!Handoff.offer()`, so a pinned bar is by definition one with no offer left to
   // read a name off: the tooltip's app name can only ever be the fallback wording. Pinned here.
   const h = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true }, offer: { app: 'Testeiya' } });
@@ -912,6 +912,16 @@ test('47: the switch happens in ONE order — configure, tear down, write, repai
   assert.deepEqual(h.calls.resets, [{ projectId: 'p2', writes: 0, removes: 0 }]);
   // The bar is repainted only once the write has landed, session drop and all.
   assert.deepEqual(h.calls.repaints, [{ writes: 1, removes: 1 }]);
+});
+
+// 47 pins the ORDER of the switch and 40 pins what persistActiveSettings writes when it is handed a
+// settings object. Neither says which object switchProject hands it — this does.
+test('47c: what the switch writes down is the project it switched TO, not the one it left', async () => {
+  const h = load({ activeTab: 'runs' });
+  await h.fn.switchProject('p2');
+  const written = plain(h.store.ops('local', 'set')[0].arg);
+  assert.equal(written.settings.projectId, 'p2', 'a reload must come back to Billing, not to the project left behind');
+  assert.equal(h.state.settings.projectId, 'p2', 'and memory and storage must not disagree');
 });
 
 test('47b: the counts are fired and NOT waited for — the switch is over before the chips fill in', async () => {
