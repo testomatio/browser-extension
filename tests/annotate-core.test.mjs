@@ -61,8 +61,6 @@ function styleObj() {
     cssText: '',
     props,
     setProperty: (k, v) => props.set(k, String(v)),
-    getPropertyValue: (k) => props.get(k) || '',
-    removeProperty: (k) => props.delete(k),
   };
 }
 
@@ -96,7 +94,6 @@ function attachCanvas(el, cfg, log) {
     return [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]];
   };
   el.__read = read;
-  el.__isCanvas = true;
 
   const state = { font: 'bold 10px x', strokeStyle: '#000000', fillStyle: '#000000' };
   const fontPx = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(state.font))?.[1] || 10);
@@ -152,11 +149,6 @@ function attachCanvas(el, cfg, log) {
       for (let i = 0; i <= w; i++) { put(x + i, y, c); put(x + i, y + h, c); }
       for (let j = 0; j <= h; j++) { put(x, y + j, c); put(x + w, y + j, c); }
     },
-    fillRect(x, y, w, h) {
-      sync();
-      const c = ink(state.fillStyle);
-      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, c);
-    },
     // Enough of a glyph run for a label to move pixels; the width matches measureText.
     fillText(t, x, y) {
       sync();
@@ -183,7 +175,7 @@ function attachCanvas(el, cfg, log) {
     has() { return true; },     // 'filter' in ctx — the feature test soften() runs
   });
 
-  el.getContext = (kind) => {
+  el.getContext = () => {
     if (cfg.softenThrows && el.__buffer) throw new TypeError('no 2d context');
     return ctx;
   };
@@ -292,7 +284,6 @@ function load(over = {}) {
 
   const canvas = () => doc.getElementById('annot-canvas');
   return {
-    Core,
     hooks: handle.hooks,
     destroy: handle.destroy,
     doc,
@@ -712,6 +703,7 @@ test('AC35: reopening a label and typing the same words costs the tester no undo
   h.hooks.editTextAt(102, 102);
 
   const input = h.textEl();
+  assert.equal(input.__selected, true, 'a retype opens on the whole label, so typing replaces it');
   input.value = 'hello';
   h.fire(input, 'keydown', { key: 'Enter' });
   assert.equal(h.ops()[0].text, 'hello');
@@ -809,4 +801,149 @@ test('AC43: a badge that reaches 10 and 100 shrinks its numeral instead of growi
   h.hooks.setTool('number');
   assert.deepEqual(h.log.sets('font').map((f) => /(\d+)px/.exec(f)[1]), ['11', '9', '8']);
   assert.deepEqual(h.ops().map((o) => o.r), [9, 9, 9], 'a run of steps stays one size');
+});
+
+// ====== 5. Redaction, the clipboard, boot and teardown (AC30-AC32, AC39, AC44-AC50) ======
+
+test('AC30: a blur dragged off the edge still hides the part of it that is on the picture', () => {
+  const h = load({ w: 200, h: 200 });
+  h.log.clear();
+  assert.doesNotThrow(() => h.hooks.add({ tool: 'pixelate', x1: -40, y1: 50, x2: 60, y2: 100 }));
+  assert.deepEqual(h.log.calls('getImageData'), [[0, 50, 60, 50]], 'clipped to the canvas');
+
+  assert.deepEqual(plain(h.hooks.pixelAt(2, 52)), plain(h.hooks.pixelAt(10, 60)), 'one flat block');
+  assert.notDeepEqual(plain(h.hooks.pixelAt(2, 52)), plain(h.hooks.pixelAt(14, 52)), 'the next block over');
+
+  const off = load({ w: 200, h: 200 });
+  off.log.clear();
+  assert.doesNotThrow(() => off.hooks.add({ tool: 'pixelate', x1: -100, y1: 50, x2: -50, y2: 100 }));
+  assert.deepEqual(off.log.calls('getImageData'), [], 'wholly off the picture: nothing to read back');
+});
+
+test('AC31: when the browser cannot soften the mosaic, the mosaic alone still hides the data', () => {
+  const h = load({ w: 200, h: 200, softenThrows: true });
+  assert.doesNotThrow(() => h.hooks.add({ tool: 'pixelate', x1: 50, y1: 50, x2: 150, y2: 150 }));
+
+  const block = plain(h.hooks.pixelAt(52, 52));
+  assert.deepEqual(plain(h.hooks.pixelAt(60, 60)), block, 'the block is one flat colour');
+  assert.notDeepEqual(block, basePixel(52, 52), 'and the pixel that was under it is gone');
+});
+
+test('AC32: exporting twice with a blur on the picture gives the same bytes both times', () => {
+  const h = load();
+  h.hooks.add({ tool: 'pixelate', x1: 100, y1: 100, x2: 200, y2: 200 });
+  const first = h.hooks.exportDataUrl();
+  const inside = plain(h.hooks.pixelAt(105, 105));
+
+  h.hooks.setTool('pen');   // a whole fresh frame, redrawn from the untouched capture
+  assert.equal(h.hooks.exportDataUrl(), first, 'the blur is never applied on top of itself');
+  assert.deepEqual(plain(h.hooks.pixelAt(105, 105)), inside);
+});
+
+test('AC39: Delete removes the selected mark, and the removal can be taken back', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  assert.equal(h.hooks.select(150, 150), 0);
+
+  h.key({ key: 'Delete' });
+  assert.deepEqual(h.ops(), []);
+  h.hooks.undo();
+  assert.equal(h.ops().length, 1);
+
+  assert.equal(h.hooks.select(150, 150), 0);
+  h.key({ key: 'Backspace' });
+  assert.deepEqual(h.ops(), [], 'Backspace is the same key on a laptop');
+});
+
+test('AC44: a bogus crop op handed to the add hook is stored but never drawn or grabbed', () => {
+  const h = load();
+  const before = h.hooks.exportDataUrl();
+  h.hooks.add({ tool: 'crop', x1: 10, y1: 10, x2: 100, y2: 100 });
+
+  assert.equal(h.ops().length, 1);
+  assert.equal(h.ops()[0].tool, 'crop');
+  assert.equal(h.hooks.select(50, 50), null, 'nothing there to grab');
+  assert.equal(h.hooks.exportDataUrl(), before, 'and nothing there to see');
+  assert.deepEqual(plain(h.hooks.crop()), { x: 0, y: 0, w: 800, h: 600 }, 'nor does it crop anything');
+});
+
+test('AC45: a refused clipboard says so and points at Download, and gives the selection back', async () => {
+  const copied = load();
+  await copied.hooks.copy();
+  assert.equal(copied.btn('annot-flash').textContent, 'Copied to the clipboard');
+
+  const refused = "The browser wouldn't let this page copy — use Download";
+  for (const cfg of [{ blob: null }, { clipboardRefuses: true }]) {
+    const h = load(cfg);
+    h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+    const clean = h.bytes();
+    assert.equal(h.hooks.select(150, 150), 0);
+
+    await h.hooks.copy();
+    assert.equal(h.btn('annot-flash').textContent, refused);
+    assert.equal(h.hooks.selected(), 0);
+    assert.notEqual(h.bytes(), clean, 'the marquee is back on the canvas');
+    assert.equal(h.clipboard.writes.length, cfg.blob === null ? 0 : 1);
+  }
+});
+
+test('AC46: a download the browser will not encode says so and leaves no anchor behind', () => {
+  const ok = load();
+  ok.hooks.download();
+  assert.equal(ok.btn('annot-flash').textContent, 'Saved to your downloads');
+  assert.deepEqual(ok.wrap().querySelectorAll('a'), [], 'the anchor is taken back out of the page');
+
+  const h = load({ exportThrows: true });
+  assert.doesNotThrow(() => h.hooks.download());
+  assert.equal(h.btn('annot-flash').textContent, 'Could not save the image');
+  assert.deepEqual(h.wrap().querySelectorAll('a'), []);
+});
+
+test('AC47: a capture that will not decode says so instead of showing an empty stage', () => {
+  const h = load({ dataUrl: BROKEN });
+  assert.equal(h.hooks.ready, false);
+  assert.equal(h.calls.ready, null);
+  assert.equal(h.mount.textContent, 'Could not load the captured image.');
+  assert.equal(h.mount.querySelector('.annot'), null, 'the toolbar is not left half-built');
+});
+
+test('AC48: closing the annotator takes its keyboard, its resize hook and its input away', () => {
+  const h = load();
+  h.hooks.help(true);
+  h.key({ key: 'Escape' });
+  assert.equal(h.btn('annot-help').hidden, true, 'the annotator is listening at this point');
+  openLabel(h, 100, 100, 'half typed');
+
+  h.destroy();
+  assert.equal(h.textEl(), null, 'the half-typed label input is off the page');
+  assert.equal(h.winListeners.filter((l) => l.t === 'resize').length, 0);
+
+  h.hooks.help(true);
+  h.key({ key: 'Escape' });
+  assert.equal(h.btn('annot-help').hidden, false, 'and it has stopped listening');
+  assert.deepEqual(h.calls.cancelled, []);
+});
+
+test('AC49: the tallest full-page shot the worker can produce opens and is annotatable', () => {
+  // background.js clamps a full-page capture to FULLPAGE_MAX_HEIGHT (16384) and says it clipped.
+  const h = load({ w: 120, h: 16384 });
+  assert.equal(h.hooks.ready, true);
+  assert.deepEqual(plain(h.hooks.natural()), { w: 120, h: 16384 });
+  assert.equal(h.mount.querySelector('.annot-msg'), null, 'no failure plaque');
+  assert.ok(h.hooks.exportDataUrl().startsWith('data:image/jpeg;base64,'));
+});
+
+test('AC50: the shortcut keys answer even with a page input focused — the annotator covers the page', () => {
+  const h = load();
+  const pageInput = h.doc.createElement('input');
+  h.doc.body.append(pageInput);
+  pageInput.focus();
+  assert.equal(h.doc.activeElement, pageInput);
+
+  h.key({ key: 'r' });
+  assert.equal(h.hooks.tool(), 'rect', 'the on-page host is fixed, inset 0, at the top z-index');
+  h.key({ key: '3' });
+  assert.equal(h.hooks.color(), '#eab308');
+  h.key({ key: ']' });
+  assert.equal(h.hooks.width(), 6);
 });
