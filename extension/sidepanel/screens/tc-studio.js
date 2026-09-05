@@ -1,7 +1,7 @@
 // TC Studio screen: the suite tree, the per-suite TC list, and the test-page
 // hand-off (read-only view for an existing test, editor for a new one).
 
-/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType */
+/* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving */
 
 // ---------- TC Studio: suite tree + TC list ----------
 // The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
@@ -146,6 +146,13 @@ function openRootSuiteInput(fileType) {
   });
 }
 
+// What the arrows walk in either tree. `[data-id]` is what leaves out the inline create row,
+// which is a `.tc-row` too but belongs to the field inside it, not to the keyboard.
+const TC_TREE_ROW_SELECTOR = '.tc-row[data-id]';
+
+// The TC list's own rows; its two empty states are <li>s without one.
+const TC_LIST_ROW_SELECTOR = 'li[data-id]';
+
 // `ctx.pick` switches the file row: studio opens its TC list, pick mode selects it
 // and calls ctx.onPick. Children are built once, shown/hidden by the expand set.
 function tcNode(node, ctx) {
@@ -156,6 +163,8 @@ function tcNode(node, ctx) {
   // column the open guide comes down (shared/components.css).
   row.className = 'list-row tc-row list-head tree-row';
   row.dataset.id = node.id;
+  // Both branches below end in a click listener, and Enter/Space run whichever it is.
+  Roving.item(row);
 
   if (node.file_type === 'folder') {
     row.classList.add('tc-folder', 'has-chevron');
@@ -333,7 +342,10 @@ function syncTcTreeSearchInput() {
   $('tc-tree-search-clear').hidden = state.tcTreeSearch.trim() === '';
 }
 
+// The picker's #promote-tree is built by the same tcNode, so it is wired here too — one call
+// covers both trees rather than the Tests tab getting a keyboard the picker does not have.
 function renderSuiteTreeInto(ul, roots, ctx) {
+  Roving.attach(ul, { selector: TC_TREE_ROW_SELECTOR });
   ul.replaceChildren();
   if (!roots.length) {
     if (ctx.searching) ul.append(tcTreeEmptySearch());
@@ -482,6 +494,7 @@ function tcListEmpty(searching) {
 
 function renderTcList() {
   const ul = $('tc-list');
+  Roving.attach(ul, { selector: TC_LIST_ROW_SELECTOR });
   ul.replaceChildren();
   const all = state.tcTests || [];
   const rows = all.filter(tcRowMatches);
@@ -503,7 +516,7 @@ function renderTcList() {
     li.append(head);
     li.addEventListener('click', () =>
       openEditor({ test: t.id, suiteId: state.tcSuiteId, suiteTitle: state.tcSuiteTitle }));
-    ul.append(li);
+    ul.append(Roving.item(li));
   }
   if (!rows.length) ul.append(tcListEmpty(all.length > 0));
   // The caption counts what is ON SCREEN, not what the suite holds — a search

@@ -844,6 +844,9 @@
   <script src="../shared/dropdown.js"></script>
   <!-- The tooltip engine only listens, so it can load before the screens that hand out data-tip. -->
   <script src="../shared/tooltip.js"></script>
+  <!-- The keyboard's way through a list of rows. No dependencies, but before every screen below:
+       they call Roving.item() as they build each row. -->
+  <script src="../shared/roving.js"></script>
   <!-- Which surface this document is in (#208). Before site-tab.js, which asks it whether the window
        it is looking at is the panel's own. -->
   <script src="../shared/view-mode.js"></script>

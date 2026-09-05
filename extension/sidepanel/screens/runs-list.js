@@ -1,7 +1,7 @@
 // Runs-list screen: dashboard/v2 runs plus rungroup folders, status-filter chips,
 // refresh, lazy nested loading, and run/group URL paste.
 
-/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType */
+/* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving */
 
 // ---------- runs list ----------
 
@@ -607,6 +607,10 @@ function clearRunsSearch() {
 // that draws the pills, so `env` stays one comparable string everywhere else.
 const envTags = (env) => String(env || '').split(',').map((s) => s.trim()).filter(Boolean);
 
+// What the arrows walk: every run row (top-level or inside a folder) and every folder head. The
+// Load more row and the empty states are buttons of their own and stay ordinary tab stops.
+const RUNS_ROW_SELECTOR = 'li[data-run-id], .group-head';
+
 function runRow(run, { child = false, showId = false } = {}) {
   const li = document.createElement('li');
   li.className = child ? 'group-child' : 'run';
@@ -651,7 +655,7 @@ function runRow(run, { child = false, showId = false } = {}) {
   li.append(head);
   // No status or kind on the second line — the glyph and the type mark say both (#111).
   li.addEventListener('click', () => openRunView(run.id, run.clean_title || run.title));
-  return li;
+  return Roving.item(li);
 }
 
 const isExpanded = (groupId) => state.expandedGroups.some((id) => String(id) === String(groupId));
@@ -678,7 +682,7 @@ function groupHead(group) {
     head.append(count);
   }
   // No status icon: a rungroup is not a run (owner call).
-  return head;
+  return Roving.item(head);
 }
 
 // Nesting needs no depth param — a subgroup <li> goes into its parent's children
@@ -695,6 +699,9 @@ function groupShell(group) {
   li.append(head);
   const kids = document.createElement('div');
   kids.className = 'group-children tree-children';
+  // The class alone hides them in CSS; `hidden` is what also takes a folded group's rows out of
+  // the arrow walk and out of a reader's way.
+  kids.hidden = !isExpanded(group.id);
   li.append(kids);
   head.addEventListener('click', () => toggleGroup(group.id, li));
   return { li, kids };
@@ -781,6 +788,8 @@ function toggleGroup(groupId, li) {
   const expanding = i === -1;
   if (expanding) { state.expandedGroups.push(groupId); li.classList.add('expanded'); }
   else { state.expandedGroups.splice(i, 1); li.classList.remove('expanded'); }
+  const kids = li.querySelector(':scope > .group-children');
+  if (kids) kids.hidden = !expanding;
   persistSession();
   if (expanding && state.listMode === 'dashboard' && !groupContentsLoaded(groupId)) {
     loadGroupContents(groupId);
@@ -839,6 +848,9 @@ function renderRuns(runs, groups = []) {
 // Order matters — the no-match state goes in BEFORE the load-more row, which is
 // a footnote to it ("only page 1 was searched"), not a sibling.
 function finishRunsRender(ul, { loaded, shown, constrained }) {
+  // Both renderers come through here, and the <ul> outlives every one of their replaceChildren()
+  // calls — so this wires the keyboard once and costs nothing on the renders after it.
+  Roving.attach(ul, { selector: RUNS_ROW_SELECTOR });
   if (!loaded) { renderRunsEmptyCta(ul); renderFilterChips(); return; }
   // #57: nothing loaded answered an id-shaped query — look the run up directly.
   const probeId = constrained && !shown ? runsSearchRunId() : null;

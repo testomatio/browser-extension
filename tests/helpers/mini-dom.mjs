@@ -13,7 +13,9 @@
 // tag insertion — `<table><tr>` nests as written. Entities decode on the way in and `& < >` re-encode
 // on the way out, so the round trip a sanitizer test reads is the one a browser shows.
 
-// Events do not bubble — fire() runs the listeners on the node it is handed. Pre-created ids:
+// Events do not bubble by default — fire() runs the listeners on the node it is handed. `bubbles:
+// true` opts into the real capture/target/bubble walk out to the document, which is what a listener
+// delegated to a list container needs; click() always sends one of those. Pre-created ids:
 // makeDocument(['ul#tc-tree']) appends one element per entry to <body>.
 
 // The node's own machinery: never copied by cloneNode, never read as an attribute. Layout, `style`
@@ -342,9 +344,29 @@ class MiniNode {
     if (i >= 0) list.splice(i, 1);
   }
 
-  // No bubbling: a screen's handler is asserted on the node it was registered on.
+  // A plain event reaches the node it was handed and no further, so a screen's handler is asserted
+  // on the node it was registered on. `bubbles: true` opts into the real three phases instead —
+  // capture down the ancestors, the target, then back up — which is what a delegated listener on a
+  // list container needs to see a keydown from the row that has focus.
   dispatchEvent(ev) {
-    for (const l of [...(this.listeners.get(ev.type) || [])]) l.fn.call(this, ev);
+    if (!ev.bubbles) {
+      for (const l of [...(this.listeners.get(ev.type) || [])]) l.fn.call(this, ev);
+      return !ev.defaultPrevented;
+    }
+    const path = pathOf(this);
+    const top = path[path.length - 1];
+    if (top && top.root && top.root.nodeType === 9) path.push(top.root); // …and on to the document
+    const run = (node, phase) => {
+      ev.currentTarget = node;
+      for (const l of [...(node.listeners.get(ev.type) || [])]) {
+        if (phase !== 'target' && l.capture !== (phase === 'capture')) continue;
+        l.fn.call(node, ev);
+      }
+    };
+    for (let i = path.length - 1; i > 0 && !ev.propagationStopped; i -= 1) run(path[i], 'capture');
+    if (!ev.propagationStopped) run(path[0], 'target');
+    for (let i = 1; i < path.length && !ev.propagationStopped; i += 1) run(path[i], 'bubble');
+    ev.currentTarget = null;
     return !ev.defaultPrevented;
   }
 }
@@ -516,6 +538,10 @@ class MiniElement extends MiniParent {
     if (mode === 'open') this.shadowRoot = root;
     return root;
   }
+
+  // The synthetic click a keyboard handler fires in place of the tester's mouse: a real bubbling
+  // click event, so the row's own listener runs and nothing has to be duplicated for the keyboard.
+  click() { this.dispatchEvent(event(this, 'click', { bubbles: true })); }
 
   // Pointer capture is a nicety its caller is expected to survive losing, so this only records it.
   setPointerCapture(id) { this.pointerCapture = id; }

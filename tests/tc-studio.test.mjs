@@ -15,6 +15,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
+import { loadInto } from './helpers/shared-harness.mjs';
+
+// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
+// keyboard rows below are worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
 const BASE = 'https://app.testomat.io';
 
@@ -25,6 +30,10 @@ function deferred() {
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 }
+
+// A keypress from the row that has focus, which bubbles to the <ul> the helper is delegated on —
+// the same trip a real one makes.
+const key = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
 const folder = (id, title, children = [], extra = {}) =>
   ({ id, title, file_type: 'folder', children, ...extra });
@@ -184,6 +193,7 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    Roving: roving(),
     capabilities: { readonly: o.readonly },
     // Node installs it on the main context only, exactly as the harness documents for `URL`. Without
     // it openEditor throws instead of building its query, and every hand-off row fails for that.
@@ -309,6 +319,8 @@ function load(opts = {}) {
       })
       .map((r) => r.dataset.id),
     rowFor: (id) => node.tree.querySelector(`[data-id="${id}"]`),
+    // Every tree row's tabindex in document order — the shape the roving model is about.
+    treeTabs: () => node.tree.querySelectorAll('.tc-row[data-id]').map((r) => r.getAttribute('tabindex')),
     // What the TC list shows, empty state excluded.
     listRows: () => node.list.children.filter((li) => li.dataset.id != null),
     listTitles: () => node.list.children.filter((li) => li.dataset.id != null).map((li) => li.textContent),
@@ -1150,17 +1162,72 @@ test('39c: opening a suite wears the mark the tree gave it, and drops it when th
   assert.equal(h.state.tcSuiteEmoji, null);
 });
 
-test.todo('81 (#109): a suite row and a test row are reachable from the keyboard', () => {
-  const h = load({ suites: [folder('f1', 'Checkout')], tests: [{ id: 't1', title: 'Login' }] });
+// One roving tab stop per list, not one per row: Tab enters the tree once, the arrows walk it, and
+// Enter opens the row under them. The helper's own contract is tests/roving.test.mjs.
+test('81 (#109): a suite row and a test row are reachable from the keyboard', () => {
+  const h = load({
+    suites: [folder('f1', 'Checkout', [file('s1', 'Guest')]), file('s2', 'Payments')],
+    tests: [{ id: 't1', title: 'Login' }],
+  });
   h.fn.renderSuiteTree(h.state.tcSuites);
   h.fn.renderTcList();
+
   const treeRow = h.rowFor('f1');
+  assert.equal(treeRow.getAttribute('role'), 'button', 'a reader is told the row is actionable');
   assert.equal(treeRow.getAttribute('tabindex'), '0');
-  assert.equal(treeRow.getAttribute('role'), 'button');
-  assert.equal(fire(treeRow, 'keydown', { key: 'Enter' }).defaultPrevented, true);
+
+  // Down moves to the next row and takes the tab stop with it — the folded 'Guest' is stepped over.
+  assert.equal(key(treeRow, 'ArrowDown').defaultPrevented, true);
+  assert.equal(h.doc.activeElement, h.rowFor('s2'));
+  assert.deepEqual(h.treeTabs(), ['-1', '-1', '0'], 'exactly one row is a tab stop');
+
+  // Enter on the folder does what clicking it does: it opens.
+  assert.equal(key(treeRow, 'Enter').defaultPrevented, true);
+  assert.equal(treeRow.className.includes('expanded'), true);
+  assert.deepEqual(h.shownIds(), ['f1', 's1', 's2']);
+
+  // The TC list is a list of its own, with its own single tab stop.
   const listRow = h.listRows()[0];
+  assert.equal(listRow.getAttribute('role'), 'button');
   assert.equal(listRow.getAttribute('tabindex'), '0');
-  assert.equal(fire(listRow, 'keydown', { key: 'Enter' }).defaultPrevented, true);
+  assert.equal(key(listRow, ' ').defaultPrevented, true, 'Space opens, and does not scroll');
+  assert.equal(h.win.location.href, '../editor/editor.html?ctx=panel&test=t1');
+
+  // …and Enter on a file row opens its list, exactly as the click listener would.
+  key(h.rowFor('s2'), 'Enter');
+  assert.deepEqual(h.calls.shows, ['tclist']);
+});
+
+test('81b (#109): the suite PICKER is the same tree, so it gets the same keyboard', () => {
+  const h = load();
+  const picked = [];
+  h.fn.renderSuiteTreeInto(h.node.promote, [file('s1', 'Checkout'), file('s2', 'Payments')], {
+    pick: true,
+    onPick: (n) => picked.push(n.id),
+  });
+  const rows = h.node.promote.querySelectorAll('.tc-row');
+  assert.deepEqual(rows.map((r) => r.getAttribute('role')), ['button', 'button']);
+
+  key(rows[0], 'ArrowDown');
+  assert.equal(h.doc.activeElement, rows[1]);
+  key(rows[1], 'Enter');
+  assert.deepEqual(picked, ['s2']);
+});
+
+test('81c (#109): the inline create field keeps every key typed into it, tree or no tree', () => {
+  const h = load({ suites: [folder('f1', 'Checkout')] });
+  h.fn.renderSuiteTree(h.state.tcSuites);
+  h.fn.openRootSuiteInput('file');
+  const input = h.newInput();
+
+  // Space and the arrows are text and caret movement here — not "open the row under me".
+  assert.equal(fire(input, 'keydown', { key: ' ', bubbles: true }).defaultPrevented, false);
+  assert.equal(fire(input, 'keydown', { key: 'ArrowDown', bubbles: true }).defaultPrevented, false);
+  assert.equal(h.calls.shows.length, 0);
+  // The create row is a `.tc-row` too, but it is not a stop the arrows may land on.
+  assert.equal(h.newRow().querySelector('.tc-row').getAttribute('role'), null);
+  key(h.rowFor('f1'), 'ArrowUp');
+  assert.equal(h.doc.activeElement, h.rowFor('f1'));
 });
 
 // ---------- the two search fields, and what a reset is allowed to touch (rows 4d-30c) ----------
