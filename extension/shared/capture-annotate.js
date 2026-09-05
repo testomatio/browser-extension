@@ -55,8 +55,9 @@ const CaptureAnnotate = (() => {
       });
       await chrome.scripting.executeScript({
         target: { tabId: targetTabId },
-        // icons.js first — annotate-core.js draws its toolbar from that set.
-        files: ['shared/icons.js', 'shared/tooltip.js', 'shared/annotate-core.js', 'overlay/annotate-overlay.js'],
+        // icons.js first — annotate-core.js draws its toolbar from that set; annot-geometry.js
+        // before it too, since the core reads two of its constants as it evaluates.
+        files: ['shared/icons.js', 'shared/tooltip.js', 'shared/annot-geometry.js', 'shared/annotate-core.js', 'overlay/annotate-overlay.js'],
       });
       return true;
     } catch { /* restricted page → fallback */ return false; }
