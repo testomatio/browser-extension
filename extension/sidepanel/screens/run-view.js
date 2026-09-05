@@ -2,7 +2,7 @@
 // sections, finish-run, and the run session probe.
 
 /* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons, UserCell,
-   progressToast, Fmt, CommentDrafts, WriteCore, byRecordId, Roving, StatusIcons */
+   progressToast, Fmt, CommentDrafts, WriteCore, byRecordId, Roving, StatusIcons, ConfirmDialog */
 
 // ---------- run view ----------
 
@@ -296,28 +296,6 @@ function updateRunActions() {
     : '');
 }
 
-// Resolves true on confirm, false on cancel/Esc/backdrop; listeners torn down on close.
-function confirmDialog(message, confirmLabel = 'Finish run') {
-  const dlg = $('confirm-dialog');
-  $('confirm-message').textContent = message;
-  $('confirm-ok').textContent = confirmLabel;
-  dlg.showModal();
-  return new Promise((resolve) => {
-    const done = (val) => {
-      $('confirm-ok').removeEventListener('click', onOk);
-      $('confirm-cancel').removeEventListener('click', onCancel);
-      dlg.removeEventListener('cancel', onCancel);
-      if (dlg.open) dlg.close();
-      resolve(val);
-    };
-    const onOk = () => done(true);
-    const onCancel = () => done(false);
-    $('confirm-ok').addEventListener('click', onOk);
-    $('confirm-cancel').addEventListener('click', onCancel);
-    dlg.addEventListener('cancel', onCancel); // Esc / backdrop
-  });
-}
-
 // Finish while writes are pending: step writes ride stepWriteChain, a save flips state.saving.
 async function settlePendingWrites() {
   await Promise.resolve(stepWriteChain).catch(() => {});
@@ -342,7 +320,7 @@ async function finishRun() {
   await awaitRunState();
   let blocked = finishBlockedReason();
   if (blocked) { applyRunLock({ force: true }); toast(blocked); return; }
-  const ok = await confirmDialog('Finish run? Pending tests will be marked skipped.');
+  const ok = await ConfirmDialog.ask('Finish run? Pending tests will be marked skipped.');
   if (!ok) return; // dismissed = no-op
   blocked = finishBlockedReason();
   if (blocked) { applyRunLock({ force: true }); toast(blocked); return; }

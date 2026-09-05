@@ -1,6 +1,7 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
-/* global TestomatAPI, Handoff, Tooltip, EmptyState, Theme, ViewMode, askForProject, progressToast */
+/* global TestomatAPI, Handoff, Tooltip, EmptyState, Theme, ViewMode, askForProject, progressToast,
+   ConfirmDialog */
 
 // ---------- settings ----------
 
@@ -482,7 +483,7 @@ async function forgetInstance(opts = {}) {
     setStatusLine(statusId, `Nothing saved for ${host}`, 'error');
     return;
   }
-  const ok = await confirmDialog(
+  const ok = await ConfirmDialog.ask(
     `${verb} ${host}? Its saved token, project and preferences are deleted from this browser`
     + (active ? ', together with its restored session, any queued results still waiting to be sent, '
       + 'and this session\'s recorded steps, captured log and unsaved drafts — a running recording '
@@ -558,7 +559,7 @@ async function wipeEvidenceRecording() {
 }
 
 async function signOut() {
-  const ok = await confirmDialog(
+  const ok = await ConfirmDialog.ask(
     'Sign out? Every saved token, instance, history entry, queued result, session, unsaved '
     + 'test draft, recorded step and captured log is deleted from this '
     + 'browser. A running recording is stopped for you. Site access stays — it is Chrome\'s own '
