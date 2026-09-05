@@ -18,6 +18,8 @@
 // and 81a left the same way with the confirm dialog, to tests/dialog.test.mjs. Rows 7-13, 49-50,
 // 52, 66-71, 78-80a, 118 and 131 left with the write gate, to tests/run-lock.test.mjs; what stays
 // here is what that gate PAINTS over real checklist rows, and it drives the real module to do it.
+// Rows 14-28b and 89-96a left last, with the Run info card, to tests/run-info.test.mjs — the real
+// module is loaded here too, because opening a run renders that card (row 57).
 // Run: node --test tests/run-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -418,26 +420,27 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
-    // index.html's own order: core/status-icons.js, core/dialog.js and screens/run-lock.js all
-    // stand ahead of this screen, which draws its glyphs, asks its confirm and paints its lock
-    // through them. The REAL ones — the rows below are about what the lock does to a row a stub
-    // would never have built, and finishRun's answer comes from that same real dialog (#194).
-    before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC], 'run-lock'],
+    // index.html's own order: core/status-icons.js, core/dialog.js, screens/run-lock.js and
+    // screens/run-info.js all stand ahead of this screen, which draws its glyphs, asks its
+    // confirm, paints its lock and renders its card through them. The REAL ones — the rows below
+    // are about what those do to a screen a stub would never have built (#194).
+    before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC], 'run-lock', 'run-info'],
     // Every name below is a lexical `const` — invisible as a sandbox property, reachable only off
     // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
     exported: `({ statusLabel,
       matchesRunFilter, exampleOf, rowVisible, suiteKeyOf, suiteEmojiOf, orderedRecords,
       visibleRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
-      NO_SUITE, PROBE_WAIT_MS, StatusIcons, RunLock,
+      NO_SUITE, PROBE_WAIT_MS, StatusIcons, RunLock, RunInfo,
       RUN_STATE_TINT, ROW_BTN_LABEL })`,
   });
 
   return {
     ...h,
     lex: h.screen,
-    // The real screens/run-lock.js, loaded above: a lexical const, so it comes back off the
-    // completion value like every other name — never as a property of the sandbox.
+    // The real screens/run-lock.js and screens/run-info.js, loaded above: lexical consts, so they
+    // come back off the completion value like every other name — never sandbox properties.
     lock: h.screen.RunLock,
+    info: h.screen.RunInfo,
     state, calls, on, node, doc, clock,
     // The held sleeps, so a row can let the 2000 ms probe timeout win the race on purpose.
     releaseSleeps: () => { for (const d of held.splice(0)) d.resolve(); },
@@ -458,19 +461,7 @@ function load(opts = {}) {
     widths: () => node.runProgress.querySelectorAll('.progress > div').map((d) => d.style.width),
     chipLabels: () => node.runFilter.querySelectorAll('.filter-chip').map((c) => c.dataset.filter),
     chipCounts: () => node.runFilter.querySelectorAll('.filter-chip .counter').map((c) => c.textContent),
-    // The Run info card as a plain [label, text] list — the order is half of what these rows assert.
-    infoRows: () => {
-      const out = [];
-      const kids = node.runInfoBody.children;
-      for (let i = 0; i < kids.length; i += 2) out.push([kids[i].textContent, kids[i + 1].textContent]);
-      return out;
-    },
     infoLabels: () => node.runInfoBody.querySelectorAll('dt').map((dt) => dt.textContent),
-    infoValue: (label) => {
-      const kids = node.runInfoBody.children;
-      for (let i = 0; i < kids.length; i += 2) if (kids[i].textContent === label) return kids[i + 1];
-      return null;
-    },
   };
 }
 
@@ -746,302 +737,6 @@ test('88a: the test view reuses the same counts line, into its own band', () => 
   assert.deepEqual(h.node.testProgress.querySelectorAll('.counts-part').map((p) => p.textContent), ['1 passed']);
 });
 
-
-// ---------- the Run info model (rows 14-21, 89-90) ----------
-
-test('14: the v2 detail is kept verbatim — the authoritative count, and only plans that NAME one', () => {
-  const h = load();
-  const info = plain(h.fn.runInfoFromDetail({
-    total_tests: 12, tests_count: 9, env: 'chrome, firefox',
-    plans: [{ title: 'P' }, 77], description: '  hi  ',
-  }));
-  assert.deepEqual(info, {
-    status: null, testsCount: 12, createdAt: null, description: 'hi',
-    envs: ['chrome', 'firefox'], plans: ['P'],
-  });
-});
-
-test('14a: a payload that says nothing about people leaves those keys OFF, never null', () => {
-  const h = load();
-  const bare = plain(h.fn.runInfoFromDetail({ tests_count: 3, status: 'running', created_at: 'x' }));
-  assert.deepEqual(Object.keys(bare).sort(), ['createdAt', 'description', 'status', 'testsCount']);
-  // Named, and the three land — so the absence above is a decision, not an empty payload path.
-  const full = plain(h.fn.runInfoFromDetail({
-    tests_count: 3, executed_by: 'ann@x.io', author: 'Bo', assigned_to: 'cy@x.io',
-  }));
-  assert.deepEqual(full.executedBy, { name: '', email: 'ann@x.io' });
-  assert.deepEqual(full.createdBy, { name: 'Bo', email: '' });
-  assert.deepEqual(full.assignees, [{ name: '', email: 'cy@x.io' }]);
-});
-
-test('15: env arrives as a list on one route and a comma string on another — both come back a list', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.envList(['x', null, '  '])), ['x']);
-  assert.deepEqual(plain(h.fn.envList('a, b ,')), ['a', 'b']);
-  assert.deepEqual(plain(h.fn.envList(null)), []);
-  assert.deepEqual(plain(h.fn.envList('')), []);
-});
-
-test('15a: a plan is whatever names it; a bare id contributes nothing rather than "4831"', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.planList([' Smoke ', { clean_title: 'Reg' }, { name: 'N' }, 4831, null])),
-    ['Smoke', 'Reg', 'N']);
-  assert.deepEqual(plain(h.fn.planList({ title: 'One' })), ['One'], 'a lone plan is not a list yet');
-  assert.deepEqual(plain(h.fn.planList(null)), []);
-});
-
-test('16: the id list and the mode setting are not people, and neither is the word `none`', () => {
-  const h = load();
-  const out = plain(h.fn.flatPeople({
-    assignee_ids: [3, 7], assign_mode: 'none', assigned_to: 'Ольга', assignees: ['none', 'bob@x.io'],
-  }, /assign/));
-  assert.deepEqual(out, [{ name: 'Ольга', email: '' }, { name: '', email: 'bob@x.io' }]);
-});
-
-test('16a: a key the pattern does not name is skipped whatever it holds', () => {
-  const h = load();
-  assert.deepEqual(plain(h.fn.flatPeople({ owner: 'Ann' }, /assign/)), []);
-  assert.deepEqual(plain(h.fn.flatPeople({ owner: 'Ann' }, /owner/)), [{ name: 'Ann', email: '' }]);
-  assert.deepEqual(plain(h.fn.flatPeople(null, /assign/)), []);
-});
-
-test('17: a stamp is printed in the viewer\'s PROFILE zone, in the web\'s own wording', () => {
-  const h = load();
-  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'UTC'), 'Sep 3, 2026 2:05 PM');
-  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'America/New_York'), 'Sep 3, 2026 10:05 AM');
-});
-
-test('18: a zone the profile made up falls back to the machine\'s, rather than throwing the row away', () => {
-  const h = load();
-  // The machine zone is pinned to Asia/Tokyo at the top of this file, so the fallback is legible.
-  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', 'Not/AZone'), 'Sep 3, 2026 11:05 PM');
-  assert.equal(h.fn.formatTimeIn('2026-09-03T14:05:00Z', null), 'Sep 3, 2026 11:05 PM');
-});
-
-test('19: an unparseable stamp is no row at all, and neither is a missing one', () => {
-  const h = load();
-  assert.equal(h.fn.formatTimeIn('not a date', 'UTC'), null);
-  assert.equal(h.fn.runInfoTime(null), null);
-  assert.equal(h.fn.runInfoTime(''), null);
-  assert.equal(h.fn.runInfoTime('not a date'), null);
-});
-
-test('19a: a stamp that DOES parse carries the raw ISO beside the printed text', () => {
-  const h = load({ timezone: 'UTC' });
-  const span = h.fn.runInfoTime('2026-09-03T14:05:00Z');
-  assert.equal(span.className, 'run-info-time');
-  assert.equal(span.textContent, 'Sep 3, 2026 2:05 PM');
-  assert.equal(span.dataset.time, '2026-09-03T14:05:00Z', 'zone- and locale-free');
-  assert.equal(span.dataset.tip, '2026-09-03T14:05:00Z');
-});
-
-test('20: a CI build URL is http(s) or it is not a link — the regression lock on the scheme', () => {
-  const h = load();
-  for (const url of ['javascript:alert(1)', 'data:text/html,x', '//evil', 'ftp://x/y', '', null, 5]) {
-    assert.equal(h.fn.ciBuildLink(url), null, String(url));
-  }
-});
-
-test('21: a padded https URL is trimmed, opened in a new tab and never printed as the label', () => {
-  const h = load();
-  const a = h.fn.ciBuildLink('  https://ci.example/build/9  ');
-  assert.equal(a.href, 'https://ci.example/build/9');
-  assert.equal(a.target, '_blank');
-  assert.equal(a.rel, 'noopener noreferrer');
-  assert.equal(a.dataset.tip, 'https://ci.example/build/9', 'the raw URL is the tooltip');
-  assert.ok(a.textContent.startsWith('Open CI build'), a.textContent);
-  assert.equal(a.querySelector('.link-out-icon').dataset.icon, 'open_in_new');
-  assert.equal(a.textContent.includes('ci.example'), false, 'and never the label');
-});
-
-test('89: a tag list is pills with the whole string on each tooltip; an empty list is no row', () => {
-  const h = load();
-  assert.equal(h.fn.runInfoTags([]), null);
-  const box = h.fn.runInfoTags(['chrome', 'a-very-long-environment-name']);
-  assert.equal(box.className, 'env-tags');
-  assert.deepEqual(box.children.map((p) => p.className), ['badge env', 'badge env']);
-  assert.deepEqual(box.children.map((p) => p.dataset.tip), ['chrome', 'a-very-long-environment-name']);
-});
-
-test('90: the status cell normalises the colour key but prints the word the server sent', () => {
-  const h = load();
-  const span = h.fn.runInfoStatus('launching');
-  assert.equal(span.dataset.status, 'running');
-  assert.equal(span.textContent, 'launching');
-});
-
-// ---------- the Run info rows (rows 22-28, 91-96) ----------
-
-// state.runInfo is what runInfoRows reads; everything below states it directly.
-const withInfo = (info, over = {}) => load({ runInfo: info, timezone: 'UTC', ...over });
-const labelled = (h) => Object.fromEntries(h.fn.runInfoRows()
-  .map(([label, value]) => [label, typeof value === 'string' ? value : value.textContent]));
-
-test('22: the card prints the SERVER\'s total, not the number of rows loaded into the panel', () => {
-  const h = withInfo({ testsCount: 180 }, { records: Array.from({ length: 50 }, (_, i) => rec(i + 1)) });
-  assert.equal(labelled(h).Tests, '180');
-  // …and never below the checklist: a run created moments ago has rows the count has not caught up to.
-  h.state.runInfo = { testsCount: 0 };
-  assert.equal(labelled(h).Tests, '50');
-});
-
-test('23: duration arrives in SECONDS and is handed to humanDuration in milliseconds', () => {
-  const h = withInfo({ duration: 90 });
-  assert.equal(labelled(h).Duration, '1m 30s');
-  assert.deepEqual(h.calls.durations, [90000]);
-});
-
-test('24: a run still going has no duration to print', () => {
-  const h = withInfo({ duration: 0 });
-  assert.equal('Duration' in labelled(h), false);
-  assert.deepEqual(h.calls.durations, []);
-});
-
-test('25: a finished run shows the executed span, and no separate Started row beside it', () => {
-  const h = withInfo({ launchedAt: '2026-09-03T14:05:00Z', finishedAt: '2026-09-03T14:35:00Z' });
-  const rows = labelled(h);
-  assert.equal(rows.Executed, 'Sep 3, 2026 2:05 PM→Sep 3, 2026 2:35 PM');
-  assert.equal('Started' in rows, false);
-  // A live run has only the start, which is the row the span replaced.
-  h.state.runInfo = { launchedAt: '2026-09-03T14:05:00Z' };
-  const live = labelled(h);
-  assert.equal(live.Started, 'Sep 3, 2026 2:05 PM');
-  assert.equal('Executed' in live, false);
-});
-
-test('26: "Created by <person>, <date>" is ONE row — the date does not repeat itself below', () => {
-  const h = withInfo({ createdBy: { name: 'Ann', email: 'ann@x.io' }, createdAt: '2026-09-03T14:05:00Z' });
-  const rows = labelled(h);
-  assert.equal(rows['Created by'], 'AnnSep 3, 2026 2:05 PM');
-  assert.equal('Created' in rows, false);
-  // Nobody named → the date alone, under its own label.
-  h.state.runInfo = { createdAt: '2026-09-03T14:05:00Z' };
-  const anon = labelled(h);
-  assert.equal(anon.Created, 'Sep 3, 2026 2:05 PM');
-  assert.equal('Created by' in anon, false);
-});
-
-test('27: a description is server data, printed as text — no element comes out of it', () => {
-  const h = withInfo({ description: '<script>alert(1)</script>' });
-  h.fn.renderRunInfo();
-  const dd = h.infoValue('Description');
-  assert.equal(dd.querySelectorAll('script').length, 0);
-  assert.equal(dd.textContent, '<script>alert(1)</script>');
-  assert.ok(dd.classList.contains('run-info-desc'));
-  assert.ok(dd.querySelector('.run-info-desc-text').classList.contains('is-clamped'));
-});
-
-test('28: one person named twice is one cell — the key is the ADDRESS, whatever its case', () => {
-  const h = withInfo({ assignees: ['Bob@X.io'] }, { records: [rec(1, { assigned_to: { name: 'Bob', email: 'bob@x.io' } })] });
-  const box = h.fn.runInfoAssignees();
-  assert.deepEqual(box.children.map((c) => c.textContent), ['Bob']);
-  assert.equal(box.children[0].dataset.email, 'Bob@X.io', 'the first spelling seen is the one kept');
-});
-
-test('28a: the ticket\'s "one by email, one by name" is TWO cells — the key is not a human', () => {
-  // Following the code, not row 28's wording: `(u.email || u.name).toLowerCase()` cannot know that
-  // 'Bob' and 'bob@x.io' are the same tester, and the comment above it says "keyed by address".
-  const h = withInfo({ assignees: ['Bob'] }, { records: [rec(1, { assigned_to: 'bob@x.io' })] });
-  assert.deepEqual(h.fn.runInfoAssignees().children.map((c) => c.textContent), ['Bob', 'bob']);
-});
-
-test('28b: nobody assigned anywhere is no row at all', () => {
-  const h = withInfo({}, { records: [rec(1)] });
-  assert.equal(h.fn.runInfoAssignees(), null);
-  assert.equal('Assigned to' in labelled(h), false);
-});
-
-test('91: a person named only by address is resolved through the project members for their name', () => {
-  const h = withInfo({ executedBy: 'ann@x.io' }, { members: { 'ann@x.io': { name: 'Ann Lee', email: 'ann@x.io' } } });
-  assert.equal(labelled(h)['Executed by'], 'Ann Lee');
-  // What the PAYLOAD said wins over the members map.
-  h.state.runInfo = { executedBy: { name: 'A. Lee', email: 'ann@x.io' } };
-  assert.equal(labelled(h)['Executed by'], 'A. Lee');
-  // Nobody in the map and no name: the address's local part, the way the assignee chip falls back.
-  const bare = withInfo({ executedBy: 'zoe@x.io' });
-  assert.equal(labelled(bare)['Executed by'], 'zoe');
-  assert.equal(bare.fn.runInfoUser(null), null);
-});
-
-test('92: the card\'s rows come out in the web\'s own order', () => {
-  const h = withInfo({
-    status: 'passed', duration: 90, testsCount: 4, envs: ['chrome'], plans: ['Smoke'],
-    launchedAt: '2026-09-03T14:05:00Z', finishedAt: '2026-09-03T14:35:00Z',
-    executedBy: 'ann@x.io', assignees: ['bo@x.io'], ciBuildUrl: 'https://ci.example/9',
-    createdBy: 'Cy', createdAt: '2026-09-01T10:00:00Z', description: 'why',
-  });
-  // Spread first: the array comes out of the vm realm with its own prototype, which deepEqual reads.
-  assert.deepEqual([...h.fn.runInfoRows()].map(([label]) => label), [
-    'Status', 'Duration', 'Tests', 'Environment', 'Test plan', 'Executed',
-    'Executed by', 'Assigned to', 'Build URL', 'Created by', 'Description',
-  ]);
-});
-
-test('96: a description too tall for its clamp grows a Show more, and the button says which way', () => {
-  const h = withInfo({ description: 'a very long session report' });
-  h.fn.renderRunInfo();
-  const text = h.node.runInfoBody.querySelector('.run-info-desc-text');
-  assert.equal(h.node.runInfoBody.querySelector('.run-info-desc-more'), null, 'it fits, so no button');
-  text.scrollHeight = 400; // what a browser would measure for a report that overflows its clamp
-  text.clientHeight = 60;
-  h.fn.paintRunInfo();
-  const more = h.node.runInfoBody.querySelector('.run-info-desc-more');
-  assert.equal(more.textContent, 'Show more');
-  assert.equal(more.getAttribute('aria-expanded'), 'false');
-  fire(more, 'click');
-  assert.equal(more.textContent, 'Show less');
-  assert.equal(more.getAttribute('aria-expanded'), 'true');
-  assert.equal(text.classList.contains('is-clamped'), false);
-  fire(more, 'click');
-  assert.equal(more.textContent, 'Show more');
-  assert.ok(text.classList.contains('is-clamped'));
-  // A second measure does not stack a second button on top of the first.
-  h.fn.paintRunInfo();
-  assert.equal(h.node.runInfoBody.querySelectorAll('.run-info-desc-more').length, 1);
-});
-
-test('96a: a closed card measures nothing — a hidden body has no layout to read', () => {
-  const h = withInfo({ description: 'x' });
-  h.fn.renderRunInfo();
-  h.fn.toggleRunInfo(); // closed
-  const text = h.node.runInfoBody.querySelector('.run-info-desc-text');
-  text.scrollHeight = 400;
-  text.clientHeight = 60;
-  h.fn.paintRunInfo();
-  assert.equal(h.node.runInfoBody.querySelector('.run-info-desc-more'), null);
-});
-
-test('93: a run whose meta never loaded gets no empty card — the section hides itself', () => {
-  const h = withInfo({});
-  h.fn.renderRunInfo();
-  assert.equal(h.node.runInfo.hidden, true);
-  assert.deepEqual(h.infoRows(), []);
-  // One field is enough to bring it back, so the hide is about content and not about the call.
-  h.state.runInfo = { status: 'running' };
-  h.fn.renderRunInfo();
-  assert.equal(h.node.runInfo.hidden, false);
-  assert.deepEqual(h.infoLabels(), ['Status']);
-});
-
-test('94: the disclosure remembers the tester\'s choice, and says so to a reader', () => {
-  const h = withInfo({ status: 'running' });
-  h.fn.renderRunInfo();
-  assert.equal(h.node.runInfoHead.getAttribute('aria-expanded'), 'true');
-  assert.equal(h.node.runInfoBody.hidden, false);
-  h.fn.toggleRunInfo();
-  assert.equal(h.node.runInfoHead.getAttribute('aria-expanded'), 'false');
-  assert.equal(h.node.runInfoBody.hidden, true);
-  assert.equal(h.calls.persists, 1, 'and the choice outlives this panel');
-  h.fn.toggleRunInfo();
-  assert.equal(h.node.runInfoBody.hidden, false);
-  assert.equal(h.calls.persists, 2);
-});
-
-test('95: a page without the card is not an error — the test view shares this file', () => {
-  const h = withInfo({ status: 'running' }, { without: ['run-info', 'run-info-body', 'run-info-head'] });
-  assert.doesNotThrow(() => h.fn.renderRunInfo());
-  assert.doesNotThrow(() => h.fn.paintRunInfo());
-});
 
 // ---------- selection, search and suites (rows 29-36, 97-106) ----------
 
@@ -1659,6 +1354,23 @@ test('57: opening a DIFFERENT run resets the filter, the search and the suite pr
   assert.equal(h.node.runSearch.value, '');
   assert.equal(h.node.runInfo.hidden, true, 'and the previous run\'s card is gone');
   assert.equal(h.state.currentRecordId, null);
+});
+
+test('136 (#194): opening a run fills the card through the real module, and empties it again', async () => {
+  const h = load({ runId: 'r0', records: [rec(1)] });
+  h.on.getRun = async () => ({ id: 'r2', status: 'running', total_tests: 4, description: 'why' });
+  h.on.listTestruns = async () => [rec(1)];
+  await h.fn.openRunView('r2');
+  // renderRunView -> RunInfo.render(): a stubbed module could not have produced these labels.
+  assert.deepEqual(h.infoLabels(), ['Status', 'Tests', 'Description']);
+  assert.equal(h.node.runInfo.hidden, false);
+  // …and the next run says nothing and holds nothing, so the card empties rather than keeping the
+  // last one's rows (a Tests row counts the checklist too, whatever the payload said).
+  h.on.getRun = async () => ({});
+  h.on.listTestruns = async () => [];
+  await h.fn.openRunView('r3');
+  assert.deepEqual(h.infoLabels(), []);
+  assert.equal(h.node.runInfo.hidden, true);
 });
 
 test('58: a run the tester left mid-flight is dropped before its records are written', async () => {

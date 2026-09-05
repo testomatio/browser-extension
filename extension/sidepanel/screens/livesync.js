@@ -3,7 +3,7 @@
 
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
-   refreshRunInfo, refreshRunFinished, renderRunInfo, refreshSuiteFraction, renderRunView,
+   refreshRunInfo, refreshRunFinished, RunInfo, refreshSuiteFraction, renderRunView,
    renderTestProgress, RunLock, TestMeta, recordFor, byRecordId, toast, OfflineQueue,
    $, setStatusLine */
 
@@ -102,7 +102,7 @@ async function syncTick() {
     if (await refreshRunInfo(runId)) {
       if (epoch !== syncEpoch || state.runId !== runId) return;
       paintRunProgress();
-      if (state.view === 'run') renderRunInfo();
+      if (state.view === 'run') RunInfo.render();
     }
     // Basic mode has no such read, so it re-reads the v2 run detail instead — the
     // one signal a token-only panel has that the run was finished elsewhere.

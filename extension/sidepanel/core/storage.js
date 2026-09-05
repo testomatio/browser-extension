@@ -51,7 +51,8 @@ function persistSession() {
       stepTicks: state.stepTicks,
       expandedGroups: state.expandedGroups,
       runsFilter: state.runsFilter,
-      runInfoOpen, // the Run info disclosure (#112), open unless the user shut it
+      // The KEY stays `runInfoOpen`: a rename would silently lose every existing profile's choice.
+      runInfoOpen: RunInfo.open, // the Run info disclosure (#112), open unless the user shut it
     },
   });
 }

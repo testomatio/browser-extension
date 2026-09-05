@@ -903,6 +903,9 @@
   <!-- The write gate every result write asks. Ahead of run-view.js, which paints its note, and of
        the eight screens after it; core/write-status.js asks it late-bound, as it always has. -->
   <script src="screens/run-lock.js"></script>
+  <!-- The Run info card. Ahead of run-view.js, which renders it, and of livesync.js and app.js;
+       core/storage.js loads EARLIER and reaches forward for RunInfo.open, as it always has. -->
+  <script src="screens/run-info.js"></script>
   <script src="screens/run-view.js"></script>
   <!-- The unsent comment box, reached by the run open, the project switch and app init too. -->
   <script src="screens/test-drafts.js"></script>

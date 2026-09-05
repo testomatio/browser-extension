@@ -215,12 +215,25 @@ test('#155-16: closing the Run info panel is remembered as closed', async () => 
   assert.equal(sets(h)[0].arg.session.runInfoOpen, false);
 });
 
-test('#155-17: without the Run info flag in the page the save throws instead of saving', () => {
-  const h = live(loadStorage({ withRunInfoOpen: false }));
+test('#155-17: without screens/run-info.js in the page the save throws instead of saving', () => {
+  const h = live(loadStorage({ withRunInfo: false }));
   assert.throws(() => h.fn.persistSession(), (e) => e.name === 'ReferenceError');
-  // The same call with the flag present goes through — the throw is the missing global, not the fixture.
+  // The same call with the module present goes through — the throw is the missing global, not the fixture.
   const ok = live(loadStorage());
   assert.doesNotThrow(() => ok.fn.persistSession());
+});
+
+test('#194-17a: the saved key is spelled `runInfoOpen`, off the module\'s own accessor', async () => {
+  const h = live(loadStorage());
+  // Not the harness's copy of the default: the module is the shipped one, opened by nobody yet.
+  assert.equal(h.RunInfo.open, true);
+  h.RunInfo.open = false;
+  h.fn.persistSession();
+  await settle();
+  const session = sets(h)[0].arg.session;
+  assert.ok('runInfoOpen' in session, 'a renamed key loses every existing profile\'s choice');
+  assert.equal(session.runInfoOpen, false);
+  assert.equal('open' in session, false, 'the module\'s name for it is not the storage key');
 });
 
 // The five guards app.js:147-152 reads the saved session back through, copied here because loading
