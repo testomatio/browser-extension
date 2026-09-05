@@ -145,6 +145,8 @@ test('151: the button opens and closes the menu, and the open menu takes the doc
   assert.deepEqual(m.docListeners('click'), [true]);
   fire(m.btn, 'click');
   assert.equal(m.open(), false);
+  assert.equal(m.btn.getAttribute('aria-expanded'), 'false');
+  assert.equal(m.menu.getAttribute('aria-activedescendant'), null); // the closed list names nothing
   assert.deepEqual(m.docListeners('keydown'), []);
   assert.deepEqual(m.docListeners('click'), []);
 });
@@ -167,6 +169,8 @@ test('151: Escape closes the menu and puts the caret back on the button', () => 
   const ev = fire(m.document, 'keydown', { key: 'Escape' });
   assert.equal(m.open(), false);
   assert.equal(m.btn.getAttribute('aria-expanded'), 'false');
+  // Cleared with the list, not left naming an option inside a hidden one (#109).
+  assert.equal(m.menu.getAttribute('aria-activedescendant'), null);
   assert.equal(m.btn.getAttribute('aria-activedescendant'), null);
   assert.equal(m.document.activeElement, m.btn);
   // Stopped as well as prevented: Escape belongs to the menu, not to the editor behind it.
@@ -208,7 +212,10 @@ test('151: the highlight is the aria state too, on exactly one option', () => {
   fire(m.document, 'keydown', { key: 'ArrowDown' });
   const on = m.menu.querySelectorAll('li').filter((li) => li.getAttribute('aria-selected') === 'true');
   assert.deepEqual(on.map((li) => li.dataset.priority), ['high']);
-  assert.equal(m.btn.getAttribute('aria-activedescendant'), 'tc-priority-opt-high');
+  // The name follows the highlight, on the listbox that holds focus (#109).
+  assert.equal(m.menu.getAttribute('aria-activedescendant'), 'tc-priority-opt-high');
+  fire(m.document, 'keydown', { key: 'ArrowUp' });
+  assert.equal(m.menu.getAttribute('aria-activedescendant'), 'tc-priority-opt-normal');
 });
 
 test('151: Enter and Space commit whatever the arrows highlighted', () => {
@@ -220,29 +227,39 @@ test('151: Enter and Space commit whatever the arrows highlighted', () => {
     assert.equal(m.ctl.getPriority(), 'high', key);
     assert.equal(m.open(), false, key);
     assert.equal(ev.defaultPrevented, true, key);
+    assert.equal(m.menu.getAttribute('aria-activedescendant'), null, key); // cleared on the pick too
+    assert.equal(m.document.activeElement, m.btn, key); // and the caret comes back out of the list
     assert.deepEqual(m.changes, [1], key);
   }
 });
 
-// Case 148 — the widget's ARIA, D P2-14. `aria-activedescendant` sits on a
-// <button aria-haspopup="listbox">, which does not support it, and nothing points the button at the
-// list it owns, so a screen reader never hears which option is highlighted. Today's shape first:
-test('148: the aria the control ships today, unsupported combination and all', () => {
+// Case 148 — the widget's ARIA, D P2-14. `aria-activedescendant` only says anything on the element
+// that HOLDS focus and owns the option it names, so opening hands the caret to the listbox itself:
+test('148: opening hands the caret to the listbox, which names the highlighted option', () => {
   const m = mount();
   assert.equal(m.btn.tagName, 'BUTTON');
   assert.equal(m.btn.getAttribute('aria-haspopup'), 'listbox');
   assert.equal(m.menu.getAttribute('role'), 'listbox');
+  // Focusable, but never a Tab stop of its own — the button is the control in the tab order.
+  assert.equal(m.menu.getAttribute('tabindex'), '-1');
+  // Its own name: the button's is its current VALUE, so the list would otherwise be an unnamed one.
+  assert.equal(m.menu.getAttribute('aria-label'), 'Priority');
   fire(m.btn, 'click');
-  // Set on the button — where it has no meaning — rather than on a focused listbox.
-  assert.equal(m.btn.getAttribute('aria-activedescendant'), 'tc-priority-opt-normal');
-  assert.equal(m.btn.getAttribute('aria-controls'), null);
+  assert.equal(m.document.activeElement, m.menu);
+  assert.equal(m.menu.getAttribute('aria-activedescendant'), 'tc-priority-opt-normal');
+  // Not on the button, where a screen reader would have nothing to do with it.
+  assert.equal(m.btn.getAttribute('aria-activedescendant'), null);
 });
 
-test.todo('148 (#109): the highlighted option is announced — the listbox is owned and focusable', () => {
+test('148 (#109): the highlighted option is announced — the listbox is owned and focusable', () => {
   const m = mount();
-  fire(m.btn, 'click');
   // aria-controls (or aria-owns) is what ties the button to #tc-priority-menu, and
   // aria-activedescendant belongs on whatever then holds focus — not on a plain button.
+  assert.equal(m.btn.getAttribute('aria-controls'), 'tc-priority-menu'); // stated closed as well
+  fire(m.btn, 'click');
   assert.equal(m.btn.getAttribute('aria-controls'), 'tc-priority-menu');
   assert.equal(m.btn.getAttribute('aria-activedescendant'), null);
+  // The button's own state stays with the button: it is what is announced collapsed.
+  assert.equal(m.btn.getAttribute('aria-expanded'), 'true');
+  assert.equal(m.menu.getAttribute('aria-expanded'), null);
 });

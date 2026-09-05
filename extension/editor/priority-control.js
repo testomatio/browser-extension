@@ -21,7 +21,12 @@ const PriorityControl = (() => {
     menu.id = 'tc-priority-menu';
     menu.className = 'menu tc-priority-menu';
     menu.setAttribute('role', 'listbox');
+    // The open list takes the caret — focusable, never in the tab order — so it is the element that
+    // can name an option in aria-activedescendant, and the button says which list it opens.
+    menu.setAttribute('tabindex', '-1');
+    menu.setAttribute('aria-label', 'Priority');
     menu.hidden = true;
+    btn.setAttribute('aria-controls', menu.id);
 
     const opts = new Map();
     for (const p of PriorityIcons.ORDER) {
@@ -50,7 +55,7 @@ const PriorityControl = (() => {
         li.classList.toggle('active', pp === p);
         li.setAttribute('aria-selected', pp === p ? 'true' : 'false');
       }
-      btn.setAttribute('aria-activedescendant', opts.get(p).id);
+      menu.setAttribute('aria-activedescendant', opts.get(p).id);
     }
 
     function onDocClick(e) { if (!wrap.contains(e.target)) closeMenu(); }
@@ -76,6 +81,7 @@ const PriorityControl = (() => {
       menu.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
       setActive(current);
+      menu.focus(); // named its active option first, so the move announces the highlight with it
       document.addEventListener('click', onDocClick, true);
       document.addEventListener('keydown', onDocKey, true);
     }
@@ -83,7 +89,7 @@ const PriorityControl = (() => {
       if (menu.hidden) return;
       menu.hidden = true;
       btn.setAttribute('aria-expanded', 'false');
-      btn.removeAttribute('aria-activedescendant');
+      menu.removeAttribute('aria-activedescendant');
       document.removeEventListener('click', onDocClick, true);
       document.removeEventListener('keydown', onDocKey, true);
       if (focus) btn.focus();
