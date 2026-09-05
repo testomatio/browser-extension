@@ -46,10 +46,12 @@ function evLabel(e) {
   return e.kind === 'log' ? `log.${e.level}` : `console.${e.level}`;
 }
 
-// source:line:col — the col only an uncaught row carries.
-function evLoc(e) {
+// source:line:col — the col only an uncaught row carries. `trim` is the CALLER's policy
+// (envTrimUrl where the text is uploaded, nothing on screen); the line and col never change.
+function evLoc(e, trim) {
   if (!e.url) return '';
-  return `${e.url}${e.line ? `:${e.line}${e.col ? `:${e.col}` : ''}` : ''}`;
+  const url = trim ? trim(e.url) : e.url;
+  return `${url}${e.line ? `:${e.line}${e.col ? `:${e.col}` : ''}` : ''}`;
 }
 
 // Stands in for a body the recorder deliberately did not read (#95 toggle OFF).
@@ -72,12 +74,15 @@ function evInlineCode(text) {
   return `${ticks}${pad}${s}${pad}${ticks}`;
 }
 
+// Goes into the tester's comment, which is UPLOADED with the result — so the address is
+// trimmed here, exactly as the .txt trims its own (PRIVACY.md); the on-screen row keeps it whole.
 function evEntrySnippet(e) {
   const t = evTime(e.ts);
   if (e.kind === 'network') {
+    const url = envTrimUrl(e.url);
     const inner = e.errorText
-      ? `${evNetStatus(e)} ${e.method} ${e.url} ${e.errorText} ${t}`
-      : `${evNetStatus(e)} ${e.method} ${e.url} ${t}`;
+      ? `${evNetStatus(e)} ${e.method} ${url} ${e.errorText} ${t}`
+      : `${evNetStatus(e)} ${e.method} ${url} ${t}`;
     let out = `> ${evInlineCode(`[${inner}]`)}`;
     if (e.bodySnippet) out += `\n\n${evFence(e.bodySnippet + (e.bodyTruncated ? '\n… (truncated)' : ''))}`;
     return out;
@@ -126,8 +131,8 @@ function evBuildTxt(runTitle, testTitle, entries, status) {
   lines.push(`== Console (${cons.length}) ==`);
   if (!cons.length) lines.push('(none)');
   for (const e of cons) {
-    const loc = evLoc(e) ? ` (${evLoc(e)})` : '';
-    lines.push(`[${evTime(e.ts)}] ${evLabel(e)}: ${evOneLine(e.text, 500)}${loc}`);
+    const at = evLoc(e, envTrimUrl);
+    lines.push(`[${evTime(e.ts)}] ${evLabel(e)}: ${evOneLine(e.text, 500)}${at ? ` (${at})` : ''}`);
   }
   lines.push('');
   lines.push(`== Network (${nets.length}) ==`);
@@ -411,7 +416,8 @@ async function onEvidenceToggle() {
     // browser" bar and DevTools may stay open.
     toast(r.status.recording ? `Recording ${r.status.tabTitle || 'tab'}` : 'Recording stopped');
   } catch (e) {
-    toast(`Recorder error: ${e.message}`);
+    // A throw is a refusal too — same slot as `Recording stopped`, so it needs the same flag.
+    toast(`Recorder error: ${e.message}`, { error: true });
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -597,6 +603,8 @@ function evDetails(e) {
   } else {
     field('Level', evLabel(e));
     field('At', evTime(e.ts));
+    // WHOLE, unlike the .txt and the comment: nothing here leaves the browser, and the tester
+    // needs the real address of their own page to find the error.
     field('Location', evLoc(e));
     box.append(dl);
     const pre = document.createElement('pre');

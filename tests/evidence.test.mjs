@@ -271,6 +271,19 @@ test('5: the location is source:line:col, and each part is dropped once it is mi
   assert.equal(h.fn.evLoc({ url: 'a.js', line: 5, col: 7 }), 'a.js:5:7');
 });
 
+test('5b (#292): the location trims only for the caller that hands it a policy, and only the URL', () => {
+  const h = load();
+  const at = { url: `${SITE}/reset?token=abc123`, line: 42, col: 7 };
+  // The two uploading callers pass envTrimUrl. The line and column are not an address: they stay.
+  assert.equal(h.fn.evLoc(at, envTrimUrl), `${SITE}/reset (query trimmed):42:7`);
+  // No policy handed in — the on-screen call — and the address comes back exactly as the page wrote it.
+  assert.equal(h.fn.evLoc(at), `${SITE}/reset?token=abc123:42:7`);
+  // A bare filename is not a URL at all: envTrimUrl hands it straight back, so row 5 holds either way.
+  assert.equal(h.fn.evLoc({ url: 'a.js', line: 5, col: 7 }, envTrimUrl), 'a.js:5:7');
+  assert.equal(h.fn.evLoc({ url: 'a.js' }, envTrimUrl), 'a.js');
+  assert.equal(h.fn.evLoc({}, envTrimUrl), ''); // nothing to trim is still nothing to print
+});
+
 // ---------- the escaping that keeps a recorded page out of the comment (rows 6-8) ----------
 
 test('6: a backtick written by the page cannot close the span it is quoted in', () => {
@@ -320,6 +333,28 @@ test('10: a console row is one quoted line, and a novel of a message is cut to 2
   assert.ok(long.endsWith('…`'), long.slice(-20));
   assert.equal(long, `> \`[console.error ${AT}] ${'x'.repeat(199)}…\``);
   assert.equal(long.split('\n').length, 1);
+});
+
+test('10b (#292): the snippet Attach writes trims the request URL — the comment is uploaded too', () => {
+  const h = load();
+  // Was the full address, in a comment that goes to the server with the result.
+  assert.equal(
+    h.fn.evEntrySnippet(net({ url: `${SITE}/pay?token=abc123&card=4111` })),
+    `> \`[500 GET ${SITE}/pay (query trimmed) ${AT}]\``,
+  );
+  // The transport-failure form quotes the same trimmed address, not a second raw one beside it.
+  assert.equal(
+    h.fn.evEntrySnippet(net({ url: `${SITE}/pay?token=abc123`, status: undefined, errorText: 'net::ERR_FAILED' })),
+    `> \`[ERR GET ${SITE}/pay (query trimmed) net::ERR_FAILED ${AT}]\``,
+  );
+  // A URL with nothing to cut is quoted whole, with no marker hung on it — row 9 still holds.
+  assert.equal(h.fn.evEntrySnippet(net({ url: `${SITE}/pay` })), `> \`[500 GET ${SITE}/pay ${AT}]\``);
+  // The console branch quotes the message and the label ONLY: it carries no address to leak, whatever
+  // the entry knows about its source. #292 read it as a second leak; it never was one.
+  assert.equal(
+    h.fn.evEntrySnippet(con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })),
+    `> \`[console.error ${AT}] boom\``,
+  );
 });
 
 test('11: a body the recorder cut is marked as cut, wherever it goes', () => {
@@ -433,6 +468,22 @@ test('17 (#266): the uploaded .txt trims a request URL to its path, as PRIVACY.m
   assert.ok(clean.includes(`URL: ${SITE}/cart\n`), clean);
   assert.ok(clean.includes(`500 GET ${SITE}/pay\n`), clean);
   assert.ok(!clean.includes('query trimmed'), clean);
+});
+
+test('17b (#292): the uploaded .txt trims a CONSOLE row\'s source as well, and keeps its line:col', () => {
+  const h = load();
+  const txt = h.fn.evBuildTxt('R', 'T', [con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })],
+    { windowSec: 60 });
+  // Was the whole address — in the one file whose own header promises every address in it is trimmed.
+  assert.ok(!txt.includes('token=abc123'), txt);
+  assert.ok(txt.includes(`[${AT}] console.error: boom (${SITE}/reset (query trimmed):42:7)`), txt);
+  // What the tester needs to FIND the line survives the cut: the line and column are still there.
+  const clean = h.fn.evBuildTxt('R', 'T', [con({ url: 'a.js', line: 5 })], { windowSec: 60 });
+  assert.ok(clean.includes(`[${AT}] console.error: boom (a.js:5)`), clean);
+  assert.ok(!clean.includes('query trimmed'), clean); // a bundle filename is not a URL to trim
+  // A row with no source at all still ends after its message, with no empty bracket hung on it.
+  assert.ok(h.fn.evBuildTxt('R', 'T', [con()], { windowSec: 60 })
+    .includes(`[${AT}] console.error: boom\n`), 'no source, no parenthesis');
 });
 
 // ---------- what the hover card says (rows 18-22) ----------
@@ -795,9 +846,27 @@ test('39c (#265): an unanswered START says "Recorder: unavailable", like an unan
 test('39b: a throw inside the flow is a sentence, and the button is released all the same', async () => {
   const h = load({ resolveSiteTab: async () => { throw new Error('tabs query failed'); } });
   await h.fn.onEvidenceToggle();
-  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder error: tabs query failed' }]);
+  assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder error: tabs query failed', error: true }]);
   assert.equal(h.node.evidenceToggle.disabled, false);
   assert.deepEqual(h.types(), []);
+});
+
+test('39d (#291): a throw is toasted as an error too — the last exit #267 did not reach', async () => {
+  // A worker that answers `ok` with no status: the confirmation one line below reads
+  // r.status.recording and throws. A second real way into this catch, next to 39b's.
+  const h = load({ reply: () => ({ ok: true }) });
+  await h.fn.onEvidenceToggle();
+  await settle();
+  // Was the plain confirmation style, in the very slot `Recording stopped` uses — so the failure read
+  // as "done", and a reader's screen reader queued it as a status instead of interrupting.
+  assert.equal(h.calls.toasts.length, 1);
+  assert.equal(h.calls.toasts[0].error, true);
+  assert.ok(h.calls.toasts[0].msg.startsWith('Recorder error: '), h.calls.toasts[0].msg);
+  assert.equal(h.node.evidenceToggle.disabled, false); // …and the button still comes back
+  // All four exits of the handler now agree, and only a success stays a plain confirmation.
+  const ok = load({ reply: () => ({ ok: true, status: RECORDING }) });
+  await ok.fn.onEvidenceToggle();
+  assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
 });
 
 // ---------- starting by itself, and the 2 s poll (rows 40-48) ----------
@@ -1117,6 +1186,33 @@ test('52: a folded section costs nothing to repaint — the count still moves', 
   h.fn.renderEvidenceList();
   assert.equal(h.rows().length, 2);
   assert.equal(h.rows()[0].className, 'evidence-row ev-con');
+});
+
+// The dt/dd pairs of an expanded row, read back by their own label.
+const detailsOf = (box) => {
+  const dt = box.querySelectorAll('dt').map((n) => n.textContent);
+  const dd = box.querySelectorAll('dd').map((n) => n.textContent);
+  return Object.fromEntries(dt.map((k, i) => [k, dd[i]]));
+};
+
+test('52b (#292): the expanded row on SCREEN keeps the address whole — that is what finds the bug', () => {
+  const h = load();
+  // DELIBERATE, not the leak #292 left behind: this card never leaves the browser, and a tester
+  // looking at their own page needs the address that reopens it, query string and all.
+  const con1 = detailsOf(h.fn.evDetails(con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })));
+  assert.equal(con1.Location, `${SITE}/reset?token=abc123:42:7`);
+  const net1 = detailsOf(h.fn.evDetails(net({ url: `${SITE}/pay?token=abc123&card=4111` })));
+  assert.equal(net1.URL, `${SITE}/pay?token=abc123&card=4111`);
+  // …and the row the LIST paints is that same untrimmed one, not a second rendering.
+  h.evUi.recording = true;
+  h.evUi.sectionOpen = true;
+  h.evUi.errors = [con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })];
+  h.fn.renderEvidenceList();
+  assert.equal(detailsOf(h.rows()[0].querySelector('.ev-details')).Location,
+    `${SITE}/reset?token=abc123:42:7`);
+  // The one-line row text is on screen too, and keeps the query for the same reason.
+  assert.equal(h.fn.evRowText(net({ url: `${SITE}/pay?token=abc123` })),
+    `500 GET ${SITE}/pay?token=abc123 · ${AT}`);
 });
 
 // ---------- attaching one row to the comment (rows 53-54) ----------
