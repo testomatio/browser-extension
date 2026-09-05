@@ -1380,6 +1380,30 @@ test('58 (#267): a log that could not attach is toasted as an error, not as a co
   assert.deepEqual(attached.calls.toasts, [{ msg: ATTACHED }]);
 });
 
+// #107: the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here. This
+// window cannot be parked with the entry — up to 1000 entries carrying a 16KB body each, against
+// storage.local's 10MB — so the two rows below are why the replay path skips this function outright.
+test('59 (#107): the log is the recorder\'s window NOW, whatever the record it is handed carries', async () => {
+  const atFailTime = [con({ text: 'the error the tester saw' })];
+  const rightNow = [con({ text: 'an unrelated page open at replay time' })];
+  const h = load({ reply: (m) => {
+    if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
+    if (m.type === 'EVIDENCE_SNAPSHOT') return { ok: true, entries: rightNow, status: { windowSec: 60 } };
+    return { ok: true, status: { recording: false } };
+  } });
+  await h.fn.uploadEvidenceLog({ id: '900', test_title: 'T', queuedAt: NOW - 3_600_000, entries: atFailTime });
+  const txt = h.calls.uploads[0].blob.text;
+  assert.ok(txt.includes('an unrelated page open at replay time'), txt);
+  assert.ok(!txt.includes('the error the tester saw'), txt);
+});
+
+test('59b (#107): and hours later the recorder is usually stopped, so a replay would attach nothing', async () => {
+  const idle = load({ reply: () => ({ ok: true, status: { recording: false } }) });
+  assert.equal(await idle.fn.uploadEvidenceLog({ id: '900', test_title: 'T' }), '');
+  assert.deepEqual(idle.calls.uploads, []);
+  assert.deepEqual(idle.calls.toasts, []); // silent: the missing key is not a failure to report here
+});
+
 // ---------- wiring, messaging and the card (rows 60-64) ----------
 
 test('60: in the chain the dot keeps pulsing, so a "stopped" toast would contradict the screen', () => {
@@ -1532,17 +1556,3 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
 // megabyte-long bodySnippet and the whole of it lands in the tester's comment.
 // 23 (#264) was one of these and is fixed — it reads as a rule up with the settings gates now.
 
-// 59 (#107): the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here, and
-// a queue entry carries no snapshot. What gets uploaded is the recorder's buffer at REPLAY time —
-// whatever page the tester happens to be on now — filed under the result of a test failed hours ago.
-test.todo('59 (#107): a replayed FAIL attaches the log captured when it was marked, not the one now', async () => {
-  const atFailTime = [con({ text: 'the error the tester saw' })];
-  const rightNow = [con({ text: 'an unrelated page open at replay time' })];
-  const h = load({ reply: (m) => {
-    if (m.type === 'EVIDENCE_STATUS') return { ok: true, status: { recording: true } };
-    if (m.type === 'EVIDENCE_SNAPSHOT') return { ok: true, entries: rightNow, status: { windowSec: 60 } };
-    return { ok: true, status: { recording: false } };
-  } });
-  await h.fn.uploadEvidenceLog({ id: '900', test_title: 'T', queuedAt: NOW - 3_600_000, entries: atFailTime });
-  assert.ok(h.calls.uploads[0].blob.text.includes('the error the tester saw'), h.calls.uploads[0].blob.text);
-});

@@ -16,16 +16,19 @@
 const WriteCore = (() => {
   // Runs AFTER the status write (#116): the meta keys hang off an id a not-yet-graded
   // row only gets in that response, and nothing here may endanger a saved status.
-  async function writeEnvMeta(record, status) {
+  async function writeEnvMeta(record, status, opts = {}) {
     if (!record?.id) return;
     // #152/#154: a locked result skips both. Scoped to the OPEN run (recordFor) — an
     // offline-queue replay into another, still-live run must keep writing its meta.
     const open = recordFor(record.id);
     if (open && typeof recordWriteLock === 'function' && recordWriteLock(open)) return;
     if (TestomatAPI.jwtAvailable() === false) return;
-    const entries = await collectEnvMeta(state.settings);
-    // The two toggles are independent: env-info OFF still lets the log key through.
-    if (status === 'failed') {
+    // A replay writes the environment SNAPSHOTTED at enqueue: collecting now describes the tab open
+    // now. An entry from an older build carries none, and says nothing rather than something wrong.
+    const entries = opts.replay ? [...(opts.envMeta || [])] : await collectEnvMeta(state.settings);
+    // The two toggles are independent: env-info OFF still lets the log key through. The recorder's
+    // window is not parked with the entry, so a replay attaches no log.
+    if (status === 'failed' && !opts.replay) {
       const url = await uploadEvidenceLog(record);
       if (url) entries.push(['Console & network log', url]);
     }
@@ -62,8 +65,12 @@ const WriteCore = (() => {
             && typeof OfflineQueue !== 'undefined' && OfflineQueue.qualifies(e)) {
           // `reason` is the queued entry's WORDING, nothing else: what queues is unchanged (#106).
           const reason = e.kind === 'auth' ? 'auth' : 'network';
+          // The environment as it is NOW, so a replay hours from here describes the test and not
+          // the drain. Local (tab + navigator) and caught: nothing may cost the tester the result.
+          let envMeta = [];
+          try { envMeta = await collectEnvMeta(state.settings); } catch { /* park it without */ }
           await OfflineQueue.enqueue({
-            recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now(), reason,
+            recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now(), reason, envMeta,
           });
           return { queued: true, reason };
         }
@@ -81,7 +88,7 @@ const WriteCore = (() => {
         // here would drop a newer click that landed mid-drain.
         try { if (await OfflineQueue.remove(record.id)) OfflineQueue.refreshUI(); } catch { /* the status is saved */ }
       }
-      await writeEnvMeta(record, status); // #116 — after the id exists, never fatal
+      await writeEnvMeta(record, status, opts); // #116 — after the id exists, never fatal
       return saved;
     } finally {
       syncEndWrite();

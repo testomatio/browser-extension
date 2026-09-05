@@ -35,7 +35,7 @@ Two areas, both belonging to the extension inside your local Chrome profile.
 | The instance URL and the selected project | To know where to read and write |
 | Your Settings preferences | Log window length, the environment-info and body-capture toggles, the step-recorder switch |
 | A short history of instances you have connected to | To offer them again |
-| The **offline queue** — test statuses and their comments that could not be sent | So a click is not lost when the network drops; replayed when it returns |
+| The **offline queue** — test statuses, their comments, and the environment info collected with them, that could not be sent | So a click is not lost when the network drops; replayed when it returns, with the environment it was marked in rather than the one at sync time. The console & network log is never parked here |
 | Onboarding progress, colour scheme, panel/window preference | Interface state |
 
 **`chrome.storage.session` — cleared when Chrome restarts:**

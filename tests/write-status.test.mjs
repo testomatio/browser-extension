@@ -169,6 +169,7 @@ test('79: a network failure queues the click, keeps the optimistic status and sa
   assert.deepEqual(plain(res), { queued: true, reason: 'network' });
   assert.deepEqual(h.calls.enqueued, [{
     recordId: 7, runId: 'r1', status: 'passed', comment: 'note', queuedAt: 1700000000000, reason: 'network',
+    envMeta: [], // the environment as it was, snapshotted here — rows 87-87d are about it
   }]);
   assert.equal(h.state.records[0].status, 'passed'); // no rollback
   assert.deepEqual(h.calls.toasts, []);
@@ -311,6 +312,69 @@ test('86b: …and the log alone is still worth a request when env-info is off', 
   assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['Console & network log', 'https://files.test/log.txt']] }]);
 });
 
-// #107: an offline replay is written from whatever tab is open NOW, so the environment and the
-// console log attached to it are not the ones the tester recorded the result in.
-test.todo('87: a replayed failure should not attach the CURRENT tab\'s environment (#107)');
+// #107: an offline replay used to be written from whatever tab was open NOW, so the environment and
+// the console log attached to it described the drain and not the test. The environment is
+// snapshotted at enqueue and handed back through `opts`; the log is not parked at all (the ring
+// buffer outgrows storage.local), so the replay attaches none.
+
+test('87 (#107): a replay writes the environment PARKED with the entry, not the tab open now', async () => {
+  const h = load();
+  h.on.collectEnvMeta = async () => [['URL', 'https://unrelated.test/inbox']]; // where the tester is now
+  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  await h.fn.writeEnvMeta({ id: 42 }, 'failed', {
+    replay: true, envMeta: [['URL', 'https://shop.test/cart'], ['Viewport', '1280×720']],
+  });
+  assert.deepEqual(h.calls.envMeta, []); // nothing was collected at all
+  assert.deepEqual(h.calls.logUploads, []); // …and no log went with it
+  assert.deepEqual(h.calls.meta, [{
+    id: 42, entries: [['URL', 'https://shop.test/cart'], ['Viewport', '1280×720']],
+  }]);
+});
+
+test('87b (#107): the snapshot is taken at ENQUEUE, off the tab the tester marked the result in', async () => {
+  const h = load();
+  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
+  h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
+  const res = await h.fn.writeStatus(h.state.records[0], 'failed', 'card declined', null);
+  assert.deepEqual(plain(res), { queued: true, reason: 'network' });
+  assert.deepEqual(h.calls.envMeta, [{ baseUrl: 'https://app.testomat.io' }]); // collected once, here
+  assert.deepEqual(h.calls.enqueued[0].envMeta, [['URL', 'https://shop.test/cart']]);
+  // The log is NOT parked with it: the recorder's window can outgrow storage.local and take the
+  // queue down with it, and a result the tester already marked is worth more than the evidence.
+  assert.deepEqual(h.calls.logUploads, []);
+});
+
+test('87c (#107): an entry from an older build has no snapshot, so it writes no meta at all', async () => {
+  const h = load();
+  h.on.collectEnvMeta = async () => [['URL', 'https://unrelated.test/inbox']];
+  await h.fn.writeEnvMeta({ id: 42 }, 'failed', { replay: true }); // no envMeta key on it
+  assert.deepEqual(h.calls.envMeta, []);
+  assert.deepEqual(h.calls.meta, []); // wrong evidence is worse than none
+  // env-info switched OFF at enqueue parks an empty list, and lands in the same place.
+  await h.fn.writeEnvMeta({ id: 42 }, 'failed', { replay: true, envMeta: [] });
+  assert.deepEqual(h.calls.meta, []);
+});
+
+test('87d (#107): the NORMAL write is untouched — it still collects fresh and still uploads its log', async () => {
+  const h = load();
+  h.on.collectEnvMeta = async () => [['URL', 'https://shop.test/cart']];
+  h.on.uploadEvidenceLog = async () => 'https://files.test/log.txt';
+  await h.fn.writeStatus(h.state.records[0], 'failed', 'card declined', null);
+  await settle();
+  assert.deepEqual(h.calls.envMeta, [{ baseUrl: 'https://app.testomat.io' }]);
+  assert.deepEqual(h.calls.logUploads, [7]);
+  assert.deepEqual(h.calls.meta, [{
+    id: 7,
+    entries: [['URL', 'https://shop.test/cart'], ['Console & network log', 'https://files.test/log.txt']],
+  }]);
+});
+
+test('87e (#107): a snapshot that throws still parks the result — the click outranks the evidence', async () => {
+  const h = load();
+  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
+  h.on.collectEnvMeta = async () => { throw new Error('the tab went away mid-read'); };
+  const res = await h.fn.writeStatus(h.state.records[0], 'failed', 'card declined', null);
+  assert.deepEqual(plain(res), { queued: true, reason: 'network' });
+  assert.deepEqual(h.calls.enqueued[0].envMeta, []);
+  assert.equal(h.state.records[0].status, 'failed'); // still no rollback
+});
