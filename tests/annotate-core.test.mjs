@@ -631,3 +631,182 @@ test.todo('AC19 (#317): restyling floods the undo history — ten taps should st
   h.hooks.undo();
   assert.equal(h.ops()[0].width, 3, 'one undo should take the tester back past the restyling');
 });
+
+// ========== 4. Labels, badges and the ink they carry (AC12, AC20-AC21, AC33-AC43) ==========
+
+// Pick the Text tool and click the picture: that is the only way the input opens.
+function openLabel(h, x, y, value) {
+  h.hooks.setTool('text');
+  h.fire(h.canvas(), 'pointerdown', { clientX: x, clientY: y, pointerId: 1 });
+  const input = h.textEl();
+  assert.ok(input, 'the click should have opened a text input');
+  input.value = value;
+  return input;
+}
+
+test('AC12: badge numbers are read off the badges on screen, so deleting one leaves a gap', () => {
+  const h = load();
+  h.hooks.add({ tool: 'number', x: 50, y: 50 });
+  h.hooks.add({ tool: 'number', x: 100, y: 50 });
+  h.hooks.add({ tool: 'number', x: 150, y: 50 });
+  assert.deepEqual(h.ops().map((o) => o.n), [1, 2, 3]);
+
+  assert.equal(h.hooks.select(100, 50), 1);
+  h.hooks.deleteSelected();
+  h.hooks.add({ tool: 'number', x: 200, y: 50 });
+  assert.deepEqual(h.ops().map((o) => o.n), [1, 3, 4], 'the next badge continues the highest number');
+});
+
+test('AC20: a colour the palette does not carry is ignored, and a colour name is understood', () => {
+  const h = load();
+  assert.equal(h.hooks.color(), '#dc2626');
+  h.hooks.setColor('#123456');
+  assert.equal(h.hooks.color(), '#dc2626', 'an ink off the palette leaves the current one alone');
+  h.hooks.setColor('green');
+  assert.equal(h.hooks.color(), '#16a34a');
+  h.hooks.setColor('#2563eb');
+  assert.equal(h.hooks.color(), '#2563eb');
+});
+
+test('AC21: an unknown stroke weight is ignored, and the thickest one has nothing above it', () => {
+  const h = load();
+  assert.equal(h.hooks.width(), 3);
+  h.hooks.setWidth(99);
+  assert.equal(h.hooks.width(), 3);
+
+  h.hooks.setWidth('l');
+  assert.equal(h.hooks.width(), 6);
+  h.key({ key: ']' });
+  assert.equal(h.hooks.width(), 6);
+  h.key({ key: '[' });
+  assert.equal(h.hooks.width(), 3);
+});
+
+test('AC33: a label of nothing but spaces is not a label; a typed space is kept as typed', () => {
+  const h = load();
+  h.fire(openLabel(h, 100, 100, '   '), 'keydown', { key: 'Enter' });
+  assert.deepEqual(h.ops(), [], 'blank is nothing to add');
+
+  h.fire(openLabel(h, 200, 200, ' hi '), 'keydown', { key: 'Enter' });
+  assert.equal(h.ops().length, 1);
+  assert.equal(h.ops()[0].text, ' hi ', 'the spaces the tester typed are part of the label');
+});
+
+test('AC34: emptying a label deletes it, and the delete can be taken back', () => {
+  const h = load();
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'hello', size: 20 });
+  assert.equal(h.hooks.editTextAt(102, 102), true);
+
+  const input = h.textEl();
+  input.value = '';
+  h.fire(input, 'blur');
+  assert.deepEqual(h.ops(), [], 'a retype to nothing is a delete');
+
+  h.hooks.undo();
+  assert.equal(h.ops()[0].text, 'hello');
+});
+
+test('AC35: reopening a label and typing the same words costs the tester no undo step', () => {
+  const h = load();
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'hello', size: 20 });
+  h.hooks.editTextAt(102, 102);
+
+  const input = h.textEl();
+  input.value = 'hello';
+  h.fire(input, 'keydown', { key: 'Enter' });
+  assert.equal(h.ops()[0].text, 'hello');
+
+  h.hooks.undo();
+  assert.deepEqual(h.ops(), [], 'one undo reaches the add, so the retype added no step');
+});
+
+test('AC36: retyping a label that was deleted out from under the input just re-draws', () => {
+  const h = load();
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'hello', size: 20 });
+  h.hooks.editTextAt(102, 102);
+  const input = h.textEl();
+
+  h.hooks.deleteSelected();
+  input.value = 'new';
+  assert.doesNotThrow(() => h.fire(input, 'keydown', { key: 'Enter' }));
+  assert.deepEqual(h.ops(), [], 'the label stays deleted, and nothing is re-added');
+});
+
+test('AC37: Esc inside a label input backs out of the retype and never leaves the annotator', () => {
+  const h = load();
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'hello', size: 20 });
+  h.hooks.editTextAt(102, 102);
+
+  const input = h.textEl();
+  input.value = 'changed';
+  const ev = h.fire(input, 'keydown', { key: 'Escape', bubbles: true });
+
+  assert.equal(ev.propagationStopped, true, 'the annotator-wide Esc handler must not see it');
+  assert.deepEqual(h.calls.cancelled, []);
+  assert.equal(h.calls.discardAsked, 0);
+  assert.equal(h.textEl(), null);
+  assert.equal(h.ops()[0].text, 'hello', 'the label is back on the canvas it was lifted off');
+});
+
+test('AC38: a letter typed into a label input is typing, not a tool shortcut', () => {
+  const h = load();
+  const input = openLabel(h, 100, 100, '');
+
+  const ev = h.fire(input, 'keydown', { key: 'r', bubbles: true });
+  assert.equal(ev.propagationStopped, true);
+  assert.equal(h.hooks.tool(), 'text');
+
+  h.key({ key: 'r' });
+  assert.equal(h.hooks.tool(), 'text', 'the shortcut map stands down while the input is open');
+});
+
+test('AC40: a label saved without a size is drawn at the size the picture asks for', () => {
+  const h = load({ w: 1500, h: 600 });
+  h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'abc' });
+  assert.equal(h.hooks.ops()[0].size, undefined);
+
+  assert.equal(h.hooks.select(150, 130), 0, 'at 1500 px wide the label is 30 px tall');
+  assert.equal(h.hooks.select(150, 145), null);
+
+  h.hooks.applyCrop({ x1: 0, y1: 0, x2: 500, y2: 400 });
+  assert.equal(h.hooks.select(150, 130), null, 'the crop makes the same label render smaller');
+  assert.equal(h.hooks.select(120, 110), 0);
+});
+
+test('AC41: the badge is sized off the picture and the weight, and frozen where it was dropped', () => {
+  const h = load({ w: 800, h: 600 });
+  assert.equal(h.hooks.badgeRadius(), 9, 'the default weight sits on the floor');
+  h.hooks.setWidth('l');
+  assert.equal(h.hooks.badgeRadius(), 15);
+
+  h.hooks.add({ tool: 'number', x: 100, y: 100 });
+  assert.equal(h.ops()[0].r, 15);
+  h.hooks.applyCrop({ x1: 0, y1: 0, x2: 200, y2: 200 });
+  assert.equal(h.ops()[0].r, 15, 'the badge does not reflow when the picture is cropped');
+  assert.equal(h.hooks.badgeRadius(), 9, 'though a badge dropped now would be smaller');
+});
+
+test('AC42: a white badge draws its ring and its numeral dark, so it exists on a light shot', () => {
+  const badge = (colour) => {
+    const h = load();
+    if (colour) h.hooks.setColor(colour);
+    h.hooks.add({ tool: 'number', x: 100, y: 100 });
+    h.log.clear();
+    h.hooks.setTool('number');   // one clean re-render, nothing else on the canvas
+    return { fills: h.log.sets('fillStyle'), strokes: h.log.sets('strokeStyle') };
+  };
+  assert.deepEqual(badge(null), { fills: ['#dc2626', '#ffffff'], strokes: ['#ffffff'] });
+  assert.deepEqual(badge('white'), { fills: ['#ffffff', '#171717'], strokes: ['#171717'] });
+});
+
+test('AC43: a badge that reaches 10 and 100 shrinks its numeral instead of growing the disc', () => {
+  const h = load();
+  h.hooks.add({ tool: 'number', x: 100, y: 100, n: 1 });
+  h.hooks.add({ tool: 'number', x: 200, y: 100, n: 10 });
+  h.hooks.add({ tool: 'number', x: 300, y: 100, n: 100 });
+
+  h.log.clear();
+  h.hooks.setTool('number');
+  assert.deepEqual(h.log.sets('font').map((f) => /(\d+)px/.exec(f)[1]), ['11', '9', '8']);
+  assert.deepEqual(h.ops().map((o) => o.r), [9, 9, 9], 'a run of steps stays one size');
+});
