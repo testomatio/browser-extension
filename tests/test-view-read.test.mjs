@@ -7,6 +7,10 @@
 // rendered description, nested bullets included, because that is what the web runner counts — and it
 // is snapshotted BEFORE the Expected sub-bullets are folded away, so folding one must not renumber
 // the steps after it.
+// The three section tabs are shown here too (rows 126*, #109): which section is open is something
+// the tester reads off the bar, and the bar is one tab stop with the arrows between the three — so
+// arrowing across it must move the caret and open NOTHING, or a walk to Summary loads two screens
+// on the way.
 // Rows 26-29 and 110-125 are the ticket's; a lettered suffix is the companion case that drives
 // the same path the other way, so a row asserting "nothing happened" cannot pass against a stub that
 // never worked.
@@ -17,7 +21,8 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadScreen, makeDocument, el, plain } from './helpers/panel-harness.mjs';
+import { loadScreen, makeDocument, el, fire, plain } from './helpers/panel-harness.mjs';
+import { loadInto } from './helpers/shared-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The real substitution module, not a look-alike: rows 121-124 are about the product's own non-"0"
@@ -78,7 +83,9 @@ function stepLists(container) {
   return lists;
 }
 
-// index.html's shape (:570-572, :611), cut to the two nodes half B touches.
+// index.html's shape (:570-572, :611, :637-656), cut to the nodes half B touches.
+const SECTIONS = ['desc', 'status', 'summary'];
+
 function makePage(without = []) {
   const doc = makeDocument([]);
   const node = {};
@@ -89,7 +96,15 @@ function makePage(without = []) {
   };
   const steps = add('div', 'test-steps');
   const badge = add('span', 'example-badge', { hidden: true });
-  doc.body.append(...[steps, badge].filter(Boolean));
+  // The section bar and its three panes: one role="tablist" over three role="tab" buttons.
+  const bar = add('div', 'test-sections', { role: 'tablist' });
+  const panes = [];
+  for (const key of SECTIONS) {
+    const tab = add('button', `tab-test-${key}`, { className: 'tab', role: 'tab' });
+    if (bar && tab) bar.append(tab);
+    panes.push(add('div', `pane-test-${key}`, { role: 'tabpanel', hidden: key !== 'desc' }));
+  }
+  doc.body.append(...[steps, badge, bar, ...panes].filter(Boolean));
   return { doc, node };
 }
 
@@ -122,6 +137,9 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    // The real helper: the section bar's arrows are showTestSection's to wire, and a stub would be
+    // answering for them (#109).
+    Roving: loadInto({ console }, [['shared/roving.js', 'Roving']]).value,
     capabilities: { jwt: o.jwt, readonly: false },
     $: (id) => doc.getElementById(id),
     TestomatParams,
@@ -402,4 +420,54 @@ test('124: degraded, the leftover placeholder is the only signal there is, so it
 test('125: a page with no badge element does not throw', () => {
   const h = load({ without: ['example-badge'] });
   assert.equal(h.fn.applyExample('Hi ${x}'), 'Hi ${x}');
+});
+
+// ---------- the three section tabs (#109) ----------
+
+const tabIndexes = (h) => SECTIONS.map((k) => h.node[`tab-test-${k}`].getAttribute('tabindex'));
+const selected = (h) => SECTIONS.map((k) => h.node[`tab-test-${k}`].getAttribute('aria-selected'));
+
+test('126 (#109): the section bar is ONE tab stop — the open section, the other two out of Tab’s way', () => {
+  const h = load();
+  h.fn.showTestSection('desc');
+  assert.deepEqual(tabIndexes(h), ['0', '-1', '-1']);
+  assert.deepEqual(selected(h), ['true', 'false', 'false'], 'and the tab stop is on the tab that IS open');
+
+  h.fn.showTestSection('summary');
+  assert.deepEqual(tabIndexes(h), ['-1', '-1', '0']);
+  assert.deepEqual(selected(h), ['false', 'false', 'true']);
+
+  // A name that is not a section falls back to Description, and the tab stop goes with it.
+  h.fn.showTestSection('nonsense');
+  assert.deepEqual(tabIndexes(h), ['0', '-1', '-1']);
+  // Still tabs: the tab stop is written onto them, not Roving.item's role="button".
+  assert.deepEqual(SECTIONS.map((k) => h.node[`tab-test-${k}`].getAttribute('role')), ['tab', 'tab', 'tab']);
+});
+
+test('126a (#109): ←→ walk the three, and walking is not opening one', () => {
+  const h = load();
+  h.fn.showTestSection('desc');
+  fire(h.node['tab-test-desc'], 'keydown', { key: 'ArrowRight', bubbles: true });
+  assert.equal(h.doc.activeElement.id, 'tab-test-status');
+  assert.deepEqual(selected(h), ['true', 'false', 'false'], 'Description is still the open one');
+  assert.equal(h.node['pane-test-status'].hidden, true);
+
+  fire(h.node['tab-test-status'], 'keydown', { key: 'ArrowLeft', bubbles: true });
+  assert.equal(h.doc.activeElement.id, 'tab-test-desc');
+  fire(h.node['tab-test-desc'], 'keydown', { key: 'End', bubbles: true });
+  assert.equal(h.doc.activeElement.id, 'tab-test-summary');
+});
+
+test('126b (#109): the bar is wired once, however many times the screen repaints it', () => {
+  const h = load();
+  for (const name of ['desc', 'status', 'summary', 'desc']) h.fn.showTestSection(name);
+  assert.equal(h.node['test-sections'].listeners.get('keydown').length, 1);
+  assert.equal(h.node['test-sections'].listeners.get('focusin').length, 1);
+});
+
+test('126c (#109): a page without the bar at all still switches its panes', () => {
+  const h = load({ without: ['test-sections', 'tab-test-status'] });
+  assert.doesNotThrow(() => h.fn.showTestSection('status'));
+  assert.equal(h.node['pane-test-status'].hidden, false);
+  assert.equal(h.node['pane-test-desc'].hidden, true);
 });

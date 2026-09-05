@@ -75,7 +75,9 @@
        scrolls away. -->
   <div id="header-top" class="bar sticky stretch header-top">
     <!-- Counts are filled by setTabCount() (core/views.js) once the number is known and hidden until
-         then — a tab bar must not guess. aria-hidden: the tab's own label already names the section. -->
+         then — a tab bar must not guess. aria-hidden: the tab's own label already names the section.
+         aria-controls and the roving tabindex are updateTabBar()'s: three tabs serve eight panels, so
+         which one a tab names moves with the section it is standing on. -->
     <nav id="tabbar" class="tabs fill" role="tablist" aria-label="Sections">
       <button id="tab-tests" class="tab" type="button" role="tab" aria-selected="false">
         <span class="md-icon" data-icon="task" aria-hidden="true"></span>
@@ -153,7 +155,10 @@
       </p>
     </section>
 
-    <section id="view-settings" hidden>
+    <!-- The eight panels of #tabbar's three tabs (TAB_OF_VIEW, core/views.js). tabindex="-1" is not a
+         tab stop: it is what lets show() put the caret on the section it just opened. -->
+    <section id="view-settings" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-settings">
 
       <!-- First-run connect screen: the same form, same ids and same Save & validate path, promoted — the
            Connection section IS the connect screen. Mode is flipped by applyConnectMode() (screens/settings.js). -->
@@ -392,7 +397,8 @@
          cannot make THIS pick — it opens over a panel with nothing behind it — so the same rows and the
          same filter take the whole screen, and the way back out sits in the footer under them.
          screens/project-pick.js. -->
-    <section id="view-pick" hidden>
+    <section id="view-pick" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-settings">
       <div class="pick-head">
         <h2 class="pick-title">Choose a project</h2>
         <p class="pick-sub">Pick the project this panel runs against. You can switch it any time
@@ -425,7 +431,8 @@
       </div>
     </section>
 
-    <section id="view-runs" hidden>
+    <section id="view-runs" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-runs">
       <!-- Search FIRST, the status filters under it — the same order the run view uses. One input for
            both jobs (#106): live title search, and a pasted run/rungroup URL opens its target. -->
       <div class="toolbar runs-bar">
@@ -448,7 +455,8 @@
       <p id="runs-status" class="status-line" role="status"></p>
     </section>
 
-    <section id="view-tcstudio" hidden>
+    <section id="view-tcstudio" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-tests">
       <!-- The search takes the width that is left; the three creates pin right and only the test create
            keeps a word — measured, never written short (.fit-label, fitActionLabels). -->
       <div id="tc-tree-bar" class="toolbar tc-tree-bar">
@@ -473,7 +481,8 @@
       <p id="tcstudio-status" class="status-line" role="status"></p>
     </section>
 
-    <section id="view-tclist" hidden>
+    <section id="view-tclist" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-tests">
       <!-- One line, the runs toolbar's shape: the search takes the width that is left, "New test" keeps
            its own. -->
       <div class="toolbar tc-list-bar">
@@ -506,13 +515,15 @@
     </section>
 
     <!-- Suite picker for the tree bar's "Test": reuses the TC-tree in pick mode. -->
-    <section id="view-promote" hidden>
+    <section id="view-promote" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-tests">
       <p id="promote-hint" class="hint promote-hint"></p>
       <ul id="promote-tree" class="list tc-tree"></ul>
       <p id="promote-status" class="status-line" role="status"></p>
     </section>
 
-    <section id="view-run" hidden>
+    <section id="view-run" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-runs">
       <!-- Run summary card: ONE card for everything the panel knows about the open run — stacked loose
            they read as four unrelated notes under the panel header. -->
       <div id="run-header" class="card run-summary">
@@ -558,7 +569,8 @@
       <p id="run-status" class="status-line" role="status"></p>
     </section>
 
-    <section id="view-test" hidden>
+    <section id="view-test" hidden tabindex="-1"
+             role="tabpanel" aria-labelledby="tab-runs">
       <!-- Test summary card: the run view's summary card one screen down, deliberately the same one, so a
            tester moving between the screens finds the furniture where they left it. -->
       <div id="test-header" class="card run-summary">

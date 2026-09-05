@@ -4,7 +4,8 @@
 // screens hang off: ONE tab stop per list, the arrows between rows, Home/End at the ends, Enter and
 // Space to open. Two properties carry the whole design and are asserted hardest here: the listeners
 // live on the CONTAINER, so a list whose children are swapped by replaceChildren() needs nothing
-// re-attached; and a row a fold has hidden is not somewhere the arrows may land.
+// re-attached; and a row a fold has hidden — or a tab the first-launch gate has disabled — is not
+// somewhere the arrows may land, because the caret would arrive at what cannot hold it and stick.
 // Run: node --test tests/roving.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -247,4 +248,32 @@ test('R16: a row that a fold hid while it had focus does not move the tab stop a
   group.hidden = true;
   assert.equal(h.key(inside, 'ArrowDown').defaultPrevented, false, 'it is not in the walk at all');
   assert.equal(h.focused(), null);
+});
+
+// ---------- and the other thing that cannot hold the caret (#109 PR-3) ----------
+
+test('R17: a disabled item is stepped over — the caret would arrive there and stick', () => {
+  const bar = list({ rows: 3, orientation: 'horizontal', tag: 'button' });
+  bar.at(1).disabled = true;
+  bar.key(bar.at(0), 'ArrowRight');
+  assert.equal(bar.focused(), 'r2', 'over the disabled one, not onto it');
+  bar.key(bar.at(2), 'ArrowLeft');
+  assert.equal(bar.focused(), 'r0');
+  assert.deepEqual(bar.tabs(), ['0', '-1', '-1']);
+
+  // Enabled again it joins the walk with nothing re-attached — the same property a fold has.
+  bar.at(1).disabled = false;
+  bar.key(bar.at(0), 'ArrowRight');
+  assert.equal(bar.focused(), 'r1');
+});
+
+test('R18: Home and End are the ends that can HOLD the caret, not the ends of the markup', () => {
+  const bar = list({ rows: 4, orientation: 'horizontal', tag: 'button' });
+  bar.at(0).disabled = true;
+  bar.at(3).disabled = true;
+  bar.key(bar.at(1), 'End');
+  assert.equal(bar.focused(), 'r2');
+  assert.deepEqual(bar.tabs(), ['-1', '-1', '0', '-1']);
+  bar.key(bar.at(2), 'Home');
+  assert.equal(bar.focused(), 'r1');
 });

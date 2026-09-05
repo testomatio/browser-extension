@@ -1,7 +1,7 @@
 // Core views: the view switcher (show), tab navigation, the contextual header
 // row, in-tab back navigation, toasts and status lines.
 
-/* global TestomatAPI, Handoff, Icons, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
+/* global TestomatAPI, Handoff, Icons, Roving, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
    PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker */
 
@@ -17,6 +17,9 @@ const TAB_OF_VIEW = {
 const TABS = ['tests', 'runs', 'settings'];
 // A tab's landing view: the contextual row (Back + title) is hidden there.
 const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings', 'pick']);
+// Where a tab stands before it has stood anywhere — the section `aria-controls` names
+// until state.tabViews remembers one of its own (openTabView lands on these same three).
+const TAB_ROOT = { tests: 'tcstudio', runs: 'runs', settings: 'settings' };
 
 // ---------- view switching ----------
 
@@ -34,6 +37,7 @@ function show(view) {
   // AFTER the loop above: it focuses the token field, which a still-hidden
   // section cannot take.
   if (typeof applyConnectMode === 'function') applyConnectMode();
+  focusShownView(view);
   updateContextBar(view);
   updateTabBar();
   applyReadonlyBlock();   // #155: a read-only project shows the lockout, not the view
@@ -42,6 +46,15 @@ function show(view) {
   // Guarded: evidence.js loads after core and may be absent in a test context.
   if (typeof onViewShown === 'function') onViewShown(view);
   persistSession();
+}
+
+// The caret follows the switch only where the switch took it away — nothing focused, or a field
+// in a section this call just hid. A screen that focuses one of its own (project-pick) keeps it.
+function focusShownView(view) {
+  const at = document.activeElement;
+  const lost = !at || at === document.body
+    || views.some((v) => { const s = $(`view-${v}`); return s.hidden && s.contains(at); });
+  if (lost) $(`view-${view}`)?.focus();
 }
 
 // The LAST crumb of the path, printed as the screen's title, not as a link.
@@ -218,7 +231,17 @@ function updateTabBar() {
     btn.disabled = disabled;
     btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     Tooltip.set(btn, disabled ? 'Configure settings first' : '');
+    // One tab stop for the whole bar, the arrows between the three: the tablist convention, and
+    // three stops fewer on the way to the screen.
+    btn.setAttribute('tabindex', active ? '0' : '-1');
+    // Three tabs over eight sections, so the panel a tab names is the one it would show right
+    // now. A disabled tab names none — it cannot open one.
+    if (disabled) btn.removeAttribute('aria-controls');
+    else btn.setAttribute('aria-controls', `view-${state.tabViews[tab] || TAB_ROOT[tab]}`);
   }
+  // Wired once per container and free on every later call (shared/roving.js). Roving.item() is
+  // NOT used here: it writes role="button" over the role="tab" the markup already carries.
+  Roving.attach($('tabbar'), { selector: '.tab', orientation: 'horizontal' });
 }
 
 // Three-state by design: a number (0 included) SHOWS the chip, unknown — nothing
