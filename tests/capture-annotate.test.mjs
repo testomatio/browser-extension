@@ -415,7 +415,7 @@ test('R16: an unreadable stylesheet is a "no" from the injector, not a page half
   assert.equal(run.settled, false);
 });
 
-test('R17: the key, the scheme and the stylesheet are stashed first, then the five files run in the order the toolbar needs', async () => {
+test('R17: the key, the scheme and the stylesheet are stashed first, then the six files run in the order the toolbar needs', async () => {
   const h = load({ theme: 'dark' });
   assert.equal(await h.api.tryInjectOverlay(7, KEY), true);
   assert.equal(h.rec.scripts.length, 2);
@@ -429,8 +429,8 @@ test('R17: the key, the scheme and the stylesheet are stashed first, then the fi
   assert.deepEqual(run.target, { tabId: 7 });
   assert.equal(run.func, undefined);
   assert.deepEqual(run.files, [
-    'shared/icons.js', 'shared/tooltip.js', 'shared/annot-geometry.js', 'shared/annotate-core.js',
-    'overlay/annotate-overlay.js',
+    'shared/icons.js', 'shared/tooltip.js', 'shared/annot-geometry.js', 'shared/annot-history.js',
+    'shared/annotate-core.js', 'overlay/annotate-overlay.js',
   ]);
 
   // Outside the panel there is no Appearance setting to resolve, and the overlay is told so.
