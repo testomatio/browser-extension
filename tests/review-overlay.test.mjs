@@ -53,7 +53,16 @@ function load(opts = {}) {
   if (!runtime) delete ch.chrome.runtime;
 
   const win = makeWindow();
-  const sandbox = { window: win, document: doc, chrome: ch.chrome, console };
+  // There is no setTimeout in a vm realm: the wait the overlay gives the frame is run by hand.
+  const timers = [];
+  const sandbox = {
+    window: win,
+    document: doc,
+    chrome: ch.chrome,
+    console,
+    setTimeout: (fn, ms) => timers.push({ fn, ms, live: true }),
+    clearTimeout: (id) => { const t = timers[id - 1]; if (t) t.live = false; },
+  };
   const { context } = loadInto(sandbox, [REL]);
 
   const hosts = () => doc.querySelectorAll(`#${HOST_ID}`);
@@ -77,6 +86,11 @@ function load(opts = {}) {
     // What review.js posts up while the export replays the take in real time.
     setBusy: (busy) => post(iframe().contentWindow, { type: 'TESTOMAT_REVIEW_BUSY', busy }),
     fromFrame: (data) => post(iframe().contentWindow, data),
+    timers,
+    stall: () => part('.stall'),
+    stallLink: () => part('.stall a'),
+    // The wait the overlay gives the frame runs out with the frame still silent.
+    waitOut: () => { for (const t of timers) if (t.live) { t.live = false; t.fn(); } },
   };
 }
 
@@ -245,7 +259,46 @@ test('10b: any other key is left for the page under test', () => {
   assert.equal(h.hosts().length, 1);
 });
 
-// The iframe is created, given a src and appended with no load, error or timeout handler
-// (review-overlay.js:46-48), so a page whose CSP blocks the frame shows a dark rectangle and a ✕
-// with nothing said. Verified still open against the shipped file.
-test.todo('11 (#332): a review whose frame never loads tells the tester why');
+// ---- a frame the page under test refuses to load ----------------------------
+// The page's CSP can refuse an extension frame. The overlay gives it a short wait; a frame that
+// never says it loaded is a dark rectangle, so the words and the way out take its place.
+
+test('11 (#332): a review whose frame never loads tells the tester why, and offers a tab', () => {
+  const h = load();
+  assert.equal(h.stall(), null, 'nothing is said while the frame still has its wait');
+  h.waitOut();
+  const said = h.stall();
+  assert.ok(said, 'a frame that never loaded must not be left as a dark rectangle');
+  assert.match(said.textContent, /\S/, 'in words, not an empty box');
+  assert.equal(h.iframe().hidden, true, 'and the dark rectangle itself is gone');
+  const out = h.stallLink();
+  assert.ok(out, 'the tab the worker already opens as its third placement is offered here too');
+  assert.equal(out.href, `${EXT}/screenrec/review.html`);
+  assert.equal(out.target, '_blank');
+  assert.equal(h.hosts().length, 1, 'the take is not lost — the review is still standing');
+});
+
+test('11b (#332): the frame loads in time and the tester is told nothing', () => {
+  const h = load();
+  fire(h.iframe(), 'load');
+  h.waitOut();
+  assert.equal(h.stall(), null, 'a review that works must not be talked over');
+  assert.equal(h.iframe().hidden, undefined, 'nor its frame hidden');
+});
+
+test('11c (#332): a frame that errors out says so without waiting the whole wait', () => {
+  const h = load();
+  fire(h.iframe(), 'error');
+  assert.ok(h.stall(), 'the refusal is already known — no reason to keep the tester waiting');
+  assert.ok(h.stallLink());
+});
+
+test('11d (#332): closing before the wait is out leaves the late wait nothing to say', () => {
+  const h = load();
+  const box = h.frame();
+  h.esc();
+  assert.equal(h.timers.filter((t) => t.live).length, 0, 'the wait is called off with the review');
+  h.waitOut();
+  assert.equal(h.hosts().length, 0, 'a late wait must not put the review back on the page');
+  assert.equal(box.querySelector('.stall'), null, 'nor paint a refusal into a review already gone');
+});
