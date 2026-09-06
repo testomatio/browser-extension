@@ -208,6 +208,18 @@ test('#203 a storage write the browser refuses moves NOTHING in memory, and unqu
   }
 });
 
+// `failed` is on the published surface with a default nobody in the repo reaches: both callers work
+// out a statusId first. A default no row pins is one that drifts, and this one decides WHERE the
+// tester is told the erase did not happen — on the Forget line, not somewhere they never look.
+test('#203 an erase failure with no line named goes to the Forget line, the default nobody exercises', () => {
+  const h = load();
+  h.erase.failed('forgetting a.io', new Error('disk gone'));
+  assert.equal(h.lineOf('signout-status'), null);
+  assert.match(h.lineOf('settings-forget-status').msg,
+    /^Couldn't finish forgetting a\.io: disk gone — assume the data is still on this machine, try again$/);
+  assert.equal(h.lineOf('settings-forget-status').cls, 'error');
+});
+
 test('#203 HOST_SCOPED_KEYS is exactly the three keys, and exactly what a Forget removes', async () => {
   const h = load();
   assert.deepEqual(plain(h.erase.HOST_SCOPED_KEYS), KEYS);
