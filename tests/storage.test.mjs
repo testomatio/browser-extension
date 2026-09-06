@@ -236,8 +236,9 @@ test('#194-17a: the saved key is spelled `runInfoOpen`, off the module\'s own ac
   assert.equal('open' in session, false, 'the module\'s name for it is not the storage key');
 });
 
-// The five guards app.js:147-152 reads the saved session back through, copied here because loading
-// app.js would boot the whole panel. FILTER_KEYS is screens/runs-list.js:18.
+// The five guards SessionRestore.fromStored() (core/session-restore.js) reads the saved session back
+// through — a second copy on purpose, so this round trip still fails if that module drifts.
+// FILTER_KEYS is screens/runs-list.js:18.
 const FILTER_KEYS = new Set(['all', 'passed', 'failed', 'running', 'scheduled', 'terminated']);
 const restore = (session) => ({
   stepTicks: session?.stepTicks || {},
