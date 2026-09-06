@@ -357,16 +357,19 @@ function load(opts = {}) {
 
   const clock = fakeClock();
   const h = loadScreen('settings', {
-    // screens/settings-form.js is index.html's tag immediately above this one, and settings.js does
-    // not run without it. The welcome checklist is reached through a `typeof` guard, so the REAL
-    // screen is what row 75 drives — a stub could not show that it renders nothing.
-    before: o.onboarding ? ['settings-form', 'onboarding'] : ['settings-form'],
-    exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY, SettingsForm })',
+    // screens/settings-form.js and screens/settings-erase.js are index.html's two tags immediately
+    // above this one, and settings.js does not run without either. The welcome checklist is reached
+    // through a `typeof` guard, so the REAL screen is what row 75 drives — a stub could not show
+    // that it renders nothing.
+    before: o.onboarding
+      ? ['settings-form', 'settings-erase', 'onboarding']
+      : ['settings-form', 'settings-erase'],
+    exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY, SettingsForm, SettingsErase })',
     document: doc, clock, store, globals,
   });
-  // settings-form.js publishes ONE object, and a published `const` is a global lexical — never a
-  // property of the sandbox. The rows call the form by the bare names it wore inside settings.js, so
-  // put those names back on. The seven settings.js still delegates are already there and stay: the
+  // Each of the two publishes ONE object, and a published `const` is a global lexical — never a
+  // property of the sandbox. The rows call them by the bare names they wore inside settings.js, so
+  // put those names back on. The eleven settings.js still delegates are already there and stay: the
   // delegate is what app.js calls, and a row has to drive the same path the panel does.
   for (const [bare, member] of Object.entries({
     tokenHelpBase: 'tokenHelpBase',
@@ -379,6 +382,13 @@ function load(opts = {}) {
     resolveProjectId: 'resolveProjectId',
   })) {
     h.fn[bare] = (...args) => h.screen.SettingsForm[member](...args);
+  }
+  for (const [bare, member] of Object.entries({
+    settingsFormHost: 'formHost',
+    wipeEvidenceRecording: 'wipeRecording',
+    leaveRecorderWarning: 'leaveWarning',
+  })) {
+    h.fn[bare] = (...args) => h.screen.SettingsErase[member](...args);
   }
   if (o.dropdown) h.fn.initHostHistoryDropdown();
 

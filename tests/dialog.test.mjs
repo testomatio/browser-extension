@@ -143,18 +143,18 @@ test('137: the page carries the four nodes this module reaches for, and loads it
   }
   const at = (src) => html.indexOf(`<script src="${src}"></script>`);
   assert.ok(at('core/dialog.js') > 0, 'the module is loaded at all');
-  // settings.js is the earliest of the three, and every one of them calls at runtime anyway —
+  // settings-erase.js is the earliest of the three, and every one of them calls at runtime anyway —
   // but a core module standing after its screens is the load-order inversion #194 came to remove.
-  for (const s of ['screens/settings.js', 'screens/run-lock.js', 'screens/attachments.js']) {
+  for (const s of ['screens/settings-erase.js', 'screens/run-lock.js', 'screens/attachments.js']) {
     assert.ok(at('core/dialog.js') < at(s), `core/dialog.js stands before ${s}`);
   }
 });
 
-// 138: screens/settings.js has no suite in this repo, so its two call sites — Erase instance and
-// Sign out, the panel's two most destructive acts — are reachable by NO row above. Read as text,
-// they are: a bare `confirmDialog` there would sail through the whole test run.
+// 138: the two settings call sites — Erase instance and Sign out, the panel's two most destructive
+// acts, now in screens/settings-erase.js — are reachable by NO row above. Read as text, they are:
+// a bare `confirmDialog` there would sail through the whole test run.
 test('138: all four call sites ask ConfirmDialog by name, the unsuited settings screen included', () => {
-  const callers = { 'run-lock.js': 1, 'settings.js': 2, 'attachments.js': 1 };
+  const callers = { 'run-lock.js': 1, 'settings-erase.js': 2, 'attachments.js': 1 };
   for (const [file, n] of Object.entries(callers)) {
     const src = raw(SCREENS_SRC, file);
     assert.equal(src.split('ConfirmDialog.ask(').length - 1, n, `${file} has ${n} call site(s)`);
