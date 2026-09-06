@@ -309,8 +309,18 @@
     video.src = file.url;
     await new Promise((resolve) => {
       video.addEventListener('loadedmetadata', resolve, { once: true });
+      video.addEventListener('error', resolve, { once: true }); // stop waiting early; the state below decides
       setTimeout(resolve, 3000);
     });
+    // Ask the element, not the event: a dead take parks at readyState 0 with `error` set, a healthy
+    // webm is past HAVE_NOTHING even at duration Infinity. Below, file.ms would dress it up as fine.
+    if (video.error || !(video.readyState > 0)) {
+      status('This recording will not play — nothing has been attached. '
+        + 'The take is still parked: reopen the review from the panel to try again, or discard it.');
+      $('btn-attach').disabled = true;
+      $('btn-play').disabled = true;
+      return;
+    }
     // MediaRecorder's webm carries no duration header — seeking far past the end makes
     // Chrome compute the real one (the standard workaround).
     if (!Number.isFinite(video.duration)) {
