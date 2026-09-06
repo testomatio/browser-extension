@@ -86,17 +86,24 @@ function load(opts = {}) {
   const win = runInContext('globalThis', context);
 
   const msgListener = () => (listeners.find((l) => l.type === 'message') || {}).fn;
+  // The token the relay handed the hook, off the first control message that carried one.
+  const handed = () => { const p = posts.find((x) => x.msg.tok); return p ? p.msg.tok : undefined; };
 
   return {
     sandbox,
     context,
     win,
     posts: () => posts.slice(),
-    controls: () => posts.map((p) => p.msg),
+    // Every control message carries the per-document token (rows 22a-22c); the rows about WHAT
+    // the relay says read past it, and `batch` puts it back on the way in.
+    controls: () => posts.map((p) => { const { tok, ...rest } = p.msg; return rest; }),
+    tok: handed,
     sent: () => sent.slice(),
     listeners: () => listeners.map((l) => l.type),
     storage: fake.local,
     settle,
+    // A batch from the hook WE injected: stamped with the token the relay handed out.
+    batch: (events) => ({ source: CHANNEL, tok: handed(), events }),
     // A batch the page hook posted onto the shared DOM channel.
     page: (data, source = win) => {
       const fn = msgListener();
@@ -111,7 +118,9 @@ function load(opts = {}) {
 }
 
 const control = (payload) => ({ source: CHANNEL, control: true, ...payload });
-const batch = (events) => ({ source: CHANNEL, events });
+// Everything a page can build unaided: the channel name is compiled into both halves, so it is
+// published, and knowing it is the whole of what a forger has.
+const forged = (events) => ({ source: CHANNEL, events });
 
 // ---- the body-capture default (rows 1-4) -----------------------------------
 
@@ -153,14 +162,16 @@ test('4a: the hook is never left waiting — the config post happens at load, be
 
 test('5: a batch the page hook posted reaches the worker as EVIDENCE_EVENTS', async () => {
   const h = load();
+  await h.settle();
   const events = [{ t: 'console', text: 'Boom' }, { t: 'net', status: 500 }];
-  h.page(batch(events));
+  h.page(h.batch(events));
   assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events }]);
 });
 
 test('6: a batch from an iframe or an opener is not this page, and is ignored', async () => {
   const h = load();
-  h.page(batch([{ t: 'console' }]), { other: 'window' });
+  await h.settle();
+  h.page(h.batch([{ t: 'console' }]), { other: 'window' });
   assert.deepEqual(h.sent(), []);
 });
 
@@ -181,7 +192,8 @@ test('8: anything on the channel that is not a batch of events is ignored', asyn
 
 test('8a: an empty batch is still a batch — it reaches the worker and can be answered', async () => {
   const h = load();
-  h.page(batch([]));
+  await h.settle();
+  h.page(h.batch([]));
   assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: [] }]);
 });
 
@@ -190,7 +202,7 @@ test('8a: an empty batch is still a batch — it reaches the worker and can be a
 test('9: the worker with no recording for this page tells the hook to stop, and the hook is told', async () => {
   const h = load({ reply: () => ({ off: true }) });
   await h.settle();
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   await h.settle();
   assert.deepEqual(h.controls().slice(1), [control({ off: true })]);
 });
@@ -198,7 +210,7 @@ test('9: the worker with no recording for this page tells the hook to stop, and 
 test('9a: the stop lands a microtask later, not while the page is still posting', async () => {
   const h = load({ reply: () => ({ off: true }) });
   await h.settle();
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   assert.deepEqual(h.controls().slice(1), [], 'nothing yet — the worker has not answered');
   await h.settle();
   assert.equal(h.controls().length, 2);
@@ -207,7 +219,7 @@ test('9a: the stop lands a microtask later, not while the page is still posting'
 test('10: a hook saying hello to a recording that IS running gets the body-capture answer', async () => {
   const h = load({ local: { [KEY]: false }, reply: () => ({ off: false }) });
   await h.settle();
-  h.page(batch([{ t: 'ready' }, { t: 'console' }]));
+  h.page(h.batch([{ t: 'ready' }, { t: 'console' }]));
   await h.settle();
   assert.deepEqual(h.controls(), [control({ captureBodies: false }), control({ captureBodies: false })]);
 });
@@ -215,7 +227,7 @@ test('10: a hook saying hello to a recording that IS running gets the body-captu
 test('10a: a worker that answers nothing at all still gets the ready re-answered', async () => {
   const h = load({ reply: () => undefined });
   await h.settle();
-  h.page(batch([{ t: 'ready' }]));
+  h.page(h.batch([{ t: 'ready' }]));
   await h.settle();
   assert.equal(h.controls().length, 2, 'no reply is not the same as `off`');
 });
@@ -223,7 +235,7 @@ test('10a: a worker that answers nothing at all still gets the ready re-answered
 test('11: an ordinary batch with no hello does not re-post the config', async () => {
   const h = load({ reply: () => ({ off: false }) });
   await h.settle();
-  h.page(batch([{ t: 'console' }, { t: 'net' }]));
+  h.page(h.batch([{ t: 'console' }, { t: 'net' }]));
   await h.settle();
   assert.equal(h.controls().length, 1, 'only the config from load');
 });
@@ -231,7 +243,7 @@ test('11: an ordinary batch with no hello does not re-post the config', async ()
 test('11a: a null row inside the batch does not crash the hello scan', async () => {
   const h = load({ reply: () => ({ off: false }) });
   await h.settle();
-  h.page(batch([null, undefined, { t: 'ready' }]));
+  h.page(h.batch([null, undefined, { t: 'ready' }]));
   await h.settle();
   assert.equal(h.controls().length, 2);
 });
@@ -239,11 +251,11 @@ test('11a: a null row inside the batch does not crash the hello scan', async () 
 test('12: a batch the sleeping worker never took is dropped, not retried and not buffered', async () => {
   const h = load({ replyRejects: true });
   await h.settle();
-  h.page(batch([{ t: 'console', text: 'the one the tester needed' }]));
+  h.page(h.batch([{ t: 'console', text: 'the one the tester needed' }]));
   await h.settle();
   assert.equal(h.sent().length, 1, 'sent once');
   assert.equal(h.controls().length, 1, 'no control message came of it');
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   await h.settle();
   assert.equal(h.sent().length, 2, 'and the next batch is still attempted');
 });
@@ -332,7 +344,7 @@ test('20: a runtime channel that refuses the listener still leaves the page forw
   const h = load({ onMessageThrows: true });
   await h.settle();
   assert.deepEqual(h.controls(), [control({ captureBodies: true })], 'the config still went out');
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   assert.equal(h.sent().length, 1, 'and the page channel still forwards');
 });
 
@@ -340,7 +352,7 @@ test('20a: an older Chrome with no onMessage at all is the same story', async ()
   const h = load({ noOnMessage: true });
   await h.settle();
   assert.equal(h.controls().length, 1);
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   assert.equal(h.sent().length, 1);
 });
 
@@ -348,7 +360,7 @@ test('21: an older Chrome with no storage.onChanged loads anyway', async () => {
   const h = load({ noOnChanged: true });
   await h.settle();
   assert.deepEqual(h.controls(), [control({ captureBodies: true })]);
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   assert.equal(h.sent().length, 1);
 });
 
@@ -360,20 +372,52 @@ test('21a: a page that tore the frame down under us swallows the post instead of
   assert.deepEqual(h.controls(), []);
 });
 
-// ---- what the relay does not check (row 22) --------------------------------
+// ---- whose batch it is (row 22) --------------------------------------------
 
-test('22: the page can forge a batch, and today the relay forwards it to the worker verbatim', async () => {
+// The evidence log is what the tester attaches to a ticket as proof. A row in it that the page
+// wrote, not the hook, is a lie the tester will never spot — so the relay believes the token it
+// handed its own hook and nothing else.
+const EVIDENCE = [{ t: 'net', status: 500, url: 'https://bank.example.com/statement' }];
+
+test('22: a batch the page forged is refused — only the hook we injected is believed', async () => {
   const h = load();
-  const forged = [{ t: 'net', status: 500, url: 'https://bank.example.com/statement' }];
-  h.page(batch(forged));
-  assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: forged }],
-    'pinned so the day a guard lands, this row is the one that changes');
+  await h.settle();
+  h.page(forged(EVIDENCE));
+  assert.deepEqual(h.sent(), [], 'the channel name is in both halves, so knowing it proves nothing');
 });
 
-test.todo('22 (#342): a batch the page forged is refused — only the hook we injected is believed', () => {
+test('22a: the very same events from our hook go through — the token is the whole difference', async () => {
   const h = load();
-  h.page(batch([{ t: 'net', status: 500, url: 'https://bank.example.com/statement' }]));
-  assert.deepEqual(h.sent(), []);
+  await h.settle();
+  h.page(h.batch(EVIDENCE));
+  assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: EVIDENCE }]);
+});
+
+test('22b: a row of a kind this hook never emits is dropped before the worker files it', async () => {
+  const h = load();
+  await h.settle();
+  h.page(h.batch([{ t: 'console', text: 'real' }, { t: 'wire', text: 'not ours' }, 'nope', null]));
+  assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: [{ t: 'console', text: 'real' }] }]);
+});
+
+test('22c: the token is minted per document, not compiled in — two relays never share one', async () => {
+  const a = load();
+  const b = load();
+  await a.settle();
+  await b.settle();
+  assert.equal(typeof a.tok(), 'string');
+  assert.ok(a.tok().length >= 8, `too short to be worth minting: ${a.tok()}`);
+  assert.notEqual(a.tok(), b.tok());
+});
+
+test('22d: a hook that missed the config is handed a token, not believed on its word', async () => {
+  const h = load();
+  await h.settle();
+  h.page(forged([{ t: 'ready' }]));   // the hook's first hello, sent before it heard from us
+  await h.settle();
+  assert.deepEqual(h.sent(), [], 'a hello is a cue, not evidence');
+  assert.equal(h.controls().length, 2, 'and the config went out again so the hook learns the token');
+  assert.equal(h.posts()[1].msg.tok, h.tok(), 'the same token, not a fresh one');
 });
 
 // ---- the shape of every control message ------------------------------------
@@ -381,7 +425,7 @@ test.todo('22 (#342): a batch the page forged is refused — only the hook we in
 test('23: every message the relay puts on the page channel is marked as its own control', async () => {
   const h = load({ reply: () => ({ off: true }) });
   await h.settle();
-  h.page(batch([{ t: 'console' }]));
+  h.page(h.batch([{ t: 'console' }]));
   await h.settle();
   h.worker({ type: 'EVIDENCE_HOOK_ON' });
   await h.settle();

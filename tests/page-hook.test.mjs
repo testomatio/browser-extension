@@ -1205,6 +1205,17 @@ test('62a: the handshake goes out at load, before the page has done anything', (
   assert.deepEqual(h.posts(), [{ msg: { source: CHANNEL, events: [{ t: 'ready', ts: NOW, url: PAGE }] }, target: '*' }]);
 });
 
+test('62c: once the relay hands out a token, everything the hook posts carries it', async () => {
+  const h = load();
+  assert.equal(h.posts()[0].msg.tok, undefined, 'the hello predates the token');
+  h.control({ captureBodies: true, tok: 'tok-abc' });
+  h.sandbox.console.error('a line the tester will attach to a ticket');
+  await h.drain();
+  const after = h.posts().slice(1);
+  assert.ok(after.length >= 2, 'the re-hello and the console row');
+  for (const p of after) assert.equal(p.msg.tok, 'tok-abc', 'or the relay reads it as the page talking');
+});
+
 test('62b: the hook claims the document so a second injection can tell it is already there', () => {
   const h = load();
   assert.equal(h.sandbox.__testomatEvHooked, true);

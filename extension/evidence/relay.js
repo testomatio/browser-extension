@@ -10,9 +10,14 @@
   if (!chrome?.runtime?.sendMessage) return;
 
   const CHANNEL = '__testomat_evidence__';
+  // The channel name ships in both halves, so it is public: this is what separates OUR hook's
+  // batch from anything else the page posts, and it is minted fresh for every document.
+  const TOKEN = `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  // The five kinds the hook emits; the log the tester attaches carries nothing else.
+  const KINDS = new Set(['ready', 'console', 'exception', 'log', 'net']);
 
   const control = (payload) => {
-    try { window.postMessage({ source: CHANNEL, control: true, ...payload }, '*'); } catch { /* noop */ }
+    try { window.postMessage({ source: CHANNEL, control: true, tok: TOKEN, ...payload }, '*'); } catch { /* noop */ }
   };
 
   // ITS OWN key, never `settings` (#175): this runs in the renderer process of the site
@@ -27,12 +32,19 @@
     if (e.source !== window) return;
     const d = e.data;
     if (!d || d.source !== CHANNEL || d.control || !Array.isArray(d.events)) return;
+    // A hook injected before our config went out has no token yet, and its hello is the cue to
+    // hand one over — but a hello is not evidence, so nothing in that batch is believed.
+    if (d.tok !== TOKEN) {
+      if (d.events.some((ev) => ev && ev.t === 'ready')) { try { pushConfig(); } catch { /* no storage */ } }
+      return;
+    }
+    const events = d.events.filter((ev) => ev && typeof ev === 'object' && KINDS.has(ev.t));
     // The reply is the ONLY stop signal the hook gets: a worker with no recording for
     // this document answers `off`, and the hook goes quiet instead of posting into the void.
-    chrome.runtime.sendMessage({ type: 'EVIDENCE_EVENTS', events: d.events })
+    chrome.runtime.sendMessage({ type: 'EVIDENCE_EVENTS', events })
       .then((r) => {
         if (r && r.off) control({ off: true });
-        else if (d.events.some((ev) => ev && ev.t === 'ready')) pushConfig();
+        else if (events.some((ev) => ev.t === 'ready')) pushConfig();
       })
       .catch(() => { /* worker asleep or extension reloaded — drop the batch */ });
   });

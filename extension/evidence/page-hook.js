@@ -17,6 +17,7 @@
   const STACK_LINES = 6;        // message + the frames that place the throw (#163)
   const DEDUP_MS = 1000;        // window in which a console.error owns the same failure
 
+  let tok = null;               // the relay's per-document token; without it our batches are page noise
   let off = false;              // the worker told us this recording is over
   let captureBodies = null;     // null = the relay has not answered yet
   let reAnnounced = false;      // the one re-`ready` for a relay that loaded late
@@ -28,7 +29,9 @@
   // ---- channel -----------------------------------------------------------
 
   function send(payload) {
-    try { window.postMessage({ source: CHANNEL, ...payload }, '*'); } catch { /* page killed us */ }
+    const msg = { source: CHANNEL, ...payload };
+    if (tok) msg.tok = tok; // the first hello predates the token, and is refused on purpose
+    try { window.postMessage(msg, '*'); } catch { /* page killed us */ }
   }
 
   function flush() {
@@ -52,6 +55,7 @@
     if (e.source !== window) return;
     const d = e.data;
     if (!d || d.source !== CHANNEL || !d.control) return;
+    if (typeof d.tok === 'string') tok = d.tok;
     // `off` is a two-way switch, not a kill: a NEW recording on a never-navigated
     // document has to un-mute this hook, since the double-init guard eats a re-inject.
     if (typeof d.off === 'boolean') {
