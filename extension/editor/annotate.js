@@ -7,6 +7,10 @@ window.Annotate = (() => {
 
   const $ = (id) => document.getElementById(id);
 
+  // The URL names the key this page reads AND overwrites on exit, so only the shape
+  // shared/capture-annotate.js ever parks a handoff under is accepted.
+  const HANDOFF_KEY = /^annotate-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   let key = null;
   let done = false;         // guards double storage-write
 
@@ -40,8 +44,8 @@ window.Annotate = (() => {
   // ---- boot ---------------------------------------------------------------
   async function init(k) {
     document.title = 'Annotate screenshot';
+    if (!HANDOFF_KEY.test(String(k ?? '')) || !chrome?.storage?.session) { fail('Nothing to annotate.'); return; }
     key = k;
-    if (!key || !chrome?.storage?.session) { fail('Nothing to annotate.'); return; }
     let payload = null;
     try { payload = (await chrome.storage.session.get(key))[key]; } catch { /* unavailable */ }
     const dataUrl = payload && payload.dataUrl;
