@@ -59,7 +59,13 @@ function load(opts = {}) {
   const calls = { $: 0 };
   const state = { settings: o.settings, view: o.view, currentRecordId: o.currentRecordId, runId: 'r1' };
   const capabilities = { jwt: o.jwt, readonly: o.readonly };
-  const records = new Map(o.rows.map((id) => [String(id), { id, test_title: `test ${id}` }]));
+  // A row may be an id or `{ id, status }`: the status is what the row SHOWS, which a queued click
+  // has already moved and a Discard has to move back.
+  const records = new Map(o.rows.map((r) => {
+    const id = r && typeof r === 'object' ? r.id : r;
+    return [String(id), { id, test_title: `test ${id}`, ...(r && typeof r === 'object' ? r : {}) }];
+  }));
+  const refreshes = [];
 
   const globals = {
     state,
@@ -70,6 +76,9 @@ function load(opts = {}) {
     recordFor: (id) => records.get(String(id)) || null,
     runRowEl: (id) => doc.querySelector(`#run-tests li.test-row[data-record-id="${id}"]`),
     repaintRow: (li, r) => { repaints.push(String(r.id)); },
+    // core/views.js's, stubbed: what a Discard asks to repaint the open screen. Optional, like the
+    // other screen globals — a panel without it must not throw.
+    ...(o.noRefresh ? {} : { refreshCurrentView: async () => { refreshes.push(true); } }),
     toast: (msg, tOpts) => { toasts.push({ msg, ...(tOpts || {}) }); },
     // refreshQueueUI runs on every enqueue and every removal, so this one has to stay cheap.
     $: (id) => { calls.$ += 1; return doc.getElementById(id); },
@@ -108,7 +117,8 @@ function load(opts = {}) {
     ...h,
     Q: h.screen,
     banner, bannerText, retry, toggle, queueList, testQueued, list,
-    toasts, writes, repaints, tips, asks, apiCalls, calls, state, capabilities,
+    toasts, writes, repaints, tips, asks, apiCalls, calls, state, capabilities, refreshes,
+    recordFor: (id) => records.get(String(id)) || null,
     stored: () => h.store.data.offlineQueue,
     countOf: (name) => apiCalls.filter((c) => c[0] === name).length,
   };
@@ -1131,6 +1141,56 @@ test('71 (#108): a confirmed Discard drops that one entry and leaves the rest of
   assert.deepEqual(h.writes, []); // discarded, not sent
   assert.deepEqual(Object.keys(h.stored()), ['2']); // and gone from storage, not just from the list
   assert.deepEqual(idsOf(h), ['2']);
+});
+
+// Discard is the tester taking the click back, and the screen has to agree: the row showed
+// `failed`, the click painted `passed` and queued it, the Discard confirms the passed is lost —
+// so the row goes back to `failed`, and the open screen is asked to repaint.
+test('73 (#108): a confirmed Discard puts the row back to the status it showed before the click', async () => {
+  const h = await booted({ rows: [{ id: 1, status: 'passed' }], local: seed({ recordId: 1, status: 'passed', prevStatus: 'failed' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), false);
+  assert.equal(h.recordFor(1).status, 'failed', 'the optimistic paint is taken back');
+  assert.equal(h.refreshes.length, 1, 'and the open screen is asked to repaint once');
+});
+
+test('73b (#108): a second click on the same row keeps the status from BEFORE the first one', async () => {
+  const h = load({ rows: [{ id: 1, status: 'failed' }] });
+  await enqueue(h, { recordId: 1, status: 'passed', prevStatus: 'failed' });
+  await enqueue(h, { recordId: 1, status: 'skipped', prevStatus: 'passed' }); // the row already showed the first click
+  assert.equal(h.stored()['1'].status, 'skipped');
+  assert.equal(h.stored()['1'].prevStatus, 'failed', 'what Discard puts back is the row before the series, not mid-series');
+});
+
+test('73c (#108): an entry from an older build carries no prevStatus — Discard leaves the status alone and still repaints', async () => {
+  const h = await booted({ rows: [{ id: 1, status: 'passed' }], local: seed({ recordId: 1, status: 'passed' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), false);
+  assert.equal(h.recordFor(1).status, 'passed');
+  assert.equal(h.refreshes.length, 1);
+});
+
+test('73d (#108): a cancelled Discard changes nothing on the row and repaints nothing', async () => {
+  const h = await booted({ confirm: false, rows: [{ id: 1, status: 'passed' }], local: seed({ recordId: 1, status: 'passed', prevStatus: 'failed' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), true);
+  assert.equal(h.recordFor(1).status, 'passed');
+  assert.deepEqual(h.refreshes, []);
+});
+
+test('73e (#108): a panel with no refreshCurrentView to call still discards without throwing', async () => {
+  const h = await booted({ noRefresh: true, rows: [{ id: 1, status: 'passed' }], local: seed({ recordId: 1, status: 'passed', prevStatus: 'failed' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), false);
+  assert.equal(h.recordFor(1).status, 'failed');
 });
 
 test('72 (#108): a row whose entry went away under the click neither writes nor throws', async () => {

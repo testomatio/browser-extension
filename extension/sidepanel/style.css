@@ -126,7 +126,9 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
 .pending-banner { flex-wrap: wrap; }
 #pending-banner-toggle > .disc-caret { transition: transform var(--dur-fast) var(--ease); }
 #pending-banner-toggle[aria-expanded="true"] > .disc-caret { transform: rotate(90deg); }
-.pending-queue { flex-basis: 100%; margin-top: var(--space-2); }
+/* min-width: 0 as well — a flex item's floor is its content, and the nowrap title below would hold
+   the whole list at that width, pushing Discard past the panel's edge. */
+.pending-queue { flex-basis: 100%; min-width: 0; margin-top: var(--space-2); }
 .pending-queue > .pending-row {
   display: flex;
   align-items: center;

@@ -44,6 +44,7 @@ const WriteCore = (() => {
     syncBeginWrite(); // pause livesync ticks; force an immediate refetch when this settles
     try {
       const message = comment;
+      const prevStatus = record ? record.status : undefined; // what a Discard puts back
       if (record) Object.assign(record, { status, message });
       if (onOptimistic) onOptimistic();
       let saved;
@@ -70,7 +71,7 @@ const WriteCore = (() => {
           let envMeta = [];
           try { envMeta = await collectEnvMeta(state.settings); } catch { /* park it without */ }
           await OfflineQueue.enqueue({
-            recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now(), reason, envMeta,
+            recordId: record.id, runId: state.runId, status, comment, queuedAt: Date.now(), reason, envMeta, prevStatus,
           });
           return { queued: true, reason };
         }
