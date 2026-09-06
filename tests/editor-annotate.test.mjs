@@ -213,11 +213,15 @@ test('AN12: with no tabs API at all it still gets out of the way', async () => {
 
 // ---- the key it trusts, and the wording it owns ------------------------------
 
-test.todo('AN13 (#318): the annotator reads and overwrites whatever storage key its URL names', async () => {
-  for (const bad of ['settings', 'stepRec', '../x']) {
+// The URL names the key this page reads AND writes back, so anything that is not the one shape
+// capture-annotate.js produces is refused before the store is touched at all.
+test('AN13 (#318): a ?annotate= key that is not annotate-<uuid> is never read, and never written over', async () => {
+  for (const bad of ['settings', 'stepRec', '../x', 'annotate-', 'annotate-nope', `x${KEY}`, `${KEY}x`]) {
     const h = await boot({ store: { [bad]: { dataUrl: SHOT } } }, bad);
     assert.deepEqual(h.calls.gets, [], `?annotate=${bad} is not a handoff key and must not be read`);
     assert.deepEqual(h.calls.created, [], 'nor handed to the engine');
+    assert.deepEqual(h.calls.sets, [], 'and nothing of the tester’s is written back over it');
+    assert.equal(h.root().textContent, 'Nothing to annotate.', 'the tester gets the screen that is already there');
     assert.ok(h.root().querySelector('.annot-msg'), 'the tester is told instead');
   }
 });
