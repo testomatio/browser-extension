@@ -1182,23 +1182,48 @@ test('50: a mirror whose buffer is not a list restores as an empty one', async (
   assert.deepEqual(h.buffer(), []);
 });
 
-test('51: a toggle answered before the restore lands is overwritten by the stale mirror', async () => {
-  const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
-  const res = await h.ask({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
-  assert.equal(res.status.tabId, TAB, 'the fresh recording answered the panel');
+// Record pressed while Chrome is still waking the worker. The mirror of a worker that slept with
+// nothing recording says `session: null` — landing second, that erases the recording just started
+// and unregisters the hook with it, so the toggle has to be answered AFTER the read, like row 53.
+test('51 (#315): a toggle answered before the restore lands keeps the recording it started', async () => {
+  const h = load({ deferRestore: true, mirror: { session: null, buffer: [] } });
+  const s = h.send({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
+  assert.equal(s.ret, true, 'the channel is held open');
+  await h.settle();
+  assert.equal(s.replies.length, 0, 'nothing answered while the mirror read is open');
   h.release();
   await h.ready;
-  // Today the handler does not await evReady, so the restore lands second and wins.
-  assert.equal(h.st.session.recordId, 'stale');
-  assert.equal(h.fns.evStatus().tabId, 77);
+  await h.settle();
+  assert.equal(h.st.session.recordId, 'rec-1', 'an idle mirror cannot un-start the fresh recording');
+  assert.equal(s.replies[0].status.recording, true, 'and the panel is told the truth');
+  const scripting = h.names().filter((n) => n.startsWith('scripting.'));
+  assert.equal(scripting[scripting.length - 1], 'scripting.registerContentScripts',
+    'the restore does not get the last word on the hook');
 });
 
-test.todo('51 (#315): a toggle answered before the restore lands keeps the recording it started', async () => {
+// Not only the toggle. A panel opening at the same moment asks for the status first and draws its
+// button from the answer — told "nothing is recording" while a recording is being restored, it draws
+// Start, and the tester's next press is the Stop that ends the take they thought they were beginning.
+test('51b (#315): a status asked before the restore lands answers the session it is about to find', async () => {
   const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
-  await h.ask({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
+  const s = h.send({ type: 'EVIDENCE_STATUS' });
+  await h.settle();
+  assert.equal(s.replies.length, 0, 'the question waits for the read that answers it');
   h.release();
   await h.ready;
-  assert.equal(h.st.session.recordId, 'rec-1');
+  await h.settle();
+  assert.equal(s.replies[0].status.recording, true, 'and the panel draws Stop, not Start');
+});
+
+test('51a (#315): the same toggle acts on the session the restore found, not on an empty one', async () => {
+  const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
+  const s = h.send({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
+  h.release();
+  await h.ready;
+  await h.settle();
+  // The restore re-adopted tab 77, so this press is the STOP the panel's button was showing.
+  assert.equal(h.st.session, null);
+  assert.equal(s.replies[0].status.recording, false);
 });
 
 // ============================ the protocol and the registrations ============================
