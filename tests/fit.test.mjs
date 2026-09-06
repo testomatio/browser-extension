@@ -151,6 +151,22 @@ test('F5 (#202): the observer re-fits for a width that really moved, and for no 
   assert.equal(h.observers.length, 1);
 });
 
+// F5 asks the guard's question of a row where everything fitted. A row that HID something takes the
+// other branch out of the fitter, and it has to remember its width too — otherwise the guard is
+// always true and the row re-fits on every tick the observer fires, forever.
+test('F5b (#202): a row that hid something remembers the width it hid at, same as one that did not', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [60, 60, 60, 60], 150);
+  h.fit.filterChips(bar);
+  assert.deepEqual(chips.map((c) => c.hidden), [false, true, true, true], 'three went into the "…"');
+
+  // The same mark F5 uses: only a re-fit would wipe it, because the fit re-shows every chip first.
+  chips[3].hidden = false;
+  h.observers[0].cb();
+  assert.deepEqual(chips.map((c) => c.hidden), [false, true, true, false],
+    'the width it settled on came back through the observer, and the guard let nothing through');
+});
+
 test('F6 (#202): the "…" menu is built once per bar, so a re-fit cannot close it under the pointer', () => {
   const h = load();
   const { bar } = filterBar(h, [50, 50, 50, 50], 150);
