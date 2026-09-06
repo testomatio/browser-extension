@@ -155,7 +155,7 @@
       </p>
     </section>
 
-    <!-- The eight panels of #tabbar's three tabs (TAB_OF_VIEW, core/views.js). tabindex="-1" is not a
+    <!-- The eight panels of #tabbar's three tabs (TAB_OF_VIEW, core/nav-model.js). tabindex="-1" is not a
          tab stop: it is what lets show() put the caret on the section it just opened. -->
     <section id="view-settings" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-settings">
@@ -890,6 +890,9 @@
   <script src="core/skeleton.js"></script>
   <script src="core/env-info.js"></script>
   <script src="core/storage.js"></script>
+  <!-- Which tab a screen belongs to, what the row above it says, and where Back goes. Pure, and
+       the file below is its only reader — so it stands immediately before core/views.js. -->
+  <script src="core/nav-model.js"></script>
   <script src="core/views.js"></script>
   <!-- The one place a verdict becomes a request — the test view, the run rows and the queue
        replay all call it. After core/views.js, before every screen that writes. -->

@@ -1,25 +1,12 @@
 // Core views: the view switcher (show), tab navigation, the contextual header
 // row, in-tab back navigation, toasts and status lines.
 
-/* global TestomatAPI, Handoff, Icons, Roving, Skeleton, Sk, loadRunsCount, loadTestsCount, Tooltip,
-   PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
+/* global TestomatAPI, Handoff, Icons, NavModel, Roving, Skeleton, Sk, loadRunsCount, loadTestsCount,
+   Tooltip, PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker, StatusIcons */
 
-// ---------- tab model ----------
-// `promote` is the suite picker's historical view name (see tc-studio.js).
-const TAB_OF_VIEW = {
-  tcstudio: 'tests', tclist: 'tests', promote: 'tests',
-  runs: 'runs', run: 'runs', test: 'runs',
-  // `pick` is the choose-a-project screen: it stands BEFORE the tabs (nothing is scoped yet)
-  // and hides them, but it is the Settings tab it belongs to — the one tab reachable unconfigured.
-  settings: 'settings', pick: 'settings',
-};
-const TABS = ['tests', 'runs', 'settings'];
-// A tab's landing view: the contextual row (Back + title) is hidden there.
-const ROOT_VIEWS = new Set(['tcstudio', 'runs', 'settings', 'pick']);
-// Where a tab stands before it has stood anywhere — the section `aria-controls` names
-// until state.tabViews remembers one of its own (openTabView lands on these same three).
-const TAB_ROOT = { tests: 'tcstudio', runs: 'runs', settings: 'settings' };
+// The tab model, the titles and the two navigation decisions are core/nav-model.js — pure, and
+// loaded ahead of this file. What is left here is the DOM half: paint what NavModel decided.
 
 // ---------- view switching ----------
 
@@ -29,7 +16,7 @@ function show(view) {
   Skeleton.bootDone();
   Skeleton.hide();
   state.view = view;
-  const tab = TAB_OF_VIEW[view] || 'runs';
+  const tab = NavModel.tabOfView(view);
   state.activeTab = tab;
   state.tabViews[tab] = view;
   document.body.dataset.view = view; // CSS + e2e hook
@@ -57,15 +44,9 @@ function focusShownView(view) {
   if (lost) $(`view-${view}`)?.focus();
 }
 
-// The LAST crumb of the path, printed as the screen's title, not as a link.
-// Empty on a tab root (the row is hidden there).
-function contextTitleFor(view) {
-  if (view === 'run') return state.runTitle || 'Run';
-  if (view === 'test') return state.testTitle || 'Test';
-  if (view === 'tclist') return state.tcSuiteTitle || 'Suite';
-  if (view === 'promote') return 'Choose suite';
-  return '';
-}
+// The bare name kept as a delegate — a declaration, so it is reached for the way every other
+// name in this file is; `state` is the panel global the model refuses to read for itself.
+function contextTitleFor(view) { return NavModel.contextTitleFor(view, state); }
 
 // Marks set at the head of the title, in list-row order: priority, then type.
 // A run carries none — its kind and status are pills right under this row.
@@ -133,39 +114,23 @@ function renderContextCrumbs(view) {
   });
 }
 
-// The way out to the web app for whatever this row names. The routes are the
-// product's own (Ember), and every id here IS the public uid v2 serializes.
-
-const CONTEXT_WEB_TARGET = {
-  run: () => (state.runId ? ['run', `runs/${encodeURIComponent(state.runId)}`] : null),
-  test: () => {
-    // #203: links to the TESTRUN record, not the test case — a parametrized run
-    // has many records sharing one test_id, which cannot name the row on screen.
-    if (state.runId && state.currentRecordId) {
-      return ['test', `runs/${encodeURIComponent(state.runId)}/test/${encodeURIComponent(state.currentRecordId)}`];
-    }
-    // No run around the record: the test CASE page (singular route, #113).
-    const rec = typeof recordFor === 'function' ? recordFor(state.currentRecordId) : null;
-    return rec && rec.test_id ? ['test', `test/${encodeURIComponent(rec.test_id)}`] : null;
-  },
-  tclist: () => (state.tcSuiteId ? ['suite', `suite/${encodeURIComponent(state.tcSuiteId)}`] : null),
-};
-
 // With no target — the suite picker, a locked project, an id that is not known
 // yet — it HIDES rather than point at a 404.
 function renderContextOpenLink(view) {
   const a = $('context-open');
   if (!a) return;
   const s = state.settings || {};
-  const target = capabilities.readonly ? null : (CONTEXT_WEB_TARGET[view] || (() => null))();
+  // The record lookup belongs to the test screen and may not have loaded; the model takes it
+  // as an argument rather than reaching for it, which is what keeps the model dependency-free.
+  const lookup = typeof recordFor === 'function' ? recordFor : null;
+  const target = capabilities.readonly ? null : NavModel.webTarget(view, state, lookup);
   if (!target || !s.baseUrl || !s.projectId) {
     a.removeAttribute('href');
     a.hidden = true;
     return;
   }
   const [noun, path] = target;
-  const base = String(s.baseUrl).replace(/\/+$/, '');
-  a.href = `${base}/projects/${encodeURIComponent(s.projectId)}/${path}`;
+  a.href = NavModel.webHref(s.baseUrl, s.projectId, path);
   const label = `Open this ${noun} in Testomat`;
   Tooltip.set(a, label);
   a.setAttribute('aria-label', label);
@@ -193,7 +158,7 @@ function homeRefreshButton(contextual) {
 // Contextual header row (#127): outside a tab root it is the panel's only chrome —
 // the project strip and the tab row fold away (immersive), hence the trail here.
 function updateContextBar(view) {
-  const contextual = !ROOT_VIEWS.has(view);
+  const contextual = !NavModel.ROOT_VIEWS.has(view);
   $('context-bar').hidden = !contextual;
   $('btn-back').hidden = !contextual; // redundant with the row, kept explicit
   const title = $('context-title');
@@ -221,7 +186,7 @@ function refreshContextBar() { updateContextBar(state.view); }
 // First-launch gate: until settings are configured, only Settings is reachable.
 function updateTabBar() {
   const configured = isConfigured(); // token AND a resolved project (#103)
-  for (const tab of TABS) {
+  for (const tab of NavModel.TABS) {
     const btn = $(`tab-${tab}`);
     if (!btn) continue;
     const active = state.activeTab === tab;
@@ -237,7 +202,7 @@ function updateTabBar() {
     // Three tabs over eight sections, so the panel a tab names is the one it would show right
     // now. A disabled tab names none — it cannot open one.
     if (disabled) btn.removeAttribute('aria-controls');
-    else btn.setAttribute('aria-controls', `view-${state.tabViews[tab] || TAB_ROOT[tab]}`);
+    else btn.setAttribute('aria-controls', `view-${state.tabViews[tab] || NavModel.TAB_ROOT[tab]}`);
   }
   // Wired once per container and free on every later call (shared/roving.js). Roving.item() is
   // NOT used here: it writes role="button" over the role="tab" the markup already carries.
@@ -256,7 +221,7 @@ function setTabCount(tab, n) {
 }
 // A declaration, not a const arrow: state.js reaches for it through `typeof`,
 // and `typeof` is not TDZ-safe for a lexical binding in another classic script.
-function resetTabCounts() { for (const t of TABS) setTabCount(t, null); }
+function resetTabCounts() { for (const t of NavModel.TABS) setTabCount(t, null); }
 
 // Re-painting the same value is silent — a count that did not move must not blink.
 // Replaying the keyframe needs the class off, a layout read, then the class back on.
@@ -584,20 +549,19 @@ function switchTab(tab) {
   openTabView(tab);
 }
 
-// Views holding in-memory state (an open run/test, a suite's TC list) are re-shown
-// without a reset; container views reload from storage/server.
-function openTabView(tab) {
-  if (tab === 'settings') { openSettingsView(); return; }
-  const remembered = state.tabViews[tab];
-  if (tab === 'tests') {
-    // The picker is a transient step of + New test — re-entry lands on the tree.
-    if (remembered === 'tclist' && state.tcSuiteId) show('tclist');
-    else openTcStudioView();
-  } else { // runs
-    if ((remembered === 'run' || remembered === 'test') && state.runId) show(remembered);
-    else openRunsView();
-  }
+// One of NavModel's descriptors, carried out. The openers are named one by one and not through a
+// map: every screen script loads AFTER this file, so a name is only safe to read once it is called.
+function navStep(step) {
+  if (!step) return;
+  if (step.show) { show(step.show); return; }
+  const args = step.args || [];
+  if (step.open === 'settings') openSettingsView();
+  else if (step.open === 'tcstudio') openTcStudioView();
+  else if (step.open === 'runs') openRunsView();
+  else if (step.open === 'run') openRunView(...args);
 }
+
+function openTabView(tab) { navStep(NavModel.nextViewForTab(tab, state)); }
 
 // Open = refill the form from saved settings, discarding stale edits in the DOM.
 function openSettingsView() {
@@ -605,15 +569,7 @@ function openSettingsView() {
   show('settings');
 }
 
-// Back navigates only INSIDE the active tab; tab roots hide the arrow entirely.
-function goBack() {
-  const v = state.view;
-  if (v === 'tclist') openTcStudioView();
-  else if (v === 'promote') openTcStudioView(); // cancel the + New test suite picker
-  else if (v === 'test') openRunView(state.runId, state.runTitle);
-  else if (v === 'run') openRunsView();
-  // tcstudio / runs / settings are tab roots — back is hidden, nothing to do.
-}
+function goBack() { navStep(NavModel.backTargetFor(state.view, state)); }
 
 // Auto-hide scales with message length so long messages stay readable.
 function toastDuration(msg) {
