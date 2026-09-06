@@ -604,6 +604,21 @@ test('21: a response body over the cap is cut down before it reaches the buffer'
   assert.equal(h.st.buffer[0].bodyTruncated, true, 'the tester is told the row holds a fragment');
 });
 
+// The edge of the cap itself. Row 23 pins the batch boundary; the body's went unpinned, so a
+// comparison that let one character past — and with it the `bodyTruncated` flag the tester reads
+// the row by — would have gone unnoticed.
+test('21b: a body exactly at the cap is kept whole, one character over is cut and flagged', async () => {
+  const h = await recording();
+  h.fns.evOnPageEvents([
+    { t: 'net', ts: at(1), url: `${SITE}/api/exact`, bodySnippet: 'x'.repeat(BODY_CAP) },
+    { t: 'net', ts: at(2), url: `${SITE}/api/over`, bodySnippet: 'x'.repeat(BODY_CAP + 1) },
+  ], { tab: { id: TAB }, frameId: 0 });
+  assert.equal(h.st.buffer[0].bodySnippet.length, BODY_CAP);
+  assert.equal(h.st.buffer[0].bodyTruncated, false, 'nothing was cut, so nothing is flagged');
+  assert.equal(h.st.buffer[1].bodySnippet.length, BODY_CAP);
+  assert.equal(h.st.buffer[1].bodyTruncated, true);
+});
+
 test('22: console text over the cap is cut down before it reaches the buffer', async () => {
   const h = await recording();
   h.fns.evOnPageEvents([{ t: 'console', ts: at(1), text: `HEAD${'x'.repeat(10_000_000)}TAIL` }],
