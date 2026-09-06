@@ -187,7 +187,8 @@
       teardown();
     };
     // Navigating away is not a deliberate exit: attach nothing rather than the un-blurred raw shot.
-    const onPageHide = () => { try { chrome.storage.session.set({ [key]: { cancelled: true } }); } catch { /* noop */ } };
+    // Same two refusals as signal(): a page being torn down is exactly when the store rejects.
+    const onPageHide = () => { try { chrome.storage.session.set({ [key]: { cancelled: true } })?.catch(() => {}); } catch { /* noop */ } };
     window.addEventListener('pagehide', onPageHide);
 
     // A throw in here would otherwise be an unhandled rejection in the page's world — invisible
