@@ -11,6 +11,10 @@
   const fileName = q.get('name') || '';
   const fileType = q.get('type') || '';
 
+  // This page is web-accessible under a pinned id, so any site can open it with a ?url= of its
+  // own. The worker parks the ONE file it is about to show here first; no page can write there.
+  const PARKED_KEY = 'fileOverlay';
+
   const VIDEO_EXT = /\.(webm|mp4|mov|m4v|ogv)(?:$|[?#])/i;
   const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|avif)(?:$|[?#])/i;
   const TEXT_EXT = /\.(md|log|txt|json|csv|xml|ya?ml)(?:$|[?#])/i;
@@ -41,6 +45,22 @@
   }
 
   const onInstance = () => !!base && (fileUrl === base || fileUrl.startsWith(`${base}/`));
+
+  // ---- the allowlist of exactly one ----------------------------------------
+
+  async function parkedUrl() {
+    if (typeof chrome === 'undefined' || !chrome.storage?.session) return '';
+    try {
+      const got = await chrome.storage.session.get(PARKED_KEY);
+      const rec = got && got[PARKED_KEY];
+      return rec && typeof rec.url === 'string' ? rec.url : '';
+    } catch { return ''; }
+  }
+
+  // No url reaches nothing, so it keeps its own note below. Anything else has to be https AND the
+  // very url the worker parked — a query the page made up matches neither.
+  const allowed = async () => !fileUrl
+    || (/^https:\/\//i.test(fileUrl) && fileUrl === await parkedUrl());
 
   // fetchAsset carries the session ONLY for the configured instance; a presigned or public
   // link goes out bare. Both come back as bytes, which is what the CSP leaves room for.
@@ -78,6 +98,8 @@
 
   // The title bar's link stays up through every failure — it is the way out to a real tab.
   const fail = () => note('This file could not be loaded — the link may have expired.');
+
+  const refuse = () => note('This link did not come from the panel, so it was not opened.');
 
   function renderVideo(src) {
     const el = document.createElement('video');
@@ -121,9 +143,13 @@
     document.title = name;
     $('viewer-name').textContent = name;
     $('viewer-name').title = name;
+  }
+
+  // The way out waits for the verdict: a url this page refuses must not become a link either.
+  function paintOut(ok) {
     const out = $('viewer-open');
-    out.href = fileUrl;
-    out.hidden = !fileUrl;
+    out.href = ok ? fileUrl : '';
+    out.hidden = !ok || !fileUrl;
   }
 
   // Framed by the on-page overlay, or standing alone in a tab of its own (the overlay's
@@ -141,5 +167,9 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSelf(); });
 
   paintChrome();
-  boot().catch(() => { /* no session — a signed or public link still loads */ }).then(show);
+  allowed().then((ok) => {
+    paintOut(ok);
+    if (!ok) { refuse(); return undefined; }
+    return boot().catch(() => { /* no session — a signed or public link still loads */ }).then(show);
+  });
 })();
