@@ -269,6 +269,23 @@ test('10: the engine throws on this page and the overlay leaves rather than stan
   assert.deepEqual(h.tips.map((r) => r[0]), ['mount', 'unmount'], 'the tooltip goes with it');
 });
 
+// signal() is fire-and-forget on purpose, so a store that REJECTS (quota, a context torn down
+// mid-write) has no owner: the rejection surfaces in the console of the site being tested.
+test('10b (#333): a store that refuses the exit signal leaves no error in the page under test', async () => {
+  const seen = [];
+  const onUnhandled = (e) => seen.push(String(e));
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const h = load({ core: 'throws' });
+    h.flags.setFails = true; // armed before the async half writes anything
+    await settle(4);
+    assert.equal(h.hosts().length, 0, 'the overlay still leaves');
+    assert.deepEqual(seen, [], 'nothing of ours may reach the tested page’s console');
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+});
+
 test('11: annotating the same tab twice leaves one overlay behind, not two', async () => {
   const h = load({ stale: true });
   await settle();

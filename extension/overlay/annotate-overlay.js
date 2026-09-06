@@ -22,7 +22,8 @@
   // Every exit writes to the handoff key. A silent `return` here used to leave the panel on
   // "Annotating…" for good: it awaits this key and there is nothing else to tell it the
   // overlay never came up.
-  const signal = (v) => { try { chrome.storage.session.set({ [key]: v }); } catch { /* noop */ } };
+  // Both refusals stay off the tested page's console: a dead context throws here, a full store rejects.
+  const signal = (v) => { try { chrome.storage.session.set({ [key]: v })?.catch(() => {}); } catch { /* noop */ } };
 
   if (!key || !chrome?.storage?.session) return; // no key, no channel — the panel's watchdog covers it
   if (!libCss || typeof AnnotateCore === 'undefined') {
