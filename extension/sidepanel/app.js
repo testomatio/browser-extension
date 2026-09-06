@@ -2,7 +2,7 @@
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
-   RunLock, RunInfo, TcQuickBar, TcSuiteCreate */
+   RunLock, RunInfo, TcQuickBar, TcSuiteCreate, OpenRunIntent */
 
 // ---------- init ----------
 
@@ -117,7 +117,7 @@ async function init() {
   // is what a tester who opened the panel FROM that app is expecting to see.
   if (await Handoff.ready()) await Handoff.connect();
   if (!state.settings) {
-    dropOpenRunIntent(); // landing on Settings anyway; a stale intent must not fire on a later connect
+    OpenRunIntent.drop(); // landing on Settings anyway; a stale intent must not fire on a later connect
     fillSettingsForm();
     show('settings');
     state.booting = false; // a later Save may now persist its session
@@ -154,8 +154,8 @@ async function init() {
 
   // The host's run, then a "Run in Extension" click — both outrank the editor breadcrumb and the
   // restored session below, and both need the project switcher settled above.
-  const openedIntent = (await Handoff.openRun()) || (await consumeOpenRunIntent());
-  initOpenRunIntent(); // …and a panel left open answers the next click without a reload
+  const openedIntent = (await Handoff.openRun()) || (await OpenRunIntent.consume(openRunFromUrl));
+  OpenRunIntent.init(openRunFromUrl); // …and a panel left open answers the next click without a reload
   if (openedIntent) { state.booting = false; return; }
 
   // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list, and is
@@ -188,36 +188,6 @@ async function init() {
   }
   // Boot restore is done — later view changes may persist the session again.
   state.booting = false;
-}
-
-// ---------- "Run in Extension" intent (#14) ----------
-
-const OPEN_RUN_INTENT_KEY = 'openRunIntent';
-const OPEN_RUN_INTENT_MAX_AGE_MS = 60000; // the panel it woke may be slow; a click older than this is not this one
-
-function dropOpenRunIntent() {
-  try { chrome.storage.session?.remove(OPEN_RUN_INTENT_KEY)?.catch(() => {}); } catch { /* no session storage */ }
-}
-
-// The key is removed BEFORE it is acted on, so boot and the live listener cannot both run it.
-async function consumeOpenRunIntent() {
-  let intent;
-  try {
-    if (!chrome.storage?.session) return false;
-    intent = (await chrome.storage.session.get(OPEN_RUN_INTENT_KEY))[OPEN_RUN_INTENT_KEY];
-    if (!intent) return false;
-    await chrome.storage.session.remove(OPEN_RUN_INTENT_KEY);
-  } catch { return false; }
-  if (!intent.url || Date.now() - Number(intent.at || 0) > OPEN_RUN_INTENT_MAX_AGE_MS) return false;
-  return openRunFromUrl(intent.url);
-}
-
-function initOpenRunIntent() {
-  try {
-    chrome.storage.session.onChanged.addListener((c) => {
-      if (c[OPEN_RUN_INTENT_KEY]?.newValue) consumeOpenRunIntent();
-    });
-  } catch { /* older Chrome — no session onChanged */ }
 }
 
 // The floor under show(): a boot that throws before reaching a view must not leave the placeholder up.

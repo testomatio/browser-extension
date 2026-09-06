@@ -106,7 +106,15 @@ export function fakeChrome(opts = {}) {
     return pick(sess, arg);
   };
 
-  const sessionArea = { get: sessionGet };
+  // The panel's one WRITE to session storage is a removal, and it is ordered: the open-run intent is
+  // burnt before it is acted on, so a row has to watch the key actually leave `sess`, not just count.
+  const sessionRemove = async (arg) => {
+    record('session', 'remove', arg);
+    for (const k of [].concat(arg)) delete sess[k];
+    return undefined;
+  };
+
+  const sessionArea = { get: sessionGet, remove: sessionRemove };
   if (sessionOnChanged) {
     sessionArea.onChanged = { addListener: (fn) => { sessionListeners.push(fn); } };
   }
