@@ -162,6 +162,17 @@ test('78: a queue removal that throws does not fail a status that is already sav
   assert.equal(h.calls.endWrites, 1);
 });
 
+// What the row showed BEFORE the click travels with the queued entry: Discard puts it back, and
+// nothing else knows it once the optimistic paint has landed on the record.
+test('79z (#108): the queued entry carries the status the row showed before the click', async () => {
+  const h = load();
+  h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
+  assert.equal(h.state.records[0].status, 'pending');
+  await h.fn.writeStatus(h.state.records[0], 'passed', '', null);
+  assert.equal(h.calls.enqueued[0].prevStatus, 'pending');
+  assert.equal(h.state.records[0].status, 'passed'); // the paint itself is unchanged
+});
+
 test('79: a network failure queues the click, keeps the optimistic status and says nothing', async () => {
   const h = load();
   h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
@@ -170,6 +181,7 @@ test('79: a network failure queues the click, keeps the optimistic status and sa
   assert.deepEqual(h.calls.enqueued, [{
     recordId: 7, runId: 'r1', status: 'passed', comment: 'note', queuedAt: 1700000000000, reason: 'network',
     envMeta: [], // the environment as it was, snapshotted here — rows 87-87d are about it
+    prevStatus: 'pending', // what the row showed before the click — row 79z is about it
   }]);
   assert.equal(h.state.records[0].status, 'passed'); // no rollback
   assert.deepEqual(h.calls.toasts, []);

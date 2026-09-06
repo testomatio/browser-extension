@@ -2,7 +2,7 @@
 // 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
 /* global TestomatAPI, state, capabilities, hasChrome, hostOf, isReadonlyError, recordFor,
-   runRowEl, repaintRow, toast, WriteCore, RunLock, ConfirmDialog, $, Tooltip */
+   runRowEl, repaintRow, refreshCurrentView, toast, WriteCore, RunLock, ConfirmDialog, $, Tooltip */
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
@@ -66,13 +66,17 @@ async function persistQueue() {
 
 // Add or REPLACE (newer click wins). Stored: the RAW tester text, and the environment AS IT WAS
 // when the tester marked it — the replay writes that back instead of reading the tab open then.
-async function queueEnqueue({ recordId, runId, status, comment, queuedAt, reason, envMeta }) {
+async function queueEnqueue({ recordId, runId, status, comment, queuedAt, reason, envMeta, prevStatus }) {
+  const older = queueCache[qKey(recordId)];
   // The recorder's window is NOT parked here: up to 1000 entries carrying a 16KB body each,
   // against storage.local's 10MB — a quota overrun would lose the queued result itself.
   queueCache[qKey(recordId)] = {
     recordId, runId, status, comment: comment || '', queuedAt: queuedAt || Date.now(),
     reason: normalizeFlag(reason), // WORDING only — the replay treats every entry alike
     envMeta: Array.isArray(envMeta) ? envMeta : null, // older entries have none: they write no meta
+    // What the row showed before the FIRST click of this series: a newer click replaces the
+    // entry, not the status a Discard has to put back.
+    prevStatus: older && older.prevStatus !== undefined ? older.prevStatus : prevStatus,
     ...queueIdentity(), // the connection this write belongs to — replay elsewhere 404s
   };
   await persistQueue();
@@ -286,7 +290,15 @@ async function queueDiscardOne(recordId) {
   const ok = await ConfirmDialog.ask(
     `Discard ${entryTitle(entry)}? It was never sent — the ${entry.status} you marked is lost.`, 'Discard');
   if (!ok) return;
-  if (await queueRemove(recordId)) refreshQueueUI(); // the dialog outlived the entry otherwise
+  if (!(await queueRemove(recordId))) return; // the dialog outlived the entry
+  // Taking the click back means the row goes back to what it showed before it — the optimistic
+  // paint has no other undo — and the open screen repaints from memory or, on the run, the server.
+  const rec = typeof recordFor === 'function' ? recordFor(recordId) : null;
+  if (rec && entry.prevStatus !== undefined) rec.status = entry.prevStatus;
+  refreshQueueUI();
+  if (typeof refreshCurrentView === 'function') {
+    try { await refreshCurrentView(); } catch { /* the screen reports its own failures */ }
+  }
 }
 
 // ---------- UI: pending banner + the queued list + «queued» markers ----------
