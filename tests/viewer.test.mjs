@@ -607,6 +607,14 @@ test('22d (#105): the match is exact — the parked url with a query bolted on i
   assert.deepEqual(h.fetches, []);
 });
 
+// The other half of "exact": a url the parked one merely BEGINS with is a shorter path on the
+// same instance, and the token would go out on it. A prefix test would wave it through.
+test('22m (#105): a url the parked one only starts with is refused, not treated as a match', async () => {
+  const h = await load({ url: `${INSTANCE}/`, name: 'shot.png', parked: `${INSTANCE}/artifacts/shot.png` });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
 test('22e (#105): http is refused outright, even when it is the url that was parked', async () => {
   const h = await load({ url: 'http://files.test/run.log', name: 'run.log' });
   assert.equal(h.kind(), 'refused');
