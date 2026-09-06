@@ -2,7 +2,7 @@
 // MUST load LAST — every core/ and screens/ script defines the globals this init uses.
 
 /* global Handoff, Icons, Skeleton, askForProject, CommentDrafts, TestSummary, TestMeta, TestGates,
-   RunLock, RunInfo, TcQuickBar, TcSuiteCreate, OpenRunIntent */
+   RunLock, RunInfo, TcQuickBar, TcSuiteCreate, OpenRunIntent, SessionRestore */
 
 // ---------- init ----------
 
@@ -145,12 +145,12 @@ async function init() {
   const session = stored.session;
   // Sessions are keyed by record id; a session that predates that degrades to the run list
   // (nothing resolves) rather than restoring a stale test.
-  state.stepTicks = session?.stepTicks || {};
-  state.expandedGroups = Array.isArray(session?.expandedGroups) ? session.expandedGroups : [];
-  state.runsFilter = FILTER_KEYS.has(session?.runsFilter) ? session.runsFilter : 'all';
-  // Open unless this user closed it — no key (old session, fresh profile) means the default, open.
-  RunInfo.open = session?.runInfoOpen !== false;
-  state.tabViews = (session && session.tabViews && typeof session.tabViews === 'object') ? session.tabViews : {};
+  const restored = SessionRestore.fromStored(session, FILTER_KEYS);
+  state.stepTicks = restored.stepTicks;
+  state.expandedGroups = restored.expandedGroups;
+  state.runsFilter = restored.runsFilter;
+  RunInfo.open = restored.runInfoOpen;
+  state.tabViews = restored.tabViews;
 
   // The host's run, then a "Run in Extension" click — both outrank the editor breadcrumb and the
   // restored session below, and both need the project switcher settled above.
@@ -158,20 +158,15 @@ async function init() {
   OpenRunIntent.init(openRunFromUrl); // …and a panel left open answers the next click without a reload
   if (openedIntent) { state.booting = false; return; }
 
-  // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list, and is
-  // consumed once so a later plain reload does not hijack the runs view.
-  let tcReturn = null;
-  try { tcReturn = JSON.parse(sessionStorage.getItem('tcReturn') || 'null'); } catch { /* ignore */ }
-  if (tcReturn && tcReturn.suiteId) {
-    try { sessionStorage.removeItem('tcReturn'); } catch { /* ignore */ }
+  // Returning from the editor: openEditor()'s breadcrumb restores that suite's TC list.
+  const tcReturn = SessionRestore.takeTcReturn();
+  if (tcReturn) {
     openTcListView(tcReturn.suiteId, tcReturn.suiteTitle);
     state.booting = false;
     return;
   }
 
-  // Old sessions (no activeTab) infer 'runs' from a persisted run/test view, so an in-flight run restores.
-  const activeTab = session?.activeTab
-    || ((session?.view === 'run' || session?.view === 'test') ? 'runs' : null);
+  const activeTab = restored.activeTab;
   if (activeTab === 'runs' && session?.runId && (session.view === 'run' || session.view === 'test')) {
     state.runTitle = session.runTitle || '';
     await openRunView(session.runId, session.runTitle);

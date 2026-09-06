@@ -903,6 +903,9 @@
   <!-- The "Run in Extension" click left in session storage. Nothing runs at load and the opener is
        handed in, so the position is only the convention "before the file that uses it" — app.js. -->
   <script src="core/open-run-intent.js"></script>
+  <!-- The guards a stored session is read back through, and the editor's one-shot breadcrumb. The
+       filter keys are handed in, so this stands only before its one reader — app.js. -->
+  <script src="core/session-restore.js"></script>
   <script src="screens/onboarding.js"></script>
   <!-- The choose-a-project screen — after core/project-switcher.js, whose row builder and filter it
        shares with the header popup, and before settings.js, which sends the first run to it. -->
