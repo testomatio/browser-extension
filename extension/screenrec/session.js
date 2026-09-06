@@ -267,16 +267,19 @@ async function srecFinish(file, st, reason) {
 // The review overlay, over the recorded tab when it still lives, over the site tab otherwise,
 // in a tab of its own when Chrome keeps extensions off both.
 async function srecOpenReview(tabId) {
+  // The overlay goes in FIRST, and the tab comes forward only once it is in: fronting a tab for an
+  // inject that then fails moves the tester to a page with no review on it, and the next one again.
   const inject = async (id) => {
     if (id == null) return false;
     try {
-      await chrome.tabs.update(id, { active: true });
       await chrome.scripting.executeScript({ target: { tabId: id }, files: ['content/review-overlay.js'] });
-      return true;
     } catch { return false; }
+    // The review is in — this placement stands whether or not Chrome lets us raise the tab.
+    try { await chrome.tabs.update(id, { active: true }); } catch { /* left where it is */ }
+    return true;
   };
   if (await inject(tabId)) return { ok: true };
-  const site = await resolveSiteTab({ verb: 'reviewed', activate: true });
+  const site = await resolveSiteTab({ verb: 'reviewed' });
   if (site.state === 'ok' && await inject(site.tab.id)) return { ok: true };
   try {
     await chrome.tabs.create({ url: chrome.runtime.getURL('screenrec/review.html') });
