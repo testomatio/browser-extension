@@ -114,6 +114,8 @@ function load(opts = {}) {
     TestomatAPI: { jwtAvailable: () => o.jwt },
     // core/state.js:101, verbatim.
     isConfigured: () => !!(state.settings && state.settings.projectId),
+    // core/state.js:97, verbatim — what core/gates.js asks before naming a host to sign in at.
+    hostOf: (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } },
     persistSession: () => { calls.persists += 1; calls.order.push('persist'); },
     // The crumb factories name these at BUILD time, not on click — an absent one throws.
     openRunsView: () => { calls.opens.push(['runs']); calls.order.push('openRunsView'); },
@@ -1170,13 +1172,17 @@ test('V59: under the lockout there is no basic mode to explain, so the strip sta
   assert.equal(h.node['degraded-banner'].hidden, true);
 });
 
-test('V60 (#336): with nothing saved the strip reads "the web app web login", and that is a gap', () => {
+test('V60 (#336): with nothing saved there is nowhere to sign in, so the strip stays down', () => {
+  const shown = load({ jwt: false });
+  shown.fn.show('runs');
+  assert.equal(shown.node['degraded-banner'].hidden, false, 'a named instance still gets the strip');
+
   const h = load({ jwt: false, settings: null });
-  assert.equal(h.fn.baseUrlHost(), 'the web app');
+  assert.equal(h.fn.baseUrlHost(), 'the web app', 'the fallback still answers the messages that use it');
   h.state.view = 'runs';
   h.fn.updateDegradedBanner();
-  assert.match(h.node['degraded-banner'].querySelector('.degraded-banner-text').textContent,
-    /an active the web app web login/);
+  assert.equal(h.node['degraded-banner'].hidden, true,
+    'it read "need an active the web app web login" — a doubled sentence pointing at nothing');
 });
 
 // ---------- tabs, and the way back ----------

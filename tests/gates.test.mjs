@@ -2,9 +2,10 @@
 // extension/sidepanel/core/gates.js (#202, the third seam out of core/views.js): the two walls that
 // take the panel away from the tester — the lockout a read-only project raises in front of every
 // screen, and the basic-mode strip that names the web login the panel is missing.
-// The module needs `state`, `capabilities`, `views`, `$`, a `jwtAvailable` probe and a document, plus
-// the two painters it reaches back into core/views.js for — updateContextBar and setImmersive, spied
-// here rather than run. That is the seam's value: the sentence, the fallback host and the sweep over
+// The module needs `state`, `capabilities`, `views`, `$`, `hostOf`, a `jwtAvailable` probe and a
+// document, plus the two painters it reaches back into core/views.js for — updateContextBar and
+// setImmersive, spied here rather than run. That is the seam's value: the sentence, the host it
+// names — or refuses to — and the sweep over
 // eight sections can be falsified without a tab bar, a navigation model or eight screen openers.
 // tests/views.test.mjs keeps its own rows (V52-V60) over the same behaviour as the panel performs it,
 // through the bare delegates every screen calls. The duplication is deliberate: those say the panel
@@ -55,6 +56,8 @@ function load(opts = {}) {
       capabilities: { readonly: o.readonly, jwt: o.jwt },
       views: VIEWS,
       $: (id) => doc.getElementById(id),
+      // core/state.js:97, verbatim — the panel's own "can this base URL name a host" answer.
+      hostOf: (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } },
       TestomatAPI: { jwtAvailable: () => o.jwt },
       // core/views.js's two painters. They load AFTER this file and are only ever reached at paint
       // time, so the forward reference is what the load order makes safe — spied, never run.
@@ -152,10 +155,18 @@ test('G8 (#202): the strip says exactly what basic mode costs, and where to go a
     + 'need an active a.io web login. Sign in there, then Refresh.');
 });
 
-test('G9 (#336): with nothing saved the sentence reads "the web app web login", and that is a gap', () => {
-  const h = load({ jwt: false, settings: null });
-  h.gates.updateDegradedBanner();
-  assert.match(h.text(), /an active the web app web login/);
+test('G9 (#336): with nothing saved there is nowhere to sign in, so the strip stays down', () => {
+  const shown = load({ jwt: false, settings: { baseUrl: 'https://a.io' } });
+  shown.gates.updateDegradedBanner();
+  assert.equal(shown.node['degraded-banner'].hidden, false, 'a named instance still gets the strip');
+
+  // It used to read "need an active the web app web login" and send the tester to a site the
+  // panel cannot name — a doubled sentence, and advice with no "there" in it.
+  for (const settings of [null, { baseUrl: '' }, { baseUrl: 'app.testomat.io' }, { baseUrl: 'not a url' }]) {
+    const h = load({ jwt: false, settings });
+    h.gates.updateDegradedBanner();
+    assert.equal(h.node['degraded-banner'].hidden, true, `settings: ${JSON.stringify(settings)}`);
+  }
 });
 
 test('G10 (#202): the strip waits for a PROVEN missing login and never appears on a maybe', () => {

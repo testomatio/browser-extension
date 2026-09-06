@@ -1,7 +1,7 @@
 // The two walls that take the panel away from the tester: the lockout a read-only project raises in
 // front of every screen, and the basic-mode strip. Read by core/views.js, which keeps the bare names.
 
-/* global $, TestomatAPI, capabilities, setImmersive, state, updateContextBar, views */
+/* global $, TestomatAPI, capabilities, hostOf, setImmersive, state, updateContextBar, views */
 
 // setImmersive and updateContextBar belong to core/views.js, which loads AFTER this file. Both are
 // reached at paint time only, so the reference resolves the way the load order does.
@@ -37,8 +37,11 @@ const Gates = {
     if (!banner) return;
     const degraded = TestomatAPI.jwtAvailable() === false; // only once degradation is proven
     const onRunViews = state.view === 'runs' || state.view === 'run';
+    // The strip's whole advice is "sign in over there": with no instance saved there is no there,
+    // and the sentence would name the fallback instead of a host. It stays down until one is saved.
+    const named = !!(state.settings && hostOf(state.settings.baseUrl));
     // #155: under the read-only lockout there is no basic mode to explain.
-    const showit = degraded && onRunViews && !degradedBannerDismissed && !capabilities.readonly;
+    const showit = degraded && onRunViews && named && !degradedBannerDismissed && !capabilities.readonly;
     banner.hidden = !showit;
     if (!showit) return;
     const txt = banner.querySelector('.degraded-banner-text');
