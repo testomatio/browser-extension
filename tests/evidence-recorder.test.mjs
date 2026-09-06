@@ -35,6 +35,11 @@ const bufferSource = readFileSync(BUFFER, 'utf8');
 const NOW = 1_700_000_000_000;
 const TAB = 5;
 const SITE = 'https://shop.example.com';
+// The worker's own ceilings on what one batch from the page may store (rows 21-23). Spelled out
+// here, not read off the module, so widening the shipped constant fails the row instead of moving it.
+const BODY_CAP = 16 * 1024;
+const TEXT_CAP = 4000;
+const BATCH_CAP = 500;
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -586,51 +591,47 @@ test('20a: a text row carries the url, line and column the tester needs to find 
   assert.deepEqual(h.buffer()[0], { ts: NOW, kind: 'log', level: 'error', text: '', url: null, line: null, col: null });
 });
 
-test('21: a response body arrives with no length cap on this side', async () => {
+// The hook's own caps run inside the page, so they are worth exactly what the page is worth. The
+// rows below hand the worker a batch from a page that honoured none of them.
+test('21: a response body over the cap is cut down before it reaches the buffer', async () => {
   const h = await recording();
-  const body = 'x'.repeat(5_000_000);
-  h.fns.evOnPageEvents([{ t: 'net', ts: at(1), url: `${SITE}/api/x`, bodySnippet: body, bodyTruncated: true }],
-    { tab: { id: TAB }, frameId: 0 });
-  assert.equal(h.st.buffer[0].bodySnippet.length, 5_000_000);
-  assert.equal(h.st.buffer[0].bodyTruncated, true);
+  h.fns.evOnPageEvents(
+    [{ t: 'net', ts: at(1), url: `${SITE}/api/x`, bodySnippet: `HEAD${'x'.repeat(5_000_000)}TAIL` }],
+    { tab: { id: TAB }, frameId: 0 },
+  );
+  assert.equal(h.st.buffer[0].bodySnippet.length, BODY_CAP);
+  assert.ok(h.st.buffer[0].bodySnippet.startsWith('HEAD'), 'the head of the body, not the end of it');
+  assert.equal(h.st.buffer[0].bodyTruncated, true, 'the tester is told the row holds a fragment');
 });
 
-test.todo('21 (#314): a response body is capped before it reaches the buffer', async () => {
+test('22: console text over the cap is cut down before it reaches the buffer', async () => {
   const h = await recording();
-  h.fns.evOnPageEvents([{ t: 'net', ts: at(1), url: `${SITE}/api/x`, bodySnippet: 'x'.repeat(5_000_000) }],
+  h.fns.evOnPageEvents([{ t: 'console', ts: at(1), text: `HEAD${'x'.repeat(10_000_000)}TAIL` }],
     { tab: { id: TAB }, frameId: 0 });
-  assert.ok(h.st.buffer[0].bodySnippet.length <= 16 * 1024);
+  assert.equal(h.st.buffer[0].text.length, TEXT_CAP);
+  assert.ok(h.st.buffer[0].text.startsWith('HEAD'), 'the head of the line, not the end of it');
 });
 
-test('22: console text arrives with no length cap either', async () => {
-  const h = await recording();
-  h.fns.evOnPageEvents([{ t: 'console', ts: at(1), text: 'x'.repeat(10_000_000) }],
-    { tab: { id: TAB }, frameId: 0 });
-  assert.equal(h.st.buffer[0].text.length, 10_000_000);
-});
-
-test.todo('22 (#314): console text is capped before it reaches the buffer', async () => {
-  const h = await recording();
-  h.fns.evOnPageEvents([{ t: 'console', ts: at(1), text: 'x'.repeat(10_000_000) }],
-    { tab: { id: TAB }, frameId: 0 });
-  assert.ok(h.st.buffer[0].text.length <= 16 * 1024);
-});
-
-test('23: a single batch of a hundred thousand rows is processed to the last one', async () => {
+test('23: a single oversized batch is clamped instead of processed whole', async () => {
   const h = await recording();
   const batch = [];
   for (let i = 0; i < 100_000; i += 1) batch.push({ t: 'console', ts: at(1), text: `e${i}` });
   h.fns.evOnPageEvents(batch, { tab: { id: TAB }, frameId: 0 });
-  assert.equal(h.st.buffer.length, h.caps.HARD_CAP);
-  assert.equal(h.st.buffer[h.st.buffer.length - 1].text, 'e99999');
+  assert.equal(h.st.buffer.length, BATCH_CAP);
+  // The head of the batch: a flood is stopped where it starts, not walked to the end first.
+  assert.equal(h.st.buffer[0].text, 'e0');
+  assert.equal(h.st.buffer[BATCH_CAP - 1].text, `e${BATCH_CAP - 1}`);
 });
 
-test.todo('23 (#314): a single oversized batch is clamped instead of processed whole', async () => {
+// Half the ring buffer, so the reproduction the tester already recorded survives one flooding batch.
+test('23a: a clamped batch cannot push the older half of the log out', async () => {
   const h = await recording();
+  h.st.buffer = [con({ ts: at(2), text: 'the failure the tester came for' })];
   const batch = [];
   for (let i = 0; i < 100_000; i += 1) batch.push({ t: 'console', ts: at(1), text: `e${i}` });
   h.fns.evOnPageEvents(batch, { tab: { id: TAB }, frameId: 0 });
-  assert.notEqual(h.st.buffer[h.st.buffer.length - 1].text, 'e99999');
+  assert.ok(h.st.buffer.length < h.caps.HARD_CAP, 'one batch cannot fill the buffer on its own');
+  assert.equal(h.st.buffer[0].text, 'the failure the tester came for');
 });
 
 test('24: a page row lands on the webRequest twin it beat, and once the hook owns the tab there is no twin left to land on', async () => {
