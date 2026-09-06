@@ -893,6 +893,9 @@
   <!-- Which tab a screen belongs to, what the row above it says, and where Back goes. Pure, and
        the file below is its only reader — so it stands immediately before core/views.js. -->
   <script src="core/nav-model.js"></script>
+  <!-- The plaque at the bottom of the panel and the status line under a field. Before
+       core/views.js, which keeps toast()/setStatusLine() as one-line delegates to it. -->
+  <script src="core/toast.js"></script>
   <script src="core/views.js"></script>
   <!-- The one place a verdict becomes a request — the test view, the run rows and the queue
        replay all call it. After core/views.js, before every screen that writes. -->

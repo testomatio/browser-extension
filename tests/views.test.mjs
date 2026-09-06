@@ -170,7 +170,11 @@ function load(opts = {}) {
     // names below are re-bound to the shape they had while this was one file: every row keeps
     // asking the shipped decision the same question, and CONTEXT_WEB_TARGET's per-view closures are
     // rebuilt over webTarget(view, state, recordFor) — the arguments the model takes instead.
-    before: ['nav-model'],
+    // core/toast.js is the second, loaded the same way: views.js keeps toast(), progressToast(),
+    // hideToast(), setStatusLine() and toastDuration() as bare one-line delegates, so every toast
+    // row below still calls exactly what a screen calls; ALERT_ICON and PROGRESS_ICON are that
+    // module's own top-level consts, and a `before` script's lexicals are shared with this one.
+    before: ['nav-model', 'toast'],
     exported: `({
       TAB_OF_VIEW: NavModel.TAB_OF_VIEW, TABS: NavModel.TABS, TAB_ROOT: NavModel.TAB_ROOT,
       ROOT_VIEWS: NavModel.ROOT_VIEWS, CONTEXT_TRAILS,
