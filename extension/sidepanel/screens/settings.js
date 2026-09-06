@@ -1,7 +1,8 @@
 // Settings screen: fill the settings form, then validate and save the config.
 
 /* global TestomatAPI, Handoff, Tooltip, EmptyState, askForProject, progressToast,
-   SettingsForm, SettingsErase */
+   SettingsForm, SettingsErase, capabilities, OfflineQueue, syncPollMs, syncAuthStopped,
+   syncFetching */
 
 // One-line delegates onto screens/settings-form.js. app.js wires the first five to static
 // markup by these bare names, and the erase paths below repaint the form through the last two.
@@ -69,6 +70,121 @@ function renderConnectionSource(on) {
     : `${ended}. Authorize above to keep working.`;
 }
 
+// ---------- Diagnostics ----------
+// The first questions a "it does not work" report opens with, answered off state the panel already
+// holds: nothing is fetched, nothing is sent, and Copy reads the painted rows back out.
+
+// A value this build of Chrome, or this worker, cannot answer for. One row's text, never the section.
+const DIAG_MISSING = 'unavailable';
+
+function diagnosticsVersion() {
+  try { return chrome.runtime.getManifest().version || DIAG_MISSING; } catch { return DIAG_MISSING; }
+}
+
+// WHICH credential the v2 leg is holding, named — mirrors v2TokenInHand() in api.js off the
+// settings the panel handed it. `eyJ` is a session token, which v2 itself cannot use.
+function diagnosticsCredential(s) {
+  const handed = Handoff.offer();
+  if (s.projectToken && s.projectTokenFor === s.projectId) return 'a handed-over project token';
+  if (handed && handed.projectToken && handed.projectId === s.projectId) {
+    return 'a handed-over project token';
+  }
+  if (s.apiToken && !s.apiToken.startsWith('eyJ')) return 'own General token';
+  if (s.apiToken || s.handoff) return 'a key minted from the session';
+  return 'no credential';
+}
+
+function diagnosticsAuth(s) {
+  const jwt = TestomatAPI.jwtAvailable();
+  const session = jwt === true ? 'session up'
+    : jwt === false ? 'no session (v1 fallback)' : 'session not probed';
+  return `${session}, ${diagnosticsCredential(s)}`;
+}
+
+// Both of these live in scripts index.html loads AFTER this one, so they really can be missing.
+function diagnosticsQueue() {
+  if (typeof OfflineQueue === 'undefined') return DIAG_MISSING;
+  const n = OfflineQueue.count();
+  return n ? `${n} waiting` : 'empty';
+}
+
+function diagnosticsSync() {
+  if (typeof syncPollMs === 'undefined') return DIAG_MISSING;
+  // The auth stop outranks the interval: naming a period the loop never uses would be a lie.
+  if (syncAuthStopped) return 'stopped after an auth refusal';
+  return `every ${Math.round(syncPollMs / 1000)}s${syncFetching ? ', fetching now' : ''}`;
+}
+
+async function diagnosticsStorage() {
+  try {
+    const bytes = await chrome.storage.local.getBytesInUse(null);
+    return Number.isFinite(bytes) ? `${Math.round(bytes / 1024)} KB` : DIAG_MISSING;
+  } catch { return DIAG_MISSING; }
+}
+
+// A reply — any reply — is the proof: the worker had to be awake to send one. The screen recorder's
+// door, and only it: the step recorder's ends an orphaned recording, which is no way to ask a question.
+async function diagnosticsWorker() {
+  try {
+    if (await chrome.runtime.sendMessage({ type: 'SCREENREC_STATUS' })) return 'answering';
+  } catch { /* the worker is gone */ }
+  return 'not answering';
+}
+
+// Label/value pairs in the order a report reads them. Every getter answers a string, so an
+// unreachable value costs its own row and leaves the other eight standing.
+async function diagnosticRows() {
+  const s = state.settings || {};
+  return [
+    ['Version', diagnosticsVersion()],
+    ['Instance', hostOf(s.baseUrl) || 'not configured'],
+    ['Project', s.projectId || 'not picked'],
+    ['Auth', diagnosticsAuth(s)],
+    ['Access', capabilities.readonly ? 'read-only' : 'read/write'],
+    ['Queue', diagnosticsQueue()],
+    ['Live sync', diagnosticsSync()],
+    ['Storage used', await diagnosticsStorage()],
+    ['Worker', await diagnosticsWorker()],
+  ];
+}
+
+async function renderDiagnostics() {
+  const list = $('diagnostics-rows');
+  if (!list) return;
+  const cells = [];
+  for (const [label, value] of await diagnosticRows()) {
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    cells.push(dt, dd);
+  }
+  // One swap once every value is in hand, so the section is never caught half-painted.
+  list.replaceChildren(...cells);
+}
+
+// Read BACK off the painted rows, deliberately: a text built from the settings object would leak the
+// next credential key somebody adds, and a token has to be rendered before it can be copied.
+function diagnosticsText() {
+  const list = $('diagnostics-rows');
+  if (!list) return '';
+  const cells = list.querySelectorAll('dt, dd');
+  const lines = [];
+  for (let i = 0; i + 1 < cells.length; i += 2) {
+    lines.push(`${cells[i].textContent}: ${cells[i + 1].textContent}`);
+  }
+  return lines.join('\n');
+}
+
+async function copyDiagnostics() {
+  try {
+    await navigator.clipboard.writeText(diagnosticsText());
+    setStatusLine('diagnostics-copy-status', 'Copied');
+  } catch {
+    setStatusLine('diagnostics-copy-status', 'Clipboard refused — select the rows above instead', 'error');
+  }
+}
+
 // The full form has NO token field — a saved credential can be neither edited nor
 // verified. It returns for one case: a host we hold no token for.
 function syncTokenField() {
@@ -107,6 +223,7 @@ function fillSettingsForm() {
   SettingsForm.updateTokenHelpLink(); // reflect the (saved) base URL onto the token-help link
   renderConnection();    // the connected-instance card
   syncTokenField();      // …and whether the token box is needed at all
+  renderDiagnostics();   // async: the worker round trip and the storage size land a tick later
   if (typeof Onboarding !== 'undefined') Onboarding.render(); // welcome checklist
   takeRecorderWarning(); // #183/#192: an erase whose recorder wipe failed says so here
 }

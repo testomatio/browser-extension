@@ -133,6 +133,8 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
 .settings-field-sm .input { max-width: 96px; }
 .settings-field-row { display: flex; align-items: center; gap: var(--space-2); }
 .settings-field-unit { flex: none; }
+/* The last diagnostics pair closes the list with no rule under it, so Copy has to stand off it. */
+#settings-diagnostics-body > .settings-field-row { margin-top: var(--space-3); }
 /* Save commits the WHOLE form, so it must not read as the button of the fold above it: clear of the
    last section, and full width like the folds it closes. */
 #view-settings:not([data-mode="connect"]) > #btn-save-settings {
