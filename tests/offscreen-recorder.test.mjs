@@ -872,39 +872,28 @@ test('12b: the memo is dropped once the take is handed over, so nothing later is
 // The final dataavailable that rec.stop() flushes lands while `finishing` still stands: bytes is
 // still over the cap, finish() hands back the memoised promise, and a SECOND pushFile is chained
 // onto it. Downstream the worker parks the first copy and revokes the second's URL — which is the
-// same URL — so the review opens on a dead blob. Pinned as it is today; #206 is the fix.
-test('12c: today a take that ends on the size cap is pushed to the worker TWICE', async () => {
-  const h = await recording();
-  h.hooks.finalChunk = 2048;
-  h.rec().emit(SIZE_CAP, 1);
-  await h.flush();
-  const files = h.files();
-  assert.equal(files.length, 2, 'the guard #206 asks for is not in ondataavailable yet');
-  assert.deepEqual(files[0], files[1], 'the same take, the same URL, delivered twice');
-  assert.equal(h.urls.length, 1, 'one URL for two deliveries — the second is what the worker revokes');
-});
-
-test.todo('12 (#206): a take that ends on the size cap reaches the worker exactly once', async () => {
+// same URL — so the review opens on a dead blob. The guard belongs on the CAP, not on the handler.
+test('12 (#206): a take that ends on the size cap reaches the worker exactly once', async () => {
   const h = await recording();
   h.hooks.finalChunk = 2048;
   h.rec().emit(SIZE_CAP, 1);
   await h.flush();
   assert.equal(h.files().length, 1);
+  assert.equal(h.urls.length, 1, 'one URL, and no second delivery for the worker to revoke it over');
 });
 
-test('12d: today the five-minute cap pushes twice too, when the tick beats the stop', async () => {
+// The trap the guard walks past: that last dataavailable carries the tail of the take. A handler
+// that returns early while `finishing` is set would truncate every capped recording instead.
+test('12f (#206): the chunk rec.stop() flushes is still part of the take handed over', async () => {
   const h = await recording();
-  h.hooks.finalChunk = 0;
-  h.rec().emit(1024, 1);
-  h.advance(TIME_CAP);
-  h.timers.tick();               // fires finish('time')
-  h.timers.tick();               // the interval is only cleared inside reset(), one task later
+  h.hooks.finalChunk = 2048;
+  h.rec().emit(SIZE_CAP, 1);
   await h.flush();
-  assert.equal(h.files().length, 2, 'the cap interval has no `finishing` guard either');
-  assert.deepEqual(h.files()[0], h.files()[1]);
+  assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: SIZE_CAP + 2048, ms: 0, reason: 'size' }]);
+  assert.equal(h.patches.at(-1).size, SIZE_CAP + 2048, 'the tail reached the blob, not just the count');
 });
 
-test.todo('12e (#206): the five-minute cap reaches the worker exactly once', async () => {
+test('12e (#206): the five-minute cap reaches the worker exactly once', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
   h.rec().emit(1024, 1);
@@ -913,6 +902,18 @@ test.todo('12e (#206): the five-minute cap reaches the worker exactly once', asy
   h.timers.tick();
   await h.flush();
   assert.equal(h.files().length, 1);
+});
+
+// The tester's own Stop, on a take the flushed tail carries over the cap: the answer is the take,
+// and the cap must not push a stray copy of it behind the answer's back.
+test('12g (#206): a Stop whose flushed tail crosses the cap is answered, never also pushed', async () => {
+  const h = await recording();
+  h.hooks.finalChunk = 2048;
+  h.rec().emit(SIZE_CAP - 1024, 1);
+  const answer = h.send('stop', { reason: 'user' });
+  await h.flush();
+  assert.equal((await answer).file.size, SIZE_CAP - 1024 + 2048, 'the tail is in the answered take');
+  assert.deepEqual(h.files(), [], 'one door per stop; the cap does not open a second one');
 });
 
 // The second door: the tab closes, the track ends and the file is PUSHED, and the worker — which saw
@@ -935,6 +936,17 @@ test('32: a tab that closes under the recording keeps what was recorded and push
   h.st.stream.tracks[0].fire('ended');
   await h.flush();
   assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: 4096, ms: 0, reason: 'tab-gone' }]);
+});
+
+// The other door the ticket names: the tab is closed while the take is nearly at the cap, and the
+// tail rec.stop() flushes carries it over — the cap used to push the very same file behind it.
+test('32b (#206): a closed tab whose flushed tail crosses the cap still pushes once', async () => {
+  const h = await recording();
+  h.hooks.finalChunk = 2048;
+  h.rec().emit(SIZE_CAP - 1024, 1);
+  h.st.stream.tracks[0].fire('ended');
+  await h.flush();
+  assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: SIZE_CAP - 1024 + 2048, ms: 0, reason: 'tab-gone' }]);
 });
 
 test('13b: today the same take reaches the worker twice when the track ends AND the worker stops', async () => {
