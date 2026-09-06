@@ -341,6 +341,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   (async () => {
     try {
+      // The mirror read decides whether anything is recording, so a request that beats it would
+      // both answer wrong and have its own work overwritten when the read lands.
+      await evReady;
       if (msg.type === 'EVIDENCE_TOGGLE') {
         if (evSession) { await evStop(true); }
         else if (msg.tabId != null) { await evStart(msg.tabId, msg.recordId); }
