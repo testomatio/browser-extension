@@ -58,14 +58,36 @@ jobs:
           print(f"manifest parses, {len(refs)} referenced paths all present")
           PY
 
-      - name: Stamp the version into the manifest
+      - name: Check the tag against the manifest
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+          VERSION_NAME: ${{ steps.v.outputs.version_name }}
         run: |
-          set -euo pipefail
-          jq --arg v '${{ steps.v.outputs.version }}' --arg vn '${{ steps.v.outputs.version_name }}' \
-            'if $v == $vn then .version = $v else .version = $v | .version_name = $vn end' \
-            extension/manifest.json > manifest.stamped
-          mv manifest.stamped extension/manifest.json
-          jq -r '"packing version \(.version)\(if .version_name then " (\(.version_name))" else "" end)"' extension/manifest.json
+          python3 - <<'PY'
+          import json, os, pathlib, sys
+
+          tag = os.environ['TAG']
+          version, version_name = os.environ['VERSION'], os.environ['VERSION_NAME']
+          m = json.loads(pathlib.Path('extension/manifest.json').read_text())
+          got, got_name = m.get('version'), m.get('version_name')
+
+          # Chrome takes 1-4 integers in `version` and nothing else, so a pre-release suffix can
+          # only ride in `version_name`; a plain tag wants no second name, or one saying the same.
+          if version_name != version:
+              want = f"version {version!r} with version_name {version_name!r}"
+              ok = got == version and got_name == version_name
+          else:
+              want = f"version {version!r} and no version_name (or one saying the same)"
+              ok = got == version and got_name in (None, version)
+
+          if not ok:
+              said = f"version {got!r}"
+              said += f" with version_name {got_name!r}" if got_name is not None else " and no version_name"
+              sys.exit(f"::error::tag {tag} wants {want}, but extension/manifest.json says {said}. "
+                       "The checked-in manifest is what ships: bump it in a pull request, then re-tag.")
+          print(f"packing version {got}" + (f" ({got_name})" if got_name else ""))
+          PY
 
       - name: Pack
         run: |
