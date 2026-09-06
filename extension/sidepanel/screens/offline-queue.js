@@ -227,8 +227,9 @@ async function queueReplay({ user = false } = {}) {
 
 // A row's Retry is an explicit act on ONE result, so an entry that stays put has to say why —
 // the silence after the whole-queue Retry is the complaint this list answers.
+const READONLY_NOTE = 'Your access here is read-only — the result stays queued';
 function keptNote(e) {
-  if (isReadonlyError(e)) return 'Your access here is read-only — the result stays queued';
+  if (isReadonlyError(e)) return READONLY_NOTE;
   return e && e.kind === 'auth'
     ? 'The token was rejected — authorize again in Settings; the result stays queued'
     : 'Still offline — the result stays queued';
@@ -245,7 +246,9 @@ async function queueReplayOne(recordId) {
     return;
   }
   if (!hasChrome) return;
-  if (capabilities.readonly) return; // a locked project takes no write; keep the queue
+  // Said, not swallowed: a row's Retry is an explicit act, and silence after one is the
+  // complaint this list exists to answer. The queue is kept either way (#155).
+  if (capabilities.readonly) { toast(READONLY_NOTE, { error: true }); return; }
   const entry = queueCache[qKey(recordId)];
   if (!entry) { refreshQueueUI(); return; } // the row went away under the click
   if (!queueEntryActive(entry)) return; // another project's write would 404 here

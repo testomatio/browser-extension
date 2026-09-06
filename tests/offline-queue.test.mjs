@@ -993,6 +993,23 @@ test('62 (#108): an entry for another project or instance says which, and its Re
   assert.deepEqual(rowsOf(h).map((li) => li.querySelector('.pending-row-discard').disabled), [false, false, false]);
 });
 
+// Row 62 disables the button; this is the guard BEHIND it. replayOne is exported, and without the
+// active check a foreign entry would reach dropLockedRunEntries — whose run id resolves against THIS
+// project, where the same number can name a finished run. Row 18's hazard, one row at a time.
+test('62a (#108): replayOne on a foreign entry resolves no run here and keeps it queued', async () => {
+  const h = await booted({
+    local: seed({ recordId: 'theirs', runId: 'r-foreign', projectId: 'p9' }),
+    getRun: async (id) => (id === 'r-foreign' ? { status: 'finished' } : null),
+  });
+  openFold(h);
+  await h.Q.replayOne('theirs');
+  await settle();
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.apiCalls, [], 'the foreign run id never went to this project');
+  assert.equal(h.Q.has('theirs'), true);
+  assert.deepEqual(h.toasts, []);
+});
+
 test('63 (#108): shutting the fold empties it, so no stale row waits behind a closed list', async () => {
   const h = await booted({ local: seed({ recordId: 1 }) });
   openFold(h);
@@ -1176,6 +1193,8 @@ test('75 (#108): a locked project takes no row Retry either, and keeps the entry
   await settle();
   assert.deepEqual(h.writes, []);
   assert.equal(h.Q.has(1), true);
+  // …and says so: a row's Retry that answers with nothing is the silence this list replaced.
+  assert.deepEqual(h.toasts, [{ msg: 'Your access here is read-only — the result stays queued', error: true }]);
 
   // A 403 that arrives from the SERVER mid-write is the same idea, said out loud.
   const server = await booted({ local: seed({ recordId: 1 }), write: async () => { throw err('readonly', 'ro'); } });
