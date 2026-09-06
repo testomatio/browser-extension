@@ -6,6 +6,13 @@
 
 const EVIDENCE_MIRROR_MS = 2000;     // throttled mirror to storage.session
 
+// What the worker will keep out of one batch, whatever the page sends. page-hook.js applies the
+// same two lengths, but it runs inside the page under test — the side that cannot be trusted.
+const EV_BODY_CAP = 16 * 1024;       // parity with page-hook.js BODY_CAP
+const EV_TEXT_CAP = 4000;            // parity with page-hook.js TEXT_CAP
+// Half the ring buffer: a page flooding one batch cannot erase the reproduction already recorded.
+const EV_BATCH_CAP = 500;
+
 // Registered per origin while recording so a navigation is instrumented at document_start;
 // the ids are fixed so a leftover registration is always found and replaced.
 const EV_CS_HOOK = 'testomat-evidence-hook';
@@ -47,19 +54,30 @@ function evOnPageEvents(events, sender) {
   const tabId = sender && sender.tab && sender.tab.id;
   if (!evSession || tabId == null || tabId !== evSession.tabId) return { off: true };
   if (sender.frameId) return { off: false }; // sub-frame: not ours to record (v1)
-  for (const ev of events) {
+  const take = Math.min(events.length, EV_BATCH_CAP);
+  for (let i = 0; i < take; i += 1) {
+    const ev = events[i];
     if (!ev || typeof ev !== 'object') continue;
     if (ev.t === 'ready') { evHookReady = true; continue; }
     const ts = Number(ev.ts) || Date.now();
-    if (ev.t === 'net') evBuf.pushPageNet(ev, ts);
+    if (ev.t === 'net') evBuf.pushPageNet(evCapBody(ev), ts);
     else if (EV_PAGE_KINDS[ev.t]) {
       evBuf.push({ ts, kind: EV_PAGE_KINDS[ev.t],
         level: ev.level === 'warning' ? 'warning' : 'error',
-        text: String(ev.text || ''), url: ev.url || null,
+        text: String(ev.text || '').slice(0, EV_TEXT_CAP), url: ev.url || null,
         line: ev.line != null ? ev.line : null, col: ev.col != null ? ev.col : null });
     }
   }
   return { off: false };
+}
+
+// A copy, never the row itself: the caller still owns the message it was handed. `bodyTruncated`
+// is raised as well, so a body WE cut still reads as a fragment in the log.
+function evCapBody(ev) {
+  if (!ev.bodySnippet) return ev;
+  const body = String(ev.bodySnippet);
+  if (body.length <= EV_BODY_CAP) return ev;
+  return { ...ev, bodySnippet: body.slice(0, EV_BODY_CAP), bodyTruncated: true };
 }
 
 // ---- chrome.webRequest (the backbone) ------------------------------------
