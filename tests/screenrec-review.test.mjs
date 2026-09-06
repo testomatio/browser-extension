@@ -92,6 +92,11 @@ async function load(opts = {}) {
     probeMs = null, answersSeeks = true, playRejects = false, confirmAnswer = true,
     reply = defaultReply, payload = bytes(1024), mimes = ['video/webm;codecs=vp9'],
     sessionFail = {},
+    // The one-time key the worker mints when it parks a take, and the one this document was framed
+    // with — the same string on every legitimate row, and the whole of issue 105 when they differ.
+    key = 'rk-1', hashKey = key,
+    // The key read left hanging: init() has not yet established who framed this document.
+    stallKey = false,
     // The seconds the 1000px timeline ends up covering, so a gesture can state a TIME. A row whose
     // take is measured some other way than `duration` says so; the box itself is 1000px regardless.
     span = Number.isFinite(duration) && duration > 0 ? duration : 10,
@@ -142,8 +147,18 @@ async function load(opts = {}) {
   };
   video.pause = () => { const was = video.paused; video.paused = true; if (!was) fire(video, 'pause'); };
 
-  const fake = chromeFake({ session: file ? { screenRecFile: plain(file) } : {}, sessionFail });
+  const fake = chromeFake({
+    session: {
+      ...(file ? { screenRecFile: plain(file) } : {}),
+      ...(key ? { screenRecReviewKey: key } : {}),
+    },
+    sessionFail,
+  });
   fake.chrome.runtime.sendMessage = async (msg) => { sent.push(msg); return reply(msg, sent.length); };
+  if (stallKey) {
+    const read = fake.chrome.storage.session.get;
+    fake.chrome.storage.session.get = (k) => (k === 'screenRecReviewKey' ? new Promise(() => {}) : read(k));
+  }
 
   const keydown = [];
   const win = {
@@ -152,6 +167,8 @@ async function load(opts = {}) {
     close: () => { closes.push(true); },
     confirm: () => confirmAnswer,
     postMessage: (data, origin) => { posts.push({ data: plain(data), origin }); },
+    // There is no location in a vm realm, and the hash is where the framing key rides.
+    location: { hash: hashKey ? `#k=${encodeURIComponent(hashKey)}` : '' },
   };
   win.parent = framed ? { postMessage: win.postMessage } : win;
 
@@ -857,4 +874,80 @@ test('32b (#337): a video that never loaded is not dressed in the stopwatch’s 
   assert.match(h.status(), /will not play/);
   assert.equal(h.$('btn-attach').disabled, true);
   assert.equal(h.$('t-total').textContent, '');
+});
+
+// ---- H: who framed this document (issue 105) -----------------------------------
+// review.html sits in web_accessible_resources with matches <all_urls> and the manifest pins the
+// extension id, so ANY page can compute this URL and frame it invisibly under the cursor. An origin
+// check cannot tell that framing from ours: content/review-overlay.js runs in the page's own origin,
+// so both parents look identical. The one thing a page cannot have is the key the worker minted when
+// it parked the take — the overlay is handed it, the page is not.
+
+test('34 (#105): a page that framed the review itself gets no buttons and is told who opened it', async () => {
+  const h = await load({ hashKey: null });
+  assert.match(h.status(), /opened by the page/i);
+  assert.deepEqual(['btn-attach', 'btn-discard', 'btn-play'].map((id) => h.$(id).disabled), [true, true, true]);
+  assert.equal(h.$('file-meta').textContent, '', 'the parked take is not even named to the page holding us');
+  assert.equal(h.video.src, undefined, 'and its blob URL never reaches a <video> that page put on screen');
+  assert.equal(h.$('t-total').textContent, '');
+});
+
+test('34a (#105): a framed review carrying a guessed key is refused the same way', async () => {
+  const h = await load({ hashKey: 'guessed-by-the-page' });
+  assert.match(h.status(), /opened by the page/i);
+  assert.deepEqual(['btn-attach', 'btn-discard', 'btn-play'].map((id) => h.$(id).disabled), [true, true, true]);
+  assert.equal(h.video.src, undefined);
+});
+
+// The clickjack itself. A disabled button is the browser's guard against the harvested click; this
+// row is ours, and it is the one that says the refusal is a refusal to ACT, not a greyed-out look.
+test('34b (#105): a click harvested on a refused review attaches nothing and discards nothing', async () => {
+  const h = await load({ hashKey: null });
+  h.press('btn-discard');
+  h.press('btn-attach');
+  await settle(3);
+  assert.deepEqual(h.types(), [], 'not one word reaches the worker');
+  assert.deepEqual(h.posts, [], 'and the frame does not even close itself on the page’s behalf');
+});
+
+test('34c (#105): the frame our own overlay opened, with the key it was handed, attaches as before', async () => {
+  const h = await load();
+  assert.equal(h.status(), '');
+  assert.notEqual(h.$('btn-attach').disabled, true);
+  assert.notEqual(h.$('btn-discard').disabled, true);
+  assert.equal(h.video.src, 'blob:take-1');
+  h.press('btn-attach');
+  await settle(3);
+  assert.deepEqual(h.types(), ['SCREENREC_REVIEWED']);
+});
+
+// The top-level exemption, and why it is not a hole: a page can frame us invisibly, but it cannot
+// open an invisible TAB — a tab is on screen, so there is no click to steal. Both keyless flows the
+// extension already has land here: the worker's third placement (chrome.tabs.create) and the
+// overlay's "Open the review in a new tab" when a page's CSP refuses the frame.
+test('34d (#105): a review opened in a tab of its own needs no key at all', async () => {
+  const h = await load({ framed: false, key: null });
+  assert.equal(h.status(), '');
+  assert.notEqual(h.$('btn-attach').disabled, true);
+  assert.equal(h.video.src, 'blob:take-1');
+  h.press('btn-attach');
+  await settle(3);
+  assert.deepEqual(h.types(), ['SCREENREC_REVIEWED']);
+});
+
+test('34e (#105): with no key parked at all, a framed review refuses rather than trusting the hash', async () => {
+  const h = await load({ key: null, hashKey: 'anything-at-all' });
+  assert.match(h.status(), /opened by the page/i);
+  assert.equal(h.$('btn-discard').disabled, true);
+});
+
+// The gate is asked at boot, and until it has answered this document does not know who framed it.
+// A refusal that only lands afterwards leaves that window open to exactly the click being harvested.
+test('34f (#105): a click harvested before the key check has answered acts on nothing', async () => {
+  const h = await load({ stallKey: true });
+  h.press('btn-discard');
+  h.press('btn-attach');
+  await settle(3);
+  assert.deepEqual(h.types(), []);
+  assert.deepEqual(h.posts, []);
 });
