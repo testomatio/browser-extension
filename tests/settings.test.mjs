@@ -357,12 +357,29 @@ function load(opts = {}) {
 
   const clock = fakeClock();
   const h = loadScreen('settings', {
-    // The welcome checklist is reached through a `typeof` guard, so the REAL screen is what row 75
-    // drives — a stub could not show that it renders nothing.
-    before: o.onboarding ? ['onboarding'] : [],
-    exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY })',
+    // screens/settings-form.js is index.html's tag immediately above this one, and settings.js does
+    // not run without it. The welcome checklist is reached through a `typeof` guard, so the REAL
+    // screen is what row 75 drives — a stub could not show that it renders nothing.
+    before: o.onboarding ? ['settings-form', 'onboarding'] : ['settings-form'],
+    exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY, SettingsForm })',
     document: doc, clock, store, globals,
   });
+  // settings-form.js publishes ONE object, and a published `const` is a global lexical — never a
+  // property of the sandbox. The rows call the form by the bare names it wore inside settings.js, so
+  // put those names back on. The seven settings.js still delegates are already there and stay: the
+  // delegate is what app.js calls, and a row has to drive the same path the panel does.
+  for (const [bare, member] of Object.entries({
+    tokenHelpBase: 'tokenHelpBase',
+    stepRecNeverValuesEnabled: 'neverValuesEnabled',
+    onInstanceHostPicked: 'onInstanceHostPicked',
+    paintThemeSwitch: 'paintThemeSwitch',
+    openSettingsAdvanced: 'openAdvanced',
+    syncSettingsAdvanced: 'syncAdvanced',
+    evidenceWindowFromField: 'evidenceWindowFromField',
+    resolveProjectId: 'resolveProjectId',
+  })) {
+    h.fn[bare] = (...args) => h.screen.SettingsForm[member](...args);
+  }
   if (o.dropdown) h.fn.initHostHistoryDropdown();
 
   return {
