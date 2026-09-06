@@ -141,7 +141,16 @@
   <!-- Offline queue (M4): status writes that failed on a network / paused-token error, queued for replay. -->
   <div id="pending-banner" class="banner accent pending-banner" hidden role="status">
     <span class="banner-text pending-banner-text"></span>
+    <!-- The panel's disclosure, shrunk into a banner row: the caret and aria-expanded carry the state,
+         the label never changes, and updatePendingList() paints the body below. -->
+    <button id="pending-banner-toggle" class="btn size-sm pending-banner-toggle" type="button"
+            aria-expanded="false" aria-controls="pending-queue">
+      <span class="md-icon disc-caret" data-icon="chevron_right" data-icon-size="16"></span><span>Details</span>
+    </button>
     <button id="pending-banner-retry" class="btn size-sm pending-banner-retry" type="button">Retry</button>
+    <!-- One row per queued result, each with its own Retry and Discard. aria-live off: the summary
+         line above is the announcement, and a repaint per enqueue would read the whole queue out. -->
+    <ul id="pending-queue" class="list pending-queue" aria-live="off" hidden></ul>
   </div>
 
   <main>

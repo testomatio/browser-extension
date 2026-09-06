@@ -2,7 +2,7 @@
 // 401-403), and only the PANEL drains — a closed panel means the queue waits.
 
 /* global TestomatAPI, state, capabilities, hasChrome, hostOf, isReadonlyError, recordFor,
-   runRowEl, repaintRow, toast, WriteCore, RunLock, $, Tooltip */
+   runRowEl, repaintRow, toast, WriteCore, RunLock, ConfirmDialog, $, Tooltip */
 
 // One entry PER record id — the only identity separating two example rows of a
 // parametrized test; a newer click replaces the older, so only the final replays.
@@ -10,6 +10,7 @@ let queueCache = {};        // { [String(recordId)]: {recordId, runId, status, c
 let queueDraining = false;  // FIFO, one drain at a time — no retry storm
 let queueRedrainRequested = false; // #192: a trigger that arrived mid-drain, honoured once after it
 let queueLastPass = false;         // the running pass is the last one — no more can be promised
+let queueListOpen = false;         // the banner's fold — panel-local, and shut on every boot
 // e2e hook (storage.session `forceWriteFail`): null | 'network' | 'auth', kept
 // live via onChanged so WriteCore.writeStatus needs no per-call storage read.
 let forceFail = null;
@@ -125,6 +126,42 @@ async function dropLockedRunEntries(list) {
   return dropped;
 }
 
+// The three sentences a replay can raise, written once: the FIFO pass and a single row's
+// Retry go through the same reporting, so neither can drift into its own wording.
+const dropNotes = (dropped) => Object.entries(dropped)
+  .map(([reason, n]) => `${reason} — ${n} queued ${n === 1 ? 'result was' : 'results were'} not written`);
+const failedNote = (e) => `A queued status couldn't be saved and was dropped: ${e.message}`;
+const loglessNote = (n) => `${n} synced ${n === 1 ? 'result has' : 'results have'} no console & network log`
+  + ' — it is not kept offline';
+
+// ONE entry, written ONCE — the pass below walks the queue with it and a row's own Retry calls it
+// alone, so a result behind a still-offline one is not held by the FIFO it happens to sit in.
+// Answers what the caller has to say about it: skipped | written | kept | dropped.
+async function drainOne(entry) {
+  const snap = queueCache[qKey(entry.recordId)];
+  if (!snap) return { done: 'skipped' }; // removed/replaced/dropped since the caller looked
+  if (!queueEntryActive(snap)) return { done: 'skipped' }; // the connection moved — keep it for its own
+  const record = (typeof recordFor === 'function' && recordFor(snap.recordId)) || { id: snap.recordId };
+  try {
+    // The entry's own environment goes back with it; `replay` is what stops a fresh collect.
+    await WriteCore.writeStatus(record, snap.status, snap.comment, null,
+      { noQueue: true, replay: true, envMeta: snap.envMeta || [] });
+  } catch (e) {
+    // #155: read-only is not a permanent failure of THIS entry — a role change
+    // can still land it, so it keeps the queue like an offline failure does.
+    if (queueQualifies(e) || isReadonlyError(e)) return { done: 'kept', error: e };
+    await queueRemove(snap.recordId); // permanent failure — drop so the banner can clear
+    return { done: 'dropped', error: e };
+  }
+  // Success — remove only if a newer click hasn't replaced it mid-drain.
+  const cur = queueCache[qKey(snap.recordId)];
+  if (cur && cur.queuedAt === snap.queuedAt) await queueRemove(snap.recordId);
+  const li = typeof runRowEl === 'function' ? runRowEl(snap.recordId) : null;
+  const r = typeof recordFor === 'function' ? recordFor(snap.recordId) : null;
+  if (li && r && typeof repaintRow === 'function') repaintRow(li, r);
+  return { done: 'written', logless: snap.status === 'failed' };
+}
+
 // ONE FIFO pass off a snapshot. A still-offline failure stops the pass and keeps
 // every entry; any other failure drops that one, so it cannot wedge the banner.
 async function drainPass() {
@@ -134,42 +171,22 @@ async function drainPass() {
   if (!list.length) return;
   // ONE toast, not one per reason — a second toast() replaces the first in the DOM. It is raised
   // at the END: what the pass has to say about the log is only known once the writes have landed.
-  const notes = Object.entries(await dropLockedRunEntries(list))
-    .map(([reason, n]) => `${reason} — ${n} queued ${n === 1 ? 'result was' : 'results were'} not written`);
+  const notes = dropNotes(await dropLockedRunEntries(list));
   let problems = notes.length; // clauses about results that did NOT land — they colour the toast
   let logless = 0; // replayed FAILs — the log was never parked, so none of them carries one
   for (const entry of list) {
-    const snap = queueCache[qKey(entry.recordId)];
-    if (!snap) continue; // removed/replaced/dropped since the snapshot list was taken
-    if (!queueEntryActive(snap)) continue; // the connection moved mid-drain — keep it for its own
-    const record = (typeof recordFor === 'function' && recordFor(snap.recordId)) || { id: snap.recordId };
-    try {
-      // The entry's own environment goes back with it; `replay` is what stops a fresh collect.
-      await WriteCore.writeStatus(record, snap.status, snap.comment, null,
-        { noQueue: true, replay: true, envMeta: snap.envMeta || [] });
-    } catch (e) {
-      // #155: read-only is not a permanent failure of THIS entry — a role change
-      // can still land it, so it keeps the queue like an offline failure does.
-      if (queueQualifies(e) || isReadonlyError(e)) break; // keep all, retry on the next trigger
-      await queueRemove(snap.recordId); // permanent failure — drop so the banner can clear
-      notes.push(`A queued status couldn't be saved and was dropped: ${e.message}`);
+    const res = await drainOne(entry);
+    if (res.done === 'kept') break; // keep all, retry on the next trigger
+    if (res.done === 'dropped') {
+      notes.push(failedNote(res.error));
       problems += 1;
       continue;
     }
-    if (snap.status === 'failed') logless += 1;
-    // Success — remove only if a newer click hasn't replaced it mid-drain.
-    const cur = queueCache[qKey(snap.recordId)];
-    if (cur && cur.queuedAt === snap.queuedAt) await queueRemove(snap.recordId);
-    const li = typeof runRowEl === 'function' ? runRowEl(snap.recordId) : null;
-    const r = typeof recordFor === 'function' ? recordFor(snap.recordId) : null;
-    if (li && r && typeof repaintRow === 'function') repaintRow(li, r);
+    if (res.logless) logless += 1;
   }
   // Said once, and only about failures that actually landed: the tester goes looking for that
   // attachment otherwise, and the environment beside it IS the one they marked the result in.
-  if (logless) {
-    notes.push(`${logless} synced ${logless === 1 ? 'result has' : 'results have'} no console & network log`
-      + ' — it is not kept offline');
-  }
+  if (logless) notes.push(loglessNote(logless));
   if (notes.length) toast(notes.join(' · '), { error: problems > 0 });
 }
 
@@ -208,7 +225,68 @@ async function queueReplay({ user = false } = {}) {
   }
 }
 
-// ---------- UI: pending banner + «queued» markers ----------
+// A row's Retry is an explicit act on ONE result, so an entry that stays put has to say why —
+// the silence after the whole-queue Retry is the complaint this list answers.
+function keptNote(e) {
+  if (isReadonlyError(e)) return 'Your access here is read-only — the result stays queued';
+  return e && e.kind === 'auth'
+    ? 'The token was rejected — authorize again in Settings; the result stays queued'
+    : 'Still offline — the result stays queued';
+}
+
+// ONE queued result, replayed on its own: same lock, same run-lock check and the same single write
+// the pass uses — only the FIFO is skipped, which is the whole point.
+async function queueReplayOne(recordId) {
+  if (queueDraining) {
+    queueRedrainRequested = true; // a row's Retry buys the same ONE extra pass the banner's does
+    toast(queueLastPass
+      ? 'Still syncing — give it a moment and try again'
+      : 'Already syncing — your Retry runs right after');
+    return;
+  }
+  if (!hasChrome) return;
+  if (capabilities.readonly) return; // a locked project takes no write; keep the queue
+  const entry = queueCache[qKey(recordId)];
+  if (!entry) { refreshQueueUI(); return; } // the row went away under the click
+  if (!queueEntryActive(entry)) return; // another project's write would 404 here
+  queueDraining = true;
+  queueRedrainRequested = false;
+  queueLastPass = false;
+  try {
+    const notes = dropNotes(await dropLockedRunEntries([entry]));
+    let problems = notes.length;
+    if (!notes.length) {
+      const res = await drainOne(entry);
+      if (res.done === 'kept') { notes.push(keptNote(res.error)); problems += 1; }
+      else if (res.done === 'dropped') { notes.push(failedNote(res.error)); problems += 1; }
+      else if (res.logless) notes.push(loglessNote(1));
+    }
+    if (notes.length) toast(notes.join(' · '), { error: problems > 0 });
+    // The promise above is kept here: a trigger that arrived mid-write gets its ONE whole-queue pass.
+    if (queueRedrainRequested && queueCount()) {
+      queueLastPass = true;
+      await drainPass();
+    }
+  } finally {
+    queueDraining = false;
+    queueRedrainRequested = false;
+    queueLastPass = false;
+    refreshQueueUI();
+  }
+}
+
+// Never a silent discard — this is a result the tester believes is saved, and nothing else
+// has a copy of it.
+async function queueDiscardOne(recordId) {
+  const entry = queueCache[qKey(recordId)];
+  if (!entry) { refreshQueueUI(); return; }
+  const ok = await ConfirmDialog.ask(
+    `Discard ${entryTitle(entry)}? It was never sent — the ${entry.status} you marked is lost.`, 'Discard');
+  if (!ok) return;
+  if (await queueRemove(recordId)) refreshQueueUI(); // the dialog outlived the entry otherwise
+}
+
+// ---------- UI: pending banner + the queued list + «queued» markers ----------
 
 // Entries for runs other than the open one still count towards the banner.
 function updatePendingBanner() {
@@ -227,6 +305,94 @@ function updatePendingBanner() {
   if (n) parts.push(`${n} ${n === 1 ? 'change' : 'changes'} pending`);
   if (other) parts.push(`${other} ${other === 1 ? 'change' : 'changes'} waiting for another project or instance`);
   if (txt) txt.textContent = parts.join(' · ');
+}
+
+// What the tester calls this entry. The open run has the row and its title; anything else is a
+// result id, which is still the one thing that names it in the web app.
+function entryTitle(entry) {
+  const rec = typeof recordFor === 'function' ? recordFor(entry.recordId) : null;
+  return (rec && rec.test_title) || `Result ${entry.recordId}`;
+}
+
+// How long it has waited, at the coarseness a tester reads: it is painted per repaint, not ticked.
+function entryAge(queuedAt) {
+  const ms = Date.now() - Number(queuedAt);
+  if (!Number.isFinite(ms) || ms < 60_000) return 'just now';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
+// Which half of the banner's «another project or instance» this entry is waiting for — '' when it
+// belongs right here. queueEntryActive() reads a missing stamp as ours, and so does this.
+function entryElsewhere(entry) {
+  const now = queueIdentity();
+  if (entry.host && entry.host !== now.host) return 'other instance';
+  if (entry.projectId && entry.projectId !== now.projectId) return 'other project';
+  return '';
+}
+
+const QUEUE_STATUS_MARK = { passed: 'passed', failed: 'failed', skipped: 'skipped' };
+const ELSEWHERE_TIP = 'Queued for another project or instance — it syncs when you connect there';
+
+function queueRowEl(entry) {
+  const li = document.createElement('li');
+  li.className = 'pending-row';
+  li.dataset.recordId = String(entry.recordId);
+  const title = document.createElement('span');
+  title.className = 'pending-row-title';
+  title.textContent = entryTitle(entry);
+  const status = document.createElement('span');
+  status.className = `badge ${QUEUE_STATUS_MARK[entry.status] || 'neutral'} pending-row-status`;
+  status.textContent = entry.status;
+  const age = document.createElement('span');
+  age.className = 'pending-row-age';
+  age.textContent = entryAge(entry.queuedAt);
+  li.append(title, status, age);
+
+  const elsewhere = entryElsewhere(entry);
+  if (elsewhere) {
+    const mark = document.createElement('span');
+    mark.className = 'badge outline pending-row-where';
+    mark.textContent = elsewhere;
+    Tooltip.set(mark, ELSEWHERE_TIP);
+    li.append(mark);
+  }
+
+  const actions = document.createElement('span');
+  actions.className = 'row-actions pending-row-actions';
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'btn size-xs pending-row-retry';
+  retry.textContent = 'Retry';
+  // A write for another connection would 404 there, so the row offers only the way out.
+  retry.disabled = !!elsewhere;
+  if (elsewhere) Tooltip.set(retry, ELSEWHERE_TIP);
+  retry.addEventListener('click', () => queueReplayOne(entry.recordId));
+  const discard = document.createElement('button');
+  discard.type = 'button';
+  discard.className = 'btn size-xs pending-row-discard';
+  discard.textContent = 'Discard';
+  discard.disabled = false;
+  discard.addEventListener('click', () => queueDiscardOne(entry.recordId));
+  actions.append(retry, discard);
+  li.append(actions);
+  return li;
+}
+
+// The fold under the banner. Oldest first, the order the drain itself walks.
+function updatePendingList() {
+  const list = $('pending-queue');
+  const toggle = $('pending-banner-toggle');
+  if (!list || !toggle) return;
+  const entries = Object.values(queueCache).sort((a, b) => a.queuedAt - b.queuedAt);
+  if (!entries.length) queueListOpen = false; // nothing left to look at, so the fold goes with it
+  toggle.hidden = !entries.length;
+  toggle.setAttribute('aria-expanded', String(queueListOpen));
+  list.hidden = !queueListOpen;
+  // A shut fold keeps no rows: they would be a stale queue the next opening shows for one frame.
+  list.replaceChildren(...(queueListOpen ? entries.map(queueRowEl) : []));
 }
 
 // #215: rows went to ONE line and lost their `.meta`, and bailing on a missing
@@ -259,6 +425,7 @@ function updateTestQueuedMarker() {
 
 function refreshQueueUI() {
   updatePendingBanner();
+  updatePendingList();
   document.querySelectorAll('#run-tests li.test-row').forEach((li) => applyQueuedMarker(li, li.dataset.recordId));
   updateTestQueuedMarker();
 }
@@ -289,6 +456,8 @@ async function queueInit() {
   if (typeof window !== 'undefined') window.addEventListener('online', () => queueReplay());
   const retry = $('pending-banner-retry');
   if (retry) retry.addEventListener('click', () => queueReplay({ user: true }));
+  const toggle = $('pending-banner-toggle');
+  if (toggle) toggle.addEventListener('click', () => { queueListOpen = !queueListOpen; refreshQueueUI(); });
   refreshQueueUI();
 }
 
@@ -301,6 +470,8 @@ const OfflineQueue = {
   enqueue: queueEnqueue,
   remove: queueRemove,
   replay: queueReplay,
+  replayOne: queueReplayOne,
+  discardOne: queueDiscardOne,
   forcedError,
   decorateRow: applyQueuedMarker,
   updateTestMarker: updateTestQueuedMarker,
