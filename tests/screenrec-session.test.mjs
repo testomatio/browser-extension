@@ -202,11 +202,15 @@ function load(opts = {}) {
     static now() { return clock; }
   }
 
+  // No crypto in a vm realm, and the review's framing key (issue 105) is minted with randomUUID.
+  // A counter rather than a constant, so a row can say the SECOND take got a key of its own.
+  let uuidSeq = 0;
   const sandbox = {
     chrome: chromeStub,
     console,
     Date: FakeDate,
     URL,
+    crypto: { randomUUID: () => { uuidSeq += 1; log('crypto.randomUUID'); return `rk-${uuidSeq}`; } },
     // The five worker globals session.js declares at the top and its siblings own.
     SiteTab: {
       originOf: (url) => { log('SiteTab.originOf', url); return hooks.originOf(url); },
@@ -869,4 +873,61 @@ test('52: attaching the take speaks for itself, so nothing is broadcast', async 
   assert.equal(h.parked(), undefined);
   assert.deepEqual(h.named('offscreen.closeDocument'), [[]]);
   assert.deepEqual(h.events(), []);
+});
+
+// ---- the key review.html is gated on when it is framed (issue 105) ----------
+// screenrec/review.html is web-accessible to <all_urls> and the manifest pins the extension id, so
+// any page can frame it invisibly and harvest a click on Discard. The page's origin and the origin
+// content/review-overlay.js runs in are the same one, so no origin check can tell the two framings
+// apart — only a secret the worker mints here and hands to nobody else.
+
+test('55 (#105): parking a take mints a fresh key for the review, kept out of the record itself', async () => {
+  const h = await open();
+  await h.api.srecFinish({ url: 'blob:take', size: 4096, ms: 8000, reason: 'user' },
+    { recording: true, mode: 'tab', tabId: 7, recordId: 'r-1' }, 'user');
+  assert.equal(h.session.screenRecReviewKey, 'rk-1');
+  assert.equal('key' in h.parked(), false, 'the record is broadcast to every panel — the key is not');
+  assert.equal(JSON.stringify(h.events()).includes('rk-1'), false, 'nor does it ride the review event');
+});
+
+test('55b (#105): the next take is keyed afresh, so a page that learned the last one has nothing', async () => {
+  const h = await open();
+  await h.api.srecFinish({ url: 'blob:one', size: 10, ms: 1000 }, { recording: true, mode: 'tab', tabId: 7 }, 'user');
+  const first = h.session.screenRecReviewKey;
+  await h.message({ type: 'SCREENREC_DONE', attached: true });
+  await h.api.srecFinish({ url: 'blob:two', size: 10, ms: 1000 }, { recording: true, mode: 'tab', tabId: 7 }, 'user');
+  assert.ok(first);
+  assert.notEqual(h.session.screenRecReviewKey, first);
+});
+
+test('55c (#105): the take’s key goes with the take', async () => {
+  const h = await open({ session: { screenRecFile: TAKE(), screenRecReviewKey: 'rk-old' } });
+  assert.deepEqual(await h.message({ type: 'SCREENREC_DONE', attached: false }), { ok: true });
+  assert.equal(h.session.screenRecReviewKey, undefined, 'a key outliving its take is one still worth guessing');
+});
+
+test('55d (#105): the overlay asks the worker for the key — a content script cannot read it itself', async () => {
+  const h = await open({ session: { screenRecFile: TAKE(), screenRecReviewKey: 'rk-7' } });
+  assert.deepEqual(await h.message({ type: 'SCREENREC_REVIEW_KEY' }), { key: 'rk-7' });
+});
+
+test('55e (#105): with nothing parked there is no key to hand out', async () => {
+  const h = await open();
+  assert.deepEqual(await h.message({ type: 'SCREENREC_REVIEW_KEY' }), { key: '' });
+});
+
+// The take already parked is the one the tester is reviewing: re-keying it here would lock the
+// review window that is open right now out of its own Attach.
+test('55f (#105): a second take that is turned away does not re-key the review already standing', async () => {
+  const h = await open({ session: { screenRecFile: TAKE(), screenRecReviewKey: 'rk-held' } });
+  await h.api.srecFinish({ url: 'blob:newer', size: 700, ms: 3000 }, { recording: true, mode: 'tab', tabId: 7 }, 'user');
+  assert.equal(h.session.screenRecReviewKey, 'rk-held');
+});
+
+// A recording that captured nothing parks nothing; a key with no take behind it is a key the next
+// take would not have minted for itself.
+test('55g (#105): an empty take mints no key', async () => {
+  const h = await open();
+  await h.api.srecFinish(null, { recording: true, mode: 'tab', tabId: 7 }, 'user');
+  assert.equal(h.session.screenRecReviewKey, undefined);
 });

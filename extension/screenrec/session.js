@@ -18,6 +18,9 @@ const { SREC_CLAIM_MS, claimOk, applyClaim, dropClaim, serialize } = SrecClaim;
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
+// What a FRAMED screenrec/review.html has to show to act: any page can frame that page, and only
+// our own overlay is ever handed this. Its own key — the parked record is broadcast, this is not.
+const SREC_RKEY_KEY = 'screenRecReviewKey';
 const SREC_TARGET_KEY = 'screenRecTarget';
 const SREC_DOC = 'offscreen/recorder.html';
 const SREC_MENU_ID = 'testomat-screen-rec';
@@ -259,7 +262,8 @@ async function srecFinish(file, st, reason) {
     return;
   }
   const parked = buildParked(file, st, reason);
-  await chrome.storage.session.set({ [SREC_FILE_KEY]: parked });
+  // A key of its own per parked take, so a page that learned the last one has learned nothing.
+  await chrome.storage.session.set({ [SREC_FILE_KEY]: parked, [SREC_RKEY_KEY]: crypto.randomUUID() });
   srecTell({ type: 'SCREENREC_EVENT', event: 'review', file: parked });
   await srecOpenReview((st && st.tabId) != null ? st.tabId : null);
 }
@@ -403,7 +407,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     case 'SCREENREC_STATUS': srecStatus().then(sendResponse); return true;
     case 'SCREENREC_TAKE': srecParked().then((f) => sendResponse(f || null)); return true;
     case 'SCREENREC_DONE':
-      chrome.storage.session.remove(SREC_FILE_KEY).then(srecCloseDoc).then(() => {
+      chrome.storage.session.remove([SREC_FILE_KEY, SREC_RKEY_KEY]).then(srecCloseDoc).then(() => {
         // Only a discard leaves the plaque with nothing to sit for; an attach speaks for itself.
         if (!msg.attached) srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'discarded' });
         sendResponse({ ok: true });
@@ -449,6 +453,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         srecTell({ type: 'SCREENREC_EVENT', event: 'file', file: trimmed });
         return sendResponse({ ok: true });
       });
+      return true;
+    // Only the worker may read storage.session; content/review-overlay.js needs this to prove to
+    // the review page that the extension framed it and the page under test did not.
+    case 'SCREENREC_REVIEW_KEY':
+      chrome.storage.session.get(SREC_RKEY_KEY)
+        .then((r) => sendResponse({ key: r[SREC_RKEY_KEY] || '' }));
       return true;
     // The panel's button while an unreviewed file waits: back to the review, never a new take.
     case 'SCREENREC_OPEN_REVIEW':

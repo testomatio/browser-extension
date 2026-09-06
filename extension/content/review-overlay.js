@@ -56,7 +56,6 @@
   frame.className = 'frame';
   const iframe = document.createElement('iframe');
   iframe.allow = 'autoplay';
-  iframe.src = chrome.runtime.getURL('screenrec/review.html');
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'close';
@@ -73,6 +72,16 @@
   let loaded = false;
   let stalled = false;
   let waitId = null;
+  let keyed = false; // the frame is pointed at the review only once the worker hands the key over
+
+  // review.html is web-accessible to every page, so it acts framed only for whoever carries the key
+  // the worker minted with this take. The hash keeps it out of the request and out of a referrer.
+  function armFrame(key) {
+    if (torn) return;
+    keyed = true;
+    iframe.src = chrome.runtime.getURL('screenrec/review.html')
+      + (key ? `#k=${encodeURIComponent(key)}` : '');
+  }
 
   // A page whose CSP refuses our frame leaves a dark rectangle and no word of explanation, so a
   // tester cannot tell a refused review from a ruined take. Say it, and hand over the standalone tab.
@@ -129,6 +138,7 @@
     try { return !iframe.contentDocument; } catch { return true; }
   };
   iframe.addEventListener('load', () => {
+    if (!keyed) return; // the about:blank every empty frame loads on insertion is not our review
     if (!frameOpened()) { showStall(); return; }
     loaded = true;
     if (waitId !== null) clearTimeout(waitId);
@@ -140,4 +150,8 @@
   root.style.overflow = 'hidden';
   (document.body || root).append(host);
   waitId = setTimeout(showStall, FRAME_WAIT_MS);
+  // A content script cannot read chrome.storage.session, and raising its access level would hand
+  // the parked take to every content script on every page. The worker answers instead.
+  chrome.runtime.sendMessage({ type: 'SCREENREC_REVIEW_KEY' })
+    .then((r) => armFrame(r && r.key), () => armFrame(''));
 })();

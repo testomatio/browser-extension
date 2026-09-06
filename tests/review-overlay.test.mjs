@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInContext } from 'node:vm';
 import { makeDocument, event, fire } from './helpers/mini-dom.mjs';
-import { chromeFake, loadInto, sharedPath, sourceOf } from './helpers/shared-harness.mjs';
+import { chromeFake, loadInto, plain, settle, sharedPath, sourceOf } from './helpers/shared-harness.mjs';
 
 const REL = 'content/review-overlay.js';
 const HOST_ID = '__testomat_review_overlay';
@@ -33,7 +33,9 @@ function makeWindow() {
 }
 
 function load(opts = {}) {
-  const { overflow = 'scroll', runtime = true } = opts;
+  // `key` is what the worker answers with when the overlay asks for this take's framing key
+  // (issue 105); null is a worker that answers nothing at all.
+  const { overflow = 'scroll', runtime = true, key = 'rk-1' } = opts;
 
   const doc = makeDocument();
   doc.documentElement.style.overflow = overflow;
@@ -50,6 +52,8 @@ function load(opts = {}) {
   };
 
   const ch = chromeFake();
+  const asked = [];
+  ch.chrome.runtime.sendMessage = async (msg) => { asked.push(plain(msg)); return key == null ? undefined : { key }; };
   if (!runtime) delete ch.chrome.runtime;
 
   const win = makeWindow();
@@ -76,6 +80,10 @@ function load(opts = {}) {
     hosts,
     host,
     iframe,
+    asked,
+    // The frame is pointed at review.html only once the worker has answered — one turn of the
+    // macrotask queue away, so a row that reads `src` or fires `load` waits here first.
+    armed: async () => { await settle(); },
     backdrop: () => part('.backdrop'),
     frame: () => part('.frame'),
     closeBtn: () => part('.close'),
@@ -207,10 +215,11 @@ test('7c: a context with no chrome.runtime puts nothing on the page', () => {
 
 // ---- handing the page back --------------------------------------------------
 
-test('8: closing hands the page back exactly as it was found', () => {
+test('8: closing hands the page back exactly as it was found', async () => {
   const h = load({ overflow: 'scroll' });
   assert.equal(h.overflow(), 'hidden', 'the page behind is locked while the review stands');
-  assert.equal(h.iframe().src, `${EXT}/screenrec/review.html`);
+  await h.armed();
+  assert.equal(h.iframe().src, `${EXT}/screenrec/review.html#k=rk-1`);
   h.esc();
   assert.equal(h.hosts().length, 0);
   assert.equal(h.overflow(), 'scroll', 'the page’s own overflow, not an empty string');
@@ -278,8 +287,9 @@ test('11 (#332): a review whose frame never loads tells the tester why, and offe
   assert.equal(h.hosts().length, 1, 'the take is not lost — the review is still standing');
 });
 
-test('11b (#332): the frame loads in time and the tester is told nothing', () => {
+test('11b (#332): the frame loads in time and the tester is told nothing', async () => {
   const h = load();
+  await h.armed();
   // A review page that really opened is another origin: reading into it is refused, not merely empty.
   Object.defineProperty(h.iframe(), 'contentDocument', {
     configurable: true, get() { throw new Error('cross-origin'); },
@@ -293,8 +303,9 @@ test('11b (#332): the frame loads in time and the tester is told nothing', () =>
 // The case the ticket is actually about. A page's CSP does not make the frame fail — Chrome reports
 // `load` and leaves it on the initial about:blank, which is same-origin and therefore still readable.
 // Trusting that `load` is what left the tester with a dark rectangle in the first place.
-test('11e (#332): a `load` on a frame that never left about:blank is a refusal, not a review', () => {
+test('11e (#332): a `load` on a frame that never left about:blank is a refusal, not a review', async () => {
   const h = load();
+  await h.armed();
   h.iframe().contentDocument = { title: '' }; // still ours to read: the navigation was blocked
   fire(h.iframe(), 'load');
   assert.ok(h.stall(), 'the refusal is said at once, without waiting the frame out');
@@ -317,4 +328,61 @@ test('11d (#332): closing before the wait is out leaves the late wait nothing to
   h.waitOut();
   assert.equal(h.hosts().length, 0, 'a late wait must not put the review back on the page');
   assert.equal(box.querySelector('.stall'), null, 'nor paint a refusal into a review already gone');
+});
+
+// ---- the key that says WE framed this, not the page (issue 105) -------------
+// screenrec/review.html is web-accessible to <all_urls> and the manifest pins the extension id, so
+// any page can compute its URL and frame it invisibly under the cursor to harvest a click on
+// Discard. An origin check cannot help: this content script runs in the page's own origin, so a
+// hostile framing and ours look identical from inside. Only a secret can tell them apart, and a
+// content script cannot read chrome.storage.session — so the worker hands this one over.
+
+test('12 (#105): the frame is opened with the one-time key the worker minted for this take', async () => {
+  const h = load();
+  await h.armed();
+  assert.deepEqual(h.asked, [{ type: 'SCREENREC_REVIEW_KEY' }]);
+  assert.equal(h.iframe().src, `${EXT}/screenrec/review.html#k=rk-1`);
+});
+
+test('12b (#105): the key rides in the hash, and whatever the worker minted survives the trip', async () => {
+  const h = load({ key: 'a b/c#d' });
+  await h.armed();
+  assert.equal(h.iframe().src, `${EXT}/screenrec/review.html#k=a%20b%2Fc%23d`);
+});
+
+// Chrome fires `load` for the about:blank every src-less frame gets the moment it is inserted. Read
+// as the review's own load, that one spends the wait, and a page whose CSP then refuses us for real
+// is never reported — the tester is left with the dark rectangle #332 already paid for once.
+test('12c (#105): the about:blank an unarmed frame loads is not read as the review arriving', () => {
+  const h = load();
+  fire(h.iframe(), 'load');
+  h.waitOut();
+  assert.ok(h.stall(), 'a review that never arrived must still be able to say so');
+  assert.ok(h.stallLink());
+});
+
+// A worker that answers nothing leaves us with no key. Framing anyway is the honest end: review.js
+// says who opened it and offers no buttons, which beats a blank frame with no explanation at all.
+test('12d (#105): a worker that answers nothing still frames the review, keyless', async () => {
+  const h = load({ key: null });
+  await h.armed();
+  assert.equal(h.iframe().src, `${EXT}/screenrec/review.html`);
+});
+
+// The top-level way out must stay keyless: a key in an <a href> the page can read is a key the page
+// has. It costs nothing — a tab is on screen, so there is no invisible click to steal there.
+test('12e (#105): the tab a refused frame offers carries no key', async () => {
+  const h = load();
+  await h.armed();
+  h.waitOut();
+  assert.equal(h.stallLink().href, `${EXT}/screenrec/review.html`);
+  assert.equal(h.stallLink().target, '_blank');
+});
+
+test('12f (#105): a review closed before the worker answers is not framed after the fact', async () => {
+  const h = load();
+  h.esc();
+  await h.armed();
+  assert.equal(h.iframe().src, undefined, 'nothing navigates into a frame already off the page');
+  assert.equal(h.hosts().length, 0);
 });

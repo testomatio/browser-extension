@@ -3,12 +3,14 @@
 // once into a fresh MediaRecorder, which is PAUSED across every cut and every seek, so a cut
 // frame is never painted into the stream. The worker drops the original the moment a trim lands.
 //
-// Runs framed over the page (content/review-overlay.js) or as a tab of its own.
+// Runs framed over the page (content/review-overlay.js) or as a tab of its own. Framed, it acts
+// only for whoever carries this take's key: any page can frame this one, and none can be handed it.
 
 /* global chrome */
 (() => {
   'use strict';
 
+  const RKEY = 'screenRecReviewKey'; // the worker's per-take key, written beside the parked record
   const $ = (id) => document.getElementById(id);
   const send = (msg) => chrome.runtime.sendMessage(msg).catch(() => null);
   const fmt = (s) => { const n = Math.max(0, Math.round(s)); return `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`; };
@@ -23,6 +25,25 @@
   let cuts = [];       // [{ start, end }] seconds — kept sorted and non-overlapping
   let dragging = null; // { kind: 'new'|'handle', cut, side?, anchor?, moved }
   let exporting = false;
+  // Framed by the page rather than by us — nothing here may act. True until the boot below has
+  // established who framed us, or a click harvested in that window would still land.
+  let refused = true;
+
+  // The key rides in the hash, where a URLSearchParams over the query string would never see it.
+  const framedWith = () => {
+    const m = /(?:^|[#&])k=([^&]*)/.exec(String((window.location && window.location.hash) || ''));
+    if (!m) return '';
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  };
+
+  // A hostile page frames us invisibly and harvests a click on Discard. Its origin and our overlay's
+  // are the same one, so only the worker's per-take key tells them apart. A tab of our own is seen.
+  async function framedByThePage() {
+    if (window.parent === window) return false;
+    let want = '';
+    try { want = (await chrome.storage.session.get(RKEY))[RKEY] || ''; } catch { /* no key, no act */ }
+    return !want || framedWith() !== want;
+  }
 
   function closeReview() {
     if (window.parent !== window) window.parent.postMessage({ type: 'TESTOMAT_REVIEW_CLOSE' }, '*');
@@ -251,7 +272,7 @@
   // ---- attach / discard ------------------------------------------------------
 
   $('btn-attach').addEventListener('click', async () => {
-    if (exporting) return;
+    if (exporting || refused) return;
     if (!cuts.length) {
       // Watched and approved as it is — the panel attaches the original.
       await send({ type: 'SCREENREC_REVIEWED' });
@@ -286,7 +307,7 @@
   });
 
   $('btn-discard').addEventListener('click', async () => {
-    if (exporting) return;
+    if (exporting || refused) return;
     if (!window.confirm('Discard this recording? Nothing was uploaded.')) return;
     await send({ type: 'SCREENREC_DONE' });
     closeReview();
@@ -305,6 +326,17 @@
       $('btn-play').disabled = true;
       return;
     }
+    // Before a word of the take is on screen: the page that framed us learns neither its URL nor
+    // its size, and the click it was hoping to harvest reaches nothing.
+    if (await framedByThePage()) {
+      status('This review window was opened by the page you are on, not by the extension. '
+        + 'Nothing can be attached or discarded here — open the review from the Testomat.io panel.');
+      $('btn-attach').disabled = true;
+      $('btn-discard').disabled = true;
+      $('btn-play').disabled = true;
+      return;
+    }
+    refused = false;
     $('file-meta').textContent = `${file.name} · ${mb(file.size)}`;
     video.src = file.url;
     await new Promise((resolve) => {
