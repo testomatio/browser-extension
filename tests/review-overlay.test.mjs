@@ -280,10 +280,26 @@ test('11 (#332): a review whose frame never loads tells the tester why, and offe
 
 test('11b (#332): the frame loads in time and the tester is told nothing', () => {
   const h = load();
+  // A review page that really opened is another origin: reading into it is refused, not merely empty.
+  Object.defineProperty(h.iframe(), 'contentDocument', {
+    configurable: true, get() { throw new Error('cross-origin'); },
+  });
   fire(h.iframe(), 'load');
   h.waitOut();
   assert.equal(h.stall(), null, 'a review that works must not be talked over');
   assert.equal(h.iframe().hidden, undefined, 'nor its frame hidden');
+});
+
+// The case the ticket is actually about. A page's CSP does not make the frame fail — Chrome reports
+// `load` and leaves it on the initial about:blank, which is same-origin and therefore still readable.
+// Trusting that `load` is what left the tester with a dark rectangle in the first place.
+test('11e (#332): a `load` on a frame that never left about:blank is a refusal, not a review', () => {
+  const h = load();
+  h.iframe().contentDocument = { title: '' }; // still ours to read: the navigation was blocked
+  fire(h.iframe(), 'load');
+  assert.ok(h.stall(), 'the refusal is said at once, without waiting the frame out');
+  assert.equal(h.iframe().hidden, true);
+  assert.ok(h.stallLink());
 });
 
 test('11c (#332): a frame that errors out says so without waiting the whole wait', () => {

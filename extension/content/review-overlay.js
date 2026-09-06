@@ -122,7 +122,14 @@
 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) teardown(); });
   closeBtn.addEventListener('click', teardown);
+  // Chrome fires `load` for a frame its CSP refused, leaving it on the initial about:blank — which
+  // is same-origin and so still readable. A review that really opened is an extension page, another
+  // origin, and reading into it is refused. That is the only honest tell the two apart.
+  const frameOpened = () => {
+    try { return !iframe.contentDocument; } catch { return true; }
+  };
   iframe.addEventListener('load', () => {
+    if (!frameOpened()) { showStall(); return; }
     loaded = true;
     if (waitId !== null) clearTimeout(waitId);
   });
