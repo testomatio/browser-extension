@@ -31,31 +31,35 @@ function load(opts = {}) {
     write: async () => {},
     getRun: async () => null,
     getRunInfo: async () => null,
+    confirm: true,
     ...opts,
   };
 
-  // index.html's shape, cut to what this screen touches: the banner, its Retry, the open-test badge
-  // and the run list refreshQueueUI walks.
+  // index.html's shape, cut to what this screen touches: the banner, its Retry, the fold that opens
+  // the queue (#108), the open-test badge and the run list refreshQueueUI walks.
   const doc = makeDocument([]);
   const bannerText = el('span', { className: 'pending-banner-text' });
-  const banner = el('div', { id: 'pending-banner', hidden: true }, bannerText);
   const retry = el('button', { id: 'pending-banner-retry' });
+  const toggle = el('button', { id: 'pending-banner-toggle' });
+  const queueList = el('ul', { id: 'pending-queue', hidden: true });
+  const banner = el('div', { id: 'pending-banner', hidden: true }, bannerText, toggle, retry, queueList);
   const testQueued = el('span', { id: 'test-queued', hidden: true });
   // One line and no `.meta`, the shape rows took upstream — the row itself hosts the mark.
   const list = el('ul', { id: 'run-tests' }, ...o.rows.map((id) => el('li', {
     className: 'test-row', dataset: { recordId: String(id) },
   }, el('span', { className: 'title' }, `test ${id}`))));
-  doc.body.append(banner, retry, testQueued, list);
+  doc.body.append(banner, testQueued, list);
 
   const toasts = [];
   const writes = [];
   const repaints = [];
   const tips = [];
+  const asks = [];
   const apiCalls = [];
   const calls = { $: 0 };
   const state = { settings: o.settings, view: o.view, currentRecordId: o.currentRecordId, runId: 'r1' };
   const capabilities = { jwt: o.jwt, readonly: o.readonly };
-  const records = new Map(o.rows.map((id) => [String(id), { id }]));
+  const records = new Map(o.rows.map((id) => [String(id), { id, test_title: `test ${id}` }]));
 
   const globals = {
     state,
@@ -70,6 +74,9 @@ function load(opts = {}) {
     // refreshQueueUI runs on every enqueue and every removal, so this one has to stay cheap.
     $: (id) => { calls.$ += 1; return doc.getElementById(id); },
     Tooltip: { set: (node, tip) => { tips.push({ node, tip }); } },
+    // core/dialog.js's, stubbed: a Discard asks before it drops, and tests/dialog.test.mjs owns
+    // the <dialog> itself.
+    ConfirmDialog: { ask: async (message, label) => { asks.push({ message, label }); return o.confirm; } },
     // core/write-status.js's, stubbed: this suite is about what the drain hands it and what it
     // does with the answer. tests/write-status.test.mjs owns the request itself.
     WriteCore: {
@@ -100,8 +107,8 @@ function load(opts = {}) {
   return {
     ...h,
     Q: h.screen,
-    banner, bannerText, retry, testQueued, list,
-    toasts, writes, repaints, tips, apiCalls, calls, state, capabilities,
+    banner, bannerText, retry, toggle, queueList, testQueued, list,
+    toasts, writes, repaints, tips, asks, apiCalls, calls, state, capabilities,
     stored: () => h.store.data.offlineQueue,
     countOf: (name) => apiCalls.filter((c) => c[0] === name).length,
   };
@@ -896,4 +903,318 @@ test('58 (#107): the log clause joins the drop clauses in ONE toast, and only la
   await offline.Q.replay();
   assert.deepEqual(offline.toasts, []);
   assert.equal(offline.Q.count(), 1);
+});
+
+// ---------- the queued list, retried and discarded one row at a time (rows 59-76) ----------
+
+// #108: the banner said «3 changes pending» and nothing more — not which three, not whose run, not how
+// long they had waited. Worse, its one Retry walks a FIFO that STOPS on the first still-offline entry,
+// so the results behind the block could never be tried at all. The fold below is that list, and each
+// row goes through the same single-entry write the pass uses, on its own.
+
+const NOW = 1_700_000_000_000;
+const AGO = (ms) => NOW - ms;
+
+// enqueue() stamps queuedAt, host and project itself, and these rows are ABOUT those three — so the
+// queue is seeded the way a previous panel session left it in storage instead.
+const seed = (...entries) => ({
+  offlineQueue: Object.fromEntries(entries.map((e) => [String(e.recordId), {
+    runId: 'r1', status: 'passed', comment: '', queuedAt: AGO(60_000), reason: null, envMeta: null,
+    host: 'a.io', projectId: 'p1', ...e,
+  }])),
+});
+
+// The fold is wired by queueInit, the way the panel wires it.
+async function booted(opts = {}) {
+  const h = load({ now: NOW, ...opts });
+  await h.Q.init();
+  return h;
+}
+
+const rowsOf = (h) => h.queueList.children;
+const idsOf = (h) => rowsOf(h).map((li) => li.dataset.recordId);
+const openFold = (h) => fire(h.toggle, 'click');
+const cellText = (li, cls) => li.querySelector(`.${cls}`)?.textContent ?? null;
+const rowBtn = (h, i, what) => rowsOf(h)[i].querySelector(`.pending-row-${what}`);
+
+test('59 (#108): the fold starts shut and opens one row per queued entry, oldest click first', async () => {
+  const h = await booted({
+    local: seed({ recordId: 2, queuedAt: AGO(30 * 60_000) }, { recordId: 1, queuedAt: AGO(90 * 60_000) }),
+  });
+  assert.equal(h.toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.queueList.hidden, true);
+  assert.equal(rowsOf(h).length, 0);
+
+  openFold(h);
+  assert.equal(h.toggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.queueList.hidden, false);
+  assert.deepEqual(idsOf(h), ['1', '2']);
+});
+
+test('60 (#108): a row names the test it belongs to, and a result from another run by its id', async () => {
+  const h = await booted({ rows: [5], local: seed({ recordId: 5, queuedAt: AGO(120_000) }, { recordId: 9 }) });
+  openFold(h);
+  assert.deepEqual(rowsOf(h).map((li) => cellText(li, 'pending-row-title')), ['test 5', 'Result 9']);
+});
+
+test('61 (#108): a row carries the status that is waiting and the age its queuedAt earned', async () => {
+  const h = await booted({
+    local: seed(
+      { recordId: 1, status: 'failed', queuedAt: AGO(20_000) },
+      { recordId: 2, status: 'passed', queuedAt: AGO(5 * 60_000) },
+      { recordId: 3, status: 'skipped', queuedAt: AGO(3 * 3_600_000) },
+      { recordId: 4, status: 'passed', queuedAt: AGO(50 * 3_600_000) },
+    ),
+  });
+  openFold(h);
+  assert.deepEqual(
+    rowsOf(h).map((li) => [cellText(li, 'pending-row-status'), cellText(li, 'pending-row-age')]),
+    [['passed', '2d ago'], ['skipped', '3h ago'], ['passed', '5m ago'], ['failed', 'just now']],
+  );
+  // The status wears the panel's own mark, so the list reads like every other row in it.
+  assert.equal(rowsOf(h)[3].querySelector('.pending-row-status').className, 'badge failed pending-row-status');
+});
+
+test('62 (#108): an entry for another project or instance says which, and its Retry is not offered', async () => {
+  const h = await booted({
+    local: seed(
+      { recordId: 1, queuedAt: AGO(3 * 60_000) },
+      { recordId: 2, projectId: 'p9', queuedAt: AGO(2 * 60_000) },
+      { recordId: 3, host: 'b.io', queuedAt: AGO(60_000) },
+    ),
+  });
+  openFold(h);
+  assert.deepEqual(
+    rowsOf(h).map((li) => cellText(li, 'pending-row-where')),
+    [null, 'other project', 'other instance'],
+  );
+  assert.deepEqual(rowsOf(h).map((li) => li.querySelector('.pending-row-retry').disabled), [false, true, true]);
+  // …and the way out stays open: a foreign entry is exactly the one a tester wants to drop.
+  assert.deepEqual(rowsOf(h).map((li) => li.querySelector('.pending-row-discard').disabled), [false, false, false]);
+});
+
+// Row 62 disables the button; this is the guard BEHIND it. replayOne is exported, and without the
+// active check a foreign entry would reach dropLockedRunEntries — whose run id resolves against THIS
+// project, where the same number can name a finished run. Row 18's hazard, one row at a time.
+test('62a (#108): replayOne on a foreign entry resolves no run here and keeps it queued', async () => {
+  const h = await booted({
+    local: seed({ recordId: 'theirs', runId: 'r-foreign', projectId: 'p9' }),
+    getRun: async (id) => (id === 'r-foreign' ? { status: 'finished' } : null),
+  });
+  openFold(h);
+  await h.Q.replayOne('theirs');
+  await settle();
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.apiCalls, [], 'the foreign run id never went to this project');
+  assert.equal(h.Q.has('theirs'), true);
+  assert.deepEqual(h.toasts, []);
+});
+
+test('63 (#108): shutting the fold empties it, so no stale row waits behind a closed list', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }) });
+  openFold(h);
+  assert.equal(rowsOf(h).length, 1);
+
+  openFold(h);
+  assert.equal(h.toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.queueList.hidden, true);
+  assert.equal(rowsOf(h).length, 0);
+});
+
+test('64 (#108): the queue emptying shuts the fold instead of leaving an empty list open', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }) });
+  openFold(h);
+
+  await h.Q.replay();
+  assert.equal(h.Q.count(), 0);
+  assert.equal(h.toggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(h.toggle.hidden, true); // nothing to unfold, so nothing invites the click
+  assert.equal(h.queueList.hidden, true);
+  assert.equal(rowsOf(h).length, 0);
+});
+
+test('65 (#108): a row Retry writes THAT entry, with a still-offline one ahead of it in the queue', async () => {
+  const h = await booted({
+    local: seed({ recordId: 1, queuedAt: AGO(9 * 60_000) }, { recordId: 2, queuedAt: AGO(60_000) }),
+    write: async (rec) => { if (String(rec.id) === '1') throw err('network', 'offline'); },
+  });
+  // The complaint itself: the whole-queue Retry stops on 1, and 2 never gets a turn.
+  await h.Q.replay({ user: true });
+  assert.deepEqual(h.writes.map((w) => w.id), ['1']);
+  assert.equal(h.Q.count(), 2);
+
+  openFold(h);
+  fire(rowBtn(h, 1, 'retry'), 'click');
+  await settle();
+  assert.deepEqual(h.writes.map((w) => w.id), ['1', '2']);
+  assert.equal(h.Q.has(2), false);
+  assert.equal(h.Q.has(1), true); // the entry that blocks the pass is untouched, not dropped with it
+  assert.deepEqual(idsOf(h), ['1']);
+});
+
+test('66 (#108): a row Retry that is still offline keeps the result and says so', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }), write: async () => { throw err('network', 'offline'); } });
+  openFold(h);
+  fire(rowBtn(h, 0, 'retry'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), true);
+  assert.deepEqual(h.toasts, [{ msg: 'Still offline — the result stays queued', error: true }]);
+
+  // A rejected token is not a dropped connection, and the row says the other sentence (#106).
+  const auth = await booted({ local: seed({ recordId: 1 }), write: async () => { throw err('auth', '403'); } });
+  openFold(auth);
+  fire(rowBtn(auth, 0, 'retry'), 'click');
+  await settle();
+  assert.equal(auth.Q.has(1), true);
+  assert.deepEqual(auth.toasts, [{
+    msg: 'The token was rejected — authorize again in Settings; the result stays queued', error: true,
+  }]);
+});
+
+test('67 (#108): a row Retry that fails permanently drops that entry with the drain’s own sentence', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }), write: async () => { throw err('notfound', 'Not found'); } });
+  openFold(h);
+  fire(rowBtn(h, 0, 'retry'), 'click');
+  await settle();
+  assert.equal(h.Q.count(), 0);
+  assert.deepEqual(h.toasts, [
+    { msg: "A queued status couldn't be saved and was dropped: Not found", error: true },
+  ]);
+});
+
+test('68 (#108): a row Retry asks the run lock first — a finished run drops the entry, unwritten', async () => {
+  const h = await booted({ local: seed({ recordId: 1, runId: 'r7' }), getRun: async () => ({ status: 'finished' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'retry'), 'click');
+  await settle();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.Q.count(), 0);
+  assert.deepEqual(h.toasts, [{ msg: 'Run finished — 1 queued result was not written', error: true }]);
+});
+
+test('69 (#108): a FAIL synced from its own row still says once that it carries no log', async () => {
+  const h = await booted({ local: seed({ recordId: 1, status: 'failed' }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'retry'), 'click');
+  await settle();
+  assert.deepEqual(h.toasts, [{
+    msg: '1 synced result has no console & network log — it is not kept offline', error: false,
+  }]);
+
+  // A PASS has nothing to say about a log it never wanted.
+  const pass = await booted({ local: seed({ recordId: 1 }) });
+  openFold(pass);
+  fire(rowBtn(pass, 0, 'retry'), 'click');
+  await settle();
+  assert.deepEqual(pass.toasts, []);
+});
+
+test('70 (#108): Discard asks first — these are results the tester believes are saved', async () => {
+  const h = await booted({ local: seed({ recordId: 1, status: 'failed' }), confirm: false });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.asks.length, 1);
+  assert.match(h.asks[0].message, /^Discard Result 1\?/);
+  assert.equal(h.asks[0].label, 'Discard');
+  assert.equal(h.Q.has(1), true); // a cancel changes nothing
+  assert.deepEqual(idsOf(h), ['1']);
+});
+
+test('71 (#108): a confirmed Discard drops that one entry and leaves the rest of the queue alone', async () => {
+  const h = await booted({ local: seed({ recordId: 1, queuedAt: AGO(120_000) }, { recordId: 2 }) });
+  openFold(h);
+  fire(rowBtn(h, 0, 'discard'), 'click');
+  await settle();
+  assert.equal(h.Q.has(1), false);
+  assert.equal(h.Q.has(2), true);
+  assert.deepEqual(h.writes, []); // discarded, not sent
+  assert.deepEqual(Object.keys(h.stored()), ['2']); // and gone from storage, not just from the list
+  assert.deepEqual(idsOf(h), ['2']);
+});
+
+test('72 (#108): a row whose entry went away under the click neither writes nor throws', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }, { recordId: 2, queuedAt: AGO(30_000) }) });
+  openFold(h);
+  // The buttons the tester is looking at, held from BEFORE the entry behind them went away — a
+  // fresher click, a livesync apply, a drain that got there first.
+  const [stale] = rowsOf(h);
+  await h.Q.remove(1);
+
+  fire(stale.querySelector('.pending-row-retry'), 'click');
+  fire(stale.querySelector('.pending-row-discard'), 'click');
+  await settle();
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.asks, []); // nothing to confirm about an entry that is already gone
+  assert.equal(h.Q.count(), 1);
+  assert.deepEqual(idsOf(h), ['2']); // both clicks repainted the list they found stale
+});
+
+test('73 (#108): a row Retry pressed mid-drain is coalesced like the banner’s, not run beside it', async () => {
+  let h;
+  h = load({
+    now: NOW,
+    local: seed({ recordId: 1 }),
+    write: async () => {
+      if (h.writes.length === 1) fire(rowBtn(h, 0, 'retry'), 'click');
+      throw err('network', 'offline');
+    },
+  });
+  await h.Q.init();
+  openFold(h);
+
+  await h.Q.replay();
+  assert.equal(h.writes.length, 2); // the drain plus the ONE coalesced re-run, never a third
+  assert.deepEqual(h.toasts, [{ msg: 'Already syncing — your Retry runs right after' }]);
+});
+
+test('74 (#108): a trigger landing during a row Retry still buys the whole-queue pass it was promised', async () => {
+  let h;
+  h = load({
+    now: NOW,
+    local: seed({ recordId: 1, queuedAt: AGO(120_000) }, { recordId: 2 }),
+    write: async (rec) => { if (String(rec.id) === '2') await h.Q.replay({ user: true }); },
+  });
+  await h.Q.init();
+  openFold(h);
+
+  fire(rowBtn(h, 1, 'retry'), 'click');
+  await settle();
+  // The row first, on its own; the pass it promised then takes what is left.
+  assert.deepEqual(h.writes.map((w) => w.id), ['2', '1']);
+  assert.equal(h.Q.count(), 0);
+  assert.deepEqual(h.toasts, [{ msg: 'Already syncing — your Retry runs right after' }]);
+});
+
+test('75 (#108): a locked project takes no row Retry either, and keeps the entry (#155)', async () => {
+  const h = await booted({ local: seed({ recordId: 1 }), readonly: true });
+  openFold(h);
+  fire(rowBtn(h, 0, 'retry'), 'click');
+  await settle();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.Q.has(1), true);
+  // …and says so: a row's Retry that answers with nothing is the silence this list replaced.
+  assert.deepEqual(h.toasts, [{ msg: 'Your access here is read-only — the result stays queued', error: true }]);
+
+  // A 403 that arrives from the SERVER mid-write is the same idea, said out loud.
+  const server = await booted({ local: seed({ recordId: 1 }), write: async () => { throw err('readonly', 'ro'); } });
+  openFold(server);
+  fire(rowBtn(server, 0, 'retry'), 'click');
+  await settle();
+  assert.equal(server.Q.has(1), true);
+  assert.deepEqual(server.toasts, [{
+    msg: 'Your access here is read-only — the result stays queued', error: true,
+  }]);
+});
+
+test('76 (#108): an open fold repaints through refreshQueueUI, so a newer click shows at once', async () => {
+  const h = await booted({ local: seed({ recordId: 1, queuedAt: AGO(2 * 3_600_000) }) });
+  openFold(h);
+  assert.deepEqual([cellText(rowsOf(h)[0], 'pending-row-status'), cellText(rowsOf(h)[0], 'pending-row-age')],
+    ['passed', '2h ago']);
+
+  await enqueue(h, { recordId: 1, status: 'failed', queuedAt: AGO(10_000) });
+  assert.equal(rowsOf(h).length, 1); // replaced, not appended — one entry per record id
+  assert.deepEqual([cellText(rowsOf(h)[0], 'pending-row-status'), cellText(rowsOf(h)[0], 'pending-row-age')],
+    ['failed', 'just now']);
 });

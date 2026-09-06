@@ -119,6 +119,24 @@ label > input, label > select, label > textarea { margin-top: var(--space-1); }
   gap: var(--space-2);
 }
 
+/* ---- Pending queue (screens/offline-queue.js) ----
+   The banner is one flex ROW; the fold is a full-width line under it, so the strip wraps rather than
+   the list squeezing in beside the buttons. The caret rotation is the disclosure's, borrowed by id
+   because the head here is a button in a banner, not a .disclosure-head. */
+.pending-banner { flex-wrap: wrap; }
+#pending-banner-toggle > .disc-caret { transition: transform var(--dur-fast) var(--ease); }
+#pending-banner-toggle[aria-expanded="true"] > .disc-caret { transform: rotate(90deg); }
+.pending-queue { flex-basis: 100%; margin-top: var(--space-2); }
+.pending-queue > .pending-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: default;
+}
+/* The title is the only cell allowed to give ground; the status, the age and the buttons keep theirs. */
+.pending-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-row-age { flex: none; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+
 /* ---- Settings sections ---- */
 /* Each is an ACCORDION item; the <h3> is structure only, so it is flattened and the button carries the
    type, the padding and the hover. */
