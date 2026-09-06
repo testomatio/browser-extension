@@ -694,6 +694,18 @@ test('38 (#316): a review that falls back to the site tab brings only that tab f
     'and the fallback must not front its tab either, before the overlay is proven to go in');
 });
 
+// The raise is the last step and the least important one: by the time it runs the review is already
+// in the tab. A tab that closed in the meantime must not turn a placement that worked into a second
+// review somewhere else — or into a rejection the Stop path never catches.
+test('38b (#316): a review that lands but cannot raise its tab still counts as placed', async () => {
+  const h = await open();
+  h.hooks.updateTab = async () => { throw new Error('No tab with id: 7'); };
+  h.clearCalls();
+  assert.deepEqual(plain(await h.api.srecOpenReview(7)), { ok: true });
+  assert.deepEqual(h.named('resolveSiteTab'), [], 'the fallback is not reached — the review is in');
+  assert.deepEqual(h.named('tabs.create'), [], 'and no tab of its own is opened on top of it');
+});
+
 test('39: with both tabs refusing the review, it opens in a tab of its own', async () => {
   const h = await open();
   h.hooks.executeScript = async () => { throw new Error('Cannot access contents of the page'); };
