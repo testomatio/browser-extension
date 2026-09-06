@@ -13,6 +13,9 @@
 // screens after offline-queue land in parallel, and a harness that owned their stubs would be a
 // merge conflict in every one of those PRs.
 
+// THE BOOT. bootPanel() at the foot of this file is the other half: app.js, whose last statement is
+// `init().finally(...)`, run against stubs for every global it names. See its own comment.
+
 // URL is NOT a vm-realm global: Node installs it on the main context only. Seven of the thirteen
 // screens build one, and without it they silently take their catch branch — a URL row would then
 // pass for the wrong reason.
@@ -266,5 +269,162 @@ export function loadScreen(name, opts = {}) {
     screen, fn: sandbox, sandbox, doc, window: win, store, ApiError, plain, settle, rejection, clock,
     // Changing the value and firing the event are the one act a browser performs.
     visibility: (value) => { doc.visibilityState = value; doc.dispatchEvent(event(doc, 'visibilitychange')); },
+  };
+}
+
+// ---------- the panel's own boot ----------
+
+// APP_SRC is CORE_SRC's file-shaped twin: extension/sidepanel/app.js is one script, not a directory,
+// so a falsification run points the knob at the mutated COPY itself.
+export const APP_SRC = process.env.APP_SRC || join(repoRoot, 'extension/sidepanel/app.js');
+
+// What SessionRestore.fromStored() answers for a panel that has nothing stored — the floor every
+// bootPanel() row starts from, so `restored` only ever names the one field it is about.
+const RESTORE_DEFAULTS = {
+  stepTicks: {}, expandedGroups: [], runsFilter: 'all', runInfoOpen: true, tabViews: {}, activeTab: null,
+};
+
+// The panel globals app.js only WIRES — a listener each, never called during boot. They are stubs so
+// the boot reaches its decisions; each is still recorded, so a row may assert one was hooked up.
+const BOOT_NOOPS = [
+  'initActionLabelFit', 'initCounterFade', 'switchTab', 'openTestSuitePicker', 'openEditor', 'goBack',
+  'saveSettings', 'initSettingsSections', 'toggleSettingsAdvanced', 'initThemeSwitch',
+  'disconnectInstance', 'forgetInstance', 'signOut', 'renderDiagnostics', 'copyDiagnostics',
+  'updateTokenHelpLink', 'syncTokenField', 'initHostHistoryDropdown', 'initProjectDropdown',
+  'initProjectPick', 'refreshAll', 'initViewSwitch', 'dismissDegradedBanner',
+  'refreshFromDegradedBanner', 'onRunsSearch', 'onRunsSearchKeydown', 'clearRunsSearch', 'onRunSearch',
+  'clearRunSearch', 'onTcSearch', 'clearTcSearch', 'onTcTreeSearch', 'clearTcTreeSearch', 'clickStatus',
+  'navigateTest', 'showTestSection', 'attachScreenshotAnnotated', 'savePendingAnnotation',
+  'initEvidence', 'initAttachments', 'initScreenRec', 'initLiveSync', 'onHotkey', 'initHotkeyHints',
+  'applyCapabilities', 'fillSettingsForm', 'show', 'askForProject', 'setStatusLine', 'openRunFromUrl',
+  'migrateHostSettings', 'dropAiApiKey', 'dropOnboardingState',
+];
+
+// The six screen openers: which one boot picked, with what, IS the assertion in every landing row.
+const BOOT_OPENERS = [
+  'openRunView', 'openTestView', 'openTcListView', 'openSettingsView', 'openTcStudioView', 'openRunsView',
+];
+
+/**
+ * Stand the side panel up and run its boot.
+ *
+ * app.js has no export and no entry point: its last statement is `init().finally(...)`, so LOADING
+ * the file is running the boot. That statement is also the script's COMPLETION VALUE, which is how
+ * this gets a handle on a promise nobody returns — awaiting it waits for bootDone() too, and
+ * rethrows whatever init() threw. The shipped file needs no seam of its own.
+ *
+ * Every panel global is a recorded stub, so a row asserts WHICH opener boot chose, with what
+ * arguments, and in what order. `answers` replaces what one hands back without losing the recording
+ * (`'Handoff.openRun'`, `'openRunView'`, …); `globals` is the raw last word over the sandbox.
+ */
+export async function bootPanel(opts = {}) {
+  const {
+    stored = {},          // what loadStored() answers: { settings, session, … }
+    restored = {},        // over RESTORE_DEFAULTS — SessionRestore.fromStored()'s answer
+    handoffReady = false, // a host app is offering a connection
+    handoffRun = false,   // …and it carries a run to open
+    intent = false,       // a pending "Run in Extension" click, as OpenRunIntent.consume() answers it
+    tcReturn = null,      // the editor's breadcrumb, as SessionRestore.takeTcReturn() answers it
+    project = 'ready',    // initProjectSwitcher(): ready | choose | none
+    records = [],         // the loaded run's rows, which is what recordFor() searches
+    state: seed = {},
+    answers = {},
+    globals = {},
+    file = APP_SRC,
+    document: doc = makeDocument(),
+    window: win = fakeWindow(),
+    store = fakeChrome(opts),
+  } = opts;
+
+  const calls = [];
+  const stub = (name, fallback) => {
+    const impl = Object.prototype.hasOwnProperty.call(answers, name) ? answers[name] : fallback;
+    return (...args) => {
+      calls.push({ name, args });
+      return typeof impl === 'function' ? impl(...args) : impl;
+    };
+  };
+
+  // $() MINTS the element it is asked for rather than answering null: app.js looks up some sixty
+  // ids, and one missing would end the boot in a TypeError halfway through the wiring.
+  const lookups = [];
+  const $ = (id) => {
+    lookups.push(id);
+    let node = doc.getElementById(id);
+    if (!node) { node = el('div', { id }); doc.body.append(node); }
+    return node;
+  };
+
+  const state = {
+    booting: true, settings: null, view: null, records, runTitle: '',
+    tcSuiteId: null, tcSuiteTitle: '', ...seed,
+  };
+
+  const sandbox = {
+    console, URL, document: doc, window: win, chrome: store.chrome,
+    setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    $,
+    state,
+    FILTER_KEYS: new Set(['all', 'passed', 'failed', 'running', 'scheduled', 'terminated']),
+    Skeleton: { paintBoot: stub('Skeleton.paintBoot'), bootDone: stub('Skeleton.bootDone') },
+    Icons: { hydrate: stub('Icons.hydrate') },
+    PanelLink: { init: stub('PanelLink.init') },
+    CommentDrafts: { onInput: stub('CommentDrafts.onInput') },
+    RunLock: { finishRun: stub('RunLock.finishRun') },
+    RunInfo: { open: true, toggle: stub('RunInfo.toggle') },
+    TestSummary: { toggleDisclosure: stub('TestSummary.toggleDisclosure') },
+    TestMeta: { initSubstatus: stub('TestMeta.initSubstatus'), initAssignee: stub('TestMeta.initAssignee') },
+    TestGates: {
+      setFullPageCapture: stub('TestGates.setFullPageCapture'),
+      toggleAttachmentsDisclosure: stub('TestGates.toggleAttachmentsDisclosure'),
+    },
+    TcSuiteCreate: { openRoot: stub('TcSuiteCreate.openRoot') },
+    TcQuickBar: {
+      onInput: stub('TcQuickBar.onInput'), onKeydown: stub('TcQuickBar.onKeydown'),
+      submit: stub('TcQuickBar.submit'), onBulkToggle: stub('TcQuickBar.onBulkToggle'),
+    },
+    OfflineQueue: { init: stub('OfflineQueue.init'), replay: stub('OfflineQueue.replay') },
+    Handoff: {
+      ready: stub('Handoff.ready', async () => handoffReady),
+      connect: stub('Handoff.connect', async () => {}),
+      configure: stub('Handoff.configure'),
+      openRun: stub('Handoff.openRun', async () => handoffRun),
+    },
+    OpenRunIntent: {
+      drop: stub('OpenRunIntent.drop'),
+      consume: stub('OpenRunIntent.consume', async () => intent),
+      init: stub('OpenRunIntent.init'),
+    },
+    SessionRestore: {
+      fromStored: stub('SessionRestore.fromStored', () => ({ ...RESTORE_DEFAULTS, ...restored })),
+      takeTcReturn: stub('SessionRestore.takeTcReturn', () => tcReturn),
+    },
+    loadStored: stub('loadStored', async () => stored),
+    initProjectSwitcher: stub('initProjectSwitcher', async () => project),
+    // core/state.js's own lookup, over whatever run the row says is loaded.
+    recordFor: stub('recordFor', (id) => state.records.find((r) => String(r.id) === String(id))),
+    ...Object.fromEntries([...BOOT_NOOPS, ...BOOT_OPENERS].map((n) => [n, stub(n)])),
+    ...globals,
+  };
+
+  const boot = runInContext(sourceOf(file), createContext(sandbox), { filename: file });
+  // The handle is the completion value or nothing at all: a build whose last statement stopped being
+  // the boot must fail here rather than let every row below pass against a boot nobody waited for.
+  if (!boot || typeof boot.then !== 'function') {
+    throw new Error(`${file} did not end in the boot promise — its last statement is this harness's only handle`);
+  }
+  let bootError = null;
+  try { await boot; } catch (e) { bootError = e; }
+  await settle();
+
+  const names = () => calls.map((c) => c.name);
+  return {
+    calls, lookups, state, sandbox, doc, window: win, store, bootError, plain, settle,
+    names,
+    count: (name) => calls.filter((c) => c.name === name).length,
+    argsOf: (name) => calls.filter((c) => c.name === name).map((c) => c.args),
+    // The subsequence of the boot's calls a row cares about: an ordering assertion should not have
+    // to step over fifty listener wirings to read.
+    order: (...of) => names().filter((n) => of.includes(n)),
   };
 }
