@@ -935,6 +935,18 @@ test('34d (#105): a review opened in a tab of its own needs no key at all', asyn
   assert.deepEqual(h.types(), ['SCREENREC_REVIEWED']);
 });
 
+// The state 34e leaves untested: nothing parked AND nothing in the hash, where a bare `!==` reads
+// '' against '' as a match and waves the page's own frame straight through.
+test('34g (#105): a framed review with no key on either side refuses — an empty hash matches nothing', async () => {
+  const h = await load({ framed: true, key: null, hashKey: null });
+  assert.match(h.status(), /opened by the page/i);
+  assert.equal(h.$('btn-attach').disabled, true);
+  assert.equal(h.$('btn-discard').disabled, true);
+  h.press('btn-discard');
+  await settle(3);
+  assert.deepEqual(h.types(), [], 'not one word reaches the worker');
+});
+
 test('34e (#105): with no key parked at all, a framed review refuses rather than trusting the hash', async () => {
   const h = await load({ key: null, hashKey: 'anything-at-all' });
   assert.match(h.status(), /opened by the page/i);
