@@ -121,6 +121,21 @@ test('N8 (#202): a run and a suite each point at their own route, and an id not 
   assert.equal(nav.webTarget('tclist', st()), null);
 });
 
+// The suite leg above is the only one the older rows exercised with an id that needs escaping, so
+// the run and record legs could have shipped raw. A slash is the dangerous character: unescaped it
+// invents a route segment, and the link lands on someone else's page rather than 404ing honestly.
+test('N8b (#202): every id in the path is escaped — a run, a record and a test case alike', () => {
+  assert.deepEqual(plain(nav.webTarget('run', st({ runId: 'r/9' }))), ['run', 'runs/r%2F9']);
+  assert.deepEqual(
+    plain(nav.webTarget('test', st({ runId: 'r 9', currentRecordId: '5/5' }))),
+    ['test', 'runs/r%209/test/5%2F5'],
+  );
+  assert.deepEqual(
+    plain(nav.webTarget('test', st({ currentRecordId: '55' }), () => ({ test_id: 't/7' }))),
+    ['test', 'test/t%2F7'],
+  );
+});
+
 test('N9 (#202): a screen the web app has no page for is offered no link — the picker, the roots', () => {
   const s = st({ runId: '9', tcSuiteId: 's1', currentRecordId: '55' });
   for (const view of ['promote', 'runs', 'tcstudio', 'settings', 'pick', 'bogus', undefined]) {
