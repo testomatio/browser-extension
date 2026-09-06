@@ -11,7 +11,6 @@ let hostWindowId = null;
 async function initViewSwitch() {
   const btn = $('view-switch');
   if (!btn) return;
-  btn.addEventListener('click', onViewSwitch);
   if (!hasChrome || !chrome.windows) { btn.hidden = true; return; }
   inPanelWindow = await ViewMode.inPanelWindow();
   // Only the window surface can dock, and only the dock needs this id.
@@ -25,6 +24,9 @@ async function initViewSwitch() {
     }
   });
   renderViewSwitch();
+  // Wired last, once the label has stopped lying: the caller does not await this, and a press
+  // landing earlier would read a surface nobody has answered for and open a window from inside one.
+  btn.addEventListener('click', onViewSwitch);
 }
 
 // The button says what pressing it DOES, in both places it can be pressed.

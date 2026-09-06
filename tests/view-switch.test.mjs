@@ -284,15 +284,45 @@ test('pressing the button routes to the surface this document is NOT on', async 
   assert.deepEqual(window.sent, []);
 });
 
-test('17b (#350): a click landing before boot has finished opens a second window instead of docking', async () => {
-  // app.js:53 calls initViewSwitch() without awaiting it, so the click listener (14) is live a
-  // whole await before `inPanelWindow` is known, and an unknown surface reads as the side panel.
+test('17b (#350): a click landing before boot has finished opens no second window', async () => {
+  // app.js:53 calls initViewSwitch() without awaiting it, so the press can land a whole await before
+  // the surface is known — and a surface nobody has answered for must take no branch at all.
   const h = loadViewSwitch({ inPanelWindow: true, normalWindowId: 7 });
-  h.fn.initViewSwitch();          // started, not awaited
-  fire(h.btn, 'click');           // the tester is fast, or the storage read is slow
+  const booting = h.fn.initViewSwitch();  // started, not awaited
+  fire(h.btn, 'click');                   // the tester is fast, or the storage read is slow
   await settle();
-  assert.deepEqual(plain(h.sent), [{ type: 'VIEW_OPEN_WINDOW' }], 'the window branch, in a window');
+  assert.deepEqual(h.sent, [], 'a dock must never open a window');
   assert.deepEqual(h.opens, []);
+  assert.deepEqual(h.modes, []);
+  // …and the press that comes a heartbeat later still docks: the button is asleep, not dead.
+  await booting;
+  fire(h.btn, 'click');
+  await settle();
+  assert.deepEqual(plain(h.opens), [{ windowId: 7 }]);
+  assert.deepEqual(h.sent, []);
+});
+
+// The narrower half of the same race: the surface IS known by now, but the window to dock into is
+// not. Wiring the press anywhere before the last await trades the second window for a dock that
+// answers "Open a browser window first" — still wrong, and still only under a fast finger.
+test('17c (#350): the press stays asleep until the window to dock into is known too', async () => {
+  let letItFinish;
+  const pending = new Promise((resolve) => { letItFinish = () => resolve(7); });
+  const h = loadViewSwitch({ inPanelWindow: true, normalWindowId: pending });
+  const booting = h.fn.initViewSwitch();
+  await settle(); // the surface has been answered for; the window id has not
+  assert.equal(h.asked.normalWindowId, 1, 'boot is parked on the second question, not the first');
+  fire(h.btn, 'click');
+  await settle();
+  assert.deepEqual(h.opens, [], 'no dock');
+  assert.deepEqual(h.toasts, [], 'and no "Open a browser window first" aimed at a tester already in one');
+  assert.deepEqual(h.sent, []);
+
+  letItFinish();
+  await booting;
+  fire(h.btn, 'click');
+  await settle();
+  assert.deepEqual(plain(h.opens), [{ windowId: 7 }]);
 });
 
 test('a window that refuses to close does not take the switch down with it', async () => {
