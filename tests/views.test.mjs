@@ -165,7 +165,17 @@ function load(opts = {}) {
     document: doc,
     globals,
     clock,
-    exported: `({ TAB_OF_VIEW, TABS, TAB_ROOT, ROOT_VIEWS, CONTEXT_TRAILS, CONTEXT_WEB_TARGET,
+    // core/nav-model.js is the tab model and the two navigation decisions, loaded ahead of views the
+    // way index.html loads it. It is where the four maps and the web-link rule now live, so the
+    // names below are re-bound to the shape they had while this was one file: every row keeps
+    // asking the shipped decision the same question, and CONTEXT_WEB_TARGET's per-view closures are
+    // rebuilt over webTarget(view, state, recordFor) — the arguments the model takes instead.
+    before: ['nav-model'],
+    exported: `({
+      TAB_OF_VIEW: NavModel.TAB_OF_VIEW, TABS: NavModel.TABS, TAB_ROOT: NavModel.TAB_ROOT,
+      ROOT_VIEWS: NavModel.ROOT_VIEWS, CONTEXT_TRAILS,
+      CONTEXT_WEB_TARGET: Object.fromEntries(['run', 'test', 'tclist']
+        .map((v) => [v, () => NavModel.webTarget(v, state, recordFor)])),
       tabCountKnown, LABEL_FIT_MIN_FIELD, ALERT_ICON, PROGRESS_ICON, progressToast })`,
   });
 
@@ -377,7 +387,8 @@ test('V10: everything the switch already did it still does', () => {
 
 // ---------- the static half ----------
 
-// The map this row reads is views.js's own, so the markup and TAB_OF_VIEW cannot drift apart.
+// The map this row reads is the shipped one (core/nav-model.js), so the markup and TAB_OF_VIEW
+// cannot drift apart.
 const { TAB_OF_VIEW } = load().lex;
 
 test('V11: every one of the eight sections is its tab’s panel, and can hold the caret show() gives it', () => {
