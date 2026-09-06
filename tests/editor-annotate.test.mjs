@@ -216,7 +216,18 @@ test('AN12: with no tabs API at all it still gets out of the way', async () => {
 // The URL names the key this page reads AND writes back, so anything that is not the one shape
 // capture-annotate.js produces is refused before the store is touched at all.
 test('AN13 (#318): a ?annotate= key that is not annotate-<uuid> is never read, and never written over', async () => {
-  for (const bad of ['settings', 'stepRec', '../x', 'annotate-', 'annotate-nope', `x${KEY}`, `${KEY}x`]) {
+  const bads = [
+    'settings', 'stepRec', '../x', 'annotate-', 'annotate-nope', `x${KEY}`, `${KEY}x`,
+    // Right shape, wrong lengths: crypto.randomUUID() is 8-4-4-4-12, and a pattern loose about
+    // any of the five is a pattern that lets the caller name a key again.
+    'annotate-abcdef-1234-1234-1234-123456789012',
+    'annotate-abcdef012-1234-1234-1234-123456789012',
+    // …and wrong alphabet, one segment at a time — a widened character class in ANY of the five
+    // is enough, so each has to be asked separately.
+    ...KEY.slice('annotate-'.length).split('-')
+      .map((_, i, segs) => `annotate-${segs.map((sg, j) => (i === j ? 'z'.repeat(sg.length) : sg)).join('-')}`),
+  ];
+  for (const bad of bads) {
     const h = await boot({ store: { [bad]: { dataUrl: SHOT } } }, bad);
     assert.deepEqual(h.calls.gets, [], `?annotate=${bad} is not a handoff key and must not be read`);
     assert.deepEqual(h.calls.created, [], 'nor handed to the engine');
