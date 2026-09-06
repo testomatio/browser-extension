@@ -178,14 +178,22 @@ function load(opts = {}) {
     // keeping applyReadonlyBlock/baseUrlHost/updateDegradedBanner/dismissDegradedBanner bare. It
     // reads updateContextBar and setImmersive back out of views.js — the forward reference the load
     // order makes safe — so nothing below changes about what those rows call or assert.
-    before: ['nav-model', 'toast', 'gates'],
+    // core/fit.js is the fourth: the two rows that measure themselves. views.js keeps only
+    // fitFilterChips and initActionLabelFit bare — the two names its callers use — so the rows below
+    // reach fitActionLabels and ensureFilterMore through the aliases bound after the load, and
+    // LABEL_FIT_MIN_FIELD is now that module's top-level const, shared as a lexical the same way.
+    before: ['nav-model', 'toast', 'gates', 'fit'],
     exported: `({
       TAB_OF_VIEW: NavModel.TAB_OF_VIEW, TABS: NavModel.TABS, TAB_ROOT: NavModel.TAB_ROOT,
       ROOT_VIEWS: NavModel.ROOT_VIEWS, CONTEXT_TRAILS,
       CONTEXT_WEB_TARGET: Object.fromEntries(['run', 'test', 'tclist']
         .map((v) => [v, () => NavModel.webTarget(v, state, recordFor)])),
-      tabCountKnown, LABEL_FIT_MIN_FIELD, ALERT_ICON, PROGRESS_ICON, progressToast })`,
+      tabCountKnown, LABEL_FIT_MIN_FIELD, ALERT_ICON, PROGRESS_ICON, progressToast, Fit })`,
   });
+  // Bound onto the same sandbox the bare names live on, so no row below has to say where the code
+  // moved: these two have no delegate in views.js, because no screen calls them.
+  h.sandbox.fitActionLabels = (bar) => h.screen.Fit.actionLabels(bar);
+  h.sandbox.ensureFilterMore = (bar) => h.screen.Fit.ensureFilterMore(bar);
 
   // Each tab's own click listener, the way app.js wires it: what Enter and Space are allowed to do,
   // and the only place a screen load could come from.
