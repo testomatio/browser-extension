@@ -583,10 +583,22 @@ test('26: a take pushed after the worker restarted is parked with no test bound 
   assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed' }]]);
 });
 
-// The two pushes are not serialized: the second read can see the first's parked record and revoke
-// the URL that is now the parked one, so the review loads a dead blob. The guard belongs in
-// extension/offscreen/recorder.js — the worker has none to assert on yet.
-test.todo('27 (#206): the same take pushed twice revokes the URL that is now parked');
+// A tab that closes while the worker is also asking to stop hands the SAME take through both doors:
+// finish() is one memoised promise, so the track's `ended` pushes the file and the stop is answered
+// with that very object. The second arrival then meets the guard row 24 is about — and the URL it
+// revokes is the parked take's own, so the review opens on a dead blob. What tells the two apart is
+// the url: a stranger's take is refused as before, its own is simply already home.
+test('27: the take already parked is not a stranger — a second delivery of it revokes nothing', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  h.clearCalls();
+  await h.api.srecFinish({ url: 'blob:parked', size: 4096, ms: 8000, reason: 'user' },
+    { recording: true, mode: 'tab', tabId: 7, recordId: 'r-1' }, 'tab-gone');
+  assert.deepEqual(h.sent().filter((m) => m.cmd === 'revoke'), [], 'the parked take keeps its bytes');
+  assert.deepEqual(h.parked(), TAKE(), 'and its record is left exactly as it was');
+  // No second word to the panel either: it already heard `review` when the first delivery landed.
+  assert.deepEqual(h.events(), []);
+  assert.deepEqual(h.named('scripting.executeScript'), [], 'and no second review over the page');
+});
 
 test('53: the parked take is named for the local minute it finished in', async () => {
   const h = await open();

@@ -949,7 +949,14 @@ test('32b (#206): a closed tab whose flushed tail crosses the cap still pushes o
   assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: SIZE_CAP - 1024 + 2048, ms: 0, reason: 'tab-gone' }]);
 });
 
-test('13b: today the same take reaches the worker twice when the track ends AND the worker stops', async () => {
+// A tab closing while the worker also asks to stop opens both doors at once. finish() is ONE
+// memoised promise, so the push and the answer carry the very same file object — that is the
+// contract, not a fault, and this page has no way to know which door the worker is listening at.
+// Handing the second caller nothing instead would send srecStop down its empty-take branch, which
+// closes this document while it is still holding the bytes the review is playing. The worker is
+// where the two are told apart: screenrec/session.js compares the url against what it already
+// parked, so its own take is already home rather than a stranger to revoke.
+test('13b: one memoised finish, so both doors are handed the SAME take and one url', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
   h.rec().emit(4096, 1);
@@ -957,18 +964,8 @@ test('13b: today the same take reaches the worker twice when the track ends AND 
   const answer = h.send('stop', { reason: 'tab-gone' });  // door two: the answer
   await h.flush();
   const answered = (await answer).file;
-  assert.deepEqual(h.files(), [answered], 'one memoised promise, two deliveries of its file');
-  assert.equal(h.urls.length, 1);
-});
-
-test.todo('13c (#206): a closed tab delivers its take by one door only', async () => {
-  const h = await recording();
-  h.hooks.finalChunk = 0;
-  h.rec().emit(4096, 1);
-  h.st.stream.tracks[0].fire('ended');
-  const answer = h.send('stop', { reason: 'tab-gone' });
-  await h.flush();
-  assert.equal(h.files().length + ((await answer).file ? 1 : 0), 1);
+  assert.deepEqual(h.files(), [answered], 'the same file object, not a second take');
+  assert.equal(h.urls.length, 1, 'and one url — which is why the worker can recognise it');
 });
 
 test('11c: a worker asleep when the file is pushed does not take the recorder page down with it', async () => {

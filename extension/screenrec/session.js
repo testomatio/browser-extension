@@ -257,6 +257,9 @@ async function srecFinish(file, st, reason) {
   // A parked take is the tester's: the newcomer's bytes go instead, and its document stays open.
   const held = await srecParked();
   if (held && held.url) {
+    // …but the take already parked is no newcomer. A tab closing while the worker asks to stop
+    // hands the SAME file through both doors, and revoking it would kill the review's own blob.
+    if (held.url === file.url) return;
     await srecOff({ cmd: 'revoke', url: file.url });
     srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: reason || 'user' });
     return;
