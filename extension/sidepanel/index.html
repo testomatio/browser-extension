@@ -916,6 +916,9 @@
   <!-- The Settings form on its own — painting it, reading it back and folding it. Ahead of
        settings.js, which is its only caller, and of app.js, which wires four of it to the markup. -->
   <script src="screens/settings-form.js"></script>
+  <!-- Forget instance, Disconnect and Sign out. Ahead of settings.js, which delegates to it and
+       whose syncTokenField() asks it which host a destructive button is aimed at. -->
+  <script src="screens/settings-erase.js"></script>
   <script src="screens/settings.js"></script>
   <!-- The Runs tab's paging arithmetic. Ahead of runs-list.js, its only caller: nothing else in the
        panel counts pages, so this tag stands between the two rather than earlier. -->
