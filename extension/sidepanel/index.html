@@ -897,6 +897,9 @@
   <script src="core/project-switcher.js"></script>
   <!-- The header's surface switch — after core/views.js, whose toast it uses. -->
   <script src="core/view-switch.js"></script>
+  <!-- The "Run in Extension" click left in session storage. Nothing runs at load and the opener is
+       handed in, so the position is only the convention "before the file that uses it" — app.js. -->
+  <script src="core/open-run-intent.js"></script>
   <script src="screens/onboarding.js"></script>
   <!-- The choose-a-project screen — after core/project-switcher.js, whose row builder and filter it
        shares with the header popup, and before settings.js, which sends the first run to it. -->
