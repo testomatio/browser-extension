@@ -66,7 +66,9 @@ function renderProjectBar() {
   trigger.setAttribute('aria-disabled', projectPinned() ? 'true' : 'false');
   let hint = current ? `Active project: ${label.textContent}` : 'Choose a project';
   if (projectPinned()) {
-    const app = (Handoff.offer() || {}).app || 'the app that opened this browser';
+    // A pin is by definition an offer that is gone, so the name comes from what connect() wrote
+    // down beside the session — `handoffApp`, the same source the connection card names.
+    const app = state.settings.handoffApp || 'the app that opened this browser';
     hint = `Project chosen by ${app} — switch it there`;
   }
   Tooltip.set(trigger, hint);
