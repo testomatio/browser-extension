@@ -37,9 +37,10 @@ const EvBuffer = (() => {
 
     function push(entry) {
       buffer.push(entry);
-      // Prune to 2x the window (retroactive margin) then hard-cap the length.
+      // Prune to 2x the window (retroactive margin) then hard-cap the length. The scan is
+      // unconditional: append order is not time order, so a stale row is rarely the one at index 0.
       const cutoff = Date.now() - 2 * windowSec * 1000;
-      if (buffer[0] && buffer[0].ts < cutoff) buffer = buffer.filter((e) => e.ts >= cutoff);
+      buffer = buffer.filter((e) => e.ts >= cutoff);
       if (buffer.length > hardCap) buffer = buffer.slice(buffer.length - hardCap);
       if (netMap.size > netMapCap) netMap.clear();
       onChange();
