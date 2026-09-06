@@ -1,8 +1,8 @@
 // Core views: the view switcher (show), tab navigation, the contextual header
-// row, in-tab back navigation, toasts and status lines.
+// row, in-tab back navigation, and the delegates to the toast and status lines.
 
-/* global TestomatAPI, Handoff, Icons, NavModel, Roving, Skeleton, Sk, loadRunsCount, loadTestsCount,
-   Tooltip, PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
+/* global TestomatAPI, Handoff, Icons, NavModel, PanelToast, Roving, Skeleton, Sk, loadRunsCount,
+   loadTestsCount, Tooltip, PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker, StatusIcons */
 
 // The tab model, the titles and the two navigation decisions are core/nav-model.js — pure, and
@@ -571,98 +571,13 @@ function openSettingsView() {
 
 function goBack() { navStep(NavModel.backTargetFor(state.view, state)); }
 
-// Auto-hide scales with message length so long messages stay readable.
-function toastDuration(msg) {
-  const over = Math.max(0, String(msg).length - 40);
-  return Math.min(8000, 3500 + over * 50);
-}
-
-// Drawn from `Icons` (shared/icons.js), not the `StatusIcons.svgIcon` alias: the toast is
-// this file's own, and icons.js is the first script the page loads.
-const ALERT_ICON = 'error';
-const PROGRESS_ICON = 'progress_activity';
-
-// A new toast always replaces the previous one. Error toasts mirror the product's
-// error notify (custom-notify.scss `.error.alert`) and still auto-hide.
-// `{ progress: true }` is the running-job plaque: a spinner, no auto-hide, and it stands
-// until the next toast or hideToast() — a timer would take it down mid-work.
-function toast(msg, opts = {}) {
-  if (typeof opts === 'number') opts = { ms: opts };
-  const el = $('toast');
-  const isError = !!opts.error;
-  const progress = !!opts.progress;
-  const ms = opts.ms != null ? opts.ms : toastDuration(msg);
-  clearTimeout(toast._t);
-  el.classList.toggle('error', isError);
-  el.classList.toggle('progress', progress);
-  // Set BEFORE the content lands: a live region is only read for changes made while
-  // it is in the tree. alert interrupts, status waits; reverted when the toast hides.
-  el.setAttribute('role', isError ? 'alert' : 'status');
-  el.hidden = false;
-  const text = document.createElement('span');
-  text.className = 'toast-text';
-  text.textContent = msg;
-  el.replaceChildren(text);
-  if (isError || progress) {
-    const icon = document.createElement('span');
-    icon.className = 'toast-icon';
-    const mark = Icons.el(isError ? ALERT_ICON : PROGRESS_ICON, 16);
-    if (progress) mark.classList.add('spin'); // the shared rotation (SPIN, shared/components.css)
-    icon.append(mark);
-    el.prepend(icon);
-  }
-  // Optional inline action (`{ action: { label, onClick } }`) — no caller today;
-  // kept because the component layer ships and documents `.toast-action`.
-  if (opts.action && typeof opts.action.onClick === 'function') {
-    const act = document.createElement('button');
-    act.type = 'button';
-    act.className = 'btn size-xs toast-action';
-    act.textContent = opts.action.label || 'OK';
-    act.addEventListener('click', () => {
-      clearTimeout(toast._t);
-      el.hidden = true;
-      opts.action.onClick();
-    });
-    el.append(act);
-  }
-  if (isError) {
-    const x = document.createElement('button');
-    x.type = 'button';
-    x.className = 'icon-btn size-xs toast-dismiss';
-    Tooltip.set(x, 'Dismiss');
-    x.setAttribute('aria-label', 'Dismiss');
-    x.append(Icons.el('close', 16));
-    x.addEventListener('click', () => { clearTimeout(toast._t); el.hidden = true; });
-    el.append(x);
-  }
-  // A step of a running job holds; everything else auto-hides.
-  if (!progress) toast._t = setTimeout(() => { el.hidden = true; el.setAttribute('role', 'status'); }, ms);
-}
-
-// What the panel is DOING right now — the bottom plaque, never an inline status line: the
-// line sits under the fold on a long screen, and a job that dies leaves it standing forever.
-const progressToast = (msg) => toast(msg, { progress: true });
-
-// Takes down whatever is up. The end of a job whose ANSWER is a status line (or nothing at
-// all) calls this; an answer that is itself a toast just replaces the plaque.
-function hideToast() {
-  const el = $('toast');
-  if (!el) return;
-  clearTimeout(toast._t);
-  el.hidden = true;
-  el.classList.remove('progress');
-  el.setAttribute('role', 'status');
-}
-
-// A screen printing its own line is a job that has ANSWERED, so the running-job plaque goes
-// with it — the one rule that keeps a progress toast from outliving its work, wherever the
-// flow happens to end. A flow that ends printing nothing calls hideToast() itself.
-function setStatusLine(id, msg, cls = '') {
-  const el = $(id);
-  el.textContent = msg;
-  el.className = `status-line ${cls}`.trim();
-  hideToast();
-}
+// The toast at the bottom and the status line under a field are core/toast.js now. These five
+// stay bare, and each keeps the declaration it had: every screen spells them this way.
+function toastDuration(msg) { return PanelToast.duration(msg); }
+function toast(msg, opts) { PanelToast.show(msg, opts); }
+const progressToast = (msg) => PanelToast.progress(msg);
+function hideToast() { PanelToast.hide(); }
+function setStatusLine(id, msg, cls) { PanelToast.statusLine(id, msg, cls); }
 
 // In-run auth failure: an inline link to Settings instead of teleporting the
 // tester there and losing their place in the run.
