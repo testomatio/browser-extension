@@ -75,6 +75,18 @@ function filterBar(h, widths, clientWidth) {
   return { bar, chips };
 }
 
+// Where the caret is, named — a bare node comparison here prints two whole element trees.
+function caretIn(h, bar) {
+  const a = h.doc.activeElement;
+  if (!a) return 'nothing';
+  if (a === bar) return 'the row';
+  if (a === h.doc.body) return 'the body';
+  if (a.classList.contains('filter-more-trigger')) return 'the "…"';
+  if (a.classList.contains('filter-chip')) return `chip ${a.dataset.filter}`;
+  if (a.classList.contains('menu-option')) return `menu option "${a.childNodes[0].textContent}"`;
+  return a.tagName.toLowerCase();
+}
+
 // ---------- the seam itself ----------
 
 test('F1 (#202): the fitters load on a document, Icons, Tooltip and a ResizeObserver — nothing else', () => {
@@ -219,6 +231,67 @@ test('F8 (#202): Escape closes the "…" and hands the caret back to the trigger
   assert.equal(h.doc.activeElement, trigger, 'Escape puts the caret back where the tester left it');
   assert.equal(ev.defaultPrevented, true, 'and the key does not also reach whatever is behind the menu');
   assert.equal((h.doc.listeners.get('keydown') || []).length, 0, 'the document-level closer went too');
+});
+
+// The pick is the one exit from the menu where the caret has nowhere obvious to go: the chip's own
+// click re-renders the row, and that render throws away the <li> the caret is standing on. The three
+// rows below are the ladder it descends instead — chip, then "…", then the row.
+test('F8b (#335): a pick lands on the chosen chip when the re-fit brought it back into the row', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50, 50], 150);
+  // What a screen does on a pick: re-render the row, which re-fits it (screens/runs-list.js:499).
+  // Here the chosen filter's count came back shorter, so the row has room for it again — and still
+  // not for the two behind it, which is what makes this a choice between the chip and the "…".
+  chips[2].addEventListener('click', () => { chips[2].w = 10; h.fit.filterChips(bar); });
+  h.fit.filterChips(bar);
+  const { wrap, trigger, menu } = h.fit.ensureFilterMore(bar);
+
+  trigger.click();
+  h.doc.body.focus();
+  fire(menu.querySelectorAll('.menu-option')[0], 'keydown', { key: 'Enter' });
+  assert.equal(chips[2].hidden, false, 'the fit put the chip back in the row');
+  assert.equal(wrap.hidden, false, 'and the "…" is still up, standing for the two it still hides');
+  assert.equal(caretIn(h, bar), 'chip f2',
+    'the caret is on the filter the tester chose, not on a "…" that no longer holds it');
+});
+
+test('F8c (#335): a pick that leaves the row still overflowing lands on the "…" standing in for it', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  chips[2].addEventListener('click', () => h.fit.filterChips(bar)); // the same re-render, same width
+  h.fit.filterChips(bar);
+  const { wrap, trigger, menu } = h.fit.ensureFilterMore(bar);
+
+  trigger.click();
+  h.doc.body.focus();
+  fire(menu.querySelectorAll('.menu-option')[0], 'keydown', { key: 'Enter' });
+  assert.equal(chips[2].hidden, true, 'the chip is still folded away, so it cannot hold the caret');
+  assert.equal(wrap.hidden, false);
+  assert.equal(caretIn(h, bar), 'the "…"', 'exactly where Escape leaves it');
+});
+
+test('F8d (#335): with the chip out of the row and the "…" gone with it, the caret lands on the row', () => {
+  const h = load();
+  const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
+  // A render that rebuilds the row leaves the option holding a chip that is no longer in it —
+  // still claiming to be showing, by the flags it was left with — and what is left over fits, so
+  // the "…" goes down too. Focusing either of those two is focusing nothing, which is the body.
+  chips[2].addEventListener('click', () => {
+    chips[2].remove();
+    chips[2].hidden = false;
+    bar.clientWidth = 400;
+    h.fit.filterChips(bar);
+  });
+  h.fit.filterChips(bar);
+  const { wrap, trigger, menu } = h.fit.ensureFilterMore(bar);
+
+  trigger.click();
+  h.doc.body.focus();
+  fire(menu.querySelectorAll('.menu-option')[0], 'keydown', { key: 'Enter' });
+  assert.equal(chips[2].isConnected, false);
+  assert.equal(wrap.hidden, true);
+  assert.equal(caretIn(h, bar), 'the row', 'which keeps Tab where the tester was');
+  assert.equal(bar.tabIndex, -1, 'and a group can only hold the caret once it is made able to');
 });
 
 test('F9 (#202): a click anywhere outside the "…" closes it, one inside leaves it standing', () => {

@@ -24,6 +24,15 @@ const observeFilterFit = (bar) => {
   }).observe(bar);
 };
 
+// Where a pick leaves the caret. The chosen chip's own click re-renders the row underneath, so this
+// is a question, not a constant — and focus on a node that is hidden or no longer in the row is
+// focus on nothing, which the browser answers by dropping the caret on <body>.
+const caretAfterPick = (bar, chip, wrap, trigger) => {
+  if (chip.isConnected && !chip.hidden) chip.focus();
+  else if (!wrap.hidden) trigger.focus();
+  else { bar.tabIndex = -1; bar.focus(); } // a group holds the caret only once it is made able to
+};
+
 // ---------- create-button labels ----------
 // Measured on the FIELD beside the button, not the button: these rows never wrap and
 // the search is all that shrinks. 144 = "Search suites…" plus magnifier and padding.
@@ -124,7 +133,9 @@ const Fit = {
       li.append(label);
       const counter = chip.querySelector('.counter');
       if (counter) li.append(counter.cloneNode(true));
-      const pick = () => { chip.click(); close({ focus: true }); };
+      // Shut first, then run the chip: its click reaches the document-level closer before its own
+      // listener, so close({ focus: true }) would find the menu already down and move nothing.
+      const pick = () => { close(); chip.click(); caretAfterPick(bar, chip, wrap, trigger); };
       li.addEventListener('click', pick);
       li.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;

@@ -875,6 +875,18 @@ function filterBar(h, widths, clientWidth) {
   return { bar, chips };
 }
 
+// Where the caret is, named — a bare node comparison here prints two whole element trees.
+function caretIn(h, bar) {
+  const a = h.doc.activeElement;
+  if (!a) return 'nothing';
+  if (a === bar) return 'the row';
+  if (a === h.doc.body) return 'the body';
+  if (a.classList.contains('filter-more-trigger')) return 'the "…"';
+  if (a.classList.contains('filter-chip')) return `chip ${a.dataset.filter}`;
+  if (a.classList.contains('menu-option')) return `menu option "${a.childNodes[0].textContent}"`;
+  return a.tagName.toLowerCase();
+}
+
 test('V40: a row whose chips all fit keeps every one of them, and the "…" never appears', () => {
   const h = load();
   const { bar, chips } = filterBar(h, [50, 50], 300);
@@ -1012,7 +1024,7 @@ test('V48: any other key on a menu option does nothing and leaves the menu stand
   assert.equal(ev.defaultPrevented, false);
 });
 
-test('V49 (#335): Escape hands the caret back to the "…"; picking an option does not, and that is a gap', () => {
+test('V49 (#335): Escape hands the caret back to the "…", and so does picking an option', () => {
   const h = load();
   const { bar } = filterBar(h, [50, 50, 50, 50], 150);
   h.fn.fitFilterChips(bar);
@@ -1021,18 +1033,18 @@ test('V49 (#335): Escape hands the caret back to the "…"; picking an option do
   trigger.click();
   fire(menu, 'keydown', { key: 'Escape', bubbles: true });
   assert.equal(menu.hidden, true);
-  assert.equal(h.doc.activeElement, trigger, 'Escape puts the caret back where the tester left it');
+  assert.equal(caretIn(h, bar), 'the "…"', 'Escape puts the caret back where the tester left it');
 
-  // Picking asks for the same thing — but the chip's own click reaches the document-level closer
-  // FIRST, so the menu is already shut when the focus request runs, and it returns having moved
-  // nothing. Today's behaviour, pinned: the caret is left on a row the next render throws away.
+  // Picking asks for the same thing. It cannot get it from close({ focus: true }): the chip's own
+  // click reaches the document-level closer first, so the menu is already shut by the time that
+  // runs. The caret has to be placed after the pick, or it is left on an <li> the render throws away.
   h.doc.body.focus();
   trigger.click();
   const option = menu.querySelectorAll('.menu-option')[0];
   option.focus();
   fire(option, 'keydown', { key: 'Enter' });
   assert.equal(menu.hidden, true);
-  assert.equal(h.doc.activeElement, option);
+  assert.equal(caretIn(h, bar), 'the "…"', 'and not on a menu row the render is about to throw away');
 });
 
 // ---------- the create-button labels ----------
