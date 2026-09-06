@@ -899,6 +899,9 @@
   <!-- The read-only lockout and the basic-mode strip. Before core/views.js, which keeps the four
        bare names as delegates; it reaches back for updateContextBar/setImmersive at paint time. -->
   <script src="core/gates.js"></script>
+  <!-- The filter row that folds into a "…" menu and the create buttons that drop a word. Before
+       core/views.js, which keeps fitFilterChips() and initActionLabelFit() as delegates to it. -->
+  <script src="core/fit.js"></script>
   <script src="core/views.js"></script>
   <!-- The one place a verdict becomes a request — the test view, the run rows and the queue
        replay all call it. After core/views.js, before every screen that writes. -->
