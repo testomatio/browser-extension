@@ -34,6 +34,7 @@ const SETTINGS = Object.freeze({ baseUrl: `${INSTANCE}/`, apiKey: 'k-1' });
 
 const NO_PREVIEW = 'No preview for this file type.';
 const BROKEN = 'This file could not be loaded — the link may have expired.';
+const REFUSED = 'This link did not come from the panel, so it was not opened.';
 
 // No extension and no host of the instance's: with this url the NAME and the TYPE are the only
 // things the verdict can be coming from.
@@ -73,11 +74,16 @@ async function load(opts = {}) {
     query,                    // …or state the query string verbatim, including ''
     framed = false,
     settings = SETTINGS,      // what chrome.storage.local answers for 'settings'
+    // What the WORKER parked in storage.session before it opened this page (#105). Omit and the
+    // row gets its own url parked, the way background.js leaves it; `null` parks nothing at all.
+    parked,
     credentialed = true,
     hasChrome = true,
     hasStorage = true,
+    hasLocal = true,
     hasTabs = true,
     storageFail = false,
+    sessionFail = false,
     readyRejects = false,
     currentTab = { id: 7, url: `${INSTANCE}/` },
     getCurrentRejects = false,
@@ -123,9 +129,16 @@ async function load(opts = {}) {
   // The branch is `window.parent !== window`, so the framed page needs a genuinely other object.
   win.parent = framed ? { postMessage: (d, o) => posts.push({ data: plain(d), origin: o }) } : win;
 
+  // background.js writes {url, name, type, at} under this key before EITHER entry path opens the
+  // viewer, and no web page can write storage.session — that record is the whole allowlist.
+  const park = parked === undefined ? url : parked;
+  const record = park == null ? null
+    : (typeof park === 'object' ? park : { url: String(park), name: '', type: '', at: 1 });
   const fake = chromeFake({
     local: settings ? { settings: plain(settings) } : {},
     localFail: storageFail ? { get: true } : {},
+    session: record == null ? {} : { fileOverlay: plain(record) },
+    sessionFail: sessionFail ? { get: true } : {},
   });
   const removed = [];
   fake.chrome.tabs.getCurrent = async () => {
@@ -138,6 +151,7 @@ async function load(opts = {}) {
   };
   if (!hasTabs) delete fake.chrome.tabs;
   if (!hasStorage) delete fake.chrome.storage;
+  if (!hasLocal) delete fake.chrome.storage.local;
 
   const sandbox = {
     document: doc,
@@ -178,11 +192,15 @@ async function load(opts = {}) {
     stage: () => $('viewer-stage'),
     text: () => $('viewer-stage').textContent,
     src: () => (child() ? child().src : null),
-    // The verdict, read off what got painted. A <p> is either the download note or the failure one.
+    // The verdict, read off what got painted. A <p> is the download note, the refusal one (#105)
+    // or the failure one.
     kind: () => {
       const el = child();
       if (!el) return null;
-      if (el.tagName === 'P') return el.textContent === NO_PREVIEW ? 'file' : 'failed';
+      if (el.tagName === 'P') {
+        if (el.textContent === NO_PREVIEW) return 'file';
+        return el.textContent === REFUSED ? 'refused' : 'failed';
+      }
       return KINDS[el.tagName] || `?${el.tagName}`;
     },
     key: (k) => fire(doc, 'keydown', { key: k }),
@@ -428,8 +446,8 @@ test('16b: settings without a session are not configured over, and the file stil
   assert.deepEqual(h.handoff.configured, []);
 });
 
-test('16c: a page with no storage at all skips the session and shows the file anyway', async () => {
-  const h = await load({ url: `${INSTANCE}/run.log`, name: 'run.log', hasStorage: false });
+test('16c: a page with no settings store skips the session and shows the file anyway', async () => {
+  const h = await load({ url: `${INSTANCE}/run.log`, name: 'run.log', hasLocal: false });
   assert.equal(h.text(), BODY);
   assert.deepEqual(h.handoff.credentialed, []);
 });
@@ -458,17 +476,18 @@ test('16f: a configured session is handed to Handoff before anything is fetched'
 
 // ---- the title bar ------------------------------------------------------------
 
-test('17: the url arrives as a javascript: scheme and lands in the way-out link as it is', async () => {
+// The scheme is checked before the parked record even matters: a javascript: url in the way-out
+// link is one click from running in the extension's own origin.
+test('17 (#105): a javascript: url is refused instead of landing in the way-out link', async () => {
   const h = await load({ url: 'javascript:alert(1)', name: 'evidence' });
-  assert.equal(h.$('viewer-open').href, 'javascript:alert(1)');
-  assert.equal(h.$('viewer-open').hidden, false);
-  // Nothing is fetched or drawn for it — the link is the whole exposure.
-  assert.equal(h.text(), NO_PREVIEW);
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
 });
 
-test.todo('17b (#105): a url that is not http(s) is refused rather than offered as the way out — viewer.html is reachable from any page that knows the extension id', async () => {
+test('17b (#105): a url that is not https is refused rather than offered as the way out', async () => {
   const h = await load({ url: 'javascript:alert(1)', name: 'evidence' });
   assert.equal(h.$('viewer-open').href, '');
+  assert.equal(h.$('viewer-open').hidden, true);
 });
 
 test('18: a name written to look like markup is shown as the text it is, never parsed', async () => {
@@ -546,6 +565,108 @@ test('20e: no tabs api to ask, so the window closes itself right away', async ()
   const h = await load({ url: NEUTRAL, name: 'shot.png', hasTabs: false });
   h.esc();
   assert.deepEqual(h.closes, [true]);
+});
+
+// ---- the one url the worker parked (#105) ---------------------------------------
+// viewer.html sits in web_accessible_resources under a pinned extension id, so ANY page can work
+// out this url and open or frame it with a ?url= of its own choosing — an authenticated GET on the
+// instance, or a request to a host of the page's picking. background.js parks the file it is about
+// to show in storage.session BEFORE either entry path opens this page, and no page can write there:
+// that one record is the whole allowlist.
+
+test('22 (#105): a url nobody parked is refused — nothing is fetched and no link is painted', async () => {
+  const h = await load({ url: `${INSTANCE}/api/v1/runs/1/secrets`, name: 'run.log', parked: null });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, [], 'the token would have ridden along on that GET');
+  assert.equal(h.$('viewer-open').href, '');
+  assert.equal(h.$('viewer-open').hidden, true);
+});
+
+test('22b (#105): the same refusal for a host of the page\'s own choosing', async () => {
+  const h = await load({ url: 'https://evil.test/collect.webm', name: 'take.webm', parked: null });
+  assert.equal(h.kind(), 'refused');
+  // An off-instance recording streams from its own url, so a painted <video src> IS the request.
+  assert.equal(h.child().tagName, 'P');
+  assert.deepEqual(h.fetches, []);
+  assert.deepEqual(h.objectUrls, []);
+  assert.equal(h.$('viewer-open').href, '');
+});
+
+test('22c (#105): a parked file vouches for itself only, never for a different url', async () => {
+  const h = await load({
+    url: `${INSTANCE}/api/v1/runs/1`, name: 'run.log', parked: `${INSTANCE}/artifacts/run.log`,
+  });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22d (#105): the match is exact — the parked url with a query bolted on is not it', async () => {
+  const parked = `${INSTANCE}/artifacts/shot.png`;
+  const h = await load({ url: `${parked}?x=1`, name: 'shot.png', parked });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+// The other half of "exact": a url the parked one merely BEGINS with is a shorter path on the
+// same instance, and the token would go out on it. A prefix test would wave it through.
+test('22m (#105): a url the parked one only starts with is refused, not treated as a match', async () => {
+  const h = await load({ url: `${INSTANCE}/`, name: 'shot.png', parked: `${INSTANCE}/artifacts/shot.png` });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22e (#105): http is refused outright, even when it is the url that was parked', async () => {
+  const h = await load({ url: 'http://files.test/run.log', name: 'run.log' });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22f (#105): a parked record with no url in it vouches for nothing', async () => {
+  const h = await load({ url: NEUTRAL, name: 'run.log', parked: {} });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22g (#105): no session store to check against is a refusal, not a guess', async () => {
+  const h = await load({ url: `${INSTANCE}/run.log`, name: 'run.log', hasStorage: false });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22h (#105): the session store throws and the file is refused, not shown', async () => {
+  const h = await load({ url: `${INSTANCE}/run.log`, name: 'run.log', sessionFail: true });
+  assert.equal(h.kind(), 'refused');
+  assert.deepEqual(h.fetches, []);
+});
+
+test('22i (#105): a kind with no preview is refused too — the note says which is which', async () => {
+  const h = await load({ url: 'https://evil.test/x.zip', name: 'bundle.zip', parked: null });
+  assert.equal(h.kind(), 'refused');
+  assert.notEqual(h.text(), NO_PREVIEW);
+});
+
+test('22j (#105): the file the panel really parked opens exactly as it did before', async () => {
+  const url = `${INSTANCE}/artifacts/run.log`;
+  const h = await load({ url, name: 'run.log' });
+  assert.equal(h.text(), BODY);
+  assert.deepEqual(h.fetches, [{ url, opts: { instanceOnly: false } }]);
+  assert.equal(h.$('viewer-open').href, url);
+  assert.equal(h.$('viewer-open').hidden, false);
+});
+
+// The panel clicks a second file while the first is on screen: background.js parks B and
+// file-overlay.js swaps the frame to B. The viewer that lands has to accept B.
+test('22k (#105): the swap to a second file is accepted — the parked record moved with it', async () => {
+  const b = 'https://files.test/run/take.webm';
+  const h = await load({ url: b, name: 'take.webm', parked: b });
+  assert.equal(h.kind(), 'video');
+  assert.equal(h.src(), b);
+});
+
+test('22l (#105): no url at all reaches nothing, so it keeps its own expired note', async () => {
+  const h = await load({ name: 'shot.png', type: 'image/png', parked: `${INSTANCE}/other.png` });
+  assert.equal(h.text(), BROKEN);
+  assert.deepEqual(h.fetches, []);
 });
 
 // ---- what today leaks ----------------------------------------------------------
