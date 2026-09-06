@@ -58,14 +58,17 @@ function armRecorder(mediaStream) {
     if (!e.data || !e.data.size) return;
     chunks.push(e.data);
     bytes += e.data.size;
-    if (bytes >= REC_SIZE_CAP) finish('size').then(pushFile);
+    // The chunk stop() flushes still belongs to the take — only the cap stands down, or the
+    // memoised finish hands the same file over a second time and the parked take is revoked.
+    if (!finishing && bytes >= REC_SIZE_CAP) finish('size').then(pushFile);
   };
   rec.start(REC_CHUNK_MS);
   startedAt = Date.now();
   // An earlier interval would still be ticking on a recorder this one just replaced.
   if (capTimer) { clearInterval(capTimer); capTimer = null; }
   // Ticked rather than timed out: a pause must not spend the tester's five minutes.
-  capTimer = setInterval(() => { if (elapsedMs() >= REC_TIME_CAP_MS) finish('time').then(pushFile); }, 1000);
+  // It outlives a finish too: reset() clears it deep inside the async settle, a tick or two later.
+  capTimer = setInterval(() => { if (!finishing && elapsedMs() >= REC_TIME_CAP_MS) finish('time').then(pushFile); }, 1000);
   return rec.mimeType || mimeType;
 }
 
