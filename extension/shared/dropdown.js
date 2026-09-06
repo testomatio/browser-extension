@@ -81,7 +81,14 @@
     list.className = 'menu-list dropdown-list';
     list.setAttribute('role', 'listbox');
     if (label) list.setAttribute('aria-label', label);
+    // With no filter box the open list takes the caret — focusable, never a tab stop — so there
+    // is a focused element with a role that can name an option. With one, the input already is.
+    if (!filter) list.setAttribute('tabindex', '-1');
     menu.append(list);
+
+    // `aria-activedescendant` is read only off the element that HOLDS focus, and only when it
+    // names a row that element owns: the filter box, else the listbox itself. Never the trigger.
+    const activeOwner = filterInput || list;
 
     // A popup filtered down to nothing must SAY so — an empty box reads as broken.
     const empty = window.EmptyState
@@ -167,15 +174,13 @@
       syncActive();
     }
 
-    // `aria-activedescendant` goes on whatever holds focus: the filter box, else the trigger.
     function syncActive() {
-      const owner = filterInput || trigger;
       // Read the row out of the LIST, not the document: a torn-down editor screen leaves
       // a detached copy of these ids behind, and getElementById would hand one back.
       const i = visibleRows().findIndex((o) => String(o.value) === String(active));
       const li = i === -1 ? null : list.children[i];
-      if (li) { owner.setAttribute('aria-activedescendant', li.id); li.scrollIntoView({ block: 'nearest' }); }
-      else owner.removeAttribute('aria-activedescendant');
+      if (li) { activeOwner.setAttribute('aria-activedescendant', li.id); li.scrollIntoView({ block: 'nearest' }); }
+      else activeOwner.removeAttribute('aria-activedescendant');
     }
 
     // ±1 through the VISIBLE rows, clamped at the edges (no wrap).
@@ -198,7 +203,7 @@
       menu.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
       paintRows();
-      if (filterInput) filterInput.focus(); // typing filters straight away
+      activeOwner.focus(); // named its active row first, so the caret arrives on the highlight
       document.addEventListener('click', onDocClick, true);
       document.addEventListener('keydown', onDocKey, true);
     }
@@ -207,7 +212,7 @@
       if (menu.hidden) return;
       menu.hidden = true;
       trigger.setAttribute('aria-expanded', 'false');
-      (filterInput || trigger).removeAttribute('aria-activedescendant');
+      activeOwner.removeAttribute('aria-activedescendant');
       document.removeEventListener('click', onDocClick, true);
       document.removeEventListener('keydown', onDocKey, true);
       if (focus) trigger.focus();
@@ -220,11 +225,20 @@
     function onDocKey(e) {
       if (menu.hidden) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focus: true }); return; }
-      if (e.key === 'Tab') { close(); return; } // focus is leaving — let it
+      // Focus is leaving — let it, but from the trigger it started on: the browser reads the next
+      // stop off the focused element, and the list it sits on is about to be hidden.
+      if (e.key === 'Tab') { close({ focus: !filterInput }); return; }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         e.stopPropagation();
         move(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      // Both ends of the list, except where the box below is a text field they belong to.
+      if (!filterInput && (e.key === 'Home' || e.key === 'End')) {
+        e.preventDefault();
+        e.stopPropagation();
+        move(e.key === 'Home' ? -Infinity : Infinity); // the same clamp the arrows land on
         return;
       }
       // Space picks only where it is not also a character — a filter box must take spaces.
