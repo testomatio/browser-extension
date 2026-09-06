@@ -426,22 +426,28 @@ test('8b: the requestId map is already empty by the time the mirror is scheduled
   assert.deepEqual(sizes, [2, 0], 'over the cap it is cleared first, and the mirror sees it empty');
 });
 
-test('6: an old entry hiding behind a fresh one is left in the buffer', async () => {
+// Append order is not time order (row 9), so the stale row is routinely sitting BEHIND a fresh
+// one rather than at index 0 — which is the only place a prune that reads the head ever looks.
+test('6: an old entry hiding behind a fresh one is pruned like any other', async () => {
   const h = await ready();
   h.st.windowSec = 60;
   h.st.buffer = [con({ ts: at(1), text: 'fresh' }), con({ ts: at(2) }), con({ ts: at(3) }),
     con({ ts: at(4) }), con({ ts: at(5) }), con({ ts: at(300), text: 'ancient' })];
   h.fns.evPush(con({ ts: at(0), text: 'newest' }));
-  assert.equal(h.buffer().length, 7);
-  assert.ok(h.buffer().some((e) => e.text === 'ancient'), 'today: only evBuffer[0] triggers the rescan');
+  assert.ok(!h.buffer().some((e) => e.text === 'ancient'), 'the rescan does not stop at index 0');
+  assert.equal(h.buffer().length, 6, 'and it takes nothing inside the margin with it');
+  assert.equal(h.buffer()[0].text, 'fresh');
+  assert.equal(h.buffer()[5].text, 'newest');
 });
 
-test.todo('6 (#313): an old entry hiding behind a fresh one is pruned like any other', async () => {
+// The companion: a buffer with nothing stale in it comes back untouched, so row 6 cannot be
+// satisfied by a prune that simply empties the buffer on every push.
+test('6a: a push into a buffer where everything is inside the margin drops nothing', async () => {
   const h = await ready();
   h.st.windowSec = 60;
-  h.st.buffer = [con({ ts: at(1), text: 'fresh' }), con({ ts: at(300), text: 'ancient' })];
+  h.st.buffer = [con({ ts: at(1), text: 'fresh' }), con({ ts: at(119), text: 'old but inside' })];
   h.fns.evPush(con({ ts: at(0), text: 'newest' }));
-  assert.ok(!h.buffer().some((e) => e.text === 'ancient'));
+  assert.deepEqual(h.buffer().map((e) => e.text), ['fresh', 'old but inside', 'newest']);
 });
 
 test('7: a page that never stops logging keeps the newest thousand rows, not the first', async () => {
