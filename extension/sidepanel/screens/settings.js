@@ -122,14 +122,12 @@ async function diagnosticsStorage() {
   } catch { return DIAG_MISSING; }
 }
 
-// A reply — any reply — is the proof: the worker had to be awake to send one. Two doors, because a
-// build may have only one recorder wired, and neither answer's CONTENT is read.
+// A reply — any reply — is the proof: the worker had to be awake to send one. The screen recorder's
+// door, and only it: the step recorder's ends an orphaned recording, which is no way to ask a question.
 async function diagnosticsWorker() {
-  for (const type of ['STEPREC_STATUS', 'SCREENREC_STATUS']) {
-    try {
-      if (await chrome.runtime.sendMessage({ type })) return 'answering';
-    } catch { /* the worker is gone, or that door is not wired — try the other */ }
-  }
+  try {
+    if (await chrome.runtime.sendMessage({ type: 'SCREENREC_STATUS' })) return 'answering';
+  } catch { /* the worker is gone */ }
   return 'not answering';
 }
 

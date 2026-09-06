@@ -899,21 +899,23 @@ test('#113 D6a: no chrome at all, and a worker that rejects, are both painted ra
   const dead = load({ ...CONFIGURED, worker: 'throw' });
   await dead.fn.renderDiagnostics();
   assert.equal(dead.diag().Worker, 'not answering');
-  // Both doors were tried before giving up — a build with only one of them wired still counts.
-  assert.deepEqual(dead.calls.sends.map((m) => m.type), ['STEPREC_STATUS', 'SCREENREC_STATUS']);
+  assert.deepEqual(dead.calls.sends.map((m) => m.type), ['SCREENREC_STATUS']);
 });
 
-test('#113 D6b: either recorder answering is proof enough, and the first answer stops the asking', async () => {
-  const stepDead = load({
-    ...CONFIGURED,
-    reply: (msg) => (msg.type === 'SCREENREC_STATUS'
-      ? Promise.resolve({ recording: false }) : Promise.resolve(undefined)),
-  });
-  await stepDead.fn.renderDiagnostics();
-  assert.equal(stepDead.diag().Worker, 'answering');
+// The liveness probe has to be a QUESTION. STEPREC_STATUS is not one: the worker answers it through
+// srOrphaned(), which ends a step recording whose owner tab has gone — and nothing else in the panel
+// sends it, so asking here would be a new side effect on every visit to Settings. SCREENREC_STATUS
+// the panel already sends on its own (screens/screen-rec.js), so this door costs nothing.
+test('#113 D6b: the probe asks the screen recorder only — the step recorder\'s door is not read-only', async () => {
   const alive = load(CONFIGURED);
   await alive.fn.renderDiagnostics();
-  assert.deepEqual(alive.calls.sends.map((m) => m.type), ['STEPREC_STATUS']);
+  assert.equal(alive.diag().Worker, 'answering');
+  assert.deepEqual(alive.calls.sends.map((m) => m.type), ['SCREENREC_STATUS']);
+  // Even with nobody answering, the step recorder is never woken to find that out.
+  const dead = load({ ...CONFIGURED, worker: false });
+  await dead.fn.renderDiagnostics();
+  assert.equal(dead.diag().Worker, 'not answering');
+  assert.deepEqual(dead.calls.sends.map((m) => m.type), ['SCREENREC_STATUS']);
 });
 
 test('#113 D7: entering Settings paints the section, and a page without it is not a crash', async () => {
@@ -926,6 +928,20 @@ test('#113 D7: entering Settings paints the section, and a page without it is no
   bare.fn.fillSettingsForm();
   await settle();
   assert.equal(bare.doc.getElementById('diagnostics-rows'), null);
+});
+
+// Two callers paint this section — fillSettingsForm() on the way into Settings, and the head on
+// every click — so the second paint has to REPLACE the first. diag() reads label-to-value, where a
+// duplicated row is invisible; this one counts the cells and the copied lines instead.
+test('#113 D7a: painting twice leaves nine rows, not eighteen', async () => {
+  const h = load(CONFIGURED);
+  await h.fn.renderDiagnostics();
+  await h.fn.renderDiagnostics();
+  const cells = h.doc.getElementById('diagnostics-rows').querySelectorAll('dt, dd');
+  assert.equal(cells.length, 18, 'nine label/value pairs, painted over rather than appended to');
+  h.fn.copyDiagnostics();
+  await settle();
+  assert.equal(h.copied().split('\n').length, 9);
 });
 
 test('#113 D8: not one credential the panel holds reaches the section or the clipboard', async () => {
