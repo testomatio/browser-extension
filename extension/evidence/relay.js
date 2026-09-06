@@ -23,9 +23,13 @@
   // ITS OWN key, never `settings` (#175): this runs in the renderer process of the site
   // under test, and the `settings` record holds the API token. The panel mirrors it here.
   function pushConfig() {
-    chrome.storage.local.get('evidenceCaptureBodies')
-      .then((s) => control({ captureBodies: s.evidenceCaptureBodies !== false }))
-      .catch(() => control({ captureBodies: true })); // absent -> ON, same rule as the panel
+    // Four callers, and the load-time one is the last thing this file does: a `chrome.storage`
+    // that is not there must answer like an unreadable setting, not throw the relay half-installed.
+    try {
+      chrome.storage.local.get('evidenceCaptureBodies')
+        .then((s) => control({ captureBodies: s.evidenceCaptureBodies !== false }))
+        .catch(() => control({ captureBodies: true })); // absent -> ON, same rule as the panel
+    } catch { control({ captureBodies: true }); }
   }
 
   window.addEventListener('message', (e) => {
@@ -35,7 +39,7 @@
     // A hook injected before our config went out has no token yet, and its hello is the cue to
     // hand one over — but a hello is not evidence, so nothing in that batch is believed.
     if (d.tok !== TOKEN) {
-      if (d.events.some((ev) => ev && ev.t === 'ready')) { try { pushConfig(); } catch { /* no storage */ } }
+      if (d.events.some((ev) => ev && ev.t === 'ready')) pushConfig();
       return;
     }
     const events = d.events.filter((ev) => ev && typeof ev === 'object' && KINDS.has(ev.t));
