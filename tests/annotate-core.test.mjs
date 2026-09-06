@@ -685,7 +685,7 @@ test('AC18: the undo stack stops at fifty steps, and the marks below it are stra
   assert.equal(h.btn('annot-undo').disabled, true);
 });
 
-test.todo('AC19 (#317): restyling floods the undo history — ten taps should still be one step back', () => {
+test('AC19 (#317): ten taps picking a weight are one step back, and the box is still undoable', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
   assert.equal(h.hooks.select(150, 150), 0);
@@ -693,7 +693,28 @@ test.todo('AC19 (#317): restyling floods the undo history — ten taps should st
   assert.equal(h.ops()[0].width, 2);
 
   h.hooks.undo();
-  assert.equal(h.ops()[0].width, 3, 'one undo should take the tester back past the restyling');
+  assert.equal(h.ops()[0].width, 3, 'one undo takes the tester back past the whole run of taps');
+  h.hooks.undo();
+  assert.deepEqual(h.ops(), [], 'and the very next one still reaches the box itself');
+});
+
+// The collapse must not swallow a second shape's restyle, nor a restyle made after an undo:
+// either would lose work silently, which is worse than the flood it replaces.
+test('AC19b (#317): each shape keeps its own step back, and a restyle after an undo is recorded', () => {
+  const h = load();
+  h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 60, y2: 60 });
+  h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
+  h.hooks.select(35, 35);
+  h.hooks.setWidth('l');
+  h.hooks.select(150, 150);
+  h.hooks.setWidth('s');
+
+  h.hooks.undo();
+  assert.deepEqual(h.ops().map((o) => o.width), [6, 3], 'undo takes back the second box only');
+  h.hooks.select(35, 35);
+  h.hooks.setWidth('s');
+  h.hooks.undo();
+  assert.deepEqual(h.ops().map((o) => o.width), [6, 3], 'the restyle after the undo has its own step');
 });
 
 // ========== 4. Labels, badges and the ink they carry (AC12, AC20-AC21, AC33-AC43) ==========

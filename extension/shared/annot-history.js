@@ -6,6 +6,11 @@
 // Snapshots of {ops, crop} are pushed BEFORE every mutation: ops.pop() would only undo an add, and a
 // crop is not in ops at all. A fresh push clears the redo stack.
 //
+// A RUN. `push(snap, same)` takes an optional token naming the intent behind the push. Consecutive
+// pushes carrying the SAME token are one intent — tapping through the palette to recolour one shape
+// — and only the first is kept, since its snapshot already holds the state before the whole run.
+// Any push with a different token, and every undo and redo, ends the run.
+//
 // THE ENV BAG. The stack lives inside the caller's editor, so `makeHistory` is handed the four
 // things it cannot own:
 //   ops               — the caller's LIVE ops array. A restore SPLICES it in place and never
@@ -29,6 +34,7 @@ const AnnotHistory = (() => {
   function makeHistory({ ops, getCrop, restoreCrop, onChange, max = HISTORY_MAX }) {
     const history = [];       // undo: {ops, crop} snapshots
     const future = [];        // redo: the mirror stack
+    let run;                  // token of the run of pushes in progress; undefined means none
 
     // `{ ...crop }` before the image has loaded (crop still null) yields {} — the quirk is the
     // caller's, and it is carried, not fixed.
@@ -38,7 +44,10 @@ const AnnotHistory = (() => {
       // The snapshot's ops are already in its crop coords — resize WITHOUT the shift.
       restoreCrop(snap.crop);
     }
-    function push(snap) {
+    function push(snap, same) {
+      // Still inside the run this token named: the step back is already on the stack.
+      if (same !== undefined && same === run) return;
+      run = same;
       history.push(snap || snapshot());
       if (history.length > max) history.shift();
       future.length = 0;
@@ -46,12 +55,14 @@ const AnnotHistory = (() => {
     }
     function undo() {
       if (!history.length) return;
+      run = undefined;
       future.push(snapshot());
       restore(history.pop());
       onChange();
     }
     function redo() {
       if (!future.length) return;
+      run = undefined;
       history.push(snapshot());
       restore(future.pop());
       onChange();

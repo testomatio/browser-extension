@@ -439,7 +439,7 @@ window.AnnotateCore = (() => {
       max: HISTORY_MAX,
     });
     const snapshot = () => hist.snapshot();
-    const pushHistory = (snap) => hist.push(snap);
+    const pushHistory = (snap, same) => hist.push(snap, same);
     function syncHistoryBtns() {
       if (undoBtn) undoBtn.disabled = !hist.canUndo();
       if (redoBtn) redoBtn.disabled = !hist.canRedo();
@@ -770,7 +770,9 @@ window.AnnotateCore = (() => {
     function restyleSelected() {
       const op = ops[selected];
       if (!op || !INKED.has(op.tool)) return false;
-      pushHistory();
+      // Tapping through colours and weights to pick one is a single intent: the op itself is the
+      // run token, so the whole run of taps costs the tester the one step back taken before it.
+      pushHistory(null, op);
       op.color = color;
       if (op.tool !== 'number') op.width = weight;
       if (op.tool === 'text') op.size = Math.round(textSize() * (weight / WIDTH));
