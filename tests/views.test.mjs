@@ -174,7 +174,11 @@ function load(opts = {}) {
     // hideToast(), setStatusLine() and toastDuration() as bare one-line delegates, so every toast
     // row below still calls exactly what a screen calls; ALERT_ICON and PROGRESS_ICON are that
     // module's own top-level consts, and a `before` script's lexicals are shared with this one.
-    before: ['nav-model', 'toast'],
+    // core/gates.js is the third: the read-only lockout and the basic-mode strip, with views.js
+    // keeping applyReadonlyBlock/baseUrlHost/updateDegradedBanner/dismissDegradedBanner bare. It
+    // reads updateContextBar and setImmersive back out of views.js — the forward reference the load
+    // order makes safe — so nothing below changes about what those rows call or assert.
+    before: ['nav-model', 'toast', 'gates'],
     exported: `({
       TAB_OF_VIEW: NavModel.TAB_OF_VIEW, TABS: NavModel.TABS, TAB_ROOT: NavModel.TAB_ROOT,
       ROOT_VIEWS: NavModel.ROOT_VIEWS, CONTEXT_TRAILS,
