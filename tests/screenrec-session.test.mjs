@@ -313,7 +313,7 @@ test('3: the hotkey refused by a parked take answers with the review instead of 
   const h = await open({ session: { screenRecFile: TAKE() } });
   await h.api.srecToggle({ ...SITE_TAB });
   await h.settle();
-  assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed', activate: true }]]);
+  assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed' }]]);
 });
 
 test('4: a hotkey fired on chrome://extensions records the bound site tab instead', async () => {
@@ -576,7 +576,7 @@ test('26: a take pushed after the worker restarted is parked with no test bound 
   assert.deepEqual(h.parked(), {
     url: 'blob:orphan', size: 512, ms: 2000, reason: 'cap', name: NAME_AT_NOW, recordId: null, reviewed: false,
   });
-  assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed', activate: true }]]);
+  assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed' }]]);
 });
 
 // The two pushes are not serialized: the second read can see the first's parked record and revoke
@@ -669,17 +669,30 @@ test('36: a page that will not take the bar records on without its controls', as
   assert.equal(await h.api.srecInjectBar(7), false);
 });
 
-test('37: the review is brought to the front of the recorded tab before it is injected', async () => {
+test('37: the review goes into the recorded tab before that tab is brought to the front', async () => {
   const h = await open();
   h.clearCalls(); // the mirror re-seed's own storage read is not part of this order
   assert.deepEqual(plain(await h.api.srecOpenReview(7)), { ok: true });
-  assert.deepEqual(h.order(), ['tabs.update', 'scripting.executeScript']);
+  assert.deepEqual(h.order(), ['scripting.executeScript', 'tabs.update']);
   assert.deepEqual(h.named('tabs.update'), [[7, { active: true }]]);
 });
 
-// srecOpenReview activates the recorded tab, and the fallback's resolveSiteTab({activate:true})
-// activates the site tab as well — two tabs come to the front for one review.
-test.todo('38 (#316): a review that falls back to the site tab brings two tabs forward');
+// The recorded tab has been navigated to a page no extension may touch, so the review lands on the
+// site tab instead. One Stop must move the tester once — to the tab that actually got the review.
+test('38 (#316): a review that falls back to the site tab brings only that tab forward', async () => {
+  const h = await open();
+  h.hooks.executeScript = async (arg) => {
+    if (arg && arg.target && arg.target.tabId === 7) throw new Error('Cannot access contents of the page');
+    return [];
+  };
+  h.hooks.resolveSiteTab = () => ({ state: 'ok', tab: { id: 9, url: 'https://shop.example.com/' } });
+  h.clearCalls();
+  assert.deepEqual(plain(await h.api.srecOpenReview(7)), { ok: true });
+  assert.deepEqual(h.named('tabs.update'), [[9, { active: true }]],
+    'the restricted tab must not be fronted for an overlay it cannot host');
+  assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed' }]],
+    'and the fallback must not front its tab either, before the overlay is proven to go in');
+});
 
 test('39: with both tabs refusing the review, it opens in a tab of its own', async () => {
   const h = await open();
@@ -689,6 +702,7 @@ test('39: with both tabs refusing the review, it opens in a tab of its own', asy
   assert.deepEqual(h.named('tabs.create'), [[{
     url: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/screenrec/review.html',
   }]]);
+  assert.deepEqual(h.named('tabs.update'), [], 'nothing was fronted for an overlay that went nowhere');
 });
 
 test('54: right after a worker restart the awaited owner check waits for the mirror to re-seed', async () => {
