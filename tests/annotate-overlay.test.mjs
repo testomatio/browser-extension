@@ -48,6 +48,7 @@ function load(opts = {}) {
     overflow = 'scroll',
     stale = false,
     answer = true,
+    throwSync = false,
   } = opts;
 
   const doc = makeDocument();
@@ -61,13 +62,17 @@ function load(opts = {}) {
   const seed = payload === ABSENT ? {} : { [key]: payload };
   const ch = chromeFake({ session: seed, sessionFail: getFail ? { get: true } : {} });
   const sets = ch.session.sets;
-  const flags = { throwSync: false, setFails: false };
+  const flags = { throwSync, setFails: false };
   const realSet = ch.chrome.storage.session.set;
-  ch.chrome.storage.session.set = async (patch) => {
-    // The two ways a real MV3 store refuses: the context is gone (sync throw) and quota (reject).
+  // NOT an async function: the two ways a real MV3 store refuses are a SYNCHRONOUS throw when the
+  // context is gone and a rejected promise on quota, and an async wrapper turns the first into the
+  // second — which is the one shape a bare try/catch already survives.
+  ch.chrome.storage.session.set = (patch) => {
     if (flags.throwSync) throw new Error('Extension context invalidated');
-    await realSet(patch);
-    if (flags.setFails) throw new Error('the session store is full');
+    return (async () => {
+      await realSet(patch);
+      if (flags.setFails) throw new Error('the session store is full');
+    })();
   };
 
   const win = makeWindow();
@@ -195,8 +200,9 @@ test('6: the engine half of the injection failed, and the same message goes back
 });
 
 test('6b: a bail-out whose write throws outright is swallowed, not left as a page error', async () => {
-  const h = load({ css: '' });
-  h.flags.throwSync = true;
+  // Armed at load: the bail-out signals synchronously while the file is still running, so a flag
+  // set afterwards arrives too late and the row asks nothing.
+  const h = load({ css: '', throwSync: true });
   await settle();
   assert.equal(h.hosts().length, 0);
 });
@@ -267,6 +273,47 @@ test('10: the engine throws on this page and the overlay leaves rather than stan
     { [KEY]: { error: 'The annotator failed on this page: canvas is blocked on this page' } },
   ]);
   assert.deepEqual(h.tips.map((r) => r[0]), ['mount', 'unmount'], 'the tooltip goes with it');
+});
+
+// signal() is fire-and-forget on purpose, so a store that REJECTS (quota, a context torn down
+// mid-write) has no owner: the rejection surfaces in the console of the site being tested.
+test('10b (#333): a store that refuses the exit signal leaves no error in the page under test', async () => {
+  const seen = [];
+  const onUnhandled = (e) => seen.push(String(e));
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const h = load({ core: 'throws' });
+    h.flags.setFails = true; // armed before the async half writes anything
+    await settle(4);
+    assert.equal(h.hosts().length, 0, 'the overlay still leaves');
+    assert.deepEqual(seen, [], 'nothing of ours may reach the tested page’s console');
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+});
+
+// The likeliest exit of all: the tester navigates away with the overlay up. It writes the same
+// cancellation, and it does NOT go through signal() — so guarding signal() alone leaves the common
+// path throwing into the very page whose console the tester is about to read.
+test('10c (#333): navigating away with the overlay up leaves no error in the page either', async () => {
+  const seen = [];
+  const onUnhandled = (e) => seen.push(String(e));
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const h = load();
+    await settle(4);
+    // Both refusals, because a page being torn down is when either can happen: a quota reject, and
+    // a context already gone, which throws before there is a promise to catch on.
+    h.flags.setFails = true;
+    for (const r of h.win.live('pagehide')) r.fn();
+    await settle(4);
+    h.flags.throwSync = true;
+    for (const r of h.win.live('pagehide')) assert.doesNotThrow(r.fn);
+    await settle(4);
+    assert.deepEqual(seen, [], 'nothing of ours may reach the tested page’s console');
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
 });
 
 test('11: annotating the same tab twice leaves one overlay behind, not two', async () => {
