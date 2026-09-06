@@ -1201,6 +1201,20 @@ test('51 (#315): a toggle answered before the restore lands keeps the recording 
     'the restore does not get the last word on the hook');
 });
 
+// Not only the toggle. A panel opening at the same moment asks for the status first and draws its
+// button from the answer — told "nothing is recording" while a recording is being restored, it draws
+// Start, and the tester's next press is the Stop that ends the take they thought they were beginning.
+test('51b (#315): a status asked before the restore lands answers the session it is about to find', async () => {
+  const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
+  const s = h.send({ type: 'EVIDENCE_STATUS' });
+  await h.settle();
+  assert.equal(s.replies.length, 0, 'the question waits for the read that answers it');
+  h.release();
+  await h.ready;
+  await h.settle();
+  assert.equal(s.replies[0].status.recording, true, 'and the panel draws Stop, not Start');
+});
+
 test('51a (#315): the same toggle acts on the session the restore found, not on an empty one', async () => {
   const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
   const s = h.send({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
