@@ -393,6 +393,18 @@ test('22a: the very same events from our hook go through — the token is the wh
   assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: EVIDENCE }]);
 });
 
+// The comparison is `!==` against a string, and it has to stay that way: a single-element array
+// stringifies to the element, so anything looser lets a lookalike through. No worse than knowing
+// the token outright — but the strictness is the fix, and a fix nothing asks about drifts.
+test('22e: a token-shaped lookalike is not the token — the comparison is strict, not coerced', async () => {
+  const h = load();
+  await h.settle();
+  for (const tok of [[h.tok()], { toString: () => h.tok() }, `${h.tok()} `, null, undefined, 0]) {
+    h.page({ source: CHANNEL, tok, events: EVIDENCE });
+  }
+  assert.deepEqual(h.sent(), [], 'only the string the relay minted is the string the relay minted');
+});
+
 test('22b: a row of a kind this hook never emits is dropped before the worker files it', async () => {
   const h = load();
   await h.settle();
