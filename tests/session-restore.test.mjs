@@ -16,7 +16,7 @@
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CORE_SRC } from './helpers/panel-harness.mjs';
+import { CORE_SRC, bootPanel } from './helpers/panel-harness.mjs';
 import { loadInto, plain } from './helpers/shared-harness.mjs';
 
 const FILE = join(CORE_SRC, 'session-restore.js');
@@ -226,15 +226,101 @@ test('SR19e (#201): a removal that throws still hands the suite over — the tes
   assert.deepEqual(plain(SessionRestore.takeTcReturn()), { suiteId: 's-42', suiteTitle: 'Checkout' });
 });
 
-// ---------- the four rules that stayed in app.js ----------
+// ---------- the four rules that live in app.js's init() (#352) ----------
 
-// All four live between `init()`'s awaits, and app.js's last line is `init().finally(...)`: loading
-// the file to reach them runs the whole boot. They are recorded in #352, not solved here.
+// These four decide what the tester sees in the first second, and all four sit between `init()`'s
+// awaits. bootPanel() runs that boot against stubs for every panel global (tests/helpers/
+// panel-harness.mjs); the assertion is which screen opener boot chose, with what, and in what order.
+// Every row below also checks `bootError`: a boot that died on a missing stub must not be read as a
+// boot that decided something.
 
-test.todo('SR17 (#201): a handoff run outranks an open-run intent, which outranks the editor breadcrumb, which outranks the restored session — the order is four early returns inside init(), unreachable without booting the panel (#352)');
+const SETTINGS = { baseUrl: 'https://app.testomat.io', apiKey: 't', projectId: 'p1' };
+const OPENERS = ['openRunView', 'openTestView', 'openTcListView', 'openSettingsView', 'openTcStudioView', 'openRunsView'];
 
-test.todo('SR20 (#201): a restored test view whose currentRecordId no longer resolves opens the run and stops — the guard is recordFor() against a loaded run, which needs the whole boot to exist (#352)');
+// Everything the four contenders need at once: a configured panel with a run in its session, a
+// breadcrumb from the editor, a pending click AND a host offer. Each row below removes one.
+const contested = (over) => bootPanel({
+  stored: { settings: SETTINGS, session: { runId: 'r1', runTitle: 'Nightly', view: 'run' } },
+  restored: { activeTab: 'runs' },
+  tcReturn: { suiteId: 's-42', suiteTitle: 'Checkout' },
+  ...over,
+});
 
-test.todo('SR21 (#201): a boot with no saved settings drops the pending open-run intent before landing on Settings — the branch is inside init(), above every seam this file can load (#352)');
+test('SR17 (#201): the landing order is handoff run, then open-run intent, then the editor breadcrumb, then the restored session (#352)', async () => {
+  // 1. The host app's run outranks everything, and short-circuits the intent it never has to ask about.
+  const host = await contested({ handoffReady: true, handoffRun: true, intent: true });
+  assert.equal(host.bootError, null);
+  assert.deepEqual(host.order(...OPENERS), [], 'the handoff opened the run itself — boot opens no second view');
+  assert.deepEqual(host.order('Handoff.openRun', 'OpenRunIntent.consume', 'SessionRestore.takeTcReturn'),
+    ['Handoff.openRun'], 'nothing below it is even consulted');
+  assert.equal(host.count('OpenRunIntent.init'), 1, 'the live listener is armed before that early return');
+  assert.equal(host.state.booting, false);
 
-test.todo('SR22 (#201): an init() that throws anywhere still runs Skeleton.bootDone(), so the boot placeholder never sticks — asserting it means loading app.js, which is exactly what runs init() (#352)');
+  // 2. No host run: the "Run in Extension" click is next, and it outranks the breadcrumb.
+  const clicked = await contested({ intent: true });
+  assert.equal(clicked.bootError, null);
+  assert.deepEqual(clicked.order(...OPENERS), [], 'openRunFromUrl handled it inside consume()');
+  assert.deepEqual(clicked.order('Handoff.openRun', 'OpenRunIntent.consume', 'SessionRestore.takeTcReturn'),
+    ['Handoff.openRun', 'OpenRunIntent.consume']);
+  assert.deepEqual(clicked.argsOf('OpenRunIntent.consume')[0], [clicked.sandbox.openRunFromUrl],
+    'and it is handed the panel\'s own URL opener to spend the click on');
+
+  // 3. No click either: the editor's breadcrumb wins over the run the session was left on.
+  const crumb = await contested({});
+  assert.equal(crumb.bootError, null);
+  assert.deepEqual(crumb.order(...OPENERS), ['openTcListView']);
+  assert.deepEqual(crumb.argsOf('openTcListView'), [['s-42', 'Checkout']]);
+
+  // 4. …and with no breadcrumb, the restored session's own tab is finally what lands.
+  const session = await contested({ tcReturn: null });
+  assert.equal(session.bootError, null);
+  assert.deepEqual(session.order(...OPENERS), ['openRunView']);
+  assert.deepEqual(session.argsOf('openRunView'), [['r1', 'Nightly']]);
+});
+
+test('SR20 (#201): a restored test whose record the run no longer has opens the run and stops there (#352)', async () => {
+  const stored = {
+    settings: SETTINGS,
+    session: { runId: 'r1', runTitle: 'Nightly', view: 'test', currentRecordId: 'rec-9' },
+  };
+  const gone = await bootPanel({ stored, restored: { activeTab: 'runs' }, records: [{ id: 'rec-1' }] });
+  assert.equal(gone.bootError, null);
+  assert.deepEqual(gone.order(...OPENERS), ['openRunView'], 'the run, and no blank test screen behind it');
+  assert.deepEqual(gone.argsOf('recordFor'), [['rec-9']], 'the guard did ask the loaded run');
+
+  // The other side of the same guard: one stuck shut would pass the row above and strand every
+  // tester who reopens the panel mid-test back on the run list.
+  const there = await bootPanel({ stored, restored: { activeTab: 'runs' }, records: [{ id: 'rec-9' }] });
+  assert.equal(there.bootError, null);
+  assert.deepEqual(there.order(...OPENERS), ['openRunView', 'openTestView']);
+  assert.deepEqual(there.argsOf('openTestView'), [['rec-9']]);
+});
+
+test('SR21 (#201): an unconfigured panel drops the pending open-run intent before it lands on Settings (#352)', async () => {
+  const h = await bootPanel({ stored: {}, intent: true, restored: { activeTab: 'runs' } });
+  assert.equal(h.bootError, null);
+  assert.deepEqual(h.order('OpenRunIntent.drop', 'show', 'OpenRunIntent.consume'),
+    ['OpenRunIntent.drop', 'show'], 'burnt on the way past, and never consumed');
+  assert.deepEqual(h.argsOf('show'), [['settings']]);
+  assert.deepEqual(h.order(...OPENERS), [], 'no run opens for a panel with nothing to run against');
+  assert.equal(h.count('Handoff.configure'), 0, 'boot returned above the configure');
+  assert.equal(h.state.booting, false, 'a later Save may persist its session');
+});
+
+test('SR22 (#201): a boot that throws still takes the placeholder down — bootDone() is the floor under init() (#352)', async () => {
+  // Early: storage itself refuses, so init() dies before any view is picked.
+  const early = await bootPanel({ answers: { loadStored: async () => { throw new Error('storage is gone'); } } });
+  assert.equal(early.bootError?.message, 'storage is gone');
+  assert.equal(early.count('Skeleton.paintBoot'), 1);
+  assert.equal(early.count('Skeleton.bootDone'), 1, 'the placeholder comes down anyway');
+  assert.deepEqual(early.order(...OPENERS), []);
+
+  // Late: the screen opener boot chose is the thing that throws, past every await.
+  const late = await bootPanel({
+    stored: { settings: SETTINGS },
+    answers: { openRunsView: () => { throw new Error('the runs list blew up'); } },
+  });
+  assert.equal(late.bootError?.message, 'the runs list blew up');
+  assert.equal(late.count('Skeleton.bootDone'), 1);
+  assert.equal(late.state.booting, true, 'init() never reached its own last line — only the finally ran');
+});
