@@ -1,7 +1,7 @@
-// Core views: the view switcher (show), tab navigation, the contextual header
-// row, in-tab back navigation, and the delegates to the toast and status lines.
+// Core views: the view switcher (show), tab navigation, the contextual header row, in-tab back
+// navigation, and the delegates to the toast, the status lines and the panel's two gates.
 
-/* global TestomatAPI, Handoff, Icons, NavModel, PanelToast, Roving, Skeleton, Sk, loadRunsCount,
+/* global Gates, Handoff, Icons, NavModel, PanelToast, Roving, Skeleton, Sk, loadRunsCount,
    loadTestsCount, Tooltip, PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker, StatusIcons */
 
@@ -492,50 +492,16 @@ function initActionLabelFit(root = document) {
   for (const bar of bars) fitActionLabels(bar);
 }
 
-// ---------- read-only lockout (#155) ----------
-// v2 refuses every request on a read-only project, GET included, so there is nothing
-// to show: one blocking panel, with Settings and the project switcher the way out.
-function applyReadonlyBlock() {
-  const blocked = !!capabilities.readonly && state.view !== 'settings';
-  document.body.dataset.readonly = capabilities.readonly ? 'true' : 'false';
-  const block = $('readonly-block');
-  if (block) block.hidden = !blocked;
-  for (const v of views) $(`view-${v}`).hidden = blocked || v !== state.view;
-  if (!blocked) { updateContextBar(state.view); return; }
-  // Nothing is open behind the block, so Back and the title would both be lying —
-  // and with the row gone the panel is not immersed in anything either.
-  $('context-bar').hidden = true;
-  $('btn-back').hidden = true;
-  setImmersive(false);
-}
-
-function baseUrlHost() {
-  try { return new URL(state.settings.baseUrl).hostname; } catch { return 'the web app'; }
-}
-
-// Degraded-mode strip on the runs + run views. Dismissal is in-memory only: it
-// lasts the panel session and resets on reload.
-let degradedBannerDismissed = false;
-function updateDegradedBanner() {
-  const banner = $('degraded-banner');
-  if (!banner) return;
-  const degraded = TestomatAPI.jwtAvailable() === false; // only once degradation is proven
-  const onRunViews = state.view === 'runs' || state.view === 'run';
-  // #155: under the read-only lockout there is no basic mode to explain.
-  const showit = degraded && onRunViews && !degradedBannerDismissed && !capabilities.readonly;
-  banner.hidden = !showit;
-  if (!showit) return;
-  const txt = banner.querySelector('.degraded-banner-text');
-  if (txt) {
-    txt.textContent = 'Basic mode — steps are local-only; finish run, priority and custom statuses '
-      + `need an active ${baseUrlHost()} web login. Sign in there, then Refresh.`;
-  }
-}
-
-function dismissDegradedBanner() { degradedBannerDismissed = true; updateDegradedBanner(); }
+// The read-only lockout and the basic-mode strip are core/gates.js now. These four stay bare, and
+// each keeps the declaration it had: core/state.js reaches two of them through a `typeof` guard.
+function applyReadonlyBlock() { Gates.applyReadonlyBlock(); }
+function baseUrlHost() { return Gates.baseUrlHost(); }
+function updateDegradedBanner() { Gates.updateDegradedBanner(); }
+function dismissDegradedBanner() { Gates.dismissDegradedBanner(); }
 
 // The same panel-wide pull the header's Refresh does, so the banner's own
-// "Sign in there, then Refresh" means one thing wherever it is pressed.
+// "Sign in there, then Refresh" means one thing wherever it is pressed. It stays on this side of the
+// seam because refreshAll is this file's, and the strip's own two states do not need it.
 function refreshFromDegradedBanner() { return refreshAll(); }
 
 // Leaving Settings discards unsaved form edits — the API is reconfigured from the
