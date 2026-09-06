@@ -122,6 +122,14 @@ async function load(opts = {}) {
     },
   });
   video.duration = NaN; // a MediaRecorder webm reports nothing until metadata lands — real behaviour
+  // The element's own account of itself, which is the only one that survives a missed event. Measured
+  // in Chrome: a revoked blob URL, an empty blob, undecodable bytes and a bogus mime ALL park at
+  // readyState 0 / networkState 3 / error.code 4 / videoWidth 0, while a real MediaRecorder webm sits
+  // at readyState ≥ 1 with videoWidth set even while its duration still reads Infinity.
+  video.readyState = 0;   // HAVE_NOTHING
+  video.networkState = 0; // NETWORK_EMPTY
+  video.error = null;
+  video.videoWidth = 0;
   video.paused = true;
   video.muted = false;
   video.captureStream = () => ({ kind: 'stream' });
@@ -182,9 +190,16 @@ async function load(opts = {}) {
   // init() runs at load and is async: the storage read, then the metadata wait, then the
   // Infinity workaround. Boot it the way a browser would before any row touches the screen.
   await settle();
-  if (metadata === 'fires') { video.duration = duration; fire(video, 'loadedmetadata'); }
-  if (metadata === 'error') fire(video, 'error');
-  if (metadata === 'never' && presetDuration !== undefined) video.duration = presetDuration;
+  if (metadata === 'fires') {
+    video.duration = duration; video.readyState = 4; video.networkState = 1; video.videoWidth = 320;
+    fire(video, 'loadedmetadata');
+  }
+  if (metadata === 'error') { video.error = { code: 4 }; video.networkState = 3; fire(video, 'error'); }
+  // `presetDuration` is the metadata that landed while nobody was listening — a duration a player
+  // knows is a player past HAVE_NOTHING, so the element says so even though the event went unheard.
+  if (metadata === 'never' && presetDuration !== undefined) {
+    video.duration = presetDuration; video.readyState = 1; video.networkState = 1; video.videoWidth = 320;
+  }
   for (let i = 0; i < 4; i += 1) { await settle(); clock.flush(); }
   await settle();
 
@@ -782,22 +797,46 @@ test('30c: a video that reports a length of zero falls back to the stopwatch too
   assert.equal(h.$('t-total').textContent, '0:09');
 });
 
+// The other side of the coin below: this player IS loaded, its `loadedmetadata` simply landed before
+// anyone listened. Reading the element rather than counting events is what keeps it playable.
 test('31: metadata that never arrives is waited out for three seconds, not forever', async () => {
   const h = await load({ metadata: 'never', presetDuration: 9 });
   assert.equal(h.clock.delays.includes(3000), true);
   assert.equal(h.$('t-total').textContent, '0:09');
   assert.equal(h.video.src, 'blob:take-1');
-});
-
-// The `error` event has no listener anywhere in review.js, so a dead blob URL is indistinguishable
-// from slow metadata: the screen waits out both 3 000 ms timers and then trusts the worker's
-// stopwatch. The tester gets a timeline of the right length over a video that will never play.
-test('32: a recording whose bytes are gone still draws a full timeline, because nothing watches for the error', async () => {
-  const h = await load({ metadata: 'error', file: { ...TAKE, ms: 8000 } });
-  assert.deepEqual(h.clock.delays, [3000, 3000]);
-  assert.equal(h.$('t-total').textContent, '0:08');
   assert.equal(h.status(), '');
   assert.notEqual(h.$('btn-attach').disabled, true);
 });
 
-test.todo('32b (#337): a recording whose blob URL is dead should say so instead of offering a timeline over a video that cannot play');
+// A dead blob URL used to be indistinguishable from slow metadata: nothing watched the video, both
+// 3 000 ms timers ran out, and `file.ms` — always set, because the worker stores the stopwatch —
+// drew a full timeline over a video that will never play. Attach then uploads that nothing.
+test('32 (#337): a recording whose bytes are gone says so and will not let the tester attach it', async () => {
+  const h = await load({ metadata: 'error', file: { ...TAKE, ms: 8000 } });
+  assert.match(h.status(), /will not play/);
+  assert.equal(h.$('btn-attach').disabled, true);
+  assert.equal(h.$('btn-play').disabled, true);
+  assert.equal(h.$('t-total').textContent, ''); // no timeline is drawn at all
+  assert.deepEqual(h.clock.delays, [3000]);     // and no second three-second probe is sat through
+});
+
+// Discard is the one thing that must still work: the bytes are gone, but the record in
+// chrome.storage.session is not, and only Discard clears it.
+test('32a (#337): the tester can still throw away a take whose video is dead', async () => {
+  const h = await load({ metadata: 'error', file: { ...TAKE, ms: 8000 } });
+  assert.notEqual(h.$('btn-discard').disabled, true);
+  h.press('btn-discard');
+  await settle();
+  assert.deepEqual(h.types(), ['SCREENREC_DONE']);
+});
+
+// The lesson the neighbouring fix paid for: an event is not a state. This player never says `error`
+// and never says `loadedmetadata` — it just sits at HAVE_NOTHING. The screen has to ask it outright,
+// or a take that silently failed still gets the stopwatch's timeline and a live Attach.
+test('32b (#337): a video that never loaded is not dressed in the stopwatch’s timeline, even though no error was ever fired', async () => {
+  const h = await load({ metadata: 'never', file: { ...TAKE, ms: 8000 } });
+  assert.equal(h.video.error, null);
+  assert.match(h.status(), /will not play/);
+  assert.equal(h.$('btn-attach').disabled, true);
+  assert.equal(h.$('t-total').textContent, '');
+});
