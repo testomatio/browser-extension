@@ -34,6 +34,7 @@ function load(opts = {}) {
     noOnMessage = false,        // chrome.runtime.onMessage absent — addListener throws
     onMessageThrows = false,    // the API is there and refuses
     noOnChanged = false,        // chrome.storage.onChanged absent — an older Chrome
+    noStorage = false,          // chrome.storage absent entirely — the permission was not granted
     reply = () => ({}),         // what the worker answers a forwarded batch
     replyRejects = false,       // the worker is asleep
     postThrows = false,         // the page tore the frame down under us
@@ -41,6 +42,9 @@ function load(opts = {}) {
 
   const fake = chromeFake({ local, localFail });
   const chrome = fake.chrome;
+  // Not the permission being denied at a call — the namespace simply is not there, so every
+  // reach through `chrome.storage.` is a TypeError rather than a rejected promise.
+  if (noStorage) delete chrome.storage;
 
   const sent = [];              // every chrome.runtime.sendMessage payload, in order
   if (!noSendMessage) {
@@ -63,7 +67,7 @@ function load(opts = {}) {
   }
 
   let changedListener = null;
-  if (!noOnChanged) {
+  if (!noOnChanged && !noStorage) {
     chrome.storage.onChanged = { addListener: (fn) => { changedListener = fn; } };
   }
 
@@ -370,6 +374,40 @@ test('21a: a page that tore the frame down under us swallows the post instead of
   assert.deepEqual(h.controls(), [], 'nothing recorded, and the load did not throw');
   h.worker({ type: 'EVIDENCE_HOOK_OFF' });
   assert.deepEqual(h.controls(), []);
+});
+
+// A build without the `storage` permission is the one world where the relay can end up neither
+// installed nor stood down: the config read is the last thing the file does and the only thing in
+// it that reaches `chrome.storage` unguarded. The three rows below are the three ways that shows.
+
+test('21b (#343): a world with no chrome.storage installs the relay whole, not halfway', async () => {
+  const h = load({ noStorage: true });
+  await h.settle();
+  assert.deepEqual(h.listeners(), ['message'], 'the page channel is live');
+  assert.equal(h.hasRuntimeListener(), true, 'and so is the worker channel');
+  assert.deepEqual(h.controls(), [control({ captureBodies: true })],
+    'and the hook was answered: a setting that cannot be read is ON, exactly as in row 4');
+});
+
+test('21c (#343): with no storage, starting a recording still un-mutes the page instead of throwing', async () => {
+  const h = load({ noStorage: true });
+  await h.settle();
+  h.worker({ type: 'EVIDENCE_HOOK_ON' });
+  await h.settle();
+  assert.deepEqual(h.controls().slice(1),
+    [control({ off: false }), control({ captureBodies: true })]);
+});
+
+test('21d (#343): with no storage, a hook that missed the config is still handed its token', async () => {
+  const h = load({ noStorage: true });
+  await h.settle();
+  h.page(forged([{ t: 'ready' }]));   // the hello of a hook that installed before us
+  await h.settle();
+  assert.equal(h.controls().length, 2, 'the hello was answered');
+  assert.equal(h.posts()[1].msg.tok, h.tok(), 'so the hook can stamp what it posts next');
+  h.page(h.batch([{ t: 'console', text: 'Boom' }]));
+  assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: [{ t: 'console', text: 'Boom' }] }],
+    'and what it posts next is believed — a mute hook records nothing at all');
 });
 
 // ---- whose batch it is (row 22) --------------------------------------------
