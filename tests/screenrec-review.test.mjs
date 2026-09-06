@@ -195,6 +195,13 @@ async function load(opts = {}) {
     fire(video, 'loadedmetadata');
   }
   if (metadata === 'error') { video.error = { code: 4 }; video.networkState = 3; fire(video, 'error'); }
+  // Metadata arrived, then the decode gave out — the corrupt-tail case, where the element is past
+  // HAVE_NOTHING and only `error` says the take is dead.
+  if (metadata === 'decode') {
+    video.duration = duration; video.readyState = 4; video.networkState = 1; video.videoWidth = 320;
+    fire(video, 'loadedmetadata');
+    video.error = { code: 3 }; // MEDIA_ERR_DECODE
+  }
   // `presetDuration` is the metadata that landed while nobody was listening — a duration a player
   // knows is a player past HAVE_NOTHING, so the element says so even though the event went unheard.
   if (metadata === 'never' && presetDuration !== undefined) {
@@ -833,6 +840,17 @@ test('32a (#337): the tester can still throw away a take whose video is dead', a
 // The lesson the neighbouring fix paid for: an event is not a state. This player never says `error`
 // and never says `loadedmetadata` — it just sits at HAVE_NOTHING. The screen has to ask it outright,
 // or a take that silently failed still gets the stopwatch's timeline and a live Attach.
+// The other half of the guard, and the only reason `video.error` is read at all: a take whose
+// metadata loaded and whose picture then gave out. The element is past HAVE_NOTHING, so readyState
+// alone calls it healthy — and the tester attaches a clip that will not play.
+test('32c (#337): a take that loaded and then failed to decode is refused too, not just an empty one', async () => {
+  const h = await load({ metadata: 'decode', file: { ...TAKE, ms: 8000 } });
+  assert.match(h.status(), /will not play/);
+  assert.equal(h.$('btn-attach').disabled, true);
+  assert.equal(h.$('btn-play').disabled, true);
+  assert.equal(h.$('t-total').textContent, '');
+});
+
 test('32b (#337): a video that never loaded is not dressed in the stopwatch’s timeline, even though no error was ever fired', async () => {
   const h = await load({ metadata: 'never', file: { ...TAKE, ms: 8000 } });
   assert.equal(h.video.error, null);
