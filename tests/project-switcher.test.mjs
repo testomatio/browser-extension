@@ -356,22 +356,39 @@ test('13c: a saved project the list does not carry is still named, by its slug',
   assert.equal(h.node.projectTrigger.dataset.projectId, 'p9');
 });
 
-test('14 (#334): pinned, the trigger says so in the tooltip and stays hoverable — aria-disabled, never disabled', () => {
-  const h = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true }, offer: null });
+test('14 (#334): pinned, the tooltip names the app that pinned it — and stays hoverable, aria-disabled, never disabled', () => {
+  // projectPinned() IS `!Handoff.offer()`, so a pinned bar has no offer left to read a name off. The
+  // name has to come from what connect() wrote down instead — `handoffApp`, shared/handoff.js:123.
+  const h = load({
+    settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true, handoffApp: 'Testeiya' },
+    offer: null,
+  });
   h.fn.renderProjectBar();
   assert.equal(h.node.projectTrigger.getAttribute('aria-disabled'), 'true');
   assert.equal(h.node.projectTrigger.disabled, undefined); // a disabled button swallows the hover
-  assert.equal(h.node.projectTrigger.dataset.tip,
-    'Project chosen by the app that opened this browser — switch it there');
+  assert.equal(h.node.projectTrigger.dataset.tip, 'Project chosen by Testeiya — switch it there');
 });
 
 test('14b (#334): an offer that is still live is not a pin at all — the bar stays the tester’s to use', () => {
-  // projectPinned() IS `!Handoff.offer()`, so a pinned bar is by definition one with no offer left to
-  // read a name off: the tooltip's app name can only ever be the fallback wording. Pinned here.
-  const h = load({ settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true }, offer: { app: 'Testeiya' } });
+  const h = load({
+    settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true, handoffApp: 'Testeiya' },
+    offer: { app: 'Testeiya' },
+  });
   h.fn.renderProjectBar();
   assert.equal(h.node.projectTrigger.getAttribute('aria-disabled'), 'false');
   assert.equal(h.node.projectTrigger.dataset.tip, 'Active project: Checkout (p1)');
+});
+
+test('14c (#334): a host that named no app still pins, and the tooltip says the one thing it can', () => {
+  // readFile() trims `app` to a string, so an unnamed host reaches connect() — and settings — as ''.
+  const h = load({
+    settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true, handoffApp: '' },
+    offer: null,
+  });
+  h.fn.renderProjectBar();
+  assert.equal(h.node.projectTrigger.getAttribute('aria-disabled'), 'true');
+  assert.equal(h.node.projectTrigger.dataset.tip,
+    'Project chosen by the app that opened this browser — switch it there');
 });
 
 test('15: a list landing while the popup is open repaints the rows under the tester’s cursor', () => {
