@@ -442,6 +442,16 @@ test('6: an old entry hiding behind a fresh one is pruned like any other', async
 
 // The companion: a buffer with nothing stale in it comes back untouched, so row 6 cannot be
 // satisfied by a prune that simply empties the buffer on every push.
+// The prune's own edge. Row 10 pins the WINDOW's; this is the 2x retroactive margin, and it went
+// unpinned — a comparison shifted by one silently narrows how far back the tester's log reaches.
+test('6b: the row sitting exactly on the margin is inside it; the one past it is not', async () => {
+  const h = await ready();
+  h.st.windowSec = 60; // so the prune's cutoff is exactly at(120)
+  h.st.buffer = [con({ ts: at(119), text: 'inside' }), con({ ts: at(120), text: 'on the line' }),
+    con({ ts: at(121), text: 'past it' })];
+  h.fns.evPush(con({ ts: at(0), text: 'newest' }));
+  assert.deepEqual(h.buffer().map((e) => e.text), ['inside', 'on the line', 'newest']);
+});
 test('6a: a push into a buffer where everything is inside the margin drops nothing', async () => {
   const h = await ready();
   h.st.windowSec = 60;
