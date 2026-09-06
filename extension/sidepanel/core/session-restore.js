@@ -1,7 +1,7 @@
 // What a reopened panel is allowed to trust: the guards a stored session is read back through, and
 // the one-shot breadcrumb the editor leaves behind. Core — app.js reads both at boot, nothing else.
 
-// No `/* global */` list, the way core/suite-tree.js has none: the filter keys arrive as an ARGUMENT
+// No `/* global */` list, the way core/storage.js has none: the filter keys arrive as an ARGUMENT
 // and `sessionStorage` is the browser's own, so this file names no other file's global.
 
 const SessionRestore = {
