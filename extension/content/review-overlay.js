@@ -7,6 +7,8 @@
   'use strict';
 
   const HOST_ID = '__testomat_review_overlay';
+  // An extension page paints in milliseconds; past this it is not slow, it is refused.
+  const FRAME_WAIT_MS = 3000;
   if (window.__testomatReviewOverlayInited && document.getElementById(HOST_ID)) return;
   if (!chrome?.runtime?.getURL) return;
   window.__testomatReviewOverlayInited = true;
@@ -24,6 +26,15 @@
       background: #16191f; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
     }
     iframe { display: block; width: 100%; height: 100%; border: 0; }
+    iframe[hidden] { display: none; }
+    .stall {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; height: 100%; padding: 28px; text-align: center; color: #d7dbe0;
+      font: 13px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .stall b { font-size: 15px; }
+    .stall p { margin: 0; color: #8b93a1; }
+    .stall a { color: #6ea3ff; }
     .close {
       position: absolute; top: 16px; right: 16px;
       width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
@@ -59,10 +70,35 @@
   const prevOverflow = root.style.overflow;
   let torn = false;
   let busy = false; // a trim export is running in the frame — tearing it down now throws the take away
+  let loaded = false;
+  let stalled = false;
+  let waitId = null;
+
+  // A page whose CSP refuses our frame leaves a dark rectangle and no word of explanation, so a
+  // tester cannot tell a refused review from a ruined take. Say it, and hand over the standalone tab.
+  function showStall() {
+    if (stalled || loaded || torn) return;
+    stalled = true;
+    iframe.hidden = true;
+    const box = document.createElement('div');
+    box.className = 'stall';
+    const head = document.createElement('b');
+    head.textContent = 'This page won’t let the review open inside it.';
+    const note = document.createElement('p');
+    note.textContent = 'Your recording is safe — it is still parked, waiting for you to attach or discard it.';
+    const out = document.createElement('a');
+    out.href = chrome.runtime.getURL('screenrec/review.html');
+    out.target = '_blank';
+    out.rel = 'noopener noreferrer';
+    out.textContent = 'Open the review in a new tab';
+    box.append(head, note, out);
+    frame.append(box);
+  }
 
   function teardown() {
     if (torn || busy) return;
     torn = true;
+    if (waitId !== null) clearTimeout(waitId);
     window.removeEventListener('keydown', onKeydown, true);
     window.removeEventListener('message', onMessage);
     root.style.overflow = prevOverflow;
@@ -86,9 +122,22 @@
 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) teardown(); });
   closeBtn.addEventListener('click', teardown);
+  // Chrome fires `load` for a frame its CSP refused, leaving it on the initial about:blank — which
+  // is same-origin and so still readable. A review that really opened is an extension page, another
+  // origin, and reading into it is refused. That is the only honest tell the two apart.
+  const frameOpened = () => {
+    try { return !iframe.contentDocument; } catch { return true; }
+  };
+  iframe.addEventListener('load', () => {
+    if (!frameOpened()) { showStall(); return; }
+    loaded = true;
+    if (waitId !== null) clearTimeout(waitId);
+  });
+  iframe.addEventListener('error', showStall);
   window.addEventListener('keydown', onKeydown, true);
   window.addEventListener('message', onMessage);
 
   root.style.overflow = 'hidden';
   (document.body || root).append(host);
+  waitId = setTimeout(showStall, FRAME_WAIT_MS);
 })();
