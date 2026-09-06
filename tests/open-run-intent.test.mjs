@@ -72,12 +72,29 @@ test('OR3: a fresh intent is removed BEFORE the opener runs — boot and the lis
   assert.deepEqual(h.calls[0].stored, {}, '…and already landed — the store is empty, not merely called');
 });
 
+// The boolean is not decoration: app.js does `if (openedIntent) { return; }`, so an opener that
+// cannot make sense of the URL must leave boot free to land on the restored session instead.
+test('OR3b: an opener that refuses the URL makes consume() false — the key is still burnt', async () => {
+  const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW - 1000 } }, opens: () => false });
+  assert.equal(await h.OpenRunIntent.consume(h.openRun), false);
+  assert.equal(h.calls.length, 1, 'the opener was asked');
+  assert.deepEqual(removedKeys(h), [KEY]);
+});
+
 test('OR4: a click 61 s old is refused, and burnt anyway so it cannot fire on the next connect', async () => {
   const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW - 61_000 } } });
   assert.equal(await h.OpenRunIntent.consume(h.openRun), false);
   assert.deepEqual(h.calls, []);
   assert.deepEqual(removedKeys(h), [KEY]);
   assert.deepEqual({ ...h.store.session }, {});
+});
+
+// The edge of the window itself: 60000 ms is `>` not `>=`, so the last millisecond still counts as
+// this click. A row either side of it is what stops the comparison drifting.
+test('OR4b: a click exactly 60 s old is still this click, and opens', async () => {
+  const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW - 60_000 } } });
+  assert.equal(await h.OpenRunIntent.consume(h.openRun), true);
+  assert.equal(h.calls.length, 1);
 });
 
 // The ticket reads this row the other way round — "Number(undefined) is NaN, so it IS consumed".
@@ -136,4 +153,11 @@ test('OR10: an older Chrome with no session.onChanged is a no-op, not a boot tha
 test('OR11: drop() on a surface with no storage.session throws nothing', () => {
   const h = load({ noSession: true });
   assert.doesNotThrow(() => h.OpenRunIntent.drop());
+});
+
+test('OR11b: drop() burns a stored intent — Settings must not leave one to fire on a later connect', () => {
+  const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW } } });
+  h.OpenRunIntent.drop();
+  assert.deepEqual(removedKeys(h), [KEY]);
+  assert.deepEqual({ ...h.store.session }, {});
 });

@@ -1,7 +1,7 @@
 // The "Run in Extension" click: a Testomat page leaves it in session storage, and whichever panel
 // wakes up next spends it. Core, not a screen — app.js reads it at boot and again on every live write.
 
-// No `/* global */` list, the way core/suite-tree.js has none: `chrome` is the browser's own, and
+// No `/* global */` list, the way core/storage.js has none: `chrome` is the browser's own, and
 // the opener arrives as an ARGUMENT, so this file names no other file's global.
 
 const OPEN_RUN_INTENT_KEY = 'openRunIntent';
