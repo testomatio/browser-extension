@@ -16,7 +16,8 @@
 // other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
 // Run: node --test tests/settings.test.mjs
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,6 +33,9 @@ import {
 const fromSource = (path, names) => runInNewContext(
   `${readFileSync(path, 'utf8')}\n({ ${names.join(', ')} });`, { URL },
 );
+// index.html has no source-substitution seam of its own, so the one static row (#113 D11) reads the
+// shipped file; the screen beside it is read through SCREENS_SRC, like everything else here.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { envInfoEnabled, envFullUrlEnabled } = fromSource(
   join(CORE_SRC, 'env-info.js'), ['envInfoEnabled', 'envFullUrlEnabled'],
 );
@@ -51,7 +55,8 @@ const NOT_URL = 'Instance is not a valid URL';
 const BAD_WINDOW = 'Log window must be between 10 and 600 seconds';
 
 // index.html's accordion, in its own order; the first two are open there, the rest folded.
-const SECTIONS = ['connection', 'failure', 'recorder', 'appearance', 'advanced', 'credentials'];
+const SECTIONS = ['connection', 'failure', 'recorder', 'appearance', 'advanced', 'diagnostics',
+  'credentials'];
 const OPEN = new Set(['connection', 'failure']);
 
 const camel = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
@@ -128,6 +133,13 @@ function makePage(o) {
     mk('button', 'btn-forget-instance'),
     mk('p', 'settings-forget-status'),
   );
+  // Diagnostics (#113): a <dl>, one Copy button and the line beside it. The rows are BUILT, never
+  // static, so the fixture ships the empty list index.html ships.
+  body.diagnostics.append(
+    mk('dl', 'diagnostics-rows', { className: 'kv rows' }),
+    mk('button', 'btn-copy-diagnostics'),
+    mk('p', 'diagnostics-copy-status'),
+  );
   body.credentials.append(mk('button', 'btn-sign-out'), mk('p', 'signout-status'));
   view.append(mk('button', 'btn-save-settings', { textContent: 'Save & validate' }),
     mk('p', 'settings-status'));
@@ -195,6 +207,17 @@ function load(opts = {}) {
     sessionSeed: {},
     sessionThrows: false,
     fail: {},              // { set, remove, clear, sessionClear } — a storage op that rejects
+    // ---- Diagnostics (#113). Each `null` is the state ABSENT, which is the half worth driving.
+    version: '1.4.2',      // chrome.runtime.getManifest().version — null: no getManifest at all
+    bytes: 12288,          // chrome.storage.local.getBytesInUse — null: the API is not there
+    readonly: false,       // capabilities.readonly
+    jwt: 'unknown',        // TestomatAPI.jwtAvailable(), tri-state
+    queue: 0,              // OfflineQueue.count() — null: screens/offline-queue.js not loaded
+    pollMs: 20000,         // livesync's three — null: screens/livesync.js not loaded
+    authStopped: false,
+    fetching: false,
+    worker: true,          // a *_STATUS round trip answers; 'throw' — sendMessage rejects
+    clipboard: true,       // false: writeText rejects; null: no navigator in this realm at all
     ...opts,
   };
 
@@ -226,6 +249,7 @@ function load(opts = {}) {
     reset: 0,
     onboardingRender: 0,
     themeListeners: [],
+    clipboard: [],     // every string handed to navigator.clipboard.writeText, in order
   };
 
   const sess = { ...o.sessionSeed };
@@ -246,6 +270,8 @@ function load(opts = {}) {
       order.push(`local.remove(${[].concat(arg).join(',')})`);
       return store.chrome.storage.local.remove(arg);
     },
+    // #113: absent on an older Chrome, and the diagnostics row has to survive that.
+    ...(o.bytes === null ? {} : { getBytesInUse: async () => o.bytes }),
     clear: async () => {
       order.push('local.clear');
       if (o.fail.clear) throw o.fail.clear;
@@ -263,9 +289,17 @@ function load(opts = {}) {
       sendMessage: (msg) => {
         order.push(`send:${msg.type}`);
         calls.sends.push(plain(msg));
-        return o.reply ? o.reply(msg) : Promise.resolve({ ok: true });
+        if (o.reply) return o.reply(msg);
+        // #113: the worker's liveness IS the round trip answering. A dead worker resolves
+        // `undefined` (no listener) or rejects, and both have to read as "not answering".
+        if (/_STATUS$/.test(msg.type)) {
+          if (o.worker === 'throw') return Promise.reject(new Error('Receiving end does not exist'));
+          return Promise.resolve(o.worker ? { recording: false } : undefined);
+        }
+        return Promise.resolve({ ok: true });
       },
     };
+    if (o.version !== null) chromeStub.runtime.getManifest = () => ({ version: o.version });
   }
 
   // The shared Dropdown's surface, cut to the four members this screen touches. `of` answers nothing
@@ -338,7 +372,11 @@ function load(opts = {}) {
         if (o.validate) return o.validate();
         return undefined;
       },
+      // #113: tri-state, so 'unknown' is a value and not an absence.
+      jwtAvailable: () => o.jwt,
     },
+    // core/state.js's own gate object, read directly the way every other screen reads it (#113).
+    capabilities: { jwt: o.jwt === true, readonly: o.readonly },
     Theme: {
       get: () => { order.push('Theme.get'); return o.theme; },
       set: async (v) => { order.push('Theme.set'); calls.themeSet.push(v); },
@@ -354,6 +392,26 @@ function load(opts = {}) {
     askForProject: () => { order.push('askForProject'); calls.askProject += 1; },
   };
   if (o.onboardingStub) globals.Onboarding = { render: () => { calls.onboardingRender += 1; } };
+  // #113: index.html loads both of these AFTER settings.js, so the panel really can be asked for
+  // them before they exist. `null` reproduces exactly that, and the row must still be painted.
+  if (o.queue !== null) globals.OfflineQueue = { count: () => o.queue };
+  if (o.pollMs !== null) {
+    globals.syncPollMs = o.pollMs;
+    globals.syncAuthStopped = o.authStopped;
+    globals.syncFetching = o.fetching;
+  }
+  // node:vm has no navigator, so the Copy button's only door is one the test opens.
+  if (o.clipboard !== null) {
+    globals.navigator = {
+      clipboard: {
+        writeText: async (t) => {
+          order.push('clipboard.writeText');
+          if (!o.clipboard) throw new Error('Document is not focused');
+          calls.clipboard.push(t);
+        },
+      },
+    };
+  }
 
   const clock = fakeClock();
   const h = loadScreen('settings', {
@@ -419,6 +477,15 @@ function load(opts = {}) {
     }),
     // The last thing written to one status line, which is what the tester is left looking at.
     lineOf: (id) => [...calls.status].reverse().find((s) => s.id === id) || null,
+    // #113: the painted diagnostics as the tester reads them — label to value, in order.
+    diag: () => {
+      const cells = doc.getElementById('diagnostics-rows').querySelectorAll('dt, dd');
+      const rows = {};
+      for (let i = 0; i + 1 < cells.length; i += 2) rows[cells[i].textContent] = cells[i + 1].textContent;
+      return rows;
+    },
+    // …and the last thing the Copy button put on the clipboard.
+    copied: () => calls.clipboard[calls.clipboard.length - 1],
     stored: () => plain(store.data),
     // Every key the save actually persisted, which is the whole of row 51.
     written: () => store.ops('local', 'set').map((c) => Object.keys(c.arg).sort()),
@@ -700,6 +767,263 @@ test('17a: a page with no accordion wires nothing and throws nothing', () => {
   const h = load({ without: ['settings-sections'] });
   h.fn.initSettingsSections();
   assert.equal(h.doc.getElementById('settings-sections'), null);
+});
+
+// ============================================================================
+// Diagnostics (#113) — rows D1-D11
+// ============================================================================
+// The section exists so a "it does not work" report does not cost a round of questions, and every
+// value in it is state the panel already held. Two properties are worth more than the nine rows
+// put together. First, a value the panel cannot reach costs ONE row's text and never the section:
+// an older Chrome with no getBytesInUse, a worker that has been evicted, a livesync that has not
+// loaded yet all have to leave nine rows standing. Second, and this is the whole feature: the Copy
+// text is SERIALISED OFF THE PAINTED ROWS. Copying a settings object and deleting the credential
+// keys would pass every row below on the day it was written and leak the next credential field
+// somebody adds; reading the DOM back cannot, because a token has to be rendered before it can be
+// copied. D8 seeds four recognisable tokens and asserts they reach neither the section nor the
+// clipboard, and D9 proves the text really is read back off the rows rather than rebuilt beside them.
+
+// A configured panel with a handed-over session, which is the auth case the card cannot show.
+const HANDED = {
+  settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true, handoffApp: 'runner' },
+  hostSettings: {},
+  hostHistory: ['a.io'],
+  baseUrl: 'https://a.io',
+};
+
+test('#113 D1: Diagnostics answers the nine questions a bug report opens with', async () => {
+  const h = load({ ...CONFIGURED, version: '1.4.2', bytes: 12288, queue: 3, jwt: true });
+  await h.fn.renderDiagnostics();
+  assert.deepEqual(h.diag(), {
+    Version: '1.4.2',
+    Instance: 'a.io',
+    Project: 'p1',
+    Auth: 'session up, own General token',
+    Access: 'read/write',
+    Queue: '3 waiting',
+    'Live sync': 'every 20s',
+    'Storage used': '12 KB',
+    Worker: 'answering',
+  });
+});
+
+test('#113 D2: a panel with nothing configured paints all nine rows and says what is missing', async () => {
+  const h = load({ settings: null, version: '1.4.2' });
+  await h.fn.renderDiagnostics();
+  const rows = h.diag();
+  assert.equal(Object.keys(rows).length, 9);
+  assert.equal(rows.Instance, 'not configured');
+  assert.equal(rows.Project, 'not picked');
+  assert.equal(rows.Auth, 'session not probed, no credential');
+});
+
+test('#113 D2a: a connected instance with no project picked yet still names the instance', async () => {
+  const h = load({ settings: { baseUrl: 'https://self.host:8443/sub', apiToken: 'tok-1', projectId: '' } });
+  await h.fn.renderDiagnostics();
+  assert.equal(h.diag().Instance, 'self.host'); // the HOST, not the whole URL
+  assert.equal(h.diag().Project, 'not picked');
+});
+
+test('#113 D3: the auth row is the session tri-state and the credential the v2 leg holds', async () => {
+  const session = async (jwt) => {
+    const h = load({ ...CONFIGURED, jwt });
+    await h.fn.renderDiagnostics();
+    return h.diag().Auth;
+  };
+  assert.equal(await session(true), 'session up, own General token');
+  assert.equal(await session(false), 'no session (v1 fallback), own General token');
+  assert.equal(await session('unknown'), 'session not probed, own General token');
+});
+
+test('#113 D3a: the three credentials the v2 leg can be holding are told apart', async () => {
+  const credential = async (opts) => {
+    const h = load({ ...CONFIGURED, jwt: true, ...opts });
+    await h.fn.renderDiagnostics();
+    return h.diag().Auth.split(', ')[1];
+  };
+  // A General token reaches v2 itself; a session token (`eyJ`) cannot, so a key is minted for it.
+  assert.equal(await credential({}), 'own General token');
+  assert.equal(await credential({
+    settings: { baseUrl: 'https://a.io', apiToken: 'eyJhbGciOi.body.sig', projectId: 'p1' },
+  }), 'a key minted from the session');
+  // A host handed one over for THIS project — the offer carries it, settings never do.
+  assert.equal(await credential({
+    ...HANDED, offer: { app: 'runner', projectId: 'p1', jwt: 'eyJ0', projectToken: 'pk-1' },
+  }), 'a handed-over project token');
+  // …and the same offer against another project is not it: api.js would mint instead.
+  assert.equal(await credential({
+    ...HANDED, offer: { app: 'runner', projectId: 'other', jwt: 'eyJ0', projectToken: 'pk-1' },
+  }), 'a key minted from the session');
+});
+
+test('#113 D4: read-only access is the row a "statuses are not saving" report needs', async () => {
+  const h = load({ ...CONFIGURED, readonly: true });
+  await h.fn.renderDiagnostics();
+  assert.equal(h.diag().Access, 'read-only');
+});
+
+test('#113 D5: the queue and the live sync say what they are doing, not merely that they exist', async () => {
+  const row = async (opts, key) => {
+    const h = load({ ...CONFIGURED, ...opts });
+    await h.fn.renderDiagnostics();
+    return h.diag()[key];
+  };
+  assert.equal(await row({ queue: 0 }, 'Queue'), 'empty');
+  assert.equal(await row({ queue: 1 }, 'Queue'), '1 waiting');
+  assert.equal(await row({ pollMs: 60000 }, 'Live sync'), 'every 60s');
+  assert.equal(await row({ fetching: true }, 'Live sync'), 'every 20s, fetching now');
+  // The flag that stops the loop dead outranks the interval: an interval it never uses is a lie.
+  assert.equal(await row({ authStopped: true, fetching: true }, 'Live sync'),
+    'stopped after an auth refusal');
+});
+
+test('#113 D6: state the panel cannot reach costs one row, never the section', async () => {
+  const h = load({
+    ...CONFIGURED, version: null, bytes: null, queue: null, pollMs: null, worker: false,
+  });
+  await h.fn.renderDiagnostics();
+  const rows = h.diag();
+  assert.equal(Object.keys(rows).length, 9); // still nine: nothing was dropped mid-paint
+  assert.deepEqual(
+    [rows.Version, rows['Storage used'], rows.Queue, rows['Live sync'], rows.Worker],
+    ['unavailable', 'unavailable', 'unavailable', 'unavailable', 'not answering'],
+  );
+  assert.equal(rows.Instance, 'a.io'); // …and what IS reachable is still there
+});
+
+test('#113 D6a: no chrome at all, and a worker that rejects, are both painted rather than thrown', async () => {
+  const noChrome = load({ ...CONFIGURED, hasChrome: false, runtime: false, bytes: null });
+  await noChrome.fn.renderDiagnostics();
+  assert.equal(Object.keys(noChrome.diag()).length, 9);
+  assert.equal(noChrome.diag().Worker, 'not answering');
+  const dead = load({ ...CONFIGURED, worker: 'throw' });
+  await dead.fn.renderDiagnostics();
+  assert.equal(dead.diag().Worker, 'not answering');
+  // Both doors were tried before giving up — a build with only one of them wired still counts.
+  assert.deepEqual(dead.calls.sends.map((m) => m.type), ['STEPREC_STATUS', 'SCREENREC_STATUS']);
+});
+
+test('#113 D6b: either recorder answering is proof enough, and the first answer stops the asking', async () => {
+  const stepDead = load({
+    ...CONFIGURED,
+    reply: (msg) => (msg.type === 'SCREENREC_STATUS'
+      ? Promise.resolve({ recording: false }) : Promise.resolve(undefined)),
+  });
+  await stepDead.fn.renderDiagnostics();
+  assert.equal(stepDead.diag().Worker, 'answering');
+  const alive = load(CONFIGURED);
+  await alive.fn.renderDiagnostics();
+  assert.deepEqual(alive.calls.sends.map((m) => m.type), ['STEPREC_STATUS']);
+});
+
+test('#113 D7: entering Settings paints the section, and a page without it is not a crash', async () => {
+  const h = load(CONFIGURED);
+  h.fn.fillSettingsForm();
+  await settle();
+  assert.equal(h.diag().Instance, 'a.io');
+  const bare = load({ ...CONFIGURED, without: ['diagnostics-rows'] });
+  await bare.fn.renderDiagnostics();
+  bare.fn.fillSettingsForm();
+  await settle();
+  assert.equal(bare.doc.getElementById('diagnostics-rows'), null);
+});
+
+test('#113 D8: not one credential the panel holds reaches the section or the clipboard', async () => {
+  const h = load({
+    settings: {
+      baseUrl: 'https://a.io',
+      projectId: 'p1',
+      apiToken: 'SENTINEL-ACCOUNT-TOKEN',
+      projectToken: 'SENTINEL-PROJECT-TOKEN',
+      projectTokenFor: 'p1',
+    },
+    hostSettings: {
+      'a.io': { baseUrl: 'https://a.io', apiToken: 'SENTINEL-HOST-TOKEN', projectId: 'p1' },
+      'b.io': { baseUrl: 'https://b.io', apiToken: 'SENTINEL-OTHER-HOST-TOKEN' },
+    },
+    hostHistory: ['a.io', 'b.io'],
+    // The key api.js mints off the session, arriving the one way the panel can see it.
+    offer: { app: 'runner', projectId: 'p1', jwt: 'SENTINEL-SESSION-JWT', projectToken: 'SENTINEL-MINTED-KEY' },
+    jwt: true,
+  });
+  await h.fn.renderDiagnostics();
+  await h.fn.copyDiagnostics();
+  const painted = h.node.diagnosticsRows.textContent;
+  const copied = h.copied();
+  assert.equal(typeof copied, 'string');
+  for (const secret of ['SENTINEL-ACCOUNT-TOKEN', 'SENTINEL-PROJECT-TOKEN', 'SENTINEL-HOST-TOKEN',
+    'SENTINEL-OTHER-HOST-TOKEN', 'SENTINEL-SESSION-JWT', 'SENTINEL-MINTED-KEY']) {
+    assert.equal(painted.includes(secret), false, `${secret} is on screen`);
+    assert.equal(copied.includes(secret), false, `${secret} is on the clipboard`);
+  }
+  // The credential is still NAMED — the row is useless if it does not say which one is in hand.
+  assert.equal(h.diag().Auth, 'session up, a handed-over project token');
+});
+
+test('#113 D9: the copy is the painted rows serialised, not a second reading of the state', async () => {
+  const h = load({ ...CONFIGURED, version: '1.4.2', bytes: 12288, jwt: true });
+  await h.fn.renderDiagnostics();
+  // Rewriting a painted cell is the only way to tell the two designs apart: a copy built from
+  // state would ignore this, and one read off the rows cannot.
+  h.node.diagnosticsRows.querySelectorAll('dd')[1].textContent = 'REWRITTEN-BY-THE-TEST';
+  await h.fn.copyDiagnostics();
+  const copied = h.copied();
+  assert.equal(copied.includes('Instance: REWRITTEN-BY-THE-TEST'), true);
+  assert.equal(copied.includes('a.io'), false);
+  // …and the whole of it is those rows, one `label: value` per line, in the painted order.
+  assert.deepEqual(copied.split('\n').map((l) => l.split(':')[0]),
+    ['Version', 'Instance', 'Project', 'Auth', 'Access', 'Queue', 'Live sync', 'Storage used', 'Worker']);
+  assert.equal(h.lineOf('diagnostics-copy-status').msg, 'Copied');
+});
+
+test('#113 D9a: a refused clipboard says so instead of claiming a copy that never happened', async () => {
+  const h = load({ ...CONFIGURED, clipboard: false });
+  await h.fn.renderDiagnostics();
+  await h.fn.copyDiagnostics();
+  assert.deepEqual(h.calls.clipboard, []);
+  assert.equal(h.lineOf('diagnostics-copy-status').cls, 'error');
+  assert.notEqual(h.lineOf('diagnostics-copy-status').msg, 'Copied');
+  // A realm with no clipboard API at all takes the same branch rather than throwing.
+  const bare = load({ ...CONFIGURED, clipboard: null });
+  await bare.fn.renderDiagnostics();
+  await bare.fn.copyDiagnostics();
+  assert.equal(bare.lineOf('diagnostics-copy-status').cls, 'error');
+});
+
+test('#113 D10: the section is one more accordion disclosure, and the delegate folds it', () => {
+  const h = load(CONFIGURED);
+  h.fn.initSettingsSections();
+  assert.equal(h.node.settingsDiagnosticsBody.hidden, true); // folded, like Advanced beside it
+  fire(h.node.settingsDiagnosticsHead, 'click', { bubbles: true });
+  assert.equal(h.node.settingsDiagnosticsHead.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.node.settingsDiagnosticsBody.hidden, false);
+  fire(h.node.settingsDiagnosticsHead, 'click', { bubbles: true });
+  assert.equal(h.node.settingsDiagnosticsBody.hidden, true);
+});
+
+test('#113 D11: index.html carries the section between Advanced and Stored credentials', () => {
+  // Read raw: no fixture stands in for the shipped markup, so nothing else catches a drift in the
+  // exact descent (`h3.settings-section-title > button.disclosure-head`) the delegate matches on.
+  const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
+  const at = (id) => html.indexOf(`id="settings-${id}-item"`);
+  for (const id of ['advanced', 'diagnostics', 'credentials']) assert.ok(at(id) > 0, `${id} is there`);
+  assert.ok(at('advanced') < at('diagnostics') && at('diagnostics') < at('credentials'));
+
+  const item = html.slice(at('diagnostics'), at('credentials'));
+  assert.match(item, /<h3 class="settings-section-title">/);
+  assert.match(item, /<button id="settings-diagnostics-head" type="button" class="disclosure-head"/);
+  assert.match(item, /aria-expanded="false"/);
+  assert.match(item, /aria-controls="settings-diagnostics-body"/);
+  assert.match(item, /class="md-icon" data-icon="chevron_right"/);
+  assert.match(item, /class="md-icon head-icon"/);
+  assert.match(item, />Diagnostics<\/button>/);
+  assert.match(item, /<div id="settings-diagnostics-body" class="disclosure-body" hidden>/);
+  assert.match(item, /<dl id="diagnostics-rows"/);
+  assert.match(item, /<button id="btn-copy-diagnostics"/);
+  assert.match(item, /id="diagnostics-copy-status"/);
+  // The delegate skips exactly one head by id, and it must not be this one.
+  const form = readFileSync(join(SCREENS_SRC, 'settings-form.js'), 'utf8');
+  assert.equal(form.includes("head.id === 'settings-diagnostics-head'"), false);
 });
 
 // ---------- the theme control ----------

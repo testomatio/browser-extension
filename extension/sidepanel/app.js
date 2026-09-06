@@ -39,6 +39,9 @@ async function init() {
   $('btn-disconnect').addEventListener('click', () => disconnectInstance());
   $('btn-forget-instance').addEventListener('click', () => forgetInstance());
   $('btn-sign-out').addEventListener('click', signOut);
+  // Diagnostics: the fold is the delegate's, this only re-reads the numbers on the way open.
+  $('settings-diagnostics-head').addEventListener('click', () => renderDiagnostics());
+  $('btn-copy-diagnostics').addEventListener('click', () => copyDiagnostics());
   // Both track the Instance field: the token box itself comes back for an instance we hold no token for.
   $('set-baseurl').addEventListener('input', () => { updateTokenHelpLink(); syncTokenField(); });
   // Instance history: picking a host restores its saved settings into the form.
