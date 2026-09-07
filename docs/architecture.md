@@ -523,7 +523,9 @@ for 12 and gets 12px of glyph in its 20px square.
   `#context-crumbs` (the path down to the open view, **ancestors only**) and
   `#context-title` (the view's own name — the last crumb, printed rather than
   linked). `updateContextBar()` (`core/views.js`) paints all three; it is shown
-  iff the view is **not** in `ROOT_VIEWS`. Trails come from `CONTEXT_TRAILS`:
+  iff the view is **not** in `NavModel.ROOT_VIEWS` (`core/nav-model.js`). Trails
+  come from `CONTEXT_TRAILS` (`core/views.js`, since a crumb carries the opener
+  it calls):
   `run` → *Runs*, `test` → *Runs / ‹run›*, `tclist` / `promote` → *Tests*. Every
   crumb opens the same destination `goBack()` walks to, so the trail and the
   arrow can never disagree about "up". A title that settles after the view opened
@@ -536,7 +538,8 @@ for 12 and gets 12px of glyph in its 20px square.
   `runs.show.test` route — the record's page **inside the run report**, which is
   what the test view shows; the test CASE page, the singular `test` route of
   §1.3, is the fallback for a record with no run around it). Built by
-  `renderContextOpenLink()` from `CONTEXT_WEB_TARGET` on every
+  `renderContextOpenLink()` (`core/views.js`) from `NavModel.webTarget()` and
+  `NavModel.webHref()` on every
   `updateContextBar()`, so a late-settling id or a project switch repoints it,
   and its tooltip/`aria-label` name the noun ("Open this run in Testomat") since
   one control serves three views. It **hides** — rather than point at a 404 —
@@ -611,7 +614,8 @@ to do on it inside a menu.
 (`#connection-card`): the instance host with the connection verdict under it
 (`#connection-state`, the green `Connected` pill — `Project not picked` while a
 first run is still half-done), and **Disconnect** —
-`disconnectInstance()`, which is `forgetInstance()` aimed at the host in
+`disconnectInstance()` (`SettingsErase.disconnect()`), which is
+`forgetInstance()` aimed at the host in
 `state.settings` whatever the Instance field in Advanced is showing, and which
 therefore ends on the connect screen. `#set-token` stays in the DOM (one form,
 one `saveSettings()`) but is `display: none` until `syncTokenField()` sets
@@ -1453,7 +1457,7 @@ panel  EVIDENCE_TOGGLE {tabId, recordId}
 `type === 'xmlhttprequest'` from frame 0 once the hook has said `ready`, and
 keeps everything else. So the two sources never describe the same request, and
 there is no heuristic de-duplication — except one deliberate merge
-(`evAdoptTwin`) for the millisecond in which the hook exists but its `ready` has
+(`EvBuffer.adoptTwin`) for the millisecond in which the hook exists but its `ready` has
 not arrived yet.
 
 Why round that way: only the hook can read a **response body**, and only the
@@ -1495,8 +1499,10 @@ instance — §5.1. A plain **Stop**
 deliberately still keeps the last window: `EVIDENCE_SNAPSHOT`, the Attach button
 and the auto-attached `.txt` all read the buffer *after* the recording ends, so
 clearing it in `evStop` (L-4's literal wording) would delete the feature.
-`evWindowEntries()` sorts by `ts` — the two sources arrive on different
-latencies, so append order is not time order.
+`EvBuffer.windowEntries()` (`evidence/buffer.js`) sorts by `ts` — the two sources
+arrive on different latencies, so append order is not time order. The ring buffer
+itself is that file: the caps, the prune, `isError`, and the `adoptTwin` merge
+window (`MERGE_MS`, 10 s).
 `EVIDENCE_LIST {errorsOnly:true}` is what the test view shows: console
 error/warning plus non-2xx or failed requests (`evIsError`).
 
@@ -1977,7 +1983,7 @@ Three areas, plus page-level `sessionStorage`. Nothing is ever written to
 | `evidenceCaptureBodies` | The body-capture boolean ALONE, mirrored from the active `settings` on a save and on a recording start — the in-page relay reads this key, never `settings`, which holds the API token | `screens/settings.js`, `screens/evidence.js` |
 | `stepRecNeverValues` | The recorder's never-record-values boolean ALONE, mirrored from the active `settings` on a save — the injected `content/step-recorder.js` reads this key, never `settings`, for the same reason as the row above. Absent -> OFF, i.e. values are recorded with masking applied | `screens/settings.js` |
 | `polishSteps` | The test editor's **Polish with AI** switch (#23), its OWN top-level boolean — it belongs to this browser, not to the instance's `settings`, and is written the moment the switch moves (a 401/403 from `/prompts` writes `false` and hides it). Absent -> OFF | `editor/rec-session.js` |
-| `hostSettings` | `hostname → its saved settings object` — switching instances restores that host's token/project/prefs with no re-entry | `core/storage.js` `migrateHostSettings()`, `screens/settings.js` `commitSettings()`, `core/project-switcher.js` `persistActiveSettings()`, `screens/settings-erase.js` `forgetInstance()` |
+| `hostSettings` | `hostname → its saved settings object` — switching instances restores that host's token/project/prefs with no re-entry | `core/storage.js` `migrateHostSettings()`, `screens/settings.js` `commitSettings()`, `core/project-switcher.js` `persistActiveSettings()`, `screens/settings-erase.js` `forget()` |
 | `hostHistory` | Hosts used before, most-recent-first, deduped (the Instance dropdown) | same |
 | `session` | The restorable panel session: `{view, activeTab, tabViews, runId, runTitle, currentRecordId, stepTicks, expandedGroups, runsFilter, runInfoOpen}` (`core/storage.js` `persistSession()`; the last key keeps its name on purpose — a rename would silently lose every existing profile's choice). Read back through `SessionRestore.fromStored()`, which guards every field: it is last month's JSON, written by an older panel | `core/storage.js` `persistSession()` |
 | `offlineQueue` | `recordId → {recordId, runId, status, comment, queuedAt, reason, envMeta, prevStatus, host, projectId}` — status writes waiting for connectivity. The `host`/`projectId` stamp is the connection the write belongs to: only matching entries replay, the rest wait for theirs (an entry from an older build carries neither and counts as the active connection). `envMeta` is the environment SNAPSHOTTED at the click, so a replay hours later describes the test and not the drain; `prevStatus` is what the row showed before the first click of the series, which is what a Discard puts back; `reason` (`network` \| `auth`) is WORDING only — the replay treats every entry alike. The recorder's window is deliberately NOT parked here: up to 1000 entries carrying a 16 KB body each, against this area's 10 MB, would lose the queued result itself | `screens/offline-queue.js` `queueEnqueue()` |
