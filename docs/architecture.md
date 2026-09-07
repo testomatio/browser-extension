@@ -946,11 +946,11 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 
 | Type | From → To | Purpose |
 |---|---|---|
-| `captureTab` `{fullPage}` | panel / editor → worker | Screenshot the active tab. Replies `{ok, dataUrl, tabId}`. `background.js:377-389`. |
+| `captureTab` `{fullPage}` | panel / editor → worker | Screenshot the active tab (`captureShot()`). Replies `{ok, dataUrl, tabId}` plus four diagnostics the image itself does not carry: `viewportOnly` (the full page was refused and a viewport shot stood in — rake 10), `framesMoved` (how many foreign frames had to come out for it), `trimmed` (a double compose was cut back, #158) and `heightClipped` (the page was taller than `FULLPAGE_MAX_HEIGHT`, 16384). A failure replies `{ok:false, error, needsGrant}`. |
 | `VIEW_OPEN_WINDOW` | panel → worker | Open the panel in a window of its own, or focus the one already open. Replies `{ok, windowId}`; the panel then remembers the choice and closes the surface it was pressed in. |
 | `EVIDENCE_TOGGLE` `{tabId, recordId}` | panel → worker | Start/stop the console+network recorder. `recordId` is the testrun the session binds to (start only) — §3.4. |
 | `EVIDENCE_STOP` `{reason}` | panel → worker | Stop a recording the tester did not click off — the panel sends it on leaving the bound testrun. Idempotent: not recording is `{ok:true}` and nothing else. |
-| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, recordId, tabTitle, windowSec, entryCount}`. |
+| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, recordId, tabTitle, tabUrl, windowSec, entryCount}` (`evStatus()`). Every reply in this family carries that same `status`. |
 | `EVIDENCE_LIST` `{errorsOnly}` | panel → worker | Entries inside the window, optionally errors only. |
 | `EVIDENCE_SNAPSHOT` | panel → worker | All entries in the window (used to build the `.txt` log). |
 | `EVIDENCE_WIPE` | panel → worker | Sign out and Forget on the ACTIVE instance: cancel the pending mirror, stop the recording DROPPING its buffer, then remove `evidenceMirror` — in that order, awaited, so the panel's `clear()` cannot be undone by a late mirror. |
@@ -959,13 +959,27 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 | `EVIDENCE_STOPPED` `{reason}` | worker → panel (broadcast) | The recording ended without the tester clicking Rec off: `target_closed`, `left-testrun`, `panel-closed`. Sent by `evStopIfRecording()` — the one stop-and-broadcast path — and the single source of the toast. |
 | `STEPREC_START` | editor → worker | Begin recording on the active site tab. |
 | `STEPREC_ADD` `{entry}` | injected script → worker | One recorded step/expected line: `{kind, text, action?, name?, context?:{row,section,column}, ctx?, manual?}`. `text` is the rendered line every consumer reads; the structured fields are additive and stored verbatim, field by field, by `srEntry()`. `ctx` (#23) is the action's **context packet** — `{action, element, near, page, value?, after}` — copied whole rather than field by field, and the only thing the editor's AI polish reads. `manual:true` marks an expected the tester typed on the indicator, as opposed to an auto navigation one. `entry.replaces` (dblclick only) names the single-click text this action supersedes and is a wire instruction — it never lands in the recording. Handled through `srSerial()` — one chain, because the state is a read-modify-write. |
-| `STEPREC_STATUS` | editor → worker | Poll `{recording, count, paused, manualPause, blind, tabId}`. |
+| `STEPREC_STATUS` | injected pill → worker | The indicator's own poll: `{recording, count, paused, manualPause, blind, tabId}` (`srStatus()`), no entries. It doubles as the ORPHAN check — `srOrphaned()` runs first and ends a recording whose editor document is gone (`srOwnerOpen()` asks Chrome for the `docIds` `srStart` recorded). It is not a question the worker answers with a stop; it is a status read that happens to notice one. |
+| `STEPREC_PULL` | editor → worker | The editor's own poll (#160): the status PLUS every entry that is final and not yet handed over (`srPull()` moves `sent`). One message per tick, so a recorded action lands in the open test as it happens. |
+| `STEPREC_FLUSH` | editor → worker | Asks the recorded tab for the field the caret still sits in before a Stop drains (#62). Deliberately NOT on `srSerial`'s chain — the ADD it waits for needs that slot. |
 | `STEPREC_TITLE` `{title}` | injected script → worker | Real `document.title` after a navigation, to refine the last nav entry. |
 | `STEPREC_STOP_REQUEST` | injected script / editor → worker | Stop recording, keep the entries. |
 | `STEPREC_CONTINUE` | editor / injected → worker | Clear the **cap** pause and grant another cap's worth. |
 | `STEPREC_PAUSE` `{on}` | injected script → worker | The tester's own Pause/Resume on the indicator. Sets `manualPause` — never the cap's `paused`, so it grants no extra cap (`background.js:269-276`). |
 | `STEPREC_STOP` | editor → worker | **Drain**: return the entries and clear the state. Idempotent. |
-| `STEPREC_PEEK` | e2e only → worker | Read raw entries mid-recording. Explicitly marked "no production sender" (`background.js:461-463`). |
+| `STEPREC_PEEK` | e2e only → worker | Read raw entries mid-recording. Explicitly marked "no production sender" in `background.js`'s `STEPREC_*` handler. |
+| `OPEN_RUN` `{url}` | web app (`content/presence.js`'s page) → worker | *Run in Extension* (#14): the surface opens FIRST and synchronously — the click's gesture dies at the first await — then the url is parked in `storage.session` `openRunIntent` for whichever panel wakes up (`core/open-run-intent.js` spends it, and drops one older than 60 s). |
+| `OPEN_FILE_OVERLAY` `{url, name, mime}` | panel → worker | Open a result's file OVER the page under test (`openFileOverlay()`): the file is parked in `storage.session` `fileOverlay`, `content/file-overlay.js` is injected, and a page no extension may script falls back to a tab on `viewer/viewer.html`. Replies `{ok, overlay, tabId}`. |
+| `SCREENREC_START` `{recordId}` / `SCREENREC_STOP` / `SCREENREC_PAUSE` `{on}` | panel → worker | The screen recording (§3.6). Start replies `{ok, tabId}` or `{ok:false, reason, parked?}`. |
+| `SCREENREC_STATUS` | panel / injected bar → worker | `{recording, paused, ms, bytes, tabId, recordId, capMs}` while a take runs, else `{recording:false, capMs, file}` — `file` being the parked take waiting for its review or its attach. `srecStatus()` asks the offscreen document too, so a session whose document died is reported idle. |
+| `SCREENREC_TARGET` `{recordId}` | panel → worker | Which testrun a recording started FROM THE PAGE (hotkey, context menu) should bind to. Parked in `storage.session` `screenRecTarget`. |
+| `SCREENREC_TAKE` / `SCREENREC_OPEN_REVIEW` / `SCREENREC_DONE` `{attached}` | panel / review page → worker | Read the parked take, re-open its review, and drop it once it has been attached or discarded. |
+| `SCREENREC_REVIEWED` / `SCREENREC_TRIMMED` `{url, …}` | review page → worker | The review approved the take as recorded, or cut it. Only then does the worker broadcast `SCREENREC_EVENT {event:'file'}` — nothing is attached before that. |
+| `SCREENREC_CLAIM` / `SCREENREC_UNCLAIM` `{by}` | panel → worker | One panel document at a time owns the upload: the `file` event is a broadcast, and every open panel would otherwise upload the same take. Serialized in `screenrec/claim.js`; an upload that fails un-claims so the next *Retry attach…* — here or in another panel — can take it. |
+| `SCREENREC_REVIEW_KEY` | injected review overlay → worker | The one-shot `screenRecReviewKey`, which is how a framed `screenrec/review.html` proves the extension framed it and the page under test did not. |
+| `SCREENREC_EVENT` `{event, …}` | worker → panel (broadcast) | `started` / `review` / `file` / `ended`. |
+| `SCREENREC_OFF` `{cmd, …}` | worker → offscreen document (broadcast) | `start` / `cast-start` / `frame` / `pause` / `stop` / `state` / `revoke`. Frames go down a dedicated `screenrec-frames` port instead when one is up: a broadcast would copy every JPEG, several a second, into every extension page. |
+| `SCREENREC_FILE` `{file}` | offscreen document → worker | Pushed when a cap or a closed tab ended the recording, with no stop to detach the cast. |
 
 The evidence handler ignores anything outside its `EVIDENCE_REQUESTS` set so the
 two `onMessage` listeners in the worker plus the recorder's do not fight over one
@@ -988,7 +1002,7 @@ last. Nothing enforces either — see *Rakes*.
 
 ---
 
-## 3. Data flow of the five things that matter
+## 3. Data flow of the six things that matter
 
 ### 3.1 Opening a run
 
@@ -997,14 +1011,14 @@ already loaded (`state.dashItems` in dashboard mode, `state.lastRuns` in v2): th
 rows are painted **at once** — no clearing, no "Loading runs…", no placeholder —
 and `refreshRuns()` re-reads behind them. Only with nothing to show (first open,
 or a project switch having emptied them) does it put up the placeholder and go
-through `loadRuns()` (`screens/runs-list.js:53-80`), which tries
+through `loadRuns()` (`screens/runs-list.js`), which tries
 `TestomatAPI.fetchDashboardPage(1)` (JWT). Success ⇒ `state.listMode =
 'dashboard'`, `capabilities.jwt = true`. Failure **only when
 `jwtAvailable() === false`** falls back to the v2 `listRuns` + `listRunGroups`
 pair (`listMode = 'v2'`); any other error is re-thrown, so a real outage is not
 silently mistaken for degradation.
 
-Clicking a run → `openRunView(runId, title)` (`screens/run-view.js:78-166`):
+Clicking a run → `openRunView(runId, title)` (`screens/run-view.js`):
 
 1. reset per-run nav state (`runFilter`, `runSearch`, `expandedSuites`) — for a
    DIFFERENT run only, which also empties `#run-info` and the status chips so the
@@ -1032,20 +1046,21 @@ Clicking a run → `openRunView(runId, title)` (`screens/run-view.js:78-166`):
 
 `state.records` are **testrun records**, keyed by record id — never `test_id`. A
 parametrized test has one record per example row and they all share `test_id`
-(`core/state.js:27-30`).
+(`recordFor()` / `byRecordId()`, `core/state.js`).
 
 ### 3.2 Setting a status
 
 Two entry points, one writer:
 
-- run view, inline ✓/✗/– on a row → `writeRowStatus()` (`run-view.js:511`);
+- run view, inline ✓/✗/– on a row → `writeRowStatus()` (`screens/run-view.js`);
 - test view, the big buttons or a hotkey → `clickStatus(status)`
-  (`test-view.js:520`). A landed write also moves the screen to its **Status**
+  (`screens/test-view.js`). A landed write also moves the screen to its **Status**
   section (`showTestSection('status')`) — the four controls that only apply once
   a row HAS a result live there.
 
-Both funnel into `writeStatus(record, status, comment, onOptimistic, opts)`
-(`test-view.js:478-516`):
+Both funnel into `WriteCore.writeStatus(record, status, comment, onOptimistic,
+opts)` (`core/write-status.js`). It is CORE and not a screen because the offline
+queue's replay is the third caller, and it outlives every view:
 
 ```
 syncBeginWrite()                    ← pause live-sync ticks
@@ -1056,15 +1071,21 @@ TestomatAPI.setStatus(...)          ← v2, token only — works in basic mode
   ↳ network / 401-403 «paused»?  →  OfflineQueue.enqueue(...)  → return {queued:true}
   ↳ otherwise                    →  throw, caller rolls back from its snapshot
 Object.assign(record, saved, {test_id: record.test_id})
+CommentDrafts.drop(record.id)       ← the comment reached the server; a QUEUED one does not
+OfflineQueue.remove(record.id)      ← this status supersedes anything queued for the row
 writeEnvMeta(record, status)        ← AFTER the id exists; JWT-only, never fatal
   collectEnvMeta()                  ← core/env-info.js   (Browser/OS/Viewport/URL)
   status === 'failed'
-    ? uploadEvidenceLog(record)     ← screens/evidence.js (uploads the .txt, returns its URL)
+    ? EvidenceUpload.log(record)    ← screens/evidence-upload.js (uploads the .txt, returns its URL)
   TestomatAPI.setTestrunMeta(...)   ← one bulk_update POST for all the keys
 syncEndWrite()                      ← resume ticks + force an immediate refetch
 ```
 
-`setStatus` POSTs on the first result and PUTs afterwards (`api.js:138-148`).
+`writeEnvMeta` is also skipped for a locked result and for a REPLAY, which
+carries the environment snapshotted at enqueue instead of describing the tab the
+drain happens to find open (`opts.envMeta`).
+
+`setStatus` POSTs on the first result and PUTs afterwards (`api.js` `setStatus()`).
 After a successful test-view write, step ticks for that record are dropped —
 and that is all: **no status navigates**. Marking used to auto-advance on
 pass/skip, which redirected the tester the moment the substatus / assignee /
@@ -1072,17 +1093,18 @@ comment / attachment controls appear (they render only for a row with a real
 status). `failed` additionally opens Attachments & log.
 
 Moving on is an explicit, always-available act: `nextTest()`
-(`test-view.js:573-597`), wired to the persistent `#btn-next-test` button
+(`screens/test-view.js`), wired to the persistent `#btn-next-test` button
 (`app.js`) and the bare `N` hotkey (`hotkeys.js`). It walks the VISIBLE sequence
 (`orderedRecords()` + `rowVisible`) to the next untested row, never re-opens the
 current test (it is reachable on an unmarked one), and has two dead ends —
-nothing untested anywhere → `Run complete 🎉` + the run view; only the current
-test untested → a toast, stay put.
+nothing untested anywhere → a `Run complete` toast + the run view; only the
+current test untested → `This is the last untested test`, stay put.
 
 ### 3.2a The reported-result summary
 
 A test the run has ALREADY reported gets the web's Summary panel above the
-marking controls (`renderResultSummary()`, `test-view.js`): the status +
+marking controls (`TestSummary.render()` → `renderResultSummary()`,
+`screens/test-summary.js`): the status +
 duration line, then the **Failure** / **Meta** / **Steps** disclosures — and
 never a **Stacktrace**, which is the one web section the panel deliberately
 drops.
@@ -1193,9 +1215,9 @@ reason is the same as not being told — an honest reason is the point of the ga
     the suite paired an automated run with Finish.
 
   Known gap, pre-existing and unrelated to archived: `finishBlockedReason()` omits
-  `updateRunActions()`'s `state.runStatus === 'running'` leg, so `finishRun()`
-  *invoked directly* on a `scheduled` run is not blocked. Only the button's
-  visibility stops that today.
+  `updateRunActions()`'s live-status leg (`RUN_LIVE_STATUSES` — `running` or
+  `launching`), so `finishRun()` *invoked directly* on a `scheduled` run is not
+  blocked. Only the button's visibility stops that today.
 
   The offline queue resolves the run's state itself and needs none of this.
 
@@ -1223,13 +1245,19 @@ reason is the same as not being told — an honest reason is the point of the ga
   automated testrun and the controller still answers **200**, so an ungated step
   click would paint a state that was never stored.
 
-Every *per-record* write path calls `recordWriteLock(record)` — the row ✓/✗/–
-buttons and `writeRowStatus`, `clickStatus` (hence both the test-view buttons and
-their hotkeys), `cycleStep`, `onSubstatusChange`, `updateTestActionsState` (the
-comment, the step checkboxes, the substatus select, both attach buttons),
-`attachScreenshotAnnotated` and the `writeEnvMeta` side effect. Only the run-wide
-surfaces read `runWriteLock()` directly: the `#run-lock-note` paragraph, which
-therefore appears only when the reason holds for the whole view.
+Every *per-record* write path calls `RunLock.recordWriteLock(record)` — the row
+✓/✗/– buttons and `writeRowStatus` (`screens/run-view.js`), `clickStatus` and
+`cycleStep` (`screens/test-view.js`, hence both the test-view buttons and their
+hotkeys), `onSubstatusChange` (`screens/test-meta.js`),
+`updateTestActionsState` (`screens/test-gates.js` — the comment, the step
+checkboxes, the substatus select, the three attach controls),
+`attachScreenshotAnnotated` (`screens/hotkeys.js`), the file upload and the
+attachment delete (`screens/attachments.js`), the screen recording's attach
+(`screens/screen-rec.js`) and the `writeEnvMeta` side effect
+(`core/write-status.js`). Nine files, one function. Only the run-wide surfaces
+read `RunLock.runWriteLock()` directly, and inside `run-lock.js` alone: the
+`#run-lock-note` paragraph therefore appears only when the reason holds for the
+whole view.
 
 `applyRunLock({force})` paints all of it from STATE rather than from a detected
 transition — several paths can learn the run finished, and a flip-detecting
@@ -1274,9 +1302,11 @@ separately.
 
 ### 3.3 Attaching a screenshot
 
-`attachScreenshotAnnotated()` (`screens/hotkeys.js:105-150`):
+`attachScreenshotAnnotated()` (`screens/hotkeys.js`):
 
-1. `resolveSiteTab({verb:'captured'})`. Not `ok` ⇒ the reason is toasted and the
+1. `RunLock.recordWriteLock(record)`, then `resolveSiteTab({verb:'captured'})`
+   (again inside `CaptureAnnotate.ensureCapturePermission()`). Not `ok` ⇒ the
+   reason is toasted and the
    flow ends. **Nothing prompts here** — the only "no" is a restricted page.
 2. `sendMessage({type:'captureTab', fullPage})` → the worker's `captureShot()` →
    JPEG q80 data URL + the captured `tabId`. **Two floors under it**, because a
@@ -1287,6 +1317,10 @@ separately.
    `CAPTURE_VISIBLE_TIMEOUT_MS` (8 s) — on an occluded or minimised window
    Chrome can leave that callback uncalled, and the timeout drops the flow to
    the debugger path instead of hanging.
+3. Two answers say the picture is not what was asked for, and each replaces the
+   `Annotating…` plaque with its own sentence rather than stacking one on it:
+   `viewportOnly` (the debugger was refused and the viewport stood in — rake 10)
+   and `heightClipped` (the page is taller than `FULLPAGE_MAX_HEIGHT`).
 4. `CaptureAnnotate.annotateImage(dataUrl, tabId, {toast})`:
    - writes `{dataUrl}` to `chrome.storage.session` under a random
      `annotate-<uuid>` key;
@@ -1317,7 +1351,7 @@ separately.
 
 #### Attaching local files
 
-`screens/attachments.js` sits next to that button and reuses step 5 verbatim —
+`screens/attachments.js` sits next to that button and reuses step 6 verbatim —
 a picked `File` *is* a `Blob`, so `uploadAttachment` takes it unchanged and
 there is no second upload contract.
 
@@ -1453,12 +1487,14 @@ latencies, so append order is not time order.
 `EVIDENCE_LIST {errorsOnly:true}` is what the test view shows: console
 error/warning plus non-2xx or failed requests (`evIsError`).
 
-On FAIL with the recorder running, `uploadEvidenceLog()` (`screens/evidence.js`)
-takes an `EVIDENCE_SNAPSHOT`, builds a readable `.txt` and uploads it as an
-attachment, returning the URL for the `Console & network log` **meta** key (it
-used to be appended to the comment). It now runs *after* the status write, so a
-row that earns its testrun id only in that response is covered too; the old
-ordering had to skip those tests.
+On FAIL with the recorder running, `EvidenceUpload.log(record)`
+(`screens/evidence-upload.js`) takes an `EVIDENCE_SNAPSHOT`, builds a readable
+`.txt` through `EvidenceFormat.buildTxt()` (`screens/evidence-format.js`, the
+escaping layer beside it) and uploads it as an attachment, returning the URL for
+the `Console & network log` **meta** key. It runs *after* the status write, so a
+row that earns its testrun id only in that response is covered too. It is its own
+file because it is the one thing here that LEAVES the browser on every fail, and
+`core/write-status.js` — core, not a screen — is what calls it.
 
 **Muting, not un-patching.** A wrapper cannot be removed safely (other code may
 have wrapped `fetch` after us), so stopping a recording mutes the hook
@@ -1480,10 +1516,12 @@ Three parties: the **editor page** drives it, the **worker** owns the state, an
 
 ```
 editor  STEPREC_START
-  → srStart(): resolveSiteTab({verb:'recorded'}) → storage.session `stepRec` =
-      { tabId, recording, paused, manualPause, capBonus, lastUrl, startedAt,
-        blind, pendingOpen, entries: [], lastNavIdx, sent: 0 }
-  → srInjectSync(tab.id) → executeScript(content/step-recorder.js)
+  → srStart(): resolveSiteTab({verb:'recorded', activate:true}) → storage.session
+      `stepRec` = { tabId, recording, paused, manualPause, capBonus, docIds,
+        lastUrl, startedAt, blind, pendingOpen, entries: [], lastNavIdx, sent: 0 }
+      `docIds` is the EDITOR document that owns this recording (srOwnerIds), so a
+      closed panel ends it — the pill's own poll is what notices (srOrphaned)
+  → srInjectSync(tab.id) → executeScript(icons + rec-*.js + step-recorder.js)
 
 page    click/dblclick/type/select
   → the packet is armed AT EVENT TIME and the entry queued; ~400ms later (#23)
@@ -1562,7 +1600,7 @@ never send the raw text a moment before the answer rewrites it.
 **Two pauses, one dropped action**. `paused` is the cap's — `STEPREC_CONTINUE`
 clears it *and* grants another cap's worth. `manualPause` is the tester's Pause on
 the indicator, cleared only by Resume, so stepping out of the scenario never buys
-50 more steps. `srPush()` drops entries under either (`background.js:116-123`), and
+50 more steps. `srPush()` (`shared/step-rec-core.js`) drops entries under either, and
 `srAdd()` returns *before* `srFlushOpen()` so a pause taken right after Start cannot
 swallow the deferred `Open` step. A navigation during a manual pause is followed
 (`lastUrl`) but not recorded.
@@ -1667,13 +1705,80 @@ lands — `tabs.onUpdated`'s `complete` on the way back — revives it, and
 `srCatchUpNav()` then emits the one navigation entry that is true, the page open
 *right now*, rather than inventing the hops it missed.
 
-Neither recorder uses `chrome.debugger` any more, so they run in parallel
-with each other **and** with an open DevTools; the only per-tab debugger session
-left in the extension is the one a screenshot takes and immediately gives back.
+Neither the step recorder nor the evidence recorder uses `chrome.debugger`, so
+they run in parallel with each other **and** with an open DevTools. The two
+debugger users left are the full-page screenshot and the screen recording's
+fallback route — §3.6 and §7.
 
-> The `stepRec` shape comment at `background.js:115-118` lists a `needsReinject`
-> field. Nothing writes or reads it — the shape above (from the constructor at
-> `:247-251`) is the real one. Don't go looking for the logic behind it.
+The ordering rules the worker applies to what arrives — `srPlace`, `srPopTwins`,
+`srFlushOpen`, `srFinalEnd`, `srRefineNav` and the settle constants — are
+`shared/step-rec-core.js`, pure over the `stepRec` record. `background.js`
+destructures them at the head of its step-recorder section, so the call sites
+still read as bare names.
+
+### 3.6 The screen recording
+
+`screenrec/session.js` in the worker, `offscreen/recorder.html` for the file,
+`content/rec-bar.js` for the controls, `content/review-overlay.js` +
+`screenrec/review.html` for the preview and trim, and `screens/screen-rec.js` in
+the panel, which owns the JWT and therefore the upload. Five pieces, one take.
+
+**Two capture routes, one recording.** `chrome.tabCapture.getMediaStreamId` is
+the good one — no infobar, real frames — but Chrome hands the stream over only
+where the extension was INVOKED on that tab (`activeTab`; `<all_urls>` buys
+nothing here). Where that grant is missing `srecStart()` falls through to
+`srecStartCast()`: `chrome.debugger` attach → `Page.startScreencast` → a JPEG
+per frame, pumped to the offscreen canvas and acked, for as long as the
+recording lasts. That is the second debugger user of §7, and the long-lived one.
+It carries Chrome's *"…is debugging this browser"* bar for the whole take, and
+that bar's own Cancel is a `chrome.debugger.onDetach` the worker reads as a Stop
+that KEEPS the file, never a loss. The mode is written into the session record
+(`mode: 'tab' | 'cast'`), because every teardown path has to know whether there
+is an attach to give back.
+
+Two things ride on the cast attach:
+
+- **A screenshot taken during a cast SHARES it.** `shootViaDebugger()` asks
+  `srecCastOwnsReady(tabId)` (awaited — right after a worker restart the mirror
+  is still null) and, when the recording owns that tab, neither attaches nor
+  detaches: the recording's session is already there and must still be there
+  afterwards.
+- **Rake 10 strikes here too**, and takes the same cure: a `chrome-extension://`
+  frame in the page makes Chrome refuse the attach, so `srecStartCast` calls
+  `foreignFramesOut()`, tries once more, and puts the frames back when the
+  recording ends (`framesOut` on the session record says whether it must).
+
+**Nothing is attached until the tester says so.** Every end of a recording
+funnels through `srecFinish()`: the cast is torn down, `screenRec` is cleared,
+and the bytes are PARKED under `screenRecFile` with a fresh
+`screenRecReviewKey` — then the review is opened over the recorded tab. Only
+`SCREENREC_REVIEWED` (keep as recorded) or `SCREENREC_TRIMMED` (cut) makes the
+worker broadcast the `file` event the panel uploads on. A parked take also
+REFUSES a new recording: `srecStart` checks it before resolving a tab, because
+starting over would drop a take the tester has not finished with.
+
+**One uploader.** That `file` event is a broadcast, so every open panel document
+would upload the same take. `screens/screen-rec.js` claims it first
+(`SCREENREC_CLAIM` with a per-document token), the worker serializes the claim
+and its TTL in `screenrec/claim.js`, and a failed upload un-claims so the next
+*Retry attach…* — here or in another panel — can take it.
+
+Two entries besides the panel's button also START a recording, and they are the
+two that come with the `activeTab` grant the good route needs: the context-menu
+item and the `Alt+Shift+R` command. Started from the page there is nowhere to
+report a refusal, so a parked take answers with its review instead of an error.
+The recording binds to whatever result the panel last announced through
+`SCREENREC_TARGET`.
+
+The take is capped at five minutes — enforced by `REC_TIME_CAP_MS` inside
+`offscreen/recorder.js`; the worker's `SREC_TIME_CAP_MS` is the same number kept
+only for what the bar and the panel say out loud.
+
+When BOTH routes are refused there is a real sentence for it: `srecStartHint()`
+(`screens/screen-rec.js`) turns `cast-attach` into "another debugger holds that
+tab (DevTools open?)" and `cast-attach-frame` into "another extension left a
+frame on this page" — each naming the two ways to get the good route instead:
+the keyboard shortcut on the tab, or the context-menu item.
 
 ---
 
