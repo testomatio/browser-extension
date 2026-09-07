@@ -114,35 +114,30 @@ test('#155-9: outside a browser the migration still happens in memory, it is jus
     assert.deepEqual(h.store.calls, [], 'no storage to write to');
   });
 
-// ---- C: the two dead secrets -----------------------------------------------
+// ---- C: the one dead secret ------------------------------------------------
 
 test('#155-10: a storage that refuses to delete does not break the boot', async () => {
   const h = loadStorage();
   h.store.fails.remove = new Error('storage is busy');
   await h.fn.dropAiApiKey();
-  await h.fn.dropOnboardingState();
-  assert.equal(h.store.ops('remove').length, 2, 'both sweeps were attempted');
-  // And with the failure lifted the same calls really do delete — the swallow is not a no-op.
+  assert.equal(h.store.ops('remove').length, 1, 'the sweep was attempted');
+  // And with the failure lifted the same call really does delete — the swallow is not a no-op.
   h.store.fails.remove = null;
-  const live2 = loadStorage({ seed: { aiApiKey: 'sk-live', onboarding: { step: 2 } } });
+  const live2 = loadStorage({ seed: { aiApiKey: 'sk-live' } });
   await live2.fn.dropAiApiKey();
-  await live2.fn.dropOnboardingState();
   assert.deepEqual(Object.keys(live2.store.data), []);
 });
 
-test('#155-11: every boot deletes the retired AI key and the retired checklist, once each',
-  async () => {
-    const h = loadStorage({ seed: { aiApiKey: 'sk-live', onboarding: { step: 2 }, settings: LEGACY } });
-    await h.fn.dropAiApiKey();
-    await h.fn.dropOnboardingState();
-    assert.deepEqual(removes(h), ['aiApiKey', 'onboarding']);
-    assert.deepEqual(Object.keys(h.store.data), ['settings'], 'the tester\'s own settings survive');
-    // Outside a browser neither sweep is even attempted.
-    const off = loadStorage({ hasChrome: false });
-    await off.fn.dropAiApiKey();
-    await off.fn.dropOnboardingState();
-    assert.deepEqual(off.store.calls, []);
-  });
+test('#155-11: every boot deletes the retired AI key, once, and nothing else', async () => {
+  const h = loadStorage({ seed: { aiApiKey: 'sk-live', settings: LEGACY } });
+  await h.fn.dropAiApiKey();
+  assert.deepEqual(removes(h), ['aiApiKey']);
+  assert.deepEqual(Object.keys(h.store.data), ['settings'], 'the tester\'s own settings survive');
+  // Outside a browser the sweep is not even attempted.
+  const off = loadStorage({ hasChrome: false });
+  await off.fn.dropAiApiKey();
+  assert.deepEqual(off.store.calls, []);
+});
 
 // ---- D: what the session write carries -------------------------------------
 

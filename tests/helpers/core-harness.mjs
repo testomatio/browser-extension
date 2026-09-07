@@ -275,7 +275,7 @@ export function loadStorage(opts = {}) {
 
   return {
     ...shared,
-    fn: sandbox,          // loadStored, migrateHostSettings, dropAiApiKey, dropOnboardingState, persistSession
+    fn: sandbox,          // loadStored, migrateHostSettings, dropAiApiKey, persistSession
     sandbox, store, api, RunInfo,
     // `RunInfo` is a lexical const of this context, never a sandbox property — the same seam
     // index.html gives storage.js, which reads it as a free variable.

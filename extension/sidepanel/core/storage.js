@@ -29,12 +29,6 @@ async function dropAiApiKey() {
   try { await chrome.storage.local.remove('aiApiKey'); } catch { /* best effort */ }
 }
 
-// Same deal for the welcome checklist: a key nobody reads. Dropped at every boot.
-async function dropOnboardingState() {
-  if (!hasChrome) return;
-  try { await chrome.storage.local.remove('onboarding'); } catch { /* best effort */ }
-}
-
 function persistSession() {
   if (!hasChrome) return;
   // Never during boot or before settings exist: a fire-and-forget write from a transient

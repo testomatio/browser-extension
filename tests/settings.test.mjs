@@ -203,7 +203,6 @@ function load(opts = {}) {
     theme: 'system',
     surface: 'sidepanel',
     offer: null,           // Handoff.offer()
-    onboarding: false,     // load the REAL screens/onboarding.js beside this one
     sessionSeed: {},
     sessionThrows: false,
     fail: {},              // { set, remove, clear, sessionClear } — a storage op that rejects
@@ -247,7 +246,6 @@ function load(opts = {}) {
     runsView: 0,
     askProject: 0,
     reset: 0,
-    onboardingRender: 0,
     themeListeners: [],
     clipboard: [],     // every string handed to navigator.clipboard.writeText, in order
   };
@@ -391,7 +389,6 @@ function load(opts = {}) {
     openRunsView: () => { order.push('openRunsView'); calls.runsView += 1; },
     askForProject: () => { order.push('askForProject'); calls.askProject += 1; },
   };
-  if (o.onboardingStub) globals.Onboarding = { render: () => { calls.onboardingRender += 1; } };
   // #113: index.html loads both of these AFTER settings.js, so the panel really can be asked for
   // them before they exist. `null` reproduces exactly that, and the row must still be painted.
   if (o.queue !== null) globals.OfflineQueue = { count: () => o.queue };
@@ -416,12 +413,8 @@ function load(opts = {}) {
   const clock = fakeClock();
   const h = loadScreen('settings', {
     // screens/settings-form.js and screens/settings-erase.js are index.html's two tags immediately
-    // above this one, and settings.js does not run without either. The welcome checklist is reached
-    // through a `typeof` guard, so the REAL screen is what row 75 drives — a stub could not show
-    // that it renders nothing.
-    before: o.onboarding
-      ? ['settings-form', 'settings-erase', 'onboarding']
-      : ['settings-form', 'settings-erase'],
+    // above this one, and settings.js does not run without either.
+    before: ['settings-form', 'settings-erase'],
     exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY, SettingsForm, SettingsErase })',
     document: doc, clock, store, globals,
   });
@@ -1935,23 +1928,6 @@ test('74: a browser that refuses sessionStorage neither throws nor invents a war
   h.fn.takeRecorderWarning();
   assert.deepEqual(h.calls.status, []);
   h.fn.leaveRecorderWarning(new Error('busy'), 'Signed out'); // the write side, same guarantee
-});
-
-test('75: the welcome checklist is still called on every fill, and still renders nothing', () => {
-  const h = load({ ...CONFIGURED, onboarding: true });
-  h.fn.fillSettingsForm();
-  assert.equal(h.calls.lookups.includes('onboarding-card'), true);
-  assert.equal(h.doc.getElementById('onboarding-card'), null);
-  assert.equal(h.doc.getElementById('onboarding-step-token'), null);
-});
-
-test('75a: with no checklist loaded at all, filling the form is unaffected', () => {
-  const h = load({ ...CONFIGURED, onboardingStub: true });
-  h.fn.fillSettingsForm();
-  assert.equal(h.calls.onboardingRender, 1);
-  const bare = load(CONFIGURED);
-  bare.fn.fillSettingsForm();
-  assert.equal(bare.node.setBaseurl.value, 'https://a.io');
 });
 
 test('75b: filling the form paints the fields, the history, the card and the token box in one pass', () => {
