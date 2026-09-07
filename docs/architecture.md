@@ -965,7 +965,7 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 | `STEPREC_TITLE` `{title}` | injected script → worker | Real `document.title` after a navigation, to refine the last nav entry. |
 | `STEPREC_STOP_REQUEST` | injected script / editor → worker | Stop recording, keep the entries. |
 | `STEPREC_CONTINUE` | editor / injected → worker | Clear the **cap** pause and grant another cap's worth. |
-| `STEPREC_PAUSE` `{on}` | injected script → worker | The tester's own Pause/Resume on the indicator. Sets `manualPause` — never the cap's `paused`, so it grants no extra cap (`background.js:269-276`). |
+| `STEPREC_PAUSE` `{on}` | injected script → worker | The tester's own Pause/Resume on the indicator. Sets `manualPause` — never the cap's `paused`, so it grants no extra cap (`srPause()` in `background.js`; only `srContinue()` grants one). |
 | `STEPREC_STOP` | editor → worker | **Drain**: return the entries and clear the state. Idempotent. |
 | `STEPREC_PEEK` | e2e only → worker | Read raw entries mid-recording. Explicitly marked "no production sender" in `background.js`'s `STEPREC_*` handler. |
 | `OPEN_RUN` `{url}` | web app (`content/presence.js`'s page) → worker | *Run in Extension* (#14): the surface opens FIRST and synchronously — the click's gesture dies at the first await — then the url is parked in `storage.session` `openRunIntent` for whichever panel wakes up (`core/open-run-intent.js` spends it, and drops one older than 60 s). |
@@ -1105,9 +1105,10 @@ current test untested → `This is the last untested test`, stay put.
 A test the run has ALREADY reported gets the web's Summary panel above the
 marking controls (`TestSummary.render()` → `renderResultSummary()`,
 `screens/test-summary.js`): the status +
-duration line, then the **Failure** / **Meta** / **Steps** disclosures — and
-never a **Stacktrace**, which is the one web section the panel deliberately
-drops.
+duration line, then four disclosures — **Failure** (titled *Log* when the status
+is not `failed`), **Artifacts**, **Meta** and **Steps** — and never a
+**Stacktrace**, which is the one web section the panel deliberately drops. All
+four hidden means the card hides too: a bare manual pass reaches that often.
 
 It is a pure read of `state.testrunDetail` — the JSON:API detail `probeSession()`
 already prefetches on every test open — so it costs no extra request in the
@@ -1124,14 +1125,23 @@ live against `TestrunSerializer`:
   does, through the exported `TestomatAPI.jwtRequest` (no new api.js entry point);
 - **Meta** is `attributes.extras` minus the `source: 'system'` rows (the web's
   `metafields`). The `attributes.meta` attribute is a *project-template string*,
-  not the entry list — do not mistake one for the other.
+  not the entry list — do not mistake one for the other;
+- **Artifacts** is `attributes.attachments`, the runner's own files — drawn with
+  the same `fileTileItem()` a manual upload gets, which is why this file owns
+  that tile and `screens/attachments.js` loads after it.
 
 Rendering splits on `attributes.automated`, matching the web: a reporter message
 is printed verbatim (`white-space: pre-wrap`) because its newlines and
 indentation carry the assertion's shape, while a manual message — everything the
-panel itself writes — goes through `showdown` + `sanitizeHtml`. The card is painted
-once per open and is not refreshed by the tester's own marking (that write has
-its own status line); re-opening the test re-reads it.
+panel itself writes — goes through `Md.render()`. The tester's own marking does
+NOT re-read it: `status` and `message` are the only two fields the panel can
+change, so `TestSummary.refresh(record)` patches them into the prefetched detail
+and repaints (`refreshResultSummary()`), which costs no request. Everything else
+on the card settles when the test is opened again.
+
+The `<img>`s inside a manual message go through `ImgHydrate` before the body
+reaches the document, and the group is released on every repaint — the CSP allows
+no remote `<img>`, so an unhydrated one is a broken box.
 
 ### 3.2b Write locks — archived run, finished run, automated result
 
@@ -1238,8 +1248,9 @@ reason is the same as not being told — an honest reason is the point of the ga
   finished run, because the CI reporter depends on that.
 - **Automated** comes at two granularities: the run's `kind` (`state.runKind`,
   v2 run detail) bars *every* row of an automated run — including the ones no
-  reporter has filled yet, exactly as the web's `routes/launch.js` `afterModel`
-  redirects out of the runner — and the v2 testrun record's own `automated` flag
+  reporter has filled yet, exactly as the product's own Ember app
+  redirects out of its runner (`routes/launch.js` `afterModel` — that file is the
+  web app's, not this repo's) — and the v2 testrun record's own `automated` flag
   bars that one row, so a **mixed** run locks only what CI reported. Here the
   server is worse than indifferent: `Testrun#add_step!` returns early on an
   automated testrun and the controller still answers **200**, so an ungated step
@@ -2108,15 +2119,40 @@ which is also when an un-erased `storage.session` buffer dies.
 
 ## 6. The two API legs: v2 token vs JWT JSON:API
 
-`extension/api.js` is the single client. It speaks **two protocols to the same
-instance**:
+`extension/api.js` is the single client, over six files it loads first:
+`api/errors.js` (`ApiErrors` — the `ApiError` shape and the copy each refusal
+gets), `api/transport.js` (`ApiTransport` — `rawFetch`, its timeout budget and
+the 429 backoff whose `rateLimitedAt()` live sync reads), `api/paging.js`
+(`ApiPaging` — draining an index, the fan-out limit and the runaway guard),
+`api/people.js`, `api/normalize.js` (the v2 → panel record shapes) and
+`api/assets.js` (`ApiAssets` — which URL gets a request at all, and which gets
+the session's JWT). It speaks **two protocols to the same instance**:
 
 | | Public API **v2** | Web **JSON:API** |
 |---|---|---|
 | Base | `{baseUrl}/api/v2/{projectId}` | `{baseUrl}/api/{projectId}` (project) and `{baseUrl}/api` (root) |
-| Auth | the raw account General token as `Bearer` | a **JWT** from `POST /api/login` with `{api_token}` |
+| Auth | a **project** key as `Bearer` — the handoff's, one minted earlier, or a General token, which reaches every project (`v2Token()`) | a **JWT** — the session in hand, or one from `POST /api/login` with `{api_token}` |
 | Shape | flat `snake_case` | dasherized JSON:API documents |
 | Entry points | `request()` / `pagedData()` | `jwtRequest()` / `jwtRequestRoot()` / `uploadTo()` |
+
+**One credential covers both.** What the tester supplies is an account
+*session* — a JWT, or a General token that `login()` exchanges for one — and a
+session can read any project's own v2 key on demand
+(`GET /projects/{slug}` → `attributes.api-key`). So v2 keys are MINTED, per
+project, held in memory for the boot and never typed. A role with no API access
+answers that read fine and simply carries no key, which is its own message
+("This project has no API key for your role"). A handed-off config
+(`shared/handoff.js`) is the same session arriving from a host app instead of a
+paste box, sometimes with one project's key alongside it.
+
+Two consequences of a minted key, both in `request()`: only a key WE minted is
+worth replacing behind the tester's back, so a **401** on one drops it, mints a
+fresh one and replays exactly once (`remint: false` on the replay is what stops
+a loop — an owner rotating the project key otherwise leaves every open panel
+holding a dead one); and a **403** is corroborated by one cheap independent read
+(`projectIsReadonly()`) before it is believed, because a proxy, WAF or SSO
+gateway refuses ONE route while a genuinely read-only project refuses every
+one.
 
 **v2 leg** (always available once configured): list/get runs, rungroups,
 testruns, tests; **set a test status** (`setStatus`); suite/folder and TC
@@ -2156,30 +2192,51 @@ side — and `attributes.document` (the recombined body) is only ever filled whe
 a linking record id is passed (`?test_id=`, `?suite_id=`, …). A test being
 created has none, so `attributes.body` is what seeds the editor.
 
-The JWT is **memory-only** (`api.js:8`) and `configure()` resets it, so every
-panel reload costs one `POST /api/login` and passes through `'unknown'`.
-`jwtSend()` re-logs in and retries once on **both** 401 and 403 (an expired JWT
-answers 403 per contract).
+The JWT is **memory-only** (the `jwt` binding at the head of `api.js`) and
+`configure()` resets it, along with the minted v2 keys, so every panel reload
+costs one `POST /api/login` and passes through `'unknown'`. `jwtSend()` re-logs
+in and retries once on **both** 401 and 403 (an expired JWT answers 403 per
+contract). A session the panel was HANDED is adopted rather than exchanged —
+there is nothing to exchange it for — and only once: re-entering `login()` with
+the same dead token would re-arm `jwtAvailable` and nothing would ever degrade.
+
+### 6.0 Read-only access is a third state (#155)
+
+v2 answers **403 to every request, GET included**, for a role that may not write
+— a reader, a company-readonly account, an archived project — while a *rejected*
+token is a 401. JSON:API keeps its GETs open for the same role, so one cheap v2
+read is the whole detection. `TestomatAPI.readonlyAccess()` is the client's own
+tri-state (`'unknown' | true | false`, reset by `configure()`), cleared only by a
+2xx; `probeReadonly()` / `readonlyGate()` (`core/state.js`) settle it, and every
+screen entry gates on it. What the tester gets is a blocking panel
+(`Gates.applyReadonlyBlock()`, `core/gates.js`) with Settings and the project
+switcher as the way out — there is nothing to show, so nothing is shown — plus a
+slow watch (`READONLY_RECHECK_MS`, 60 s) whose only job is to notice the role
+changing back.
 
 ### 6.1 `jwtAvailable()` is a tri-state — do not coerce it
 
-`api.js:11` — the string `'unknown'`, or the booleans `true` / `false`:
+The `jwtAvailable` binding in `api.js` — the string `'unknown'`, or the booleans
+`true` / `false`:
 
 - `'unknown'` — no login attempt yet. Features that would flash hide themselves:
-  `updateRunActions()` hides the Finish button entirely on `'unknown'`
-  (`run-view.js:139-149`).
+  `updateRunActions()` (`screens/run-view.js`) hides the Finish button entirely
+  on `'unknown'`.
 - `true` — session available, full mode.
 - `false` — degradation is **proven**. Only then does the panel show the
-  `jwt-hint` and the degraded banner (`core/views.js:74-87`), because saying
-  "basic mode" before a failed login would be a lie.
+  `jwt-hint` and the degraded banner (`Gates.updateDegradedBanner()`,
+  `core/gates.js`), because saying "basic mode" before a failed login would be a
+  lie.
 
 `document.body.dataset.jwt` is set to `available` / `degraded` / `unknown` by
-`applyCapabilities()` (`core/state.js:137-143`) and CSS keys off it.
+`applyCapabilities()` (`core/state.js`) and CSS keys off it. `readonlyAccess()`
+is a second, independent tri-state read in the same function (§6.0).
 
 ⚠️ `capabilities.jwt` is a **derived boolean** with three independent writers —
-`probeSession` (`core/state.js:152`, on test open), `probeRunSession`
-(`run-view.js:122`, on run open) and `loadRuns` (`runs-list.js:64,69`) — each
-calling `applyCapabilities()`. There is no subscription; read
+`probeSession()` (`core/state.js`, on test open), `probeRunSession()`
+(`screens/run-view.js`, on run open) and `loadRuns()` (`screens/runs-list.js`,
+which sets it `true` on the dashboard read and `false` in the catch that falls
+back to v2) — each calling `applyCapabilities()`. There is no subscription; read
 `capabilities.jwt` directly. Comparing `jwtAvailable()` loosely, or coercing it
 to a boolean, silently breaks the `'unknown'` behaviour.
 
@@ -2190,30 +2247,57 @@ tri-state server-synced rows; Finish run is visible-but-disabled with a reason;
 priority, custom status and assignee are unavailable (the in-test select, the
 run-row pill and the run header's counters go together); the reported-result
 summary of an already-reported test is absent; the runs list falls back
-from the dashboard union to plain v2 runs + rungroups; screenshots and evidence
-logs cannot upload. Setting statuses and comments keeps working — that is the
-whole point of the split.
+from the dashboard union to plain v2 runs + rungroups; screenshots, local files,
+screen recordings and evidence logs cannot upload; a test's parameters and
+example rows are gone with the reads that serve them; and the run's **archived**
+lock cannot be seen at all (§3.2b). Setting statuses and comments keeps working
+— that is the whole point of the split.
 
 ---
 
-## 7. The `chrome.debugger` session: one screenshot at a time, and nothing else
+## 7. The two `chrome.debugger` sessions: a shot, and a screencast
 
-The extension attaches a debugger in exactly **one** place —
-`captureShot()` in `background.js`, and only for a FULL-PAGE shot —
-detaching in the same `finally`.
-The evidence recorder used to hold a long-lived session and share it with the
-capture; it no longer holds one at all. Consequences:
+The extension attaches a debugger in exactly **two** places. They are not alike,
+and the difference is how long the attach stands:
+
+- **The full-page screenshot** — `shootViaDebugger()`, reached from
+  `captureShot()` in `background.js`. Attach → `Page.getLayoutMetrics` →
+  `Page.captureScreenshot` → detach, all inside one `finally`. Seconds at most,
+  and only for a FULL-PAGE shot: a viewport one is `captureVisibleTab` and
+  attaches nothing (§4.3).
+- **The screen recording's fallback route** — `srecStartCast()` in
+  `screenrec/session.js`. Attach → `Page.startScreencast` → a JPEG per frame,
+  acked one by one, until the recording ends. The attach stands for the **whole
+  take**, up to the five-minute cap, and every teardown path
+  (`srecTeardownCast()`) exists to give it back. This route is taken only when
+  `chrome.tabCapture` refuses — that is, on a tab where the extension holds no
+  `activeTab` grant (§3.6, §4).
+
+The evidence and step recorders hold no session at all; the evidence one used to,
+and does not.
+
+Consequences:
 
 - Chrome's *"…is debugging this browser"* infobar blinks for the length of a
-  screenshot. It no longer stands for a whole recording.
-- Opening DevTools on the recorded tab is now a **non-event** for recording. It
-  still blocks a screenshot while it is open, because DevTools holds the tab's
-  debugger.
-- The e2e suite MAY `Target.attachToTarget` a recorded tab — a scenario does
-  precisely that, to prove the point. A tab that is being *captured* is still a
-  different matter.
-- A second consumer of CDP must do its own temporary attach/detach, and must not
-  hold the session across an await it does not control.
+  screenshot — but STANDS for the length of a cast recording. Its Cancel button
+  is a `chrome.debugger.onDetach` the worker reads as a Stop that keeps the file.
+- Opening DevTools on a tab is a **non-event** for either console-log or step
+  recording. It still blocks a screenshot while it is open, and it blocks the
+  cast route of a screen recording outright — `srecStartHint()` is the sentence
+  that says so and names the two ways to the good route instead.
+- A screenshot taken while a cast owns that tab **shares** the standing session
+  rather than attaching a second one: `shootViaDebugger` asks
+  `srecCastOwnsReady(tabId)` and, when the answer is yes, neither attaches nor
+  detaches. The await matters — right after a worker restart the module mirror is
+  still null and would answer "no attach" for one that exists.
+- The e2e suite MAY `Target.attachToTarget` a tab whose console+network is being
+  recorded — a scenario does precisely that, to prove the point. A tab being
+  *captured* or *screencast* is a different matter.
+- Rake 10 hits BOTH: a foreign extension frame refuses either attach, and both
+  call `foreignFramesOut()` / `foreignFramesBack()` around one more try.
+- A third consumer of CDP must do its own attach/detach, must check
+  `srecCastOwnsReady` before assuming the tab is free, and must not hold the
+  session across an await it does not control.
 
 ---
 
@@ -2223,14 +2307,28 @@ capture; it no longer holds one at all. Consequences:
 the same v2 `listTestruns` payload the run view already loads, so it works in
 basic mode. Remote-wins diff keyed by record id, repainting changed rows in
 place; it never touches the comment draft or local step ticks. Ticks self-gate
-on view + `document.visibilityState`, pause while the tester's own write is in
-flight (`syncBeginWrite`/`syncEndWrite`), and park permanently on a poll
-401/403 until the next `openRunView`. A locally queued status counts as an
-own-write, so the queue wins over a remote snapshot. Under a session the tick
-carries **one extra read**: the run's custom-status counters, which live
-on the JSON:API run detail and not in the rows — a colleague's substatus write
-moves no status, so the header would never catch up otherwise. It is
-best-effort, so it can neither park the loop nor blank the numbers.
+on view + `document.visibilityState` + the read-only lockout (`syncShouldPoll()`
+— under the lockout nothing is on screen to keep fresh), pause while the tester's
+own write is in flight (`syncBeginWrite`/`syncEndWrite`), and park permanently on
+a poll 401/403 until the next `openRunView`. A locally queued status counts as an
+own-write, so the queue wins over a remote snapshot.
+
+Two more reads ride the same tick, both best-effort, so neither can park the loop
+or blank what is on screen. Under a session, `refreshRunInfo()` re-reads the
+JSON:API run detail: the custom-status counters, the Run info fields and the
+archived flag live there and not in the rows — a colleague's substatus write
+moves no status, so the header would never catch up otherwise. In basic mode
+`refreshRunFinished()` re-reads the v2 run detail instead, which is the one
+signal a token-only panel has that the run was finished elsewhere. Then
+`RunLock.applyRunLock()` runs unconditionally, so a remote finish, an automated
+flip or an archive engages the lock within one poll interval.
+
+**The interval is not always 20 s.** `syncTargetMs()` reads
+`TestomatAPI.rateLimitedAt()`: while the instance's last answer was a 429, the
+tick drops to one a minute (`SYNC_RATE_LIMIT_MS`), because polling a
+rate-limited instance at the usual rate is what keeps it rate-limiting us. A 2xx
+clears the stamp and the next re-arm returns to the ordinary interval. `syncArm()`
+is the ONE place the timer is armed, so the two can never drift apart.
 
 True ActionCable push is **blocked on product-server work** — see §9, rake 4.
 
@@ -2241,10 +2339,15 @@ open / run open / successful poll tick / `online` event. Assign, custom status,
 finish, steps and attachments still fail honestly. It drains from the **panel
 only** — a closed panel means the queue waits. One entry per record, newest
 click wins. The queued `comment` is the **raw tester text** — which is
-all the message ever holds. Replay goes back through `writeStatus`, so the env
-meta keys are collected at replay time, not frozen at click time. Before replaying
-it re-checks each target run's write lock and drops what it must not write —
-see §3.2b.
+all the message ever holds. Replay goes back through `WriteCore.writeStatus`,
+with `{noQueue: true, replay: true}` so a failed retry throws and stays queued
+rather than re-queueing itself. The **env meta is not** re-collected at replay:
+each entry carries the `envMeta` snapshotted at the click, because a drain hours
+later would otherwise describe whatever tab happens to be open then. The
+recorder's window is not parked with the entry either, so a replay attaches no
+console & network log — and the queue says so, in one line, when it syncs a
+result that has none. Before replaying it re-checks each target run's write lock
+and drops what it must not write — see §3.2b.
 
 ---
 
@@ -2252,18 +2355,24 @@ see §3.2b.
 
 These are the ones that will bite first.
 
-**1. Script load order is the dependency graph, and nothing enforces it.**
-`sidepanel/index.html:399-424`. Every top-level `const`/`let`/`function` in
-those files shares one scope. `core/state.js` must precede anything touching
-`state`; `app.js` must stay last. There is already one module reading a binding
-declared in a *later*-loaded file — `run-view.js:179,181` reads `stepWriteChain`,
-a top-level `let` at `test-view.js:233` — which is safe **only** because it never
-runs during load. Reorder those two tags and it becomes a temporal-dead-zone
+**1. Script load order is the dependency graph, and nothing enforces it.** The
+73 `<script>` tags at the foot of `sidepanel/index.html` ARE that graph. Every
+top-level `const`/`let`/`function` in those files shares one scope.
+`core/state.js` must precede anything touching `state`; `app.js` must stay last.
+Modules reading a binding declared in a *later*-loaded file already exist —
+`screens/run-lock.js` `settlePendingWrites()` awaits `stepWriteChain`, a
+top-level `let` in `screens/test-view.js`, which loads fourteen tags after it;
+`core/gates.js` calls `setImmersive()` and `updateContextBar()` from
+`core/views.js`, which loads after it too. Both are safe **only** because they
+run at paint time and never during load; each file says so in a comment where it
+does this. Reorder those tags and it becomes a temporal-dead-zone
 `ReferenceError`. Add new files at the end of the list, before `app.js`.
 
 **2. `runsFilter` vs `runFilter` — one letter, two different things.**
-`state.runsFilter` is the **runs-list** chip (`all|running|passed|failed|
-scheduled|terminated`) and it **is persisted** in the `session` object.
+`state.runsFilter` is the **runs-list** chip (`all|passed|failed|running|
+scheduled|terminated`, `RUN_FILTERS` in `screens/runs-list.js` — the order is
+load-bearing: `Fit.filterChips()` hides the RIGHTMOST first) and it **is
+persisted** in the `session` object.
 `state.runFilter` is the **run-view** chip (`all|passed|failed|skipped|untested`)
 and it is in-memory only, reset when a DIFFERENT run opens (re-opening the one on
 screen keeps chip, search and folding). Same trap for `runsSearch`/`runSearch` —
@@ -2272,7 +2381,7 @@ switch. Grep before you touch either.
 
 **3. Record id is not `test_id`.** Rows are keyed by testrun **record** id
 throughout — a parametrized test case has one record per example row and they
-all share `test_id` (`core/state.js:27-30`). `recordFor()` compares stringified
+all share `test_id` (`recordFor()`, `core/state.js`). `recordFor()` compares stringified
 because ids cross the session boundary as numbers or strings. Every diff, cache
 and repaint in `livesync.js` and `run-view.js` keys on record id. Sorting has the
 same trap and one shared answer: `byRecordId()` — numeric ids as numbers, anything
@@ -2290,27 +2399,35 @@ this.
 
 **5. `jwtAvailable()` is a tri-state.** See §6.1. `'unknown'` is not `false`.
 
-**6. `setPanelBehavior({openPanelOnActionClick: false})` + the `action.onClicked`
-handler are one unit.** `background.js:9-20`. The value is persisted per
-installation, so an install that once stored `true` must be overridden on every
-worker start; with it off the handler is the only thing that opens the panel.
-That is all the click does — it grants nothing.
+**6. `setPanelBehavior({openPanelOnActionClick})` + the `action.onClicked`
+handler are one unit.** `syncPanelBehavior()` in `background.js`, and the
+`chrome.storage.onChanged` listener beside it. The value is persisted per
+installation, so an install that once stored the other mode must be overridden on
+every worker start; in window mode the handler is the only thing that opens
+anything. That is all the click does — it grants nothing, and there is no grant
+left to give.
 
 **7. `chrome.storage.session` is readable by every content script.** §5.2. Do
 not put anything in it you would not hand to an arbitrary page.
 
-**8. The HTML sanitizer is the only XSS boundary — and there is now exactly one
-copy.** `shared/html-sanitize.js`, used by `test-view.js:153` and the test
-page's `renderPreviewInto()` (the Preview tab AND the read-only view). Both feed
-`showdown` output into a live document, and TC content is authored in
-Testomat and can carry raw HTML. It was two verbatim
-copies until cycle D. Do not re-inline it. It is a drop-list, so it is only
-half the boundary: `manifest.json`'s `content_security_policy.extension_pages`
-is what stops the markup it deliberately keeps — an `<img>` or a
-`<video src>` planted in a test description — from reaching a third party. It
-opens with `default-src 'none'`, so a channel nobody enumerated (media, fonts)
-is closed rather than open; `connect-src` carries `data:` because the panel, the
-editor and the worker `fetch()` their own screenshot data URLs.
+**8. The HTML sanitizer is the only XSS boundary — and nothing calls it
+directly any more.** `shared/html-sanitize.js` has exactly one call site:
+`Md.render()` in `shared/markdown.js`, which IS the pipeline (escape → strip
+comments → showdown → sanitize) and answers a DETACHED `<div>`. Every consumer
+goes through it — `screens/test-view.js` for a test body,
+`screens/test-summary.js` for a manual result message, and the test page's
+`renderPreviewInto()` for the Preview tab AND the read-only view. TC content is
+authored in Testomat and can carry raw HTML, so a second path into a live
+document would be a second boundary; do not open one. It is a drop-list, so it
+is only half the boundary anyway: `manifest.json`'s
+`content_security_policy.extension_pages` is what stops the markup it
+deliberately keeps — an `<img>` or a `<video src>` planted in a test description
+— from reaching a third party. It opens with `default-src 'none'`, so a channel
+nobody enumerated is closed rather than open; `img-src` is `'self' data: blob:`,
+which is why every product image is fetched and swapped in as a `blob:`
+(`shared/img-hydrate.js`, `shared/user-cell.js`) rather than linked; and
+`connect-src` carries `data:` and `blob:` because the panel, the editor, the
+worker and the review page `fetch()` their own screenshots and recordings.
 
 **9. Chrome's own *Site access* UI cannot be automated.** Nothing tests it. If
 you change `shared/site-tab.js`, `shared/site-access.js` or the
@@ -2328,8 +2445,19 @@ gone. `chrome.scripting.executeScript` is unaffected (foreign frames are simply
 skipped), so neither the step recorder nor the evidence recorder
 sees this: that immunity is exactly why the recorder was rebuilt on injection.
 `resolveSiteTab` answers `ok` throughout — the tab really is the site tab — so do
-not go looking in the tab resolution: `dbgError()` (`background.js`) is the one
-place the refusal is translated, and the screenshot is now its only victim.
+not go looking in the tab resolution: `dbgError()` / `dbgIsForeignFrame()`
+(`shared/dbg-errors.js`) are the one place the refusal is translated.
+
+It has **two** victims, one per debugger user (§7): the full-page screenshot and
+the screen recording's cast route. Both take the same cure before giving up —
+`foreignFramesOut()` DETACHES the offending iframes (`display: none` is not
+enough: the document stays committed and Chrome keeps refusing), retries once,
+and `foreignFramesBack()` puts each one back where it was, parent and next
+sibling included. Re-inserting an iframe reloads it; that is the price. The
+screenshot then still has the viewport fallback under it, and the recording has
+`srecStartHint()`, which names the two page-side entries that reach the good
+`tabCapture` route instead. A dead frame left by a disabled or updated extension
+triggers this as reliably as a live one.
 
 ---
 
@@ -2337,13 +2465,21 @@ place the refusal is translated, and the screenshot is now its only victim.
 
 | You want to change… | Start here |
 |---|---|
-| A new API call | `extension/api.js` — and first verify the endpoint against the product's own source, then curl-smoke it, before any UI code depends on it. |
+| A new API call | `extension/api.js` — and first verify the endpoint against the product's own source, then curl-smoke it, before any UI code depends on it. The transport, the paging and the error copy are `api/transport.js`, `api/paging.js` and `api/errors.js`; a route's own function belongs in `api.js`. |
 | The runs list (filters, groups, URL paste) | `sidepanel/screens/runs-list.js`; remember the two modes, `dashboard` (JWT) and `v2`. |
-| The run checklist, suite sections, Finish run, the run-row custom-status pill + header counters | `sidepanel/screens/run-view.js`. |
-| Steps, priority, substatus, assignee, the status write | `sidepanel/screens/test-view.js`; `writeStatus()` is the single writer. |
-| The status write's side effects (env meta, evidence log, queue) | `core/env-info.js`, `screens/evidence.js`, `screens/offline-queue.js` — all hang off `writeStatus`. |
+| The run checklist, suite sections, the run-row custom-status pill + header counters | `sidepanel/screens/run-view.js`. |
+| Finish run, or when a result may be written at all | `sidepanel/screens/run-lock.js` (`RunLock`) — nine screens ask it, §3.2b. |
+| The Run info card | `sidepanel/screens/run-info.js`. |
+| Steps, example substitution, the priority icon, `clickStatus` | `sidepanel/screens/test-view.js`. |
+| The status write itself | `core/write-status.js` — `WriteCore.writeStatus()` is the single writer, and its third caller is the offline queue's replay. |
+| What a disabled verdict button, comment box or attach control says | `sidepanel/screens/test-gates.js` (`updateTestActionsState()`). |
+| Custom status or assignee | `sidepanel/screens/test-meta.js`. |
+| The reported-result card, or a file tile anywhere | `sidepanel/screens/test-summary.js` — it owns the panel's one `fileTileItem`. |
+| The status write's side effects (env meta, evidence log, queue) | `core/env-info.js`, `screens/evidence-upload.js`, `screens/offline-queue.js` — all hang off `WriteCore.writeStatus`. |
 | Anything that touches the page under test | `shared/site-tab.js` first. Never hand-roll a `tab.url` check. |
-| A screenshot / annotator change | `background.js` `captureShot` → `shared/capture-annotate.js` → `shared/annotate-core.js` (engine) → `overlay/annotate-overlay.js` (on-page) or `editor/annotate.js` (fallback tab). |
-| Reading or creating a TC | `editor/editor.js` (`renderView()` / `renderEditor()`); a separate document that reuses the panel's globals. |
-| A new panel screen | Add `sidepanel/screens/<name>.js`, a `<section id="view-<name>">` in `index.html`, an entry in `views` (`core/state.js:8`) and `TAB_OF_VIEW` (`core/views.js:12-16`), and the `<script>` tag before `app.js`. |
-| A new persisted field | Decide `local` vs `session` (§5), then update `core/storage.js` **and** §5 of this file — that table drifts first. |
+| A screenshot / annotator change | `background.js` `captureShot` → `shared/capture-annotate.js` → `shared/annotate-core.js` (engine, over `annot-geometry` / `annot-history` / `annot-keys`) → `overlay/annotate-overlay.js` (on-page) or `editor/annotate.js` (fallback tab). |
+| A screen-recording change | `screenrec/session.js` (the worker's half and both capture routes) → `offscreen/recorder.js` (the file) → `content/rec-bar.js` (the controls) → `screenrec/review.js` (preview + trim) → `screens/screen-rec.js` (the panel's button and the upload). |
+| Reading, creating or editing a TC | `editor/editor.js` (`renderEditor()`) and `editor/view.js` (`EditorView.renderView()`); a separate document that reuses the panel's globals. |
+| A new panel screen | Add `sidepanel/screens/<name>.js`, a `<section id="view-<name>">` in `index.html`, an entry in `views` (`core/state.js`) and in `NavModel.TAB_OF_VIEW` (`core/nav-model.js`, plus `ROOT_VIEWS` if it is a tab root), and the `<script>` tag before `app.js`. |
+| A new persisted field | Decide `local` vs `session` (§5), then update `core/storage.js` **and** §5 of this file — those tables drift first. |
+| A navigation decision (which screen a tab click or a Back lands on, what the trail says) | `core/nav-model.js` — pure, no DOM; `core/views.js` only paints what it decided. |
