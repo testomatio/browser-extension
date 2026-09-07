@@ -13,9 +13,9 @@ cross-checked line by line with `extension/manifest.json`.
   host: the Testomat.io instance **you** configure in Settings
   (`https://app.testomat.io` by default, or your own self-hosted URL). Two
   *reads* can reach further than that — a file your instance keeps in storage of
-  its own, and a video attachment the file viewer plays straight from the
-  address your instance gave for it. The first bullet of *What the extension
-  never does* says exactly when each happens.
+  its own, and the one attachment you open in the file viewer, fetched or played
+  from whatever address your instance gave for it. The first bullet of *What the
+  extension never does* says exactly when each happens.
 - Your access token and your preferences are stored **locally**, in your own Chrome
   profile. `chrome.storage.sync` is never used, so nothing is copied to your
   Google account.
@@ -71,9 +71,10 @@ The extension writes outside these three areas in two places, and each of them i
 a button you pressed:
 
 - The annotator's **Download** writes `annotated-screenshot.jpg` into your
-  Downloads folder, and the panel's **Save** for a screenshot waiting to be
-  annotated writes its file there too. Both are an ordinary browser download —
-  the extension holds no `downloads` permission and needs none.
+  Downloads folder, and when your instance refuses the upload of an annotated
+  screenshot the panel keeps that image and its **Save** button writes it there
+  too, as `panel-annotated-<result>-<time>.jpg`. Both are an ordinary browser
+  download — the extension holds no `downloads` permission and needs none.
 - The annotator's **Copy** puts the picture on your system clipboard as a PNG,
   and Settings → **Copy diagnostics** puts the diagnostics rows there as text.
 
@@ -92,7 +93,7 @@ Nothing else is written to disk.
 | A **screen recording** of the tab under test, as a `.webm` | Only when you press **Attach** in the review that opens at Stop — nothing is uploaded before that. Cut ranges never leave the machine: a trimmed take replaces its original, which is destroyed. Picture only, with no audio of any kind |
 | Files you choose yourself with **Attach file** | When you pick them |
 | Test cases, suites and folders you create in the panel | When you save them |
-| The extension's **version number**, written into the page as an attribute | On the pages of your configured Testomat.io instance, and nowhere else — it is how the web app knows the extension is installed and can offer *Run in Extension*. Nothing else is written into that page. The only thing read back out of it is the run address that button hands over, and only when you press it |
+| The extension's **version number**, written into the page as an attribute | On the pages of your configured Testomat.io instance, and nowhere else — it is how the web app knows the extension is installed and can offer *Run in Extension*. Nothing else is written into that page. The only thing read back out of it is the address that button hands over — or, when the button carries none, the address of the page it is on — and only when you press it |
 | The whole recording's **context packets** — for each action you recorded: the attributes and visible texts of the control you used and of its surroundings (its label, its row, its column, its section, the heading above it, the texts either side of it), the page title and URL (query always trimmed here, whatever *Include the query string* is set to), the value you typed **exactly as it was already masked**, and what changed on the page right after the action (a toast, dialog or validation message that appeared, the control's own new state, a counter that moved) — plus the test's title and the steps you had already written above the recording | **Once**, when you stop a recording while the test editor's *Polish with AI* switch is on — **off by default** — or when you press *Polish recorded steps*. **Nothing is sent while you record.** It goes to your instance's own AI prompt endpoint and nowhere else |
 
 The packets are built for **every** recording, switch or no switch: they are what
@@ -111,8 +112,8 @@ extension can capture:
   `(query trimmed)` marks that something was removed. Query strings routinely
   carry password-reset tokens, signed links, invite codes and session ids, so
   this trim is on by default. *Settings → Include the query string* opts back
-  in. On a `chrome://` page, the Chrome Web Store or another extension's page
-  Chrome hides the address from every extension, and the key is simply omitted.
+  in. A `chrome://` page, the Chrome Web Store or another extension's page is not
+  treated as a site under test at all, and the key is simply omitted.
   The step recorder's first `Open` step follows the same rule — the query string
   and the fragment are cut unless that setting is on, except that a fragment
   which is a route (`#/…`, as in a hash-routed single-page app) is kept without
@@ -172,12 +173,12 @@ when Chrome restarts.
   *Settings → Auto-start console & network recorder when you open a test in a
   run* on — **off by default** — it starts by itself when you open a test in a
   run, is bound to that test, and stops when you leave it.
-- It never enumerates your open tabs. There are exactly two tab lookups in the
-  code and both ask for the **active tab of one window** (`{active: true, …}`);
-  there is no query for all tabs, and the extension does not request the `tabs`
-  permission. Because it does hold access to all sites, Chrome will show it the
-  address of a tab it asks about — but it only ever asks about the one you are
-  working in.
+- It never enumerates your open tabs. The two tab queries in the code both ask
+  for the **active tab of one window** (`{active: true, …}`); every other lookup
+  is by the id of a tab it already holds. There is no query for all tabs, and
+  the extension does not request the `tabs` permission. Because it does hold
+  access to all sites, Chrome will show it the address of a tab it asks about —
+  but it only ever asks about the one you are working in.
 - It never reads your browsing history, your cookies, your bookmarks or your
   downloads. None of those permissions are requested. The two Save buttons
   described above put a file into your Downloads folder the way any web page's
@@ -212,15 +213,16 @@ when Chrome restarts.
 
 ## Permissions, one by one
 
-These are exactly the permissions declared in `extension/manifest.json`. Nothing
-else is requested.
+These are exactly the permissions declared in `extension/manifest.json` — nothing
+else is requested — plus the two manifest entries that also reach a page:
+`content_scripts` and `web_accessible_resources`.
 
 | Permission | Why it is needed | Limits |
 |---|---|---|
 | `storage` | Keep the access token, the project choice, preferences, the offline queue and the in-session recording buffer in your local Chrome profile | `chrome.storage.sync` is never used, so nothing leaves the profile through Chrome |
 | `sidePanel` | Draw the panel itself in Chrome's side panel | — |
-| `scripting` | On your click, inject the screenshot annotator, the step recorder and the console/network instrumentation into the tab you are testing | Those three are injected on your click and, for the console/network recording, registered for the recorded origin until you stop it. One script is registered permanently and independently of any recording: the presence marker, described in the row below |
-| `content_scripts` (in the manifest) and the presence marker | A single small script that writes the extension's version into the page as an attribute, so the Testomat.io web app can tell the extension is installed and offer *Run in Extension*; the click on that button is relayed to the panel | It runs on `https://app.testomat.io` (declared statically in the manifest) and, when you configure a self-hosted instance, on that instance's origin as well — registered automatically and kept across browser sessions. **Never on the site under test.** It reads nothing out of the page; it writes the version attribute and listens for that one button |
+| `scripting` | On your click, inject into the tab you are testing: the screenshot annotator, the step recorder, the console/network instrumentation, the attachment preview, the recording bar and its review, and two helper functions — one measures the viewport, the other moves other extensions' frames aside during a capture | Every one of those follows a click of yours; the console/network instrumentation is also registered for the recorded origin until you stop it. One script is registered permanently and independently of any recording: the presence marker, described in the row below |
+| `content_scripts` (in the manifest) and the presence marker | A single small script that writes the extension's version into the page as an attribute, so the Testomat.io web app can tell the extension is installed and offer *Run in Extension*; the click on that button is relayed to the panel | It runs on `https://app.testomat.io` (declared statically in the manifest) and, when you configure a self-hosted instance, on that instance's origin as well — registered automatically and kept across browser sessions. **Never on the site under test.** It reads nothing out of the page beyond that button's address; it writes the version attribute and listens for that one button |
 | `web_accessible_resources` | The file viewer and the screen-recording review are extension pages that have to be openable over the site under test, so a screencast is not squeezed into a ~400px panel | Being web-accessible means any site can try to open them, so both refuse to act for anyone but the panel: the viewer opens only the exact file the panel parked, and the review disables every control — and shows neither the take's address nor its size — when it was framed by the page rather than by the extension, which the worker's one-shot per-take key is what tells apart |
 | `webRequest` | List the page's own network traffic (method, URL, status, timing) in the console & network log | **Observational only.** The four listeners — request start, completion, error and redirect — are registered with no `extraInfoSpec`: the extension never asks for request or response **headers**, never uses the **blocking** form, and cannot modify, redirect or cancel any request. Every event is dropped unless it belongs to the tab being recorded, and when nothing is recording every event is dropped |
 | `tabCapture` | Record the picture of the tab you are testing, and only while a recording you started is running | Chrome allows it only on a tab where the extension was invoked (the toolbar icon, our right-click item or the shortcut), the stream is requested with `audio: false` and carries none, and it is closed the moment you stop |
