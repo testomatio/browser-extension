@@ -224,7 +224,6 @@ function fillSettingsForm() {
   renderConnection();    // the connected-instance card
   syncTokenField();      // …and whether the token box is needed at all
   renderDiagnostics();   // async: the worker round trip and the storage size land a tick later
-  if (typeof Onboarding !== 'undefined') Onboarding.render(); // welcome checklist
   takeRecorderWarning(); // #183/#192: an erase whose recorder wipe failed says so here
 }
 

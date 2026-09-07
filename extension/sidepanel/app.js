@@ -113,7 +113,6 @@ async function init() {
   state.settings = stored.settings || null;
   await migrateHostSettings(stored); // per-host map + history (seeds from `settings`)
   await dropAiApiKey(); // #105: the removed AI polish must leave no key behind
-  await dropOnboardingState(); // …and the removed welcome checklist no progress slice
   // Before any run renders, so restored rows show their «queued» markers immediately.
   if (typeof OfflineQueue !== 'undefined') await OfflineQueue.init();
   // A host app's offer outranks whatever is stored: it is this session's own connection, and it

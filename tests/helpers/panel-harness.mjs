@@ -297,7 +297,7 @@ const BOOT_NOOPS = [
   'navigateTest', 'showTestSection', 'attachScreenshotAnnotated', 'savePendingAnnotation',
   'initEvidence', 'initAttachments', 'initScreenRec', 'initLiveSync', 'onHotkey', 'initHotkeyHints',
   'applyCapabilities', 'fillSettingsForm', 'show', 'askForProject', 'setStatusLine', 'openRunFromUrl',
-  'migrateHostSettings', 'dropAiApiKey', 'dropOnboardingState',
+  'migrateHostSettings', 'dropAiApiKey',
 ];
 
 // The six screen openers: which one boot picked, with what, IS the assertion in every landing row.

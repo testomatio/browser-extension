@@ -24,7 +24,7 @@ Companion docs — read across, they are not repeated here:
    in an IIFE and assigns **one global** (`TestomatAPI`, `SiteTab`,
    `SiteAccess`, `CaptureAnnotate`, `HtmlSanitize`, `TestomatParams`,
    `PriorityIcons`, `Annotate`,
-   `OfflineQueue`, `Onboarding`), or — for the screen files — declares bare
+   `OfflineQueue`), or — for the screen files — declares bare
    top-level `function`s into one shared scope. **Load order is the dependency
    graph.** See *Rakes*, §9.
 3. **Single egress, no exceptions.** At runtime the extension talks only to the
@@ -64,7 +64,7 @@ crossing a realm boundary goes through `chrome.runtime` messages or
       │           evidence, attachments,  │   │   evidence/page-hook.js   MAIN     │
       │           hotkeys, livesync,      │   └────────────────────────────────────┘
       │           offline-queue,          │
-      │           onboarding, settings    │
+      │           settings                │
       │   app.js  (loaded LAST)           │   ┌────────────────────────────────────┐
       └───────────────────────────────────┘   │ test page (editor/editor.html)     │
                           │                   │   ?test= view | ?suite= create     │
@@ -609,7 +609,7 @@ reported-result summary, the status write), `tc-studio.js` (suite tree + TC list
 + the `.txt` log), `attachments.js` (the Attach file picker, its upload
 loop and the result's attachment list),
 `hotkeys.js` (web-runner hotkeys + `attachScreenshotAnnotated`),
-`livesync.js` (20 s poll), `offline-queue.js`, `onboarding.js`,
+`livesync.js` (20 s poll), `offline-queue.js`,
 `project-pick.js` (the choose-a-project screen), `settings.js`.
 
 `app.js` is loaded **last** and is the only bootstrap: it wires every listener,
@@ -1683,7 +1683,6 @@ Three areas, plus page-level `sessionStorage`. Nothing is ever written to
 | `hostHistory` | Hosts used before, most-recent-first, deduped (the Instance dropdown) | same |
 | `session` | The restorable panel session: `{view, activeTab, tabViews, runId, runTitle, currentRecordId, stepTicks, expandedGroups, runsFilter}` (`core/storage.js:35-47`) | `persistSession()` |
 | `offlineQueue` | `recordId → {recordId, runId, status, comment, queuedAt, host, projectId}` — status writes waiting for connectivity. The `host`/`projectId` stamp is the connection the write belongs to: only matching entries replay, the rest wait for theirs (an entry from an older build carries neither and counts as the active connection) | `screens/offline-queue.js` `queueEnqueue()` |
-| `onboarding` | `{token, project, run, dismissed}` — the welcome checklist | `screens/onboarding.js:19` |
 | `viewMode` | `'sidepanel' \| 'window'` — which surface the panel opens in. A fact about this browser like `theme` below: not in `settings`, committed on the header control's click, mirrored onto Chrome's `openPanelOnActionClick`, and carried back across `signOut()`'s `clear()` | `shared/view-mode.js` |
 | `theme` | `'system' \| 'light' \| 'dark'` — the Appearance switch. One of the two keys here that are neither a credential nor scoped to one: it is a fact about this browser, so it is **not** in `settings` (which is per-host and committed by Save & validate), it commits on the click, and `signOut()` carries it back across `clear()` | `shared/theme.js` |
 

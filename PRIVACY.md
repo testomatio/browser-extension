@@ -36,7 +36,7 @@ Two areas, both belonging to the extension inside your local Chrome profile.
 | Your Settings preferences | Log window length, the environment-info and body-capture toggles, the step-recorder switch |
 | A short history of instances you have connected to | To offer them again |
 | The **offline queue** — test statuses, their comments, and the environment info collected with them, that could not be sent | So a click is not lost when the network drops; replayed when it returns, with the environment it was marked in rather than the one at sync time. The console & network log is never parked here |
-| Onboarding progress, colour scheme, panel/window preference | Interface state |
+| Colour scheme, panel/window preference | Interface state |
 
 **`chrome.storage.session` — cleared when Chrome restarts:**
 
@@ -175,7 +175,7 @@ before erasing anything.
 - **Forget this instance** (Settings → Advanced) — the same erase, aimed at
   whichever instance the *Instance* field names.
 - **Sign out** — clears both storage areas entirely: every token, every
-  instance, the history, the offline queue, drafts and onboarding progress. The
+  instance, the history, the offline queue and drafts. The
   panel restarts as if freshly installed. Only your colour-scheme choice is
   carried across.
 
