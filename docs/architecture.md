@@ -41,47 +41,63 @@ Companion docs — read across, they are not repeated here:
 
 ## 1. Module map
 
-Four JavaScript realms. They share files but **not** memory — everything
-crossing a realm boundary goes through `chrome.runtime` messages or
-`chrome.storage`.
+Four JavaScript realms hold the product — the worker, the panel document, the
+test page and the code injected into the tab under test. They share files but
+**not** memory: everything crossing a realm boundary goes through
+`chrome.runtime` messages or `chrome.storage`. Three more extension documents
+exist for one job each, and are listed under the map.
 
 ```
-              ┌──────────────────────────── service worker ───────────────────────────┐
-              │ extension/background.js                                               │
- toolbar ───► │   action.onClicked  → sidePanel.open                                  │
-  click       │   captureTab        → captureShot (captureVisibleTab | debugger)      │
-              │   STEPREC_*         → step-recorder state in storage.session          │
-              │ importScripts: shared/site-tab.js, evidence/recorder.js               │
-              │   evidence/recorder.js → EVIDENCE_* + the chrome.webRequest backbone  │
-              └───────────▲─────────────────────────────────▲────────────────────────┘
+              ┌─────────────────────────── service worker ─────────────────────────────┐
+              │ extension/background.js                                                │
+ toolbar ───► │   action.onClicked   → openPreferredSurface (panel | own window)       │
+  click       │   captureTab         → captureShot (captureVisibleTab | debugger)      │
+              │   STEPREC_*          → step-recorder state in storage.session          │
+              │   OPEN_FILE_OVERLAY  → content/file-overlay.js over the page           │
+              │ importScripts: shared/  view-mode, site-tab, shot-store, step-rec-core,│
+              │                         dbg-errors, fullpage-trim, presence-match      │
+              │   evidence/buffer + recorder.js → EVIDENCE_* + the webRequest backbone │
+              │   screenrec/parked + claim + session.js → SCREENREC_* + the cast attach│
+              └───────────▲─────────────────────────────────▲──────────────────────────┘
                           │ runtime messages                │ executeScript / register
-      ┌───────────────────┴───────────────┐   ┌─────────────┴──────────────────────┐
-      │ side panel (sidepanel/index.html) │   │ injected into the tab under test   │
-      │   core/   state, storage, views,  │   │   content/step-recorder.js         │
-      │           env-info               │   │   overlay/annotate-overlay.js      │
-      │   screens/ runs-list, run-view,   │   │     + shared/annotate-core.js      │
-      │           test-view, tc-studio,   │   │   evidence/relay.js     ISOLATED   │
-      │           evidence, attachments,  │   │   evidence/page-hook.js   MAIN     │
-      │           hotkeys, livesync,      │   └────────────────────────────────────┘
-      │           offline-queue,          │
-      │           settings                │
-      │   app.js  (loaded LAST)           │   ┌────────────────────────────────────┐
-      └───────────────────────────────────┘   │ test page (editor/editor.html)     │
-                          │                   │   ?test= view | ?suite= create     │
-                          │                   │   ?annotate=<key> → annotate.js    │
-                          │                   └────────────────────────────────────┘
-                          └──── shared/ (loaded by BOTH panel and editor) ──────────┘
+      ┌───────────────────┴───────────────┐   ┌─────────────┴────────────────────────┐
+      │ side panel (sidepanel/index.html) │   │ injected into the tab under test     │
+      │   core/    state, storage, views, │   │   content/step-recorder.js + its     │
+      │            nav-model, gates, fit  │   │     content/rec-*.js helpers         │
+      │   screens/ runs-list, run-view,   │   │   overlay/annotate-overlay.js        │
+      │            test-view, tc-studio,  │   │     + shared/annotate-core.js        │
+      │            evidence, attachments, │   │   evidence/relay.js      ISOLATED    │
+      │            screen-rec, settings   │   │   evidence/page-hook.js      MAIN    │
+      │   app.js   (loaded LAST)          │   │   content/rec-bar.js (screen rec)    │
+      └───────────────────────────────────┘   │   content/review-overlay.js          │
+                          │                   │   content/file-overlay.js            │
+                          │                   └──────────────────────────────────────┘
+                          │
+                          │                   ┌──────────────────────────────────────┐
+                          │                   │ test page (editor/editor.html)       │
+                          │                   │   ?test= view | &edit | ?suite=      │
+                          │                   │   ?annotate=<key> → annotate.js      │
+                          │                   └──────────────────────────────────────┘
+                          └──── shared/ (loaded by BOTH panel and editor) ───────────┘
 ```
 
-### 1.1 Service worker — `extension/background.js` (485 lines)
+The three pages the worker opens for one job each, holding no state of their own:
+`offscreen/recorder.html` (the screen recording's `MediaRecorder` — an offscreen
+document, because a worker cannot hold a `MediaStream`), `screenrec/review.html`
+(preview + trim of a finished take, framed over the page by
+`content/review-overlay.js`) and `viewer/viewer.html` (the file a result's tile
+opens, framed the same way by `content/file-overlay.js`).
 
-Owns three unrelated things, because all three need a context that outlives the
+### 1.1 Service worker — `extension/background.js`
+
+Owns six unrelated things, because each of them needs a context that outlives the
 panel:
 
 - **Panel behavior**, and WHICH SURFACE the click opens. The
   remembered choice lives in `chrome.storage.local.viewMode`
   (`shared/view-mode.js`) and is mirrored onto
-  `chrome.sidePanel.setPanelBehavior({openPanelOnActionClick})` — the one piece
+  `chrome.sidePanel.setPanelBehavior({openPanelOnActionClick})` (`syncPanelBehavior()`)
+  — the one piece
   of this state Chrome holds across the worker sleeping, which matters because
   `sidePanel.open()` may only be called before the first `await` and a worker
   woken BY the click cannot have read storage yet. So side-panel mode is served
@@ -93,23 +109,48 @@ panel:
 - **Which window the site is in**: `windows.onFocusChanged` records the
   last focused NORMAL window into `chrome.storage.session`, because a panel
   living in its own popup cannot work that out for itself (§4.1). Popups are
-  ignored — ours is one.
-- **Tab capture** — `captureShot()` plus the `dbg*` helpers above it. A viewport
+  ignored — ours is one. The two port registries live here too: `panelPorts`
+  (a window holds the toolbar-icon surface) and `panelDocPorts` with its
+  `panelDocsChanged()` grace timer (a panel document is alive on any surface —
+  §3.4).
+- **Tab capture** — `captureShot()` plus the `dbg*` helpers and
+  `shootViaDebugger()` above it. A viewport
   shot is `chrome.tabs.captureVisibleTab` (allowed by `<all_urls>`, no attach);
   full page is `chrome.debugger` + `Page.captureScreenshot`, a temporary attach →
-  shot → detach, and the **only** `chrome.debugger` user left.
+  shot → detach — the shorter of the extension's **two** `chrome.debugger`
+  sessions (§7). `foreignFramesOut()` / `foreignFramesBack()` beside it are the
+  rescue for rake 10.
 - **The step recorder's canonical state** (the `STEPREC_*` handler included), in
-  `chrome.storage.session` under `stepRec`.
+  `chrome.storage.session` under `stepRec` (`srGet()` / `srSet()`, the ordering
+  rules in `shared/step-rec-core.js`).
+- **The screen recording**, in `screenrec/session.js`: the `SCREENREC_*` handler,
+  the offscreen document, and — on the fallback route — the long-lived
+  `chrome.debugger` attach (§3.6, §7).
+- **The odd jobs nothing else has a context for**: `openFileOverlay()`
+  (`OPEN_FILE_OVERLAY` → `content/file-overlay.js`, else a tab on
+  `viewer/viewer.html`), the `OPEN_RUN` handler behind the web app's *Run in
+  Extension* button, `sweepStagedShots()` on `runtime.onStartup`/`onInstalled`,
+  and `syncPresenceScript()`, which registers `content/presence.js` for the
+  instance saved in Settings.
 
-`importScripts('shared/view-mode.js', 'shared/site-tab.js', 'evidence/recorder.js')`
-pulls in the surface preference, the tab resolver and the evidence recorder — the latter registers its own
+`importScripts()` at the head of the file pulls in eleven scripts:
+`shared/view-mode.js`, `shared/site-tab.js`, `shared/shot-store.js`,
+`shared/step-rec-core.js`, `shared/dbg-errors.js`, `shared/fullpage-trim.js`,
+`shared/presence-match.js`, `evidence/buffer.js`, `evidence/recorder.js`,
+`screenrec/parked.js`, `screenrec/claim.js` and `screenrec/session.js`. Two of
+them register listeners at load rather than waiting to be called:
+`evidence/recorder.js` its `chrome.webRequest` and `chrome.runtime.onMessage`
+ones, and `screenrec/session.js` its `chrome.debugger`, `chrome.contextMenus`,
+`chrome.commands` and `chrome.tabs` ones.
 `chrome.webRequest` and `chrome.runtime.onMessage` listeners at load.
 
 ### 1.2 Side panel — `extension/sidepanel/`
 
 `index.html` is the whole DOM: every view is a `<section id="view-…">` toggled
-by `show()`. The 35 `<script>` tags at the foot of `index.html` (one vendored
-`showdown.min.js`, the rest ours) are the module system.
+by `show()`. The 73 `<script>` tags at the foot of `index.html` (one vendored
+`showdown.min.js`, the rest ours) are the module system — plus
+`shared/theme.js`, the one script in the `<head>`. That list is the load order
+§2.2 and rake 1 are about.
 
 **Design tokens — `extension/shared/tokens.css`.** One stylesheet, `<link>`ed
 before the page's own CSS by both the panel and the editor, holding every colour,
@@ -581,12 +622,23 @@ Advanced) and `#signout-status`.
 
 | File | Owns |
 |---|---|
-| `core/state.js` | The single `state` object; `$()`; `recordFor()`; `byRecordId()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `handleApiError()`. |
-| `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` — the only writers of the `session` key. |
-| `core/views.js` | `show()`, the three-tab model (`TAB_OF_VIEW`), `switchTab`/`goBack`, `updateContextBar()` (the contextual header row), `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), `toast()` / `progressToast()` / `hideToast()`, `setStatusLine()`, the degraded banner, and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. |
+| `core/state.js` | The single `state` object; `$()`; `recordFor()`; `byRecordId()`; `isConfigured()`; the `capabilities.jwt` gate and `applyCapabilities()`; the read-only lockout's own probe (`probeReadonly()` / `readonlyGate()` / `startReadonlyWatch()`, #155); the project-info and project-users caches and the `resetProjectScopedState()` that drops them; the `projectEpoch` / `staleProject()` guard that strands a container load a project switch has outrun; `probeSession()`; `handleApiError()`. |
+| `core/storage.js` | `loadStored()` / `persistSession()` / `migrateHostSettings()` / `dropAiApiKey()` — the only writers of the `session` key. |
+| `core/nav-model.js` | `NavModel` — the navigation MODEL, no DOM and no globals: `TAB_OF_VIEW`, `TABS`, `ROOT_VIEWS`, `TAB_ROOT`, `contextTitleFor()`, `webTarget()`/`webHref()` (where a row's ↗ points), and the two navigations as DESCRIPTORS rather than calls — `nextViewForTab()` for a tab click, `backTargetFor()` for Back. `core/views.js` is the half that paints what this decided. |
+| `core/views.js` | `show()`, `switchTab`/`goBack` (`navStep()` over `NavModel`'s descriptors), `updateContextBar()` (the contextual header row, its crumbs and its ↗), `setImmersive()`, `refreshAll()` (the project strip's panel-wide Refresh — projects, the open view, both tab counts), and `paintCounter()` — the one writer of a `.counter`'s figure, which fades the number in when (and only when) it actually changed. Both filter rows and both tab chips go through it, and both rows are UPDATED rather than rebuilt, so a settling count moves nothing but its own digits. The toast, the status lines, the two gates and the two self-measuring rows stay here as bare delegates onto the four files below, so a screen still calls `toast()` and `fitFilterChips()` by name. |
+| `core/toast.js` | `PanelToast` — the bottom plaque and the inline status lines: `show()` / `hide()` / `duration()` and `statusLine()`. |
+| `core/gates.js` | `Gates` — the two walls that take the panel away from the tester: `applyReadonlyBlock()` (the read-only lockout, #155) and `updateDegradedBanner()` / `dismissDegradedBanner()` (the basic-mode strip). |
+| `core/fit.js` | `Fit` — the two rows that MEASURE themselves rather than take a breakpoint: `filterChips()` (overflow into a `⋯` menu) and `initActionLabels()` (the create button that drops a word when the search field beside it runs out of room). |
+| `core/format.js` | `Fmt.humanDuration()` — one wording for a duration, whether it arrives in seconds off the run serializer or in milliseconds off a result. Reads no DOM, no API and no `state`. |
+| `core/status-icons.js` | `StatusIcons` — the status glyph map, the tree marks, the running ring and the run-kind badge, drawn from `shared/icons.js`. |
+| `core/suite-tree.js` | `SuiteTree` — the four pure decisions the Tests tab's tree is made of: which nodes a search keeps, what a folder's count says, which mark a node carries, which suites ride at the top. |
+| `core/dialog.js` | `ConfirmDialog.ask()` — the panel's ONE confirm dialog. Core, not a screen: settings, attachments and the run lock all ask the same one. |
+| `core/write-status.js` | `WriteCore` — `writeStatus()` and `writeEnvMeta()`, the single status-write path all three surfaces reach (§3.2). Core rather than a screen because the offline queue's replay is one of them. |
+| `core/session-restore.js` | `SessionRestore` — the guards a stored `session` is read back through (`fromStored()`) and the one-shot `tcReturn` breadcrumb (`takeTcReturn()`). Pure: the filter keys arrive as an argument. |
+| `core/open-run-intent.js` | `OpenRunIntent` — the web app's *Run in Extension* click, left by the worker in `storage.session` and spent by whichever panel wakes up next. |
 | `core/project-switcher.js` | The header project strip: `renderProjectBar()`, `renderProjectOpenLink()` (the strip's `↗` to `<host>/projects/<slug>`), `refreshProjects()` (JWT `listProjects`), `switchProject()` — which repoints `settings.projectId`, calls `resetProjectScopedState()` and lands the active tab on its root — and `initProjectSwitcher()` (boot paint + background refresh + resolving a config that has no project). The control is a custom listbox with a type-to-filter input (same pattern as the editor's priority menu — a native `<select>` pops an OS-level menu over the narrow panel): `initProjectDropdown()` wires it from app init, `renderProjectOptions()` paints the filtered rows, and the popup's `z-index` must stay in the root stacking context (the stacking-context rake). Two of its parts are shared with the choose-a-project screen rather than copied into it: `matchProjects(rows, filter)` (title AND slug) and `projectRowEl()`, the one project row — two lines plus the trailing count, and the `dataset.projectId` the e2e reads. `askForProject()` is what sends a connection with no project to that screen. |
 | `core/view-switch.js` | The header's surface switch: `initViewSwitch()` asks `ViewMode` which surface this document is in, `renderViewSwitch()` names and marks it for the one the press would land on ("Open in window" / "Dock to side panel"), and the click opens the other one and closes this. The two directions are not symmetric: the window is the worker's (`VIEW_OPEN_WINDOW`), while docking calls `chrome.sidePanel.open()` **before its first await** — the gesture lives only that long — on the normal-window id kept fresh from the worker's focus tracking, because a popup cannot host a side panel. |
-| `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta**. The `Viewport` is the tested tab's own `innerWidth × innerHeight` in CSS pixels, read inside that tab rather than off the panel's screen, and is omitted when the tab cannot be read. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
+| `core/env-info.js` | The `Browser` / `OS` / `Viewport` / `URL` facts, collected at click time and written as testrun **meta** (`collectEnvMeta()`). The `Viewport` is the tested tab's own `innerWidth × innerHeight` in CSS pixels, read inside that tab rather than off the panel's screen, and is omitted when the tab cannot be read. The `URL` is `origin + pathname` with a trailing `(query trimmed)` marker when a query/fragment was dropped, unless `envFullUrl` opts back in. |
 | `core/skeleton.js` | `Skeleton` — the loading placeholders. A **navigation draws its own at once**: the screen it left is already gone, so waiting out a clock only buys an empty view that fills 150 ms later, which reads as a flash of nothing rather than as speed; it fades in (`.skeleton-enter`). The **boot** is the one that still waits — `paintBoot()` starts a 250 ms clock (`DELAY_MS`) so a fast open lands on the real panel having drawn none, and fills `#boot-skeleton` with the whole panel (project strip, tab row, a runs list) while init walks token → projects → runs; `bootDone()` disarms it, and drops the container and the `data-booting` flag, on the first view that can be painted. `show(view)` mounts a per-view placeholder in front of the container it will replace and returns a HANDLE — `hide(handle)` removes it only while it is still the one in hand, so a stranded load settling late cannot clear the placeholder of the load that outran it. The **run** placeholder covers its whole screen — the summary card, the controls and the checklist — because a plan may also name blocks to `hide` while it is up, and those two paint empty (an empty bordered card over an empty chip row reads as a screen that failed rather than one loading); `hide()` gives them back on either path. A screen that already **holds its rows in memory puts up no placeholder at all**: it paints them and re-reads behind them (see 3.1). Every placeholder is composed from the real components with `.skeleton` bars in place of content (see the SKELETON section of `shared/components.css`) and from the bars in `shared/skeleton.js`, which is why there is no second copy of any row to keep in step. |
 
 **What is RUNNING is a toast, not a line.** Progress — `Capturing tab…`,
@@ -601,48 +653,90 @@ annotator's Discard, a save whose tester moved on) calls `hideToast()` itself. T
 `Loading …` lines of the list screens stay lines: they pair with a skeleton, and a
 toast per navigation is noise, not information.
 
-**`screens/`** — one file per surface, all plain top-level functions:
-`runs-list.js` (703 lines, dashboard + v2 modes, groups, filters, search, URL
-paste), `run-view.js` (717, the checklist, suite sections, inline statuses,
-finish run, the custom-status pill + the run's custom-status counters), `test-view.js` (steps, priority, substatus, assignee, the
-reported-result summary, the status write), `tc-studio.js` (suite tree + TC list), `evidence.js` (recorder UI
-+ the `.txt` log), `attachments.js` (the Attach file picker, its upload
-loop and the result's attachment list),
-`hotkeys.js` (web-runner hotkeys + `attachScreenshotAnnotated`),
-`livesync.js` (20 s poll), `offline-queue.js`,
-`project-pick.js` (the choose-a-project screen), `settings.js`.
+**`screens/`** — the panel's surfaces, all plain top-level functions or one IIFE
+global each. The list is longer than the number of screens: where one screen grew
+a subject of its own — a gate, a card, a bar — that subject took a file, so a
+change to it is not a change to the screen that happens to show it.
+
+`runs-list.js` (dashboard + v2 modes, groups, filters, search, URL paste) with
+`runs-paging.js` (the paging arithmetic over `state` alone) and `runs-url.js`
+(what a pasted link may mean); `run-view.js` (the checklist, suite sections,
+inline statuses, the run session probe) with `run-lock.js` (`runWriteLock()` /
+`recordWriteLock()` / `finishRun`, §3.2b) and `run-info.js` (the Run info card);
+`test-view.js` (steps, example substitution, the priority icon and `clickStatus`)
+with `test-gates.js` (`updateTestActionsState()` — what the verdict buttons, the
+comment box, the step circles and the three attach controls look like when
+something refuses them), `test-meta.js` (custom status + assignee),
+`test-summary.js` (the reported-result card and the panel's ONE file tile) and
+`test-drafts.js` (`CommentDrafts`, the unsent comment box);
+`tc-studio.js` (suite tree + TC list) with `tc-quick-bar.js` (Add new test,
+quick and bulk) and `tc-suite-create.js` (the inline new folder/suite row);
+`evidence.js` (recorder UI + the errors-only list) with `evidence-format.js`
+(the row line, the Attach snippet, the `.txt`) and `evidence-upload.js`
+(`EvidenceUpload.log()`, the upload on FAIL);
+`screen-rec.js` (the screen recording's button and the upload of the parked
+take); `attachments.js` (the Attach file picker, its upload loop and the
+result's attachment list); `hotkeys.js` (web-runner hotkeys +
+`attachScreenshotAnnotated`); `livesync.js` (20 s poll); `offline-queue.js`;
+`project-pick.js` (the choose-a-project screen); and `settings.js` with
+`settings-form.js` (what the form paints and reads back) and `settings-erase.js`
+(Forget instance / Disconnect / Sign out).
 
 `app.js` is loaded **last** and is the only bootstrap: it wires every listener,
 restores settings + session, and picks the opening view.
 
 ### 1.3 Test page — `extension/editor/`
 
-A standalone extension page (`editor.html`) serving three jobs, selected by
-query string (`editor.js:3-11`):
+A standalone extension page (`editor.html`) serving four jobs, selected by query
+string (`parseContext()` in `editor/editor.js`, dispatched in `boot()`):
 
-- `?test=<uid>` — the **read-only view** of an existing TC (`renderView()`):
-  title, priority chip and the description rendered through the same
-  `showdown` + `sanitizeHtml` pair the Preview tab uses. No OverType, no Save, no
-  priority dropdown, no recorder/screenshot tools (tests are edited in
-  the web app; the panel runs and creates them). Its header carries the one way
-  out — an "Open in Testomat ↗" anchor to
-  `<active host>/projects/<slug>/test/<public uid>` in a new tab (the route
-  is the product's own, `Test#to_url` + the Ember `suites.test` route, and both
-  halves come from the active settings, so it hides rather than 404s when either
-  is missing).
-- `?suite=<id>` — the **create editor** (`renderEditor()`): OverType, the
-  Edit/Preview tabs, the priority dropdown, the project template picker,
-  the step
-  recorder, screenshot capture, dirty guards and `Cmd`/`Ctrl`+`S`. A successful
-  create hands the page over to `renderView()` of the new test (and rewrites the
-  URL to `?test=<id>`), which is also what makes a second Save impossible —
-  there is **no update path** (`api.js` has no `updateTest`).
+- `?test=<uid>` — the **read-only view** of an existing TC
+  (`EditorView.renderView()`, `editor/view.js`): title, priority chip, the
+  type-of-test mark, the parameters table and the description rendered through
+  the same `Md.render()` — showdown plus `sanitizeHtml` — the Preview tab uses.
+  No OverType, no Save. Its header carries two ways out: a pencil that re-opens
+  THIS page with `&edit` (same uid, same trail, same tab), and an "Open in
+  Testomat ↗" anchor to `<active host>/projects/<slug>/test/<public uid>` in a
+  new tab (`testWebUrl()`, `editor/editor.js` — the route is the product's own,
+  `Test#to_url` + the Ember `suites.test` route, and both halves come from the
+  active settings, so it hides rather than 404s when either is missing).
+- `?suite=<id>` — the **create editor** (`renderEditor()` with `mode: 'create'`):
+  OverType, the Edit/Preview tabs, the priority dropdown, the project template
+  picker, the parameters grid, the step recorder, screenshot capture, dirty
+  guards and `Cmd`/`Ctrl`+`S`. A successful create hands the page over to
+  `renderView()` of the new test and rewrites the URL to `?test=<id>`
+  (`handOverToView()`), so a second chord cannot post a duplicate.
+- `?test=<uid>&edit` — the **edit editor**: the same `renderEditor()` with
+  `mode: 'edit'`, seeded from the test's current text
+  (`TestomatAPI.getTest`), or from an unsaved draft of that same test where one
+  survives. `save()` then PATCHes through `TestomatAPI.updateTest(uid, {title,
+  description, priority})` instead of `createTest` — deliberately without
+  `suite_id`, because sending it would MOVE the test. The retry after a create
+  whose upload leg failed takes the same PATCH, aimed at `savedId`: that is what
+  lets a half-written Save be repeated without leaving two tests behind. No
+  template picker here — a template SEEDS an unwritten body, and this one is
+  written.
 - `?annotate=<key>` — the annotator **fallback** surface (`editor/annotate.js`),
-  used when the on-page overlay cannot be injected.
+  used when the on-page overlay cannot be injected. It takes the whole page: no
+  OverType and no API.
+
+(`?demo` is a fifth entry, `renderDemo()` — a local, API-free round trip the e2e
+harness drives. It is not reachable from the product.)
+
+Ten files behind those five entries: `editor.js` is the shell and the
+create/edit screen, `view.js` the read-only one, `annotate.js` the annotator
+surface above, and beside them `draft.js` (the `editorDraft:` keys and the dirty
+tracker), `rec-session.js` (the step recorder's editor half, the **Polish with
+AI** switch and its `polishSteps` key), `rec-format.js` (the message that polish
+sends), `md-sections.js` (the `### Steps` surgery both of those do),
+`params-grid.js`, `priority-control.js` and `editor-icons.js` (the icon names
+the other files share).
 
 `?ctx=panel` means the page is navigated to **in the side-panel document itself**
 (the panel navigates away and back; `sessionStorage.tcReturn` is the breadcrumb
-that restores the TC list, `app.js:86-92`) and adds the ◀ Back button;
+that restores the TC list — written by `openEditor()` (`screens/tc-studio.js`)
+and spent by `SessionRestore.takeTcReturn()` at the panel's next boot) and adds
+the ◀ Back button;
 `?ctx=tab` is the same page in a full browser tab, without that chrome.
 
 **The trail (`?ctx=panel`).** This page is the deepest step of the panel's Tests
@@ -725,19 +819,25 @@ layers the whole extension shares — a tooltip opened from that bar (`--z-toolt
 priority menu still paints whole over the tabs and the toolbar, which is what
 that 110 had been for.
 
-It reuses the panel's globals via its own `<script>` list
-(`editor.html:15-26`) — same `TestomatAPI`, same settings, same v2 endpoints.
+It reuses the panel's globals via its own `<script>` list at the foot of
+`editor.html` — same `TestomatAPI` (the six `api/*.js` files plus `api.js`),
+same `shared/` layer, same settings, same v2 endpoints. Where the two lists
+part: the editor alone loads OverType, `shared/shot-store.js` and the four
+annotator files (`annot-geometry`, `annot-history`, `annot-keys`,
+`annotate-core`); the panel alone loads `params.js`, `shared/roving.js`,
+`shared/hovercard.js` and `shared/user-cell.js`.
 
 ### 1.4 `shared/` — loaded by more than one realm
 
 | File | Loaded by | Global |
 |---|---|---|
 | `shared/view-mode.js` | worker (`importScripts`), panel | `ViewMode` — which SURFACE the panel is in and which one the toolbar icon opens next: `sidepanel` (default) or `window`, remembered in `chrome.storage.local.viewMode`. Also owns the two window ids window mode needs (`chrome.storage.session`): the panel's own popup, and the last focused NORMAL window the site under test is in |
-| `shared/site-tab.js` | worker (`importScripts`), panel, editor | `SiteTab`, `resolveSiteTab` |
+| `shared/site-tab.js` | worker (`importScripts`), panel, editor | `SiteTab`, `resolveSiteTab` — the active site tab, its origin, and the BOUND target (§4.1) |
 | `shared/site-access.js` | panel, editor | `SiteAccess`, `ensureSiteAccess` |
 | `shared/capture-annotate.js` | panel, editor | `CaptureAnnotate` |
-| `shared/annotate-core.js` | editor page, **and injected into the page** | `Annotate` core engine |
+| `shared/annotate-core.js` + `annot-geometry.js` / `annot-history.js` / `annot-keys.js` | editor page, **and injected into the page** | `Annotate` core engine, and the three pure parts under it — `AnnotGeometry` (boxes, curves, hit tests, grips), `AnnotHistory` (the fifty-step undo stack) and `AnnotKeys` (what a key means). None of the three touches a canvas, a document or `chrome.*`, which is what lets them be read and tested on their own |
 | `shared/html-sanitize.js` | panel, editor | `sanitizeHtml` — the extension's only XSS boundary |
+| `shared/markdown.js` | panel, editor | `Md` — the web runner's exact pipeline in one place: escape → strip comments → showdown → `sanitizeHtml`. `render(md)` answers a DETACHED, already-sanitized `<div>`; nothing in the extension feeds showdown output to a document any other way |
 | `shared/img-hydrate.js` | panel, editor | `ImgHydrate` — every image inside test CONTENT, shown despite a CSP that allows no remote `<img>`. `hydrate(group, container)` runs on a DETACHED rendered-markdown container, right after `sanitizeHtml`: each `src` is taken OFF the node before it can reach the document (a remote one the CSP blocks, a root-relative one the extension 404s — the blank box that was reported), the bytes are fetched through `TestomatAPI.fetchAsset` and handed back as a `blob:` URL, and a fetch that fails leaves an "open image ↗" link instead of nothing. `load(group, url, img)` is the same swap for a thumbnail the caller built (the reported-step screenshots and the result's attachment list). Object URLs are owned per GROUP, revoked by `release(group)` when the container that painted them goes; `held(group)` is the e2e's proof that they were |
 | `shared/icons.js` | panel, editor, **and injected into the page** | `Icons` — the ONE icon set (Material Symbols Rounded, wght 400, fill 0) |
 | `shared/priority-icons.js` | panel, editor | `PriorityIcons` (drawn from `Icons`) — `mark(p)` builds the `.prio` component a list row opens with |
@@ -745,9 +845,21 @@ It reuses the panel's globals via its own `<script>` list
 | `shared/user-cell.js` | panel | `UserCell` — a PERSON, printed (`.user-cell` + `.avatar`): `normalize(value)` reads a name / an email / a record into `{name,email,avatar}`, `cell(user)` draws the monogram-plus-name Run info's "Executed by", "Created by" and "Assigned to" wear. The monogram is the floor and the photo is an upgrade: the CSP allows no remote `<img>`, so an avatar URL is fetched (cookieless, cached per URL) and swapped in as a `blob:`; anything that refuses — CORS, 404, a login — leaves the initials |
 | `shared/theme.js` | panel, editor — **from `<head>`**, the only script either page loads there | `Theme` — the colour scheme: `system` (default) / `light` / `dark`. Applying one is a pin of `color-scheme` on `<html>`, which is what every token in `tokens.css` resolves its `light-dark()` pair against; `system` REMOVES the pin, so `:root`'s own `color-scheme: light dark` follows the OS live with no `matchMedia` listener. The `<head>` placement is the point: it runs before the first paint, so a pinned panel never flashes the OS scheme on the way in |
 | `shared/tooltip.js` | panel, editor | `Tooltip` — the extension's own tooltip, replacing the browser's `title` |
+| `shared/hovercard.js` | panel | `HoverCard` — the tooltip's richer sibling: a card the pointer can ENTER, so it closes on a grace timer rather than on `pointerleave` |
 | `shared/empty-state.js` | panel, editor | `EmptyState` — the one builder for every "there is nothing here" (drawn from `Icons`, so it loads after it) |
 | `shared/skeleton.js` | panel, editor | `Sk` — the skeleton **vocabulary**: `bar()` (one grey bar) and `lines()` (a paragraph of unloaded prose). Which placeholder a screen puts up is the screen's own business — `core/skeleton.js` for the panel, `renderView({loading})` for the test page — but the bars are the same bars, and the two documents share no other script |
-| `extension/api.js`, `params.js` | panel, editor | `TestomatAPI`, `TestomatParams` |
+| `shared/dropdown.js` | panel, editor | `Dropdown` — this extension's `<select>`: a `<button>` face plus the shared `.menu`, because a native select pops an OS-level menu over a 400px panel. Its host must not trap the popup in a stacking context of its own (the stacking-context rake) |
+| `shared/roving.js` | panel | `Roving` — ONE tab stop for a whole list, not one per row: a run's test rows carry three status buttons each, so a stop per row would turn a 200-test run into 800 of them. Tab enters the list once, the arrows walk it |
+| `shared/panel-link.js` | panel, editor | `PanelLink` — the two long-lived ports every panel document dials: `panel` (a window holds the toolbar-icon surface) and `panel-doc` (a panel document is alive on any surface). The editor keeps the first and skips the second — it is no panel surface, but a toolbar click must not replace a half-written test |
+| `shared/handoff.js` | panel, editor, `api.js`, viewer page | `Handoff` — the `handoff.json` contract in [`docs/host-handoff.md`](host-handoff.md): a host app that launched this browser hands the panel a ready session instead of asking for a pasted token |
+| `shared/shot-store.js` | worker (`importScripts`), editor | `ShotStore` — `put`/`get`/`del`/`sweep` over the `testomat-shots` IndexedDB database, where an unsaved draft's staged screenshots live because `storage.session`'s ~10 MB cannot hold ten full-page JPEGs (§5.2) |
+| `shared/step-rec-core.js` | worker (`importScripts`) | `StepRecCore` — the step recording's ORDERING rules: where a line lands (`srPlace`), which twins a double-click drops (`srPopTwins`), when a line is final (`srFinalEnd`), and the settle constants. Pure over the `stepRec` record |
+| `shared/dbg-errors.js` | worker (`importScripts`) | `DbgErrors` — which `chrome.debugger` / capture message is which failure (`dbgIsForeignFrame`, `capNeedsGrant`) and the copy the tester reads instead of Chrome's. `background.js` and `screenrec/session.js` both read it |
+| `shared/fullpage-trim.js` | worker (`importScripts`) | `FullpageTrim` — the full-page shot's double-compose guard: `overshoot()` is the arithmetic, `trimToDocument()` the re-encode that acts on it (§4.3) |
+| `shared/presence-match.js` | worker (`importScripts`) | `PresenceMatch` — which configured base URL earns a registered `content/presence.js` and which earns none |
+| `shared/webm-duration.js` | offscreen recorder page | `WebmDuration` — `MediaRecorder` streams its file, so the take carries no Duration and every player treats it as an endless stream; this patches the header before the file is parked |
+| `extension/api.js` + `api/errors.js`, `transport.js`, `paging.js`, `people.js`, `normalize.js`, `assets.js` | panel, editor | `TestomatAPI` over `ApiErrors` / `ApiTransport` / `ApiPaging` / `ApiPeople` / `ApiNormalize` / `ApiAssets` — the six load first, in that order (§6) |
+| `params.js` | panel | `TestomatParams` — substituting a parametrized row's values into a test body |
 
 `shared/site-tab.js` is written to load in **both** a worker and a document —
 no `document`/`window` references — because `importScripts` and `<script src>`
@@ -761,18 +873,24 @@ the web app reads to tell the extension is installed — statically on
 instance saved in Settings. The rest go in on demand through
 `chrome.scripting.executeScript`:
 
-- `content/step-recorder.js` — injected by the worker (`srInject()`,
-  `background.js:124-127`) on start and on every `complete` navigation of the
-  recorded tab. Capture-phase listeners, a Shadow-DOM indicator, one recorder
-  per document (`window.__testomatStepRecInited`).
+- `content/step-recorder.js`, with `shared/icons.js` first and its four helpers
+  behind it — `content/rec-naming.js` (how a step names what was acted on),
+  `rec-mask.js` (what a secret may become), `rec-packet.js` (the context packet)
+  and `rec-pill.js` (the indicator) — injected by the worker (`srInject()`,
+  `background.js`) on start and on every `complete` navigation of the recorded
+  tab, `allFrames: true` because an embedded form is where the steps go missing.
+  Capture-phase listeners, a Shadow-DOM indicator, one recorder per document
+  (`window.__testomatStepRecInited`).
 - `evidence/relay.js` (ISOLATED) + `evidence/page-hook.js` (**MAIN world**) —
   the evidence recorder's instrumentation, injected by `evInject()` on Rec-start
   and on every navigation of the recorded tab, and additionally **registered**
   for the recorded origin through `chrome.scripting.registerContentScripts` at
   `runAt: 'document_start'`, so a reload is instrumented before the page's own
   scripts run. One hook per document (`window.__testomatEvHooked`). See §3.4.
-- `overlay/annotate-overlay.js` + `shared/annotate-core.js` + `shared/icons.js`
-  (first — the toolbar draws its marks from it) + `shared/tooltip.js` — injected
+- `overlay/annotate-overlay.js` + `shared/annotate-core.js` + its three pure
+  parts (`annot-geometry.js`, `annot-history.js`, `annot-keys.js`) +
+  `shared/icons.js` (first — the toolbar draws its marks from it) +
+  `shared/tooltip.js` — injected
   by `CaptureAnnotate.tryInjectOverlay()` (`shared/capture-annotate.js`)
   into the tab the screenshot came from. A preceding `executeScript({func})`
   stashes three things on the window in the same isolated world:
@@ -795,6 +913,25 @@ instance saved in Settings. The rest go in on demand through
     and a change to a button in the panel is that change in this toolbar. If the
     read fails there is no overlay — the caller falls back to the editor tab
     rather than drawing an unstyled one.
+- `content/rec-bar.js` — the screen recording's controls, put on the page rather
+  than in the panel because the tester is looking at the site under test.
+  Injected by `srecInjectBar()` (`screenrec/session.js`) at start and again on
+  every `complete` of the recorded tab; a page Chrome keeps extensions off
+  records without its controls.
+- `content/review-overlay.js` — the finished take's preview + trim, injected by
+  `srecOpenReview()` over the recorded tab, else over the site tab, else opened
+  as a tab of its own. It FRAMES `screenrec/review.html`, and that page proves
+  the extension framed it — rather than the page under test — by asking the
+  worker for the one-shot `screenRecReviewKey` (`SCREENREC_REVIEW_KEY`).
+- `content/file-overlay.js` — the same shape for a result's file tile:
+  `openFileOverlay()` (`background.js`) injects it and it frames
+  `viewer/viewer.html`. A popup window cannot float above a fullscreen browser,
+  and an extension frame keeps the session the file behind a login needs.
+
+Those last two are the reason `manifest.json` has a `web_accessible_resources`
+entry at all: `viewer/viewer.html` and `screenrec/review.html` are the only two
+files a page may load, and both are framed by an overlay this extension put
+there itself.
 
 ---
 
