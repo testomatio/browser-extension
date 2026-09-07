@@ -292,16 +292,18 @@ full (an unopened folder, the errors-only log, a filtered menu). The mark is
 always muted — the accent belongs to the way out under the sentence, not to the
 picture of the thing that is missing.
 
-`EmptyState.build({icon, title, text, actions, compact, tag, live})`
+`EmptyState.build({icon, title, text, actions, compact, tag, className, id, live})`
 assembles it; `tag: 'li'` is what lets one be the single child of a `<ul>`
 without a `<div>` inside a list, and `live` sets `role="status"` on the states
 that took an `aria-live` status line's job over (the filtered-empty runs list
 and run checklist now say it in the list itself, with a Clear search / Show all
-button under it, rather than in a line below the fold). Every one of the
-panel's fourteen carries a **different** Material Symbol — `search_off` vs
-`filter_alt_off` vs `find_in_page` vs `manage_search`, `folder_off` vs
+button under it, rather than in a line below the fold). Thirteen of the panel's
+call sites, plus one on the test page and one in `shared/dropdown.js`, and each
+names its **own** Material Symbol — `search_off` vs `filter_alt_off` vs
+`find_in_page` vs `filter_list_off` vs `manage_search`, `folder_off` vs
 `create_new_folder` — so two different nothings never look like the same
-nothing.
+nothing. Three of them pick the glyph at paint time, off whether it is a search
+or a filter that emptied the list.
 
 **Tooltips — `extension/shared/tooltip.js` + the `.tooltip` component.** The
 extension draws its own, and the browser's `title` attribute is gone from every
@@ -1570,7 +1572,8 @@ awaiting its title for `SR_NAV_SETTLE_MS` (3000), after which the URL-derived ti
 stands. Past `sent` both rewriters give up (`srPopTwins`, `srRefineNav`): that line
 belongs to the editor now, and only rewriting our own copy would fork the two.
 
-**Polishing (#23, editor side)**. The `Polish with AI` switch (`storage.local`
+**Polishing (#23, editor side — `editor/rec-session.js`)**. The `Polish with AI`
+switch (`storage.local`
 `polishSteps`, default off, hidden when `jwtAvailable() === false`) changes
 **nothing** about the insertion: every entry goes in raw, at once, exactly as it
 did before the feature existed. What the editor keeps alongside the body is the
@@ -1616,7 +1619,7 @@ the indicator, cleared only by Resume, so stepping out of the scenario never buy
 swallow the deferred `Open` step. A navigation during a manual pause is followed
 (`lastUrl`) but not recorded.
 
-**The context packet** (#23, `content/step-recorder.js`). Every action carries a
+**The context packet** (#23, `content/rec-packet.js`). Every action carries a
 `ctx` alongside its sentence: `element` (tag, role, type, own text, aria-label,
 title, placeholder, name, id, first 3 classes, icon), `near` (label, row, column,
 section, heading, the texts either side), `page` (title + `origin+pathname`, the
@@ -1632,7 +1635,10 @@ leaves ~400ms late, so `pagehide`/`beforeunload` flush the outbox rather than le
 a navigating click die with the page, and `srPlace()` in the worker puts an action
 that lands right behind an auto-nav line back in front of it. The packet is built
 whether or not the AI switch is on — it is also what lets a nameless control be
-named by its row (`elementName(el, fallback, near)`).
+named by its row (`elementName(el, fallback, near)`, `content/rec-naming.js`).
+The `~400ms` is `AFTER_MS` and the cap is `PACKET_MAX` (1500 bytes), both in
+`rec-packet.js`; the queue that keeps arrival order across that window is
+`content/rec-outbox.js`.
 
 **What the injected script recognizes** (`content/step-recorder.js`): buttons,
 links, `summary`, the button-ish inputs, and the ARIA custom controls
@@ -1646,7 +1652,7 @@ every recognizer (click, dblclick, blur, keydown, change) bails on
 `fromIndicator()`; without that, typing an expected result into the pill would
 record itself as a step.
 
-**What it refuses to record**. A typed value is masked when the
+**What it refuses to record** (`content/rec-mask.js`). A typed value is masked when the
 field's `type` is `password`, its `autocomplete` is one of the card / one-time-code
 / password tokens (spec prefixes `section-*`/`billing`/`shipping` stripped first),
 the words it is named/labelled by hit `PASSWORD_WORDS` or `SENSITIVE_WORDS`, or the
@@ -1675,7 +1681,7 @@ hint at the content); it is read once per injection (plus a
 `storage.onChanged` listener for a mid-recording save) and a step that beats that
 read waits for it rather than assuming the default.
 
-**Element context** (`contextOf()`). A name resolved from the control alone
+**Element context** (`contextOf()`, `content/rec-naming.js`). A name resolved from the control alone
 ("the checkbox") is useless in a list, and the surroundings cannot be
 reconstructed later — so they are read at event time: the row/card
 (`closest('tr, li, [role=row], [role=listitem]')` → its first heading / header
@@ -1688,7 +1694,8 @@ text takes exactly ONE clause, row before section
 (`Check the Bulk checkbox in the "Bolt Cutters" row`), and a clause that would
 only repeat the control's own name is dropped.
 
-**+ Expected**. An expectation is what the tester *looked at*, not a DOM
+**+ Expected** (`content/rec-pill.js`). An expectation is what the tester
+*looked at*, not a DOM
 event, so the pill carries an input for it (recording only — a paused recorder
 has no step to attach it to). It lives inside the shadow root, where no page CSS
 reaches it; its keystrokes are stopped on the way out of the shadow root so the
@@ -1703,7 +1710,8 @@ the same page title twice). That step is usually already in the body,
 so `splitRecorded()` takes the batch's own steps first and falls back to
 `leadSubs` on the last item of `### Steps`; the flat `### Expected` section is
 left for what has no step to attach to at all — an expected recorded before the
-first step of the recording (`editor/editor.js`).
+first step of the recording (`splitRecorded()`, `editor/rec-format.js`; the
+`### Steps` surgery it drives is `editor/md-sections.js`).
 
 **Blind state.** If `executeScript` throws while recording —
 that means the recorded tab moved to a page Chrome keeps extensions
