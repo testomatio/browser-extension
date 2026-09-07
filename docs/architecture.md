@@ -133,7 +133,7 @@ panel:
   and `syncPresenceScript()`, which registers `content/presence.js` for the
   instance saved in Settings.
 
-`importScripts()` at the head of the file pulls in eleven scripts:
+`importScripts()` at the head of the file pulls in twelve scripts:
 `shared/view-mode.js`, `shared/site-tab.js`, `shared/shot-store.js`,
 `shared/step-rec-core.js`, `shared/dbg-errors.js`, `shared/fullpage-trim.js`,
 `shared/presence-match.js`, `evidence/buffer.js`, `evidence/recorder.js`,
@@ -142,7 +142,6 @@ them register listeners at load rather than waiting to be called:
 `evidence/recorder.js` its `chrome.webRequest` and `chrome.runtime.onMessage`
 ones, and `screenrec/session.js` its `chrome.debugger`, `chrome.contextMenus`,
 `chrome.commands` and `chrome.tabs` ones.
-`chrome.webRequest` and `chrome.runtime.onMessage` listeners at load.
 
 ### 1.2 Side panel — `extension/sidepanel/`
 
@@ -208,7 +207,8 @@ size. Two decisions carry the file:
   toolbar is too tight for it — the Tests tree bar carries two glyph creates as
   well — the button ships both forms (`.fit-label` with `.label-long` /
   `.label-short`) and `.is-short` picks the second. Which one a row wears is
-  MEASURED, not a breakpoint (`fitActionLabels`, sidepanel/core/views.js): the
+  MEASURED, not a breakpoint (`Fit.actionLabels()` in `sidepanel/core/fit.js`,
+  wired by `initActionLabelFit()` in `core/views.js`): the
   measurement is the SEARCH FIELD beside it, the only thing in these rows that
   shrinks, and 144px — what its own placeholder needs — is the floor under which
   the word goes. The full errand stays on as the accessible name. It is measured
@@ -297,13 +297,15 @@ assembles it; `tag: 'li'` is what lets one be the single child of a `<ul>`
 without a `<div>` inside a list, and `live` sets `role="status"` on the states
 that took an `aria-live` status line's job over (the filtered-empty runs list
 and run checklist now say it in the list itself, with a Clear search / Show all
-button under it, rather than in a line below the fold). Thirteen of the panel's
+button under it, rather than in a line below the fold). Eleven of the panel's
 call sites, plus one on the test page and one in `shared/dropdown.js`, and each
 names its **own** Material Symbol — `search_off` vs `filter_alt_off` vs
 `find_in_page` vs `filter_list_off` vs `manage_search`, `folder_off` vs
 `create_new_folder` — so two different nothings never look like the same
-nothing. Three of them pick the glyph at paint time, off whether it is a search
-or a filter that emptied the list.
+nothing. Two of them — the runs list and the run checklist — pick the glyph at
+paint time, off whether it is a search or a filter that emptied the list; the
+runs list's group row picks between a spinner and `folder_off` off whether it
+is still loading.
 
 **Tooltips — `extension/shared/tooltip.js` + the `.tooltip` component.** The
 extension draws its own, and the browser's `title` attribute is gone from every
@@ -436,9 +438,7 @@ and replaces its `icon`, on a copy: the vendored array is never mutated, `name`
 is untouched (it is what the toolbar writes as `data-button` and what the e2e
 reads back), and a button with no name in the map keeps its own glyph.
 
-**Icons — `extension/shared/icons.js`.** One set: Material Symbols Rounded,
-weight 400, path data vendored verbatim (Apache-2.0), keyed by the upstream icon
-name so any glyph traces back to fonts.google.com/icons. `Icons.el()` builds an
+**How a glyph reaches the markup.** `Icons.el()` builds an
 `<svg>`, `Icons.markup()` the string form for the few `innerHTML` call sites, and
 `Icons.hydrate()` fills the static chrome: markup writes
 `<span class="md-icon disc-caret" data-icon="chevron_right">`, never a path.
@@ -449,15 +449,13 @@ which is art, not an icon. Priority glyphs go through `shared/priority-icons.js`
 and the type-of-test squares through `shared/test-type.js`, both drawing from the
 same set.
 
-The set has ONE exception, and it names itself: the nine `type_*` glyphs are the
-product's own type-of-test marks (◇ UI app library → Type of test), which
-Material has no equivalent for. They are drawn on the library's own 13.3333-unit
-box rather than Material's 960 one — the paths are the Figma export verbatim,
-translated to that origin — so each declares its own viewBox in `Icons.BOXES` and
-`Icons.boxOf(name)` is what `el()`/`markup()` ask. An icon absent from that map
-is on the Material box, which is every other glyph in the file. Because the box
-is the drawing's own, `size` means the drawing for these too: `.type-mark` asks
-for 12 and gets 12px of glyph in its 20px square.
+Every name in `Icons.BOXES` draws on a frame of its own — the nine `type_*`
+marks on the library's 13.3333-unit box (the Figma export verbatim, translated
+to that origin), the four `status_*` marks and the five `md_*` glyphs on a
+16-unit one, the three `tree_*` marks on 20 — and `Icons.boxOf(name)` is what
+`el()`/`markup()` ask; a name absent from the map is on Material's 960 box.
+Because the box is the drawing's own, `size` means the drawing for these too:
+`.type-mark` asks for 12 and gets 12px of glyph in its 20px square.
 
 **Header layout.** Three rows above `<main>`, in DOM order:
 
@@ -638,7 +636,7 @@ Advanced) and `#signout-status`.
 | `core/format.js` | `Fmt.humanDuration()` — one wording for a duration, whether it arrives in seconds off the run serializer or in milliseconds off a result. Reads no DOM, no API and no `state`. |
 | `core/status-icons.js` | `StatusIcons` — the status glyph map, the tree marks, the running ring and the run-kind badge, drawn from `shared/icons.js`. |
 | `core/suite-tree.js` | `SuiteTree` — the four pure decisions the Tests tab's tree is made of: which nodes a search keeps, what a folder's count says, which mark a node carries, which suites ride at the top. |
-| `core/dialog.js` | `ConfirmDialog.ask()` — the panel's ONE confirm dialog. Core, not a screen: settings, attachments and the run lock all ask the same one. |
+| `core/dialog.js` | `ConfirmDialog.ask()` — the panel's ONE confirm dialog. Core, not a screen: settings, attachments, the run lock and the offline queue all ask the same one. |
 | `core/write-status.js` | `WriteCore` — `writeStatus()` and `writeEnvMeta()`, the single status-write path all three surfaces reach (§3.2). Core rather than a screen because the offline queue's replay is one of them. |
 | `core/session-restore.js` | `SessionRestore` — the guards a stored `session` is read back through (`fromStored()`) and the one-shot `tcReturn` breadcrumb (`takeTcReturn()`). Pure: the filter keys arrive as an argument. |
 | `core/open-run-intent.js` | `OpenRunIntent` — the web app's *Run in Extension* click, left by the worker in `storage.session` and spent by whichever panel wakes up next. |
@@ -956,7 +954,7 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 | `VIEW_OPEN_WINDOW` | panel → worker | Open the panel in a window of its own, or focus the one already open. Replies `{ok, windowId}`; the panel then remembers the choice and closes the surface it was pressed in. |
 | `EVIDENCE_TOGGLE` `{tabId, recordId}` | panel → worker | Start/stop the console+network recorder. `recordId` is the testrun the session binds to (start only) — §3.4. |
 | `EVIDENCE_STOP` `{reason}` | panel → worker | Stop a recording the tester did not click off — the panel sends it on leaving the bound testrun. Idempotent: not recording is `{ok:true}` and nothing else. |
-| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, recordId, tabTitle, tabUrl, windowSec, entryCount}` (`evStatus()`). Every reply in this family carries that same `status`. |
+| `EVIDENCE_STATUS` | panel → worker | Poll `{recording, tabId, recordId, tabTitle, tabUrl, windowSec, entryCount}` (`evStatus()`). Every reply in this family carries that same `status`, except `EVIDENCE_EVENTS`, which answers `{off}`. |
 | `EVIDENCE_LIST` `{errorsOnly}` | panel → worker | Entries inside the window, optionally errors only. |
 | `EVIDENCE_SNAPSHOT` | panel → worker | All entries in the window (used to build the `.txt` log). |
 | `EVIDENCE_WIPE` | panel → worker | Sign out and Forget on the ACTIVE instance: cancel the pending mirror, stop the recording DROPPING its buffer, then remove `evidenceMirror` — in that order, awaited, so the panel's `clear()` cannot be undone by a late mirror. |
@@ -984,7 +982,7 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 | `SCREENREC_CLAIM` / `SCREENREC_UNCLAIM` `{by}` | panel → worker | One panel document at a time owns the upload: the `file` event is a broadcast, and every open panel would otherwise upload the same take. Serialized in `screenrec/claim.js`; an upload that fails un-claims so the next *Retry attach…* — here or in another panel — can take it. |
 | `SCREENREC_REVIEW_KEY` | injected review overlay → worker | The one-shot `screenRecReviewKey`, which is how a framed `screenrec/review.html` proves the extension framed it and the page under test did not. |
 | `SCREENREC_EVENT` `{event, …}` | worker → panel (broadcast) | `started` / `review` / `file` / `ended`. |
-| `SCREENREC_OFF` `{cmd, …}` | worker → offscreen document (broadcast) | `start` / `cast-start` / `frame` / `pause` / `stop` / `state` / `revoke`. Frames go down a dedicated `screenrec-frames` port instead when one is up: a broadcast would copy every JPEG, several a second, into every extension page. |
+| `SCREENREC_OFF` `{cmd, …}` | worker → offscreen document (broadcast); the review page too, for the trim | `start` / `cast-start` / `frame` / `pause` / `stop` / `state` / `revoke` from the worker, and `trim-begin` / `trim-chunk` / `trim-swap` from `screenrec/review.js`. Frames go down a dedicated `screenrec-frames` port instead when one is up: a broadcast would copy every JPEG, several a second, into every extension page. |
 | `SCREENREC_FILE` `{file}` | offscreen document → worker | Pushed when a cap or a closed tab ended the recording, with no stop to detach the cast. |
 
 The evidence handler ignores anything outside its `EVIDENCE_REQUESTS` set so the
@@ -1001,7 +999,8 @@ A new panel module must:
 3. be added to `sidepanel/index.html` **before** `app.js` and **after** every
    global it reads at load time;
 4. declare what it reads from other files in a `/* global … */` comment (the
-   convention every existing file follows).
+   convention nearly every existing file follows — five `core/` files carry
+   none).
 
 `core/state.js` must precede everything touching `state`; `app.js` must stay
 last. Nothing enforces either — see *Rakes*.
@@ -1271,7 +1270,7 @@ checkboxes, the substatus select, the three attach controls),
 `attachScreenshotAnnotated` (`screens/hotkeys.js`), the file upload and the
 attachment delete (`screens/attachments.js`), the screen recording's attach
 (`screens/screen-rec.js`) and the `writeEnvMeta` side effect
-(`core/write-status.js`). Nine files, one function. Only the run-wide surfaces
+(`core/write-status.js`). Eight files, one function. Only the run-wide surfaces
 read `RunLock.runWriteLock()` directly, and inside `run-lock.js` alone: the
 `#run-lock-note` paragraph therefore appears only when the reason holds for the
 whole view.
