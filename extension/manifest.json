@@ -50,5 +50,5 @@
   "permissions": ["storage", "sidePanel", "debugger", "scripting", "webRequest",
     "tabCapture", "offscreen", "contextMenus"],
   "host_permissions": ["<all_urls>"],
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoqlLbtaIjeOwOUDDkGbTb05aCcYnS5CMqNqCW1WBQrB61jzlqzG3wY9y1MAoXCS77kZKSgkCW/VF8WSx23UA5EWzNKph4ZrxdOxvUPMD5ScUKoCNWZkPTvP163wm17w+mCeT6UItKze09WeVzuotbj/7PgNBWGKgzYk1VLMDu+0ZHfEH/yjP1E5hYkxGkB+5f8rLc0bB/MM4iG+8gWTkFlHXlFQp3xEkRui05kO03Z8M5+VMrBeWL6VHIZioOAecTj/+xYLNFb73Y+fl0TrkdwtPFXng7viad8l9HtBovv2KQz5ckKp1yY/mJZdr17bmhZhlOuVSyUewnOqfzkgJtQIDAQAB"
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoNO5FmLZNVum8CahrRGHtqGXQUI/D8AU9CpCKuAgRV+hRDYu+IYNeF62isIeLL3g6iHoeQtEAjbujj6g4he90DV+0UlUw4zanyXmSynvCHZMCyKDnqu7wg6LujuuYLfJY7utUvMKtWC64dUx5E5Z8nxhz3tU+snfmYaClyie6ai+gHfXelDM1Pass06KE/xgKiwZeIVTJPsOrkzXff2PAMEzVE9PYTRKqcG4Bm38pJb64ptKi0355F8zfSsQxvtldBuOEAZQAbACfUXZWcxZqWrQVGA5PMasYRPlQxqC4PTcwXep1TISYH1BKqA3tP2I7Nb2QvXpKxHypHMvOPHtlwIDAQAB"
 }

@@ -31,19 +31,33 @@ jobs:
             echo "version=${VERSION%%-*}"
             echo "version_name=$VERSION"
             echo "zip=testomat-io-$VERSION.zip"
+            echo "store_zip=testomat-io-$VERSION-webstore.zip"
             [[ "$VERSION" == *-* ]] && echo "prerelease=true" || echo "prerelease=false"
           } >> "$GITHUB_OUTPUT"
 
       - name: Check the manifest
         run: |
           python3 - <<'PY'
-          import json, pathlib, sys
+          import base64, hashlib, json, pathlib, sys
 
           root = pathlib.Path('extension')
           try:
               m = json.loads((root / 'manifest.json').read_text())
           except json.JSONDecodeError as e:
               sys.exit(f"::error::manifest.json is not valid JSON: {e}")
+
+          # The key is the Web Store item's public key, so a GitHub copy answers to the store's ID.
+          STORE_ID = 'amcnjlghmkkjfaajanfeghpgbjakdcka'
+          try:
+              digest = hashlib.sha256(base64.b64decode(m['key'], validate=True)).hexdigest()[:32]
+          except (KeyError, TypeError, ValueError):
+              sys.exit("::error::manifest.json has no readable key, so every unpacked copy would get its own ID")
+          got_id = ''.join(chr(97 + int(c, 16)) for c in digest)
+          if got_id != STORE_ID:
+              sys.exit(f"::error::manifest.json's key gives the ID {got_id}, not the Web Store item's {STORE_ID}")
+          # update_url marks a store install, and a copy carrying it never reads a host's handoff.json.
+          if 'update_url' in m:
+              sys.exit("::error::manifest.json carries update_url, which only the Web Store may add")
 
           refs = list((m.get('icons') or {}).values())
           refs += list(((m.get('action') or {}).get('default_icon') or {}).values())
@@ -92,8 +106,47 @@ jobs:
       - name: Pack
         run: |
           set -euo pipefail
-          (cd extension && zip -qr "../${{ steps.v.outputs.zip }}" . -x '*.DS_Store')
+          # A host's handoff.json holds its credentials: it never ships, in either zip.
+          (cd extension && zip -qr "../${{ steps.v.outputs.zip }}" . -x '*.DS_Store' -x 'handoff.json')
+          # The Web Store refuses a manifest with a key: it assigns the item's ID itself.
+          rm -rf webstore && cp -R extension webstore && rm -f webstore/handoff.json
+          python3 - <<'PY'
+          import json, pathlib
+
+          p = pathlib.Path('webstore/manifest.json')
+          m = json.loads(p.read_text())
+          del m['key']
+          p.write_text(json.dumps(m, indent=2, ensure_ascii=False) + '\n')
+          PY
+          (cd webstore && zip -qr "../${{ steps.v.outputs.store_zip }}" . -x '*.DS_Store')
           unzip -l "${{ steps.v.outputs.zip }}" | tail -1
+          unzip -l "${{ steps.v.outputs.store_zip }}" | tail -1
+
+      - name: Check the two zips
+        env:
+          ZIP: ${{ steps.v.outputs.zip }}
+          STORE_ZIP: ${{ steps.v.outputs.store_zip }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, zipfile
+
+          github, store = zipfile.ZipFile(os.environ['ZIP']), zipfile.ZipFile(os.environ['STORE_ZIP'])
+          names = sorted(github.namelist())
+          if names != sorted(store.namelist()):
+              diff = sorted(set(names) ^ set(store.namelist()))
+              sys.exit(f"::error::the two zips hold different files: {', '.join(diff)}")
+          if 'handoff.json' in names:
+              sys.exit("::error::a host's handoff.json is in the zips")
+          mg, ms = json.loads(github.read('manifest.json')), json.loads(store.read('manifest.json'))
+          if 'key' in ms or 'update_url' in ms:
+              sys.exit("::error::the Web Store manifest carries key or update_url")
+          if {k: v for k, v in mg.items() if k != 'key'} != ms:
+              sys.exit("::error::the two manifests differ by more than the key")
+          differ = [n for n in names if n != 'manifest.json' and github.read(n) != store.read(n)]
+          if differ:
+              sys.exit(f"::error::these files differ between the zips: {', '.join(differ)}")
+          print(f"{len(names)} entries in each zip; the Web Store one lacks only the manifest key")
+          PY
 
       - name: Publish
         env:
@@ -101,12 +154,13 @@ jobs:
         run: |
           set -euo pipefail
           TAG='${{ steps.v.outputs.tag }}'
+          ZIPS=('${{ steps.v.outputs.zip }}' '${{ steps.v.outputs.store_zip }}')
           # Publishing from the Releases UI makes tag and release together, so the
           # existence check can lose that race — a failed create means it appeared.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
-          elif ! gh release create "$TAG" '${{ steps.v.outputs.zip }}' \
+            gh release upload "$TAG" "${ZIPS[@]}" --clobber
+          elif ! gh release create "$TAG" "${ZIPS[@]}" \
                  --title "$TAG" --generate-notes \
                  ${{ steps.v.outputs.prerelease == 'true' && '--prerelease' || '' }}; then
-            gh release upload "$TAG" '${{ steps.v.outputs.zip }}' --clobber
+            gh release upload "$TAG" "${ZIPS[@]}" --clobber
           fi
