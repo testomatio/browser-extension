@@ -526,3 +526,215 @@ test('D21: a password field masks on its type alone, whatever it is called', asy
   await h.act(field, 'blur');
   assert.deepEqual(h.entries().map((e) => e.text), ['Type the password into the Memorable answer field']);
 });
+
+// ---- H: a field's text is its value, and no name, clause or packet fact reads it ----
+
+const NEVER = { storage: { stepRecNeverValues: true } };
+
+// The typed text reaches no part of any entry: not the sentence, the name, the clause or the packet.
+function nowhere(h, typed) {
+  const all = JSON.stringify(h.entries());
+  assert.ok(!all.includes(typed), `"${typed}" leaked: ${all}`);
+}
+
+test('H1: a composer\'s text is its value alone, masked by the toggle or by the card rule', async () => {
+  const on = load(NEVER);
+  const mention = el('span', { contenteditable: 'false' }, '@John Smith'); // a chip inside the composer
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'call me back ', mention);
+  on.doc.body.append(box);
+  await on.act(box, 'blur');
+  assert.deepEqual(texts(on), ['Type text into the Notes field']);
+  assert.equal(on.entries()[0].ctx.element.text, '');
+  nowhere(on, 'call me back');
+  nowhere(on, 'John Smith');
+  const off = load();
+  const card = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, '4242 4242 4242 4242');
+  off.doc.body.append(card);
+  await off.act(card, 'blur');
+  assert.deepEqual(texts(off), ['Type the card number into the Notes field']);
+  nowhere(off, '4242');
+});
+
+test('H2: a textarea\'s own text is never a packet fact, masked or not', async () => {
+  const masked = load();
+  const key = el('textarea', { name: 'api_key', value: 'typed-now' }, 'sk-live-123');
+  masked.doc.body.append(key);
+  await masked.act(key, 'blur');
+  assert.deepEqual(texts(masked), ['Type the value into the api_key field']);
+  nowhere(masked, 'sk-live-123');
+  nowhere(masked, 'typed-now');
+  const plain = load();
+  const note = el('textarea', { 'aria-label': 'Notes', value: 'call me back' }, 'prefilled draft');
+  plain.doc.body.append(note);
+  await plain.act(note, 'blur');
+  const [entry] = plain.entries();
+  assert.equal(entry.ctx.element.text, '');
+  assert.deepEqual(entry.ctx.value, { text: 'call me back', masked: false });
+  nowhere(plain, 'prefilled draft');
+  const beside = load();
+  const copy = el('button', null, 'Copy');
+  beside.doc.body.append(el('div', null, el('textarea', { name: 'api_key' }, 'sk-live-456'), copy));
+  await beside.act(copy, 'click');
+  assert.deepEqual(texts(beside), ['Click the "Copy" button']);
+  nowhere(beside, 'sk-live-456');
+});
+
+test('H3: a heading never reads a field, the one inside it or the one it is', async () => {
+  const inside = load(NEVER);
+  const title = el('span', { contenteditable: 'true', 'aria-label': 'Title' }, 'Secret plan');
+  inside.doc.body.append(el('h2', null, text('Draft '), title));
+  await inside.act(title, 'blur');
+  assert.deepEqual(texts(inside), ['Type text into the Title field']);
+  assert.equal(inside.entries()[0].ctx.near.heading, 'Draft');
+  nowhere(inside, 'Secret plan');
+  const itself = load(NEVER);
+  const own = el('h2', { contenteditable: 'true', 'aria-label': 'Title' }, 'Secret plan');
+  itself.doc.body.append(own);
+  await itself.act(own, 'blur');
+  assert.deepEqual(texts(itself), ['Type text into the Title field']);
+  nowhere(itself, 'Secret plan');
+  const after = load(NEVER);
+  const share = el('button', null, 'Share');
+  after.doc.body.append(el('div', null, el('h2', { contenteditable: 'true' }, 'Secret plan'), share));
+  await after.act(share, 'click');
+  assert.deepEqual(texts(after), ['Click the "Share" button']);
+  nowhere(after, 'Secret plan');
+});
+
+test('H4: an editable cell or list item never names its row', async () => {
+  const cellRow = load(NEVER);
+  const cell = el('td', { contenteditable: 'true', 'aria-label': 'cvv' }, '987');
+  cellRow.doc.body.append(el('table', null, el('tr', null, cell)));
+  await cellRow.act(cell, 'blur');
+  assert.deepEqual(texts(cellRow), ['Type text into the cvv field']);
+  nowhere(cellRow, '987');
+  const listRow = load(NEVER);
+  const item = el('span', { contenteditable: 'true', 'aria-label': 'cvv' }, '987');
+  listRow.doc.body.append(el('ul', null, el('li', null, item)));
+  await listRow.act(item, 'blur');
+  assert.deepEqual(texts(listRow), ['Type text into the cvv field']);
+  nowhere(listRow, '987');
+  // A grid keeps its key column read-only: those words are the page's, and still name the row.
+  const keyed = load(NEVER);
+  const qty = el('span', { contenteditable: 'true', 'aria-label': 'Qty' }, '987');
+  keyed.doc.body.append(el('ul', null, el('li', null, el('span', { contenteditable: 'false' }, 'Bolt Cutters'), text(' '), qty)));
+  await keyed.act(qty, 'blur');
+  assert.deepEqual(texts(keyed), ['Type text into the Qty field in the "Bolt Cutters" row']);
+  nowhere(keyed, '987');
+});
+
+test('H5: a label never reads a field, the composer it holds or the one it sits in', async () => {
+  const holds = load(NEVER);
+  const box = el('div', { contenteditable: 'true' }, 'Secret plan');
+  holds.doc.body.append(el('label', null, text('Notes '), box));
+  await holds.act(box, 'blur');
+  assert.deepEqual(texts(holds), ['Type text into the Notes field']);
+  nowhere(holds, 'Secret plan');
+  // A form builder: the question the tester typed labels the preview field under it.
+  const builder = load(NEVER);
+  const answer = el('input', { id: 'q1', value: 'yes' });
+  builder.doc.body.append(el('div', { contenteditable: 'true' }, el('label', { for: 'q1' }, 'Your salary?')), answer);
+  await builder.act(answer, 'blur');
+  assert.deepEqual(texts(builder), ['Type text into the q1 field']);
+  nowhere(builder, 'salary');
+});
+
+test('H6: a composer is never named by its own text', async () => {
+  const combo = load(NEVER);
+  const to = el('div', { contenteditable: 'true', role: 'combobox' }, 'john@acme.com');
+  combo.doc.body.append(to);
+  await combo.act(to, 'blur');
+  assert.deepEqual(texts(combo), ['Type text into the field']);
+  nowhere(combo, 'john@acme.com');
+  // The WAI combobox pattern: aria-labelledby lists the field itself after its label.
+  const listed = load(NEVER);
+  listed.doc.body.append(el('span', { id: 'lbl' }, 'To'));
+  const self = el('div', { contenteditable: 'true', id: 'to', 'aria-labelledby': 'lbl to' }, 'john@acme.com');
+  listed.doc.body.append(self);
+  await listed.act(self, 'blur');
+  assert.deepEqual(texts(listed), ['Type text into the To field']);
+  nowhere(listed, 'john@acme.com');
+  const grid = load(NEVER);
+  const cell = el('div', { role: 'gridcell' }, text('Qty '), el('span', { contenteditable: 'true' }, '57'));
+  grid.doc.body.append(cell);
+  await grid.act(cell, 'click');
+  assert.deepEqual(texts(grid), ['Click the "Qty" cell']);
+  nowhere(grid, '57');
+});
+
+test('H7: the counter beside a composer never reads the composer', async () => {
+  // `[class*="count"]` also matches `account-…`, and a chat composer is emptied on Enter.
+  const own = load(NEVER);
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes', className: 'account-notes' }, 'call me back');
+  own.doc.body.append(el('div', null, el('div', null, box)));
+  own.fire(box, 'keydown', { key: 'Enter' });
+  await own.settle();
+  box.textContent = '';
+  own.flush();
+  await own.settle();
+  assert.deepEqual(texts(own), ['Type text into the Notes field']);
+  nowhere(own, 'call me back');
+  const row = load(NEVER);
+  const inner = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'call me back');
+  row.doc.body.append(el('div', null, el('div', { className: 'account-row' }, text('Notes '), inner)));
+  row.fire(inner, 'keydown', { key: 'Enter' });
+  await row.settle();
+  inner.textContent = '';
+  row.flush();
+  await row.settle();
+  assert.deepEqual(texts(row), ['Type text into the Notes field']);
+  nowhere(row, 'call me back');
+});
+
+test('H8: a note from inside a field is not what the page said', async () => {
+  const spell = load(NEVER);
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'call me ');
+  spell.doc.body.append(box);
+  spell.fire(box, 'blur');
+  await spell.settle();
+  const mark = el('span', { className: 'spelling-error' }, 'bakc'); // an editor's own spell-check mark
+  box.append(mark);
+  spell.mutate(mark);
+  spell.flush();
+  await spell.settle();
+  assert.equal(spell.entries()[0].ctx.after.dialog, '');
+  nowhere(spell, 'bakc');
+  // An invalid control with no message of its own is read by what it points at, or what follows it.
+  const invalid = load();
+  const save = el('button', null, 'Save');
+  invalid.doc.body.append(save);
+  invalid.fire(save, 'click');
+  await invalid.settle();
+  const pointed = el('input', { 'aria-invalid': 'true', 'aria-describedby': 'hint' });
+  const followed = el('input', { 'aria-invalid': 'true' });
+  invalid.doc.body.append(el('div', null, pointed, el('textarea', { id: 'hint' }, 'sk-live-123')),
+    el('div', null, followed, el('textarea', null, 'sk-live-456')));
+  invalid.mutate(pointed, followed);
+  invalid.flush();
+  await invalid.settle();
+  assert.deepEqual(texts(invalid), ['Click the "Save" button']);
+  assert.equal(invalid.entries()[0].ctx.after.dialog, '');
+  nowhere(invalid, 'sk-live');
+});
+
+test('H9: an image typed into a composer is not its icon', async () => {
+  const h = load(NEVER);
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'hi ', el('img', { alt: 'party-parrot' }));
+  h.doc.body.append(box);
+  await h.act(box, 'blur');
+  assert.equal(h.entries()[0].ctx.element.icon, '');
+  nowhere(h, 'party-parrot');
+});
+
+// The control, green before the fix and after it: the page's own words still name and place a composer.
+test('H10: a heading, a row and a label around a composer still say where it is', async () => {
+  const h = load(NEVER);
+  const box = el('div', { contenteditable: 'true', 'aria-label': 'Qty' }, 'call me back');
+  h.doc.body.append(el('h2', null, 'Billing'),
+    el('table', null, el('tr', null, el('td', null, 'Bolt Cutters'), el('td', null, box))));
+  await h.act(box, 'blur');
+  const [entry] = h.entries();
+  assert.equal(entry.text, 'Type text into the Qty field in the "Bolt Cutters" row');
+  assert.deepEqual(entry.context, { row: 'Bolt Cutters', section: 'Billing' });
+  assert.equal(entry.ctx.near.heading, 'Billing');
+});

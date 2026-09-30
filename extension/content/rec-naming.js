@@ -37,13 +37,32 @@
     return false;
   }
 
+  // A field's text (a composer's, a textarea's) is what was typed: its value, never a name or a fact.
+  const inField = (n) => !!n && n.nodeType === 1
+    && (n.tagName === 'TEXTAREA' || n.isContentEditable === true);
+  // The same fields in a detached clone, where `isContentEditable` is always false.
+  const FIELD_SEL = 'textarea, [contenteditable]';
+  const dropFields = (clone) => clone.querySelectorAll(FIELD_SEL).forEach((n) => {
+    if (n.tagName === 'TEXTAREA' || String(n.getAttribute('contenteditable')).toLowerCase() !== 'false') n.remove();
+  });
+  // The text a reader may repeat: none of it from inside a field.
+  function plainText(node) {
+    if (!node || inField(node)) return '';
+    if (!node.querySelector || !node.querySelector(FIELD_SEL)) return node.textContent || '';
+    const clone = node.cloneNode(true);
+    dropFields(clone);
+    return clone.textContent || '';
+  }
+
   // `glued` = this run continues the previous with NO whitespace ("ABCDE" + "$20.33"),
   // the giveaway of a concatenation; `badge` = it came from decorative chrome.
   function textRuns(el, limit = 24) {
     const out = [];
+    if (inField(el)) return out;
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let gap = true; let prev = '';
     for (let n = w.nextNode(); n && out.length < limit; n = w.nextNode()) {
+      if (inField(n.parentElement)) continue; // a composer inside the control
       const v = n.nodeValue || '';
       const t = v.replace(/\s+/g, ' ').trim();
       if (!t) { if (/\s/.test(v)) gap = true; continue; }
@@ -69,7 +88,7 @@
     if (!runs.length) return null;
     const kept = runs.filter((r) => !r.badge);
     if (!kept.length) return null; // nothing but chrome (an icon-font glyph) — let a label/id name it
-    const raw = (el.textContent || '').trim();
+    const raw = plainText(el).trim();
     // One run (or plain inline emphasis): the raw text is the name — dropped badge text
     // is the one reason to rebuild it from the runs.
     if (!(runs.length > 1 && (runs.some((r) => r.glued) || el.querySelector(STRUCT_SEL)))) {
@@ -85,9 +104,10 @@
   // A wrapping <label> holds the control it labels, so its textContent bleeds the
   // control's own text (a <select>'s option labels) unless the controls are stripped.
   function cleanLabelText(labelEl) {
-    if (!labelEl) return null;
+    if (!labelEl || inField(labelEl)) return null;
     const clone = labelEl.cloneNode(true);
     clone.querySelectorAll('input, select, textarea, button').forEach((n) => n.remove());
+    dropFields(clone);
     const t = clone.textContent;
     return t && t.trim() ? t : null;
   }
@@ -126,7 +146,7 @@
     if (labelledby) {
       // The attribute holds a LIST of ids, and the name is everything they say, in that order.
       const named = labelledby.trim().split(/\s+/)
-        .map((id) => { const l = byId(el, id); return l ? (l.textContent || '').trim() : ''; })
+        .map((id) => { const l = byId(el, id); return l ? plainText(l).trim() : ''; })
         .filter(Boolean);
       if (named.length) return trim40(named.join(' '));
     }
@@ -160,8 +180,10 @@
 
   // Nested controls stripped, so the cell that merely HOLDS a control never names the row.
   function cleanText(node) {
+    if (inField(node)) return null;
     const clone = node.cloneNode(true);
     clone.querySelectorAll('input, select, textarea, button, script, style, noscript, template').forEach((n) => n.remove());
+    dropFields(clone);
     clone.querySelectorAll('[class], [aria-hidden]').forEach((n) => { if (badgeish(n)) n.remove(); }); // a counter is not text
     const t = (clone.textContent || '').replace(/\s+/g, ' ').trim();
     return t || null;
@@ -337,8 +359,8 @@
   }
 
   window.RecNaming = {
-    trimTo, trim40, trimMark, badgeish, inBadge, textRuns, firstAttr, labelText, elementName,
-    cleanText, rowTitle, sectionTitle, columnTitle, headingOf, siblingsOf,
+    trimTo, trim40, trimMark, badgeish, inBadge, inField, plainText, textRuns, firstAttr, labelText,
+    elementName, cleanText, rowTitle, sectionTitle, columnTitle, headingOf, siblingsOf,
     nearFacts, nameOf, contextOf, clauseOf, roleOf, clickPhrase, ROLE_PHRASE, ROLE_NOUN,
   };
 })();
