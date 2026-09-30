@@ -23,10 +23,13 @@ function loadHandoff(opts = {}) {
     runParts = () => ({ kind: 'run', id: '55' }),
     openRunFromUrl = () => true,
     withWindow = false,
+    manifest = null, // what chrome.runtime.getManifest() answers; 'throws' makes it throw
   } = opts;
 
   const h = chromeFake({ local, session, localFail, sessionFail });
   if (noGetURL) delete h.chrome.runtime.getURL;
+  if (manifest === 'throws') h.chrome.runtime.getManifest = () => { throw new Error('Extension context invalidated.'); };
+  else if (manifest) h.chrome.runtime.getManifest = () => manifest;
 
   const fetches = [];        // every handoff.json read, in order
   let body = file;
@@ -424,4 +427,25 @@ test('H40: a project key the host sent is named with its own project, so a switc
   assert.equal(moved.projectId, 'p2');
   assert.equal(moved.projectToken, TOKEN);
   assert.equal(moved.projectTokenFor, 'p1'); // still p1's key, and no longer the open project's
+});
+
+// The store writes this into the manifest of everything it installs; an unpacked copy has none.
+const STORE_MANIFEST = { version: '0.2.0', update_url: 'https://clients2.google.com/service/update2/crx' };
+
+test('H41: a store install never asks for the file, so its console stays clean', async () => {
+  const h = loadHandoff({ manifest: STORE_MANIFEST });
+  assert.equal(await h.Handoff.ready(), null);
+  assert.equal(await h.Handoff.ready(true), null); // nor when a host pokes the panel
+  await h.Handoff.decline();
+  assert.equal(h.fetches.length, 0);
+  assert.equal(h.local.data.handoffDeclinedAt, undefined);
+});
+
+// The control, green before the fix and after it: Testeiya's unpacked copy reads the file as before.
+test('H42: an unpacked copy, or one whose manifest cannot be read, still reads the host file', async () => {
+  for (const manifest of [{ version: '0.2.0' }, 'throws', null]) {
+    const h = loadHandoff({ manifest });
+    assert.equal((await h.Handoff.ready()).projectId, 'p1', String(manifest));
+    assert.equal(h.fetches.length, 1, String(manifest));
+  }
 });

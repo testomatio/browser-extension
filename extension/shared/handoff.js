@@ -38,8 +38,12 @@ const Handoff = (() => {
   // host handed one over. Every document's "is this configured" check goes through here.
   const credentialed = (s) => !!(s && s.baseUrl && (s.apiToken || s.handoff));
 
+  // The store writes `update_url` into what it installs, and only an unpacked copy can hold the file.
+  const fromStore = () => { try { return !!chrome.runtime.getManifest?.().update_url; } catch { return false; } };
+
   async function readFile() {
     if (typeof chrome === 'undefined' || !chrome.runtime?.getURL) return null;
+    if (fromStore()) return null; // asking anyway logs a red ERR_FILE_NOT_FOUND on every open
     let doc;
     try {
       const res = await fetch(chrome.runtime.getURL(FILE), { cache: 'no-store' });
