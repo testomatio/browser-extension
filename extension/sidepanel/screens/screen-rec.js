@@ -169,7 +169,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.event === 'file' && msg.file) srecAttach(msg.file);
   else {
     // Nothing left to attach — nothing was recorded, or the take is gone — so the plaque goes too.
-    if (msg.event === 'ended' && (msg.empty || msg.reason === 'discarded')) hideToast();
+    if (msg.event === 'ended' && (msg.empty || msg.reason === 'discarded' || msg.reason === 'wiped')) hideToast();
     srecRefresh();
   }
   return undefined;

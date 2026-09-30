@@ -981,9 +981,10 @@ the worker stops an evidence recording ~2 s after the last one is gone).
 | `SCREENREC_REVIEWED` / `SCREENREC_TRIMMED` `{url, …}` | review page → worker | The review approved the take as recorded, or cut it. Only then does the worker broadcast `SCREENREC_EVENT {event:'file'}` — nothing is attached before that. |
 | `SCREENREC_CLAIM` / `SCREENREC_UNCLAIM` `{by}` | panel → worker | One panel document at a time owns the upload: the `file` event is a broadcast, and every open panel would otherwise upload the same take. Serialized in `screenrec/claim.js`; an upload that fails un-claims so the next *Retry attach…* — here or in another panel — can take it. |
 | `SCREENREC_REVIEW_KEY` | injected review overlay → worker | The one-shot `screenRecReviewKey`, which is how a framed `screenrec/review.html` proves the extension framed it and the page under test did not. |
-| `SCREENREC_EVENT` `{event, …}` | worker → panel (broadcast) | `started` / `review` / `file` / `ended`. |
+| `SCREENREC_EVENT` `{event, …}` | worker → panel (broadcast) | `started` / `review` / `file` / `ended`. An `ended` with reason `wiped` also closes an open review page. |
 | `SCREENREC_OFF` `{cmd, …}` | worker → offscreen document (broadcast); the review page too, for the trim | `start` / `cast-start` / `frame` / `pause` / `stop` / `state` / `revoke` from the worker, and `trim-begin` / `trim-chunk` / `trim-swap` from `screenrec/review.js`. Frames go down a dedicated `screenrec-frames` port instead when one is up: a broadcast would copy every JPEG, several a second, into every extension page. |
-| `SCREENREC_FILE` `{file}` | offscreen document → worker | Pushed when a cap or a closed tab ended the recording, with no stop to detach the cast. |
+| `SCREENREC_FILE` `{file}` | offscreen document → worker | Pushed when a cap or a closed tab ended the recording, with no stop to detach the cast. Ignored when no offscreen document is open any more: an erase closed it, and the take's bytes went with it. |
+| `SCREENREC_WIPE` | panel → worker | Sign out, Disconnect and Forget on the ACTIVE instance: take the cast off the tab, close the offscreen document — the capture and every take's bytes end with it — remove `screenRec`, `screenRecFile`, `screenRecReviewKey` and `screenRecTarget`, and broadcast `ended` with reason `wiped`. Replies `{ok}` or `{ok:false, error}`. |
 
 The evidence handler ignores anything outside its `EVIDENCE_REQUESTS` set so the
 two `onMessage` listeners in the worker plus the recorder's do not fight over one
@@ -2041,7 +2042,8 @@ live credential. Two keys are carried back over that wipe: `theme`
 (`shared/theme.js`) and `viewMode` (`shared/view-mode.js`) —
 neither a credential nor scoped to one, and both re-written after `clear()`
 rather than exempted from it, so the whole-area wipe stays whole.
-The sign out first attempts `EVIDENCE_WIPE` (§3.4): the
+The sign out first attempts `EVIDENCE_WIPE` (§3.4) and `SCREENREC_WIPE`, side by side, each under
+the same 5 s timeout: the
 evidence buffer lives in the worker, so a recording still RUNNING would re-mirror
 it over the clear ~2 s later. A missing listener is tolerated — no
 worker, no recording. A refusal or a 5 s timeout does NOT abort the sign out,
@@ -2052,7 +2054,7 @@ rides a one-shot page-`sessionStorage` breadcrumb (`signOutRecorderWarning`,
 §5.4) that `SettingsErase.takeWarning()` paints onto `settings-forget-status`
 — a status line set before `reloadPanel()` would die with the document.
 `forget()` takes the same two steps for the ACTIVE instance only —
-`EVIDENCE_WIPE` first, then `storage.session.clear()` — because that area is
+the two wipes first, then `storage.session.clear()` — because that area is
 scoped to no instance but the panel is being reset anyway, and it holds the
 recorded steps, the evidence buffer, unsaved editor drafts and pending screenshot
 hand-offs. Forgetting an INACTIVE instance touches neither: that data belongs to
@@ -2129,7 +2131,7 @@ Panel document only. It exists because the panel *navigates away* to that page
 rather than embedding it — the panel document is destroyed and rebuilt.
 
 `signOutRecorderWarning` — a one-shot reason string written by
-`SettingsErase.leaveWarning()` when an erase's `EVIDENCE_WIPE` failed, and
+`SettingsErase.leaveWarning()` when an erase's `EVIDENCE_WIPE` or `SCREENREC_WIPE` failed (it names which), and
 consumed by `SettingsErase.takeWarning()` off `fillSettingsForm()`
 (`screens/settings.js`), for the same reason: the erase succeeded and the panel
 reloads, so the warning has to outlive the document that raised it. Not one of

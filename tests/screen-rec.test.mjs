@@ -962,6 +962,14 @@ test('31: a take the tester discarded in the review takes the plaque down too', 
   assert.deepEqual(h.types(), ['SCREENREC_STATUS']);
 });
 
+test('31b: a take an erase threw away takes the plaque down in every other panel too', async () => {
+  const h = load();
+  h.message({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' });
+  await settle();
+  assert.equal(h.calls.hides, 1);
+  assert.deepEqual(h.types(), ['SCREENREC_STATUS']);
+});
+
 test('32: an ordinary end leaves the plaque standing and only repaints', async () => {
   const h = load();
   h.worker.SCREENREC_STATUS = IDLE(TAKE({ reviewed: false }));
