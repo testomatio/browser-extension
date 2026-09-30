@@ -1635,8 +1635,12 @@ env-meta trim), `value` for a type/select — **the masked noun, never the secre
 message ADDED in that window (one `MutationObserver`, armed at the action — a
 node classed `alert`/`error`/`invalid-feedback`/`help-block`/`validation`, or an
 `aria-invalid` control's own message, reads as the `dialog` half), the control's
-own state change, and a nearby badge that moved. Every field is best-effort inside a
-`try/catch`: a packet is never worth a lost step. Capped at ~1.5 KB of JSON
+own state change, and a nearby badge that moved. A field's own text — what a
+`contenteditable` holds, a `textarea`'s text nodes — is its value and nothing else:
+every reader of page text (the naming walks, `element.text`/`icon`, the badge, the
+notes) skips it through `inField()`/`plainText()` in `content/rec-naming.js`. Every
+field is best-effort inside a `try/catch`: a packet is never worth a lost step.
+Capped at ~1.5 KB of JSON
 (`siblings` and `class` go first). Two consequences elsewhere: the entry now
 leaves ~400ms late, so `pagehide`/`beforeunload` flush the outbox rather than let
 a navigating click die with the page, and `srPlace()` in the worker puts an action

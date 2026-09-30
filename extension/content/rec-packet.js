@@ -9,7 +9,7 @@
   // Injected on demand, and a same-document re-inject runs the file again: without this the
   // second run throws before the recorder's own latch is ever reached.
   if (window.RecPacket) return;
-  const { trimTo, trim40, textRuns, firstAttr } = RecNaming;
+  const { trimTo, trim40, textRuns, firstAttr, inField, plainText } = RecNaming;
 
   const PACKET_MAX = 1500; // bytes of JSON per entry
   const AFTER_MS = 400;    // how long the page gets to react before the entry leaves
@@ -20,6 +20,7 @@
   // An icon-only control still says what it is: an <img alt>, an <svg><title>, or the
   // ligature text of a material icon.
   function iconOf(el) {
+    if (inField(el)) return ''; // an emoji typed into a composer is not its icon
     const alt = firstAttr(el, 'img[alt]', 'alt');
     if (alt) return trimTo(alt, 24);
     const t = el.querySelector && el.querySelector('svg title');
@@ -84,9 +85,9 @@
     if (hits(n, '[aria-invalid="true"]') && !hits(n, '[class*="alert"], [class*="error"], [class*="invalid-feedback"], [class*="help-block"], [class*="validation"]')) {
       const ref = at(n, 'aria-describedby').split(/\s+/)[0];
       const by = ref && document.getElementById(ref);
-      return trimTo((by && by.textContent) || (n.nextElementSibling && n.nextElementSibling.textContent) || '', 80);
+      return trimTo(plainText(by) || plainText(n.nextElementSibling), 80);
     }
-    return trimTo(n.textContent || '', 80);
+    return trimTo(plainText(n), 80);
   }
 
   // Nodes are KEPT, not read, until the window closes: a toast is routinely appended empty
@@ -134,7 +135,7 @@
   function counterText(el) {
     for (let n = el, up = 0; n && up < 3; n = n.parentElement, up++) {
       const hit = n.querySelector && n.querySelector(COUNTER_SEL);
-      if (hit) return trimTo(hit.textContent || '', 24);
+      if (hit) return trimTo(plainText(hit), 24);
     }
     return '';
   }
