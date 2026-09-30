@@ -738,3 +738,93 @@ test('H10: a heading, a row and a label around a composer still say where it is'
   assert.deepEqual(entry.context, { row: 'Bolt Cutters', section: 'Billing' });
   assert.equal(entry.ctx.near.heading, 'Billing');
 });
+
+// ---- I: a field is named by its label, never by what it holds, whatever role the page gives it ----
+
+// The field inside its own <label>, which is how most forms name one.
+function labelled(h, label, field) {
+  h.doc.body.append(el('label', null, text(`${label} `), field));
+  return field;
+}
+
+test('I1: an address autocomplete is named by its label, toggle on or off, and nameless without one', async () => {
+  const on = load(NEVER);
+  await on.act(labelled(on, 'Address', el('input', { role: 'combobox', value: 'Kyiv, Khreshchatyk 22' })), 'blur');
+  assert.deepEqual(texts(on), ['Type text into the Address field']);
+  nowhere(on, 'Khreshchatyk');
+  const off = load();
+  await off.act(labelled(off, 'Address', el('input', { role: 'combobox', value: 'Kyiv, Khreshchatyk 22' })), 'blur');
+  assert.deepEqual(texts(off), ['Type "Kyiv, Khreshchatyk 22" into the Address field']);
+  const bare = load(NEVER);
+  const input = el('input', { role: 'combobox', value: 'Kyiv' });
+  bare.doc.body.append(input);
+  await bare.act(input, 'blur');
+  assert.deepEqual(texts(bare), ['Type text into the field']);
+  nowhere(bare, 'Kyiv');
+});
+
+test('I2: a card number in an autocomplete stays masked, the name included', async () => {
+  const h = load();
+  await h.act(labelled(h, 'Number', el('input', { role: 'combobox', value: '4242 4242 4242 4242' })), 'blur');
+  assert.deepEqual(texts(h), ['Type the card number into the Number field']);
+  nowhere(h, '4242');
+});
+
+test('I3: a spinner, a button-role input and a textarea with a role are named by their labels', async () => {
+  const spin = load(NEVER);
+  await spin.act(labelled(spin, 'Quantity', el('input', { type: 'number', role: 'spinbutton', value: '314' })), 'blur');
+  assert.deepEqual(texts(spin), ['Type text into the Quantity field']);
+  nowhere(spin, '314');
+  const code = load(NEVER);
+  await code.act(labelled(code, 'Code', el('input', { role: 'button', value: 'SECRET42' })), 'blur');
+  assert.deepEqual(texts(code), ['Type text into the Code field']);
+  nowhere(code, 'SECRET42');
+  const to = load(NEVER);
+  await to.act(labelled(to, 'To', el('textarea', { role: 'combobox', value: 'john@acme.com' })), 'blur');
+  assert.deepEqual(texts(to), ['Type text into the To field']);
+  nowhere(to, 'john@acme.com');
+});
+
+test('I4: a slider is named by its label, when it is set and when it is clicked', async () => {
+  const set = load(NEVER);
+  await set.act(labelled(set, 'Volume', el('input', { type: 'range', role: 'slider', value: '73' })), 'change');
+  assert.deepEqual(texts(set), ['Set the "Volume" slider']);
+  nowhere(set, '73');
+  const click = load(NEVER);
+  await click.act(labelled(click, 'Volume', el('input', { type: 'range', role: 'slider', value: '73' })), 'click');
+  assert.deepEqual(texts(click), ['Click the "Volume" slider']);
+  nowhere(click, '73');
+});
+
+test('I5: a dropdown with a combobox role is named by its label, not by one of its options', async () => {
+  const h = load(NEVER);
+  const sel = el('select', { role: 'combobox' }, el('option', { selected: true }, 'Large'), el('option', null, 'Extra small'));
+  await h.act(labelled(h, 'Size', sel), 'change');
+  assert.deepEqual(texts(h), ['Select an option in the Size dropdown']);
+});
+
+test('I6: a file picker styled as a button is named by its label, not by the file', async () => {
+  const h = load(NEVER);
+  const picker = el('input', { type: 'file', role: 'button', value: 'C:\\fakepath\\passport.pdf' });
+  await h.act(labelled(h, 'Upload ID', picker), 'change');
+  assert.deepEqual(texts(h), ['Attach a file to the "Upload ID" field']);
+  nowhere(h, 'passport');
+});
+
+// Chrome gives a checkbox the value "on" unless the page sets one.
+test('I7: a switch is named by its label, not by its value', async () => {
+  const h = load();
+  await h.act(labelled(h, 'Dark mode', el('input', { type: 'checkbox', role: 'switch', value: 'on', checked: true })), 'change');
+  assert.deepEqual(texts(h), ['Check the Dark mode checkbox']);
+});
+
+// The control, green before the fix and after it: a button input's value IS its label.
+test('I8: a submit and a button input are still named by their value', async () => {
+  const h = load();
+  const pay = el('input', { type: 'submit', value: 'Pay now' });
+  const apply = el('input', { type: 'button', role: 'button', value: 'Apply' });
+  h.doc.body.append(pay, apply);
+  await h.act(pay, 'click');
+  await h.act(apply, 'click');
+  assert.deepEqual(texts(h), ['Click the "Pay now" button', 'Click the "Apply" button']);
+});
