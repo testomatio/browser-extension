@@ -78,5 +78,8 @@ A panel that is already open takes a new push through
 or its `at` was already declined. A build without that global predates this
 contract and needs updating.
 
-With no host involved the panel logs one `ERR_FILE_NOT_FOUND` for
-`handoff.json` at boot. That is the check for the file, not a fault.
+With no host involved, an unpacked copy logs one `ERR_FILE_NOT_FOUND` for
+`handoff.json` when the panel boots. That is the check for the file, not a
+fault. A copy installed from the Chrome Web Store never looks: the store
+writes `update_url` into the manifest it installs, and the file can only sit
+next to an unpacked copy.
