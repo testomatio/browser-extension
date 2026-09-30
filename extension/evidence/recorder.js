@@ -196,6 +196,23 @@ function evTellHook(tabId, on) {
   catch { /* noop */ }
 }
 
+// Chrome titles a page with no <title> by its address, query and all: the name is never that.
+function evTabName(tab, tabId) {
+  try {
+    const u = new URL(tab.url);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return `${u.origin}${u.pathname}`;
+  } catch { /* no url, or none Chrome let us see */ }
+  return `Tab ${tabId}`;
+}
+
+// The page's own title; '' when it has none or will not say.
+async function evPageTitle(tabId) {
+  try {
+    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: () => document.title });
+    return String((res && res.result) || '').trim();
+  } catch { return ''; }
+}
+
 async function evStart(tabId, recordId) {
   await evLoadSettings();
   let tab = null;
@@ -209,7 +226,7 @@ async function evStart(tabId, recordId) {
     tabId, startedAt: Date.now(),
     // The testrun that owns this recording — it rides the mirror, so a restart still knows it.
     recordId: recordId != null ? recordId : null,
-    tabTitle: (tab && (tab.title || tab.url)) || `Tab ${tabId}`,
+    tabTitle: evTabName(tab, tabId),
     tabUrl: (tab && tab.url) || '',
   };
   try {
@@ -223,6 +240,8 @@ async function evStart(tabId, recordId) {
   }
   evTellHook(tabId, true); // a hook left muted by a previous recording
   await evRegister(SiteTab.originOf(evSession.tabUrl));
+  const title = await evPageTitle(tabId);
+  if (title && evSession && evSession.tabId === tabId) evSession.tabTitle = title;
   evMirror();
 }
 

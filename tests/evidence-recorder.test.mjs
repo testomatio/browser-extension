@@ -116,7 +116,8 @@ function load(opts = {}) {
   // The knobs a row turns after load(); the stubs read them live.
   const hooks = {
     getTab: (id) => ({ id, title: 'Cart', url: `${SITE}/cart` }),
-    executeScript: () => [],
+    pageTitle: 'Cart',           // what the page's own document.title answers
+    executeScript: (arg) => (arg && arg.func ? [{ result: hooks.pageTitle }] : []),
     sessionSet: null,            // a function here replaces the write: throw to make it reject
     registerContentScripts: () => {},
     tabsSendMessage: () => ({ ok: true }),
@@ -926,9 +927,10 @@ test('37: the session is armed before the hook is injected, over a cleared buffe
   h.st.net.set('stale', net());
   h.st.session = null;
   await h.fns.evStart(TAB, 'rec-1');
-  assert.deepEqual(h.injects.map((i) => [i.files[0], i.world, i.target.tabId]), [
+  assert.deepEqual(h.injects.map((i) => [i.files ? i.files[0] : 'title', i.world, i.target.tabId]), [
     ['evidence/relay.js', 'ISOLATED', TAB],
     ['evidence/page-hook.js', 'MAIN', TAB],
+    ['title', undefined, TAB], // the page's own title, read once the page took our scripts
   ]);
   // The relay is listening before the hook lands, and both find a session already armed.
   assert.deepEqual(h.injects[0].state, { recording: true, tabId: TAB, entries: 0, hookReady: false });
@@ -967,6 +969,7 @@ test('38: a tab that slipped onto a restricted page names that, not the raw API 
 test('39: a tab whose title Chrome hides is still recordable under a placeholder name', async () => {
   const h = await ready();
   h.hooks.getTab = () => { throw new Error('No tab with id 5'); };
+  h.hooks.pageTitle = ''; // and the page has no title of its own to offer instead
   await h.fns.evStart(TAB, 'rec-1');
   assert.equal(h.st.session.tabTitle, `Tab ${TAB}`);
   assert.equal(h.st.session.tabUrl, '');
@@ -975,11 +978,55 @@ test('39: a tab whose title Chrome hides is still recordable under a placeholder
   assert.equal(h.named('scripting.registerContentScripts').length, 0);
 });
 
-test('39a: a tab with a url but no title falls back to the url before the placeholder', async () => {
+test('39a: a page with no title of its own is named by its address, query and fragment cut', async () => {
   const h = await ready();
-  h.hooks.getTab = (id) => ({ id, url: `${SITE}/cart` });
+  // What Chrome reports for a page without <title>: its address, token and all.
+  h.hooks.getTab = (id) => ({ id, title: 'shop.example/cart?token=SECRET#frag', url: `${SITE}/cart?token=SECRET#frag` });
+  h.hooks.pageTitle = '';
   await h.fns.evStart(TAB, 'rec-1');
   assert.equal(h.st.session.tabTitle, `${SITE}/cart`);
+  assert.equal(h.fns.evStatus().tabTitle.includes('SECRET'), false);
+});
+
+test('39b: the page’s own title wins over whatever Chrome calls the tab', async () => {
+  const h = await ready();
+  h.hooks.getTab = (id) => ({ id, title: 'shop.example/cart?token=SECRET', url: `${SITE}/cart?token=SECRET` });
+  h.hooks.pageTitle = '  Checkout  ';
+  await h.fns.evStart(TAB, 'rec-1');
+  assert.equal(h.st.session.tabTitle, 'Checkout');
+});
+
+test('39c: a blank title, or one that cannot be read, still names the page by its trimmed address', async () => {
+  for (const hook of [() => '   ', null]) {
+    const h = await ready();
+    h.hooks.getTab = (id) => ({ id, title: 'shop.example/cart?token=SECRET', url: `${SITE}/cart?token=SECRET` });
+    if (hook) h.hooks.pageTitle = hook();
+    else h.hooks.executeScript = (arg) => { if (arg && arg.func) throw new Error('Frame was removed'); return []; };
+    await h.fns.evStart(TAB, 'rec-1');
+    assert.equal(h.st.session.tabTitle, `${SITE}/cart`);
+    assert.equal(h.fns.evStatus().recording, true);
+  }
+});
+
+test('39d: a sign-in in the address and a port are handled the way the log’s URL line handles them', async () => {
+  const h = await ready();
+  h.hooks.getTab = (id) => ({ id, title: '', url: 'http://user:pass@127.0.0.1:8080/reset?token=SECRET' });
+  h.hooks.pageTitle = '';
+  await h.fns.evStart(TAB, 'rec-1');
+  assert.equal(h.st.session.tabTitle, 'http://127.0.0.1:8080/reset');
+});
+
+test('39e: while the page is being asked, the name already standing is the safe one', async () => {
+  const h = await ready();
+  h.hooks.getTab = (id) => ({ id, title: 'shop.example/cart?token=SECRET', url: `${SITE}/cart?token=SECRET` });
+  let seen = null;
+  h.hooks.executeScript = (arg) => {
+    if (arg && arg.func) { seen = h.st.session.tabTitle; return [{ result: 'Checkout' }]; }
+    return [];
+  };
+  await h.fns.evStart(TAB, 'rec-1');
+  assert.equal(seen, `${SITE}/cart`);
+  assert.equal(h.st.session.tabTitle, 'Checkout');
 });
 
 test('40: stopping keeps the evidence, drops everything else, and waits for the mirror', async () => {
@@ -1196,7 +1243,7 @@ test('51 (#315): a toggle answered before the restore lands keeps the recording 
   await h.settle();
   assert.equal(h.st.session.recordId, 'rec-1', 'an idle mirror cannot un-start the fresh recording');
   assert.equal(s.replies[0].status.recording, true, 'and the panel is told the truth');
-  const scripting = h.names().filter((n) => n.startsWith('scripting.'));
+  const scripting = h.names().filter((n) => /^scripting\.(un)?registerContentScripts$/.test(n));
   assert.equal(scripting[scripting.length - 1], 'scripting.registerContentScripts',
     'the restore does not get the last word on the hook');
 });
