@@ -28,6 +28,8 @@ const { hostOf } = runInNewContext(
 
 const WARN_KEY = 'signOutRecorderWarning';
 const KEYS = ['settings', 'session', 'offlineQueue'];
+// A worker where only the named recorders refuse to stop.
+const refuses = (...types) => async (m) => (types.includes(m.type) ? { ok: false, error: 'busy' } : { ok: true });
 
 // `state` is an ACCESSOR bag, not a plain object: the safety property is that storage is written
 // before any of these is touched, and only a recorded write can show that.
@@ -175,7 +177,8 @@ test('#203 Forget on the active instance runs one fixed sequence: storage first,
   assert.deepEqual(h.order, [
     'confirm',
     'state.booting=true',
-    'send:EVIDENCE_WIPE',       // the recorder is stopped BEFORE either write
+    'send:EVIDENCE_WIPE',       // both recorders are stopped BEFORE either write
+    'send:SCREENREC_WIPE',
     'local.set',
     'local.remove(settings,session,offlineQueue)',
     'session.clear',
@@ -321,13 +324,13 @@ test('#203 a recorder that never answers FAILS at five seconds — a timeout is 
   const h = load({ reply: () => new Promise(() => {}) });
   const p = rejection(h.erase.wipeRecording());
   await settle();
-  assert.deepEqual(h.clock.arms(), [5000]); // the number the promise is worth
+  assert.deepEqual(h.clock.arms(), [5000, 5000]); // the number the promise is worth, once per recorder
   await h.clock.tick();
   assert.equal((await p).message, 'the recorder did not answer in 5s');
 });
 
 test('#203 a recorder that will not stop does not hold up the erase — the warning rides the reload', async () => {
-  const h = load({ reply: async () => ({ ok: false, error: 'busy' }) });
+  const h = load({ reply: refuses('EVIDENCE_WIPE') });
   await h.erase.forget();
   assert.equal(h.order.includes('reload'), true);
   assert.equal(h.state.settings, null);
@@ -346,6 +349,7 @@ test('#203 Sign out reads theme and surface BEFORE the clear, and writes them ba
     'confirm',
     'state.booting=true',
     'send:EVIDENCE_WIPE',
+    'send:SCREENREC_WIPE',
     'Theme.get',       // both reads stand ahead of the clear, or they read the wiped store
     'ViewMode.mode',
     'local.clear',
@@ -403,4 +407,43 @@ test('#203 a browser that refuses sessionStorage neither throws nor invents a wa
   h.erase.takeWarning();
   assert.deepEqual(h.calls.status, []);
   h.erase.leaveWarning(new Error('busy'), 'Signed out'); // the write side, same guarantee
+});
+
+// ---------- the screen recording goes too ----------
+
+test('a screen recording that will not stop is named in the warning, with its video', async () => {
+  const h = load({ reply: refuses('SCREENREC_WIPE') });
+  await h.erase.signOut();
+  assert.equal(h.order.includes('reload'), true);
+  assert.equal(h.sess[WARN_KEY],
+    'Signed out — but the screen recording could not be stopped: busy. '
+    + 'Assume its video is still on this machine until you restart the browser.');
+});
+
+test('when neither recorder stops, the warning names both and the erase still happens', async () => {
+  const h = load({ reply: refuses('EVIDENCE_WIPE', 'SCREENREC_WIPE') });
+  await h.erase.disconnect();
+  assert.equal(h.state.settings, null);
+  assert.equal(h.sess[WARN_KEY],
+    'Instance forgotten — but neither recording could be stopped (console & network: busy; screen: busy). '
+    + 'Assume the log and the video are still on this machine until you restart the browser.');
+});
+
+test('the wipe reports every recorder that refused, and its message is the first reason', async () => {
+  const h = load({ reply: async (m) => ({ ok: false, error: m.type === 'SCREENREC_WIPE' ? 'no page' : 'busy' }) });
+  const e = await rejection(h.erase.wipeRecording());
+  assert.equal(e.message, 'busy');
+  assert.deepEqual(plain(e.failed.map((f) => [f.type, f.why])), [['EVIDENCE_WIPE', 'busy'], ['SCREENREC_WIPE', 'no page']]);
+  const screenOnly = await rejection(load({ reply: refuses('SCREENREC_WIPE') }).erase.wipeRecording());
+  assert.equal(screenOnly.message, 'busy');
+  assert.deepEqual(plain(screenOnly.failed.map((f) => f.type)), ['SCREENREC_WIPE']);
+});
+
+test('the confirm names the screen recording among what is deleted', async () => {
+  const forget = load({ confirm: false });
+  await forget.erase.forget();
+  assert.match(forget.calls.confirms[0].message, /captured log, screen recording and unsaved drafts/);
+  const out = load({ confirm: false });
+  await out.erase.signOut();
+  assert.match(out.calls.confirms[0].message, /recorded step, captured log and screen recording is deleted/);
 });

@@ -155,6 +155,9 @@ async function load(opts = {}) {
     sessionFail,
   });
   fake.chrome.runtime.sendMessage = async (msg) => { sent.push(msg); return reply(msg, sent.length); };
+  // The worker's broadcasts reach this page through its own runtime listener.
+  const heard = [];
+  fake.chrome.runtime.onMessage = { addListener: (fn) => { heard.push(fn); } };
   if (stallKey) {
     const read = fake.chrome.storage.session.get;
     fake.chrome.storage.session.get = (k) => (k === 'screenRecReviewKey' ? new Promise(() => {}) : read(k));
@@ -233,6 +236,7 @@ async function load(opts = {}) {
 
   const h = {
     doc, video, timeline, clock, seeks, plays, recLog, posts, sent, closes, $, x,
+    broadcast: (msg) => { for (const fn of heard) fn(msg, {}, () => {}); },
     session: fake.session,
     // render() writes the live cut object onto the element it paints — the module's own readout.
     cuts: () => timeline.querySelectorAll('.cut').map((el) => plain(el._cut)),
@@ -962,4 +966,28 @@ test('34f (#105): a click harvested before the key check has answered acts on no
   await settle(3);
   assert.deepEqual(h.types(), []);
   assert.deepEqual(h.posts, []);
+});
+
+// ---- the erase ---------------------------------------------------------------
+
+test('an erase that threw the take away closes the review, framed or in a tab of its own', async () => {
+  const framed = await load();
+  framed.broadcast({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' });
+  assert.deepEqual(framed.posts.map((p) => p.data), [{ type: 'TESTOMAT_REVIEW_CLOSE' }]);
+  const tab = await load({ framed: false });
+  tab.broadcast({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' });
+  assert.equal(tab.closes.length, 1);
+});
+
+test('any other end the worker announces leaves the review open', async () => {
+  const h = await load();
+  for (const msg of [
+    { type: 'SCREENREC_EVENT', event: 'ended', reason: 'discarded' },
+    { type: 'SCREENREC_EVENT', event: 'ended', reason: 'user', empty: true },
+    { type: 'SCREENREC_EVENT', event: 'review' },
+    { type: 'EVIDENCE_WIPE' },
+    null,
+  ]) h.broadcast(msg);
+  assert.deepEqual(h.posts, []);
+  assert.equal(h.closes.length, 0);
 });

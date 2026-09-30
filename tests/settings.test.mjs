@@ -49,6 +49,8 @@ const {
 
 const DEFAULT = 'https://app.testomat.io';
 const WARN_KEY = 'signOutRecorderWarning';
+// Only the console & network recorder refuses; the screen recorder stops cleanly.
+const LOG_REFUSES = async (m) => (m.type === 'EVIDENCE_WIPE' ? { ok: false, error: 'busy' } : { ok: true });
 const REQUIRED = 'Instance and access token are required';
 const NOT_HTTPS = 'Instance URL must be https://';
 const NOT_URL = 'Instance is not a valid URL';
@@ -1644,6 +1646,7 @@ test('59: the erase writes STORAGE first and in-memory state only after, in one 
     'confirm',
     'state.booting=true',
     'send:EVIDENCE_WIPE',
+    'send:SCREENREC_WIPE',
     'local.set',
     'local.remove(settings,session,offlineQueue)',
     'session.clear',
@@ -1715,7 +1718,7 @@ test('61b: a failure with no message still names something the tester can act on
 });
 
 test('62: a recorder that will not stop does not hold up the erase — the warning rides the reload', async () => {
-  const h = load({ ...CONFIGURED, reply: async () => ({ ok: false, error: 'busy' }) });
+  const h = load({ ...CONFIGURED, reply: LOG_REFUSES });
   await h.fn.forgetInstance();
   assert.equal(h.calls.reloads, 1);
   assert.equal(h.state.settings, null);
@@ -1787,7 +1790,7 @@ test('65a: with nothing saved anywhere, Disconnect defaults to the Connection ca
 test('66: a recorder that answers cleanly lets the wipe resolve', async () => {
   const h = load({ reply: async () => ({ ok: true }) });
   await h.fn.wipeEvidenceRecording();
-  assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_WIPE' }]);
+  assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_WIPE' }, { type: 'SCREENREC_WIPE' }]);
 });
 
 test('67: a recorder that refuses hands its own reason up, so the tester reads it', async () => {
@@ -1821,7 +1824,7 @@ test('69: a recorder that never answers is a FAILURE after five seconds, not a s
   const h = load({ reply: () => new Promise(() => {}) });
   const p = rejection(h.fn.wipeEvidenceRecording());
   await settle();
-  assert.deepEqual(h.clock.arms(), [5000]);
+  assert.deepEqual(h.clock.arms(), [5000, 5000]); // both recorders, side by side
   assert.equal(h.screen.EVIDENCE_WIPE_MS, 5000);
   await h.clock.tick();
   assert.equal((await p).message, 'the recorder did not answer in 5s');
@@ -1839,6 +1842,7 @@ test('70: Sign out carries the theme and the surface ACROSS the wipe, and reload
     'confirm',
     'state.booting=true',
     'send:EVIDENCE_WIPE',
+    'send:SCREENREC_WIPE',
     'Theme.get',
     'ViewMode.mode',
     'local.clear',
@@ -1885,7 +1889,7 @@ test('72: the two defaults are not written back — nothing to carry across mean
 });
 
 test('72a: Sign out with a recorder that will not stop still erases, and leaves the warning', async () => {
-  const h = load({ ...CONFIGURED, reply: async () => ({ ok: false, error: 'busy' }) });
+  const h = load({ ...CONFIGURED, reply: LOG_REFUSES });
   await h.fn.signOut();
   assert.deepEqual(h.stored(), {});
   assert.equal(h.calls.reloads, 1);

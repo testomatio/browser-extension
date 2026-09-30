@@ -23,9 +23,21 @@ const EVIDENCE_WIPE_MS = 5000;
 // PAGE sessionStorage, like `tcReturn`: not an area the erase claims to wipe, holds
 // no credential, and dies with the browser — which is when the buffer dies too.
 const EVIDENCE_WIPE_WARN_KEY = 'signOutRecorderWarning';
-const evidenceWipeWarning = (why, lead) => `${lead} — but the console & network `
-  + `recording could not be stopped: ${why}. Assume its log is still on this machine until you `
-  + `restart the browser.`;
+
+// The two recorders an erase stops, each in the words its warning uses.
+const RECORDER_WIPES = [
+  { type: 'EVIDENCE_WIPE', what: 'the console & network recording', left: 'its log', short: 'console & network' },
+  { type: 'SCREENREC_WIPE', what: 'the screen recording', left: 'its video', short: 'screen' },
+];
+const evidenceWipeWarning = (failed, lead) => {
+  const tail = 'still on this machine until you restart the browser.';
+  if (failed.length === 1) {
+    const [f] = failed;
+    return `${lead} — but ${f.what} could not be stopped: ${f.why}. Assume ${f.left} is ${tail}`;
+  }
+  const whys = failed.map((f) => `${f.short}: ${f.why}`).join('; ');
+  return `${lead} — but neither recording could be stopped (${whys}). Assume the log and the video are ${tail}`;
+};
 
 const SettingsErase = {
   HOST_SCOPED_KEYS,
@@ -79,8 +91,8 @@ const SettingsErase = {
     const ok = await ConfirmDialog.ask(
       `${verb} ${host}? Its saved token, project and preferences are deleted from this browser`
       + (active ? ', together with its restored session, any queued results still waiting to be sent, '
-        + 'and this session\'s recorded steps, captured log and unsaved drafts — a running recording '
-        + 'is stopped for you' : '')
+        + 'and this session\'s recorded steps, captured log, screen recording and unsaved drafts — a '
+        + 'running recording is stopped for you' : '')
       + '. Other instances are kept.', verb);
     if (!ok) return;
     const hostSettings = { ...state.hostSettings };
@@ -119,8 +131,10 @@ const SettingsErase = {
     setStatusLine(statusId, `${host} forgotten`, 'ok');
   },
 
+  // `e.failed` names each recorder that would not stop; a bare error is the log's, as before.
   leaveWarning(e, lead) {
-    try { sessionStorage.setItem(EVIDENCE_WIPE_WARN_KEY, evidenceWipeWarning(String((e && e.message) || e), lead)); }
+    const failed = (e && e.failed) || [{ ...RECORDER_WIPES[0], why: String((e && e.message) || e) }];
+    try { sessionStorage.setItem(EVIDENCE_WIPE_WARN_KEY, evidenceWipeWarning(failed, lead)); }
     catch { /* sessionStorage unavailable — the erase still stands */ }
   },
 
@@ -137,10 +151,9 @@ const SettingsErase = {
 
   // #183: `evidenceMirror` is only a copy of the worker's ring buffer — a RUNNING
   // recording writes it back ~2 s after a clear. Throws on anything but a clean wipe.
-  async wipeRecording() {
-    if (!hasChrome || !chrome.runtime || !chrome.runtime.sendMessage) return;
+  async wipeOne(type) {
     const resp = await Promise.race([
-      chrome.runtime.sendMessage({ type: 'EVIDENCE_WIPE' }).catch((e) => {
+      chrome.runtime.sendMessage({ type }).catch((e) => {
         // No worker to answer means no recording to stop — proceed, don't fail.
         if (/receiving end|Could not establish/i.test(String((e && e.message) || e))) return { ok: true };
         throw e;
@@ -151,10 +164,24 @@ const SettingsErase = {
     if (!resp || resp.ok !== true) throw new Error((resp && resp.error) || 'the recorder could not be stopped');
   },
 
+  // Both at once, so 5 s at most; the error's `failed` lists every recorder that would not stop.
+  async wipeRecording() {
+    if (!hasChrome || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    const results = await Promise.allSettled(RECORDER_WIPES.map((w) => SettingsErase.wipeOne(w.type)));
+    const failed = RECORDER_WIPES
+      .map((w, i) => (results[i].status === 'rejected'
+        ? { ...w, why: String((results[i].reason && results[i].reason.message) || results[i].reason) } : null))
+      .filter(Boolean);
+    if (!failed.length) return;
+    const err = new Error(failed[0].why);
+    err.failed = failed;
+    throw err;
+  },
+
   async signOut() {
     const ok = await ConfirmDialog.ask(
       'Sign out? Every saved token, instance, history entry, queued result, session, unsaved '
-      + 'test draft, recorded step and captured log is deleted from this '
+      + 'test draft, recorded step, captured log and screen recording is deleted from this '
       + 'browser. A running recording is stopped for you. Site access stays — it is Chrome\'s own '
       + 'setting, under chrome://extensions → Details → Site access.', 'Sign out');
     if (!ok) return;

@@ -242,6 +242,24 @@ async function srecStop(reason) {
   return { ok: true };
 }
 
+// Disconnect, Forget and Sign out: closing the recorder page ends the capture and frees every take.
+async function srecWipe() {
+  await castSeeded; // a worker woken by this message must still know which tab it holds
+  await srecTeardownCast(await srecGet());
+  try { await chrome.offscreen.closeDocument(); } catch { /* none open */ }
+  await chrome.storage.session.remove([SREC_KEY, SREC_FILE_KEY, SREC_RKEY_KEY, SREC_TARGET_KEY]);
+  srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' });
+  return { ok: true };
+}
+
+// A take pushed by a recorder page that is already gone has no bytes left to review or attach.
+async function srecDocOpen() {
+  try {
+    const open = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+    return !!(open && open.length);
+  } catch { return true; } // no way to tell: keep the take, as before
+}
+
 // Everything that ends a recording funnels through here: state cleared, file parked — and the
 // REVIEW opened over the page (#68 preview+trim). Nothing is attached until the tester says so
 // there; the panel only hears 'file' once the review answers.
@@ -473,8 +491,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     // Pushed by the offscreen document when a cap or a closed tab ended the recording.
     case 'SCREENREC_FILE':
-      srecGet().then((st) => srecFinish(msg.file, st, msg.file && msg.file.reason));
+      srecDocOpen().then(async (open) => {
+        if (open) await srecFinish(msg.file, await srecGet(), msg.file && msg.file.reason);
+      });
       return false;
+    case 'SCREENREC_WIPE':
+      srecWipe().then(sendResponse, (e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+      return true;
     default: return undefined;
   }
 });

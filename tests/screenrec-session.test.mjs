@@ -42,7 +42,7 @@ const NAMES = [
   'srecOff', 'srecTell', 'srecEnsureDoc', 'srecCloseDoc', 'castSend', 'castAttach', 'castDetach',
   'srecStartCast', 'srecTeardownCast', 'srecName', 'srecStart', 'srecStop', 'srecFinish',
   'srecOpenReview', 'srecPause', 'srecStatus', 'srecInjectBar', 'srecMenu', 'srecTarget',
-  'srecToggle', 'CAST_PARAMS', 'SREC_CLAIM_MS', 'SREC_TIME_CAP_MS', 'SREC_KEY', 'SREC_FILE_KEY',
+  'srecToggle', 'srecWipe', 'srecDocOpen', 'CAST_PARAMS', 'SREC_CLAIM_MS', 'SREC_TIME_CAP_MS', 'SREC_KEY', 'SREC_FILE_KEY',
   'SREC_TARGET_KEY', 'SREC_DOC', 'SREC_MENU_ID', 'SREC_COMMAND',
 ];
 const PICK = `;({ ${NAMES.map((n) => `${n}: typeof ${n} === 'undefined' ? undefined : ${n}`).join(', ')} });`;
@@ -67,7 +67,7 @@ function readKeys(store, keys) {
 }
 
 function load(opts = {}) {
-  const { now = NOW, session = {} } = opts;
+  const { now = NOW, session = {}, hooks: early = {} } = opts;
 
   const calls = [];               // every stubbed call, in order: {name, args}
   const sess = plain(session);    // storage.session, a plain object
@@ -99,6 +99,8 @@ function load(opts = {}) {
     executeScript: async () => [],
     updateTab: async (id, props) => ({ id, ...props }),
     createTab: async (props) => ({ id: 99, ...props }),
+    storageGet: null,             // set to hold a read back; gets the real answer as a thunk
+    ...early,                     // what must already be in place while the file itself loads
   };
 
   const bus = () => {
@@ -142,7 +144,11 @@ function load(opts = {}) {
   };
 
   const storageArea = (store, area) => ({
-    get: async (keys) => { log(`storage.${area}.get`, keys); return plain(readKeys(store, keys)); },
+    get: async (keys) => {
+      log(`storage.${area}.get`, keys);
+      const read = () => plain(readKeys(store, keys));
+      return hooks.storageGet ? hooks.storageGet(area, keys, read) : read();
+    },
     // Chrome structured-clones on the way in; an alias would hide what a read-modify-write guards.
     set: async (obj) => {
       log(`storage.${area}.set`, obj);
@@ -942,4 +948,102 @@ test('55g (#105): an empty take mints no key', async () => {
   const h = await open();
   await h.api.srecFinish(null, { recording: true, mode: 'tab', tabId: 7 }, 'user');
   assert.equal(h.session.screenRecReviewKey, undefined);
+});
+
+// ---- the erase: Disconnect, Forget and Sign out ----------------------------
+
+const WIPED = { type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' };
+const SREC_KEYS = ['screenRec', 'screenRecFile', 'screenRecReviewKey', 'screenRecTarget'];
+
+test('56: signing out mid-recording closes the recorder page and leaves nothing to come back', async () => {
+  const h = await open({ session: { screenRec: { recording: true, paused: false, tabId: 7, recordId: 'r-1', mode: 'tab', startedAt: NOW - 5000 }, screenRecTarget: 'r-1' } });
+  h.clearCalls();
+  assert.deepEqual(await h.message({ type: 'SCREENREC_WIPE' }), { ok: true });
+  assert.deepEqual(h.named('offscreen.closeDocument'), [[]]);
+  assert.deepEqual(h.named('storage.session.remove'), [[SREC_KEYS]]);
+  assert.equal(h.live(), undefined);
+  assert.equal(h.parked(), undefined);
+  assert.equal(h.session.screenRecTarget, undefined);
+  assert.deepEqual(h.events(), [WIPED]);
+  assert.deepEqual(h.named('scripting.executeScript'), [], 'no review opens for a take that was thrown away');
+});
+
+test('57: a cast is let go of before the page closes — the debugger leaves the tab, frames go back', async () => {
+  const h = await open({ session: CASTING({ framesOut: true }) });
+  h.clearCalls();
+  await h.message({ type: 'SCREENREC_WIPE' });
+  assert.deepEqual(h.named('debugger.sendCommand'), [[{ tabId: 7 }, 'Page.stopScreencast', {}]]);
+  assert.deepEqual(h.named('debugger.detach'), [[{ tabId: 7 }]]);
+  assert.deepEqual(h.named('foreignFramesBack'), [[7]]);
+  const at = (name) => h.order().indexOf(name);
+  assert.ok(at('debugger.detach') < at('offscreen.closeDocument'));
+  assert.equal(h.api.srecCastOwns(7), false);
+});
+
+test('57b: a worker woken by the erase itself still finds the cast it holds', async () => {
+  // The re-seed's read — the first one, made while the file loads — answers only after the wipe asked.
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let reads = 0;
+  const h = load({
+    session: CASTING(),
+    hooks: { storageGet: async (_area, _keys, read) => { reads += 1; if (reads === 1) await held; return read(); } },
+  });
+  const answer = h.message({ type: 'SCREENREC_WIPE' });
+  await h.settle();
+  release();
+  assert.deepEqual(await answer, { ok: true });
+  assert.deepEqual(h.named('debugger.detach'), [[{ tabId: 7 }]]);
+});
+
+test('58: a take waiting for review is thrown away with its key, and its review is told to close', async () => {
+  const h = await open({ session: { screenRecFile: TAKE(), screenRecReviewKey: 'rk-9' } });
+  h.clearCalls();
+  assert.deepEqual(await h.message({ type: 'SCREENREC_WIPE' }), { ok: true });
+  assert.deepEqual(h.named('offscreen.closeDocument'), [[]], 'the parked take no longer keeps the page open');
+  assert.equal(h.parked(), undefined);
+  assert.equal(h.session.screenRecReviewKey, undefined);
+  assert.deepEqual(h.events(), [WIPED]);
+});
+
+test('59: with nothing recorded the erase still answers ok, even when there is no page to close', async () => {
+  const h = await open();
+  h.hooks.closeDocument = async () => { throw new Error('No current offscreen document.'); };
+  assert.deepEqual(await h.message({ type: 'SCREENREC_WIPE' }), { ok: true });
+  assert.deepEqual(h.named('debugger.detach'), []);
+});
+
+test('59b: an erase that cannot clear the state says so instead of claiming it did', async () => {
+  const h = await open({ session: { screenRecFile: TAKE() } });
+  const remove = h.context.chrome.storage.session.remove;
+  h.context.chrome.storage.session.remove = async () => { throw new Error('storage locked'); };
+  assert.deepEqual(await h.message({ type: 'SCREENREC_WIPE' }), { ok: false, error: 'storage locked' });
+  h.context.chrome.storage.session.remove = remove;
+});
+
+test('60: a take that arrives after its recorder page is gone is not parked and opens no review', async () => {
+  const h = await open();
+  h.hooks.getContexts = () => [];
+  await h.message({ type: 'SCREENREC_FILE', file: { url: 'blob:late', size: 999, ms: 300000, reason: 'time' } });
+  await h.settle(6);
+  assert.equal(h.parked(), undefined);
+  assert.deepEqual(h.named('scripting.executeScript'), []);
+  assert.deepEqual(h.named('tabs.create'), []);
+  assert.deepEqual(h.events(), []);
+});
+
+test('60b: a take pushed while its recorder page is still open is parked as before, session or not', async () => {
+  const h = await open();
+  await h.message({ type: 'SCREENREC_FILE', file: { url: 'blob:cap', size: 999, ms: 300000, reason: 'time' } });
+  await h.settle(6);
+  assert.equal(h.parked().url, 'blob:cap');
+  assert.deepEqual(h.named('runtime.getContexts'), [[{ contextTypes: ['OFFSCREEN_DOCUMENT'] }]]);
+});
+
+test('60c: a Chrome that cannot list its pages keeps the take rather than lose it', async () => {
+  const h = await open();
+  h.hooks.getContexts = () => { throw new Error('getContexts is not a function'); };
+  await h.message({ type: 'SCREENREC_FILE', file: { url: 'blob:cap', size: 999, ms: 300000, reason: 'time' } });
+  await h.settle(6);
+  assert.equal(h.parked().url, 'blob:cap');
 });

@@ -314,6 +314,10 @@
   });
 
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !exporting) closeReview(); });
+  // Disconnect, Forget or Sign out threw the take away: nothing is left here to review.
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'SCREENREC_EVENT' && msg.event === 'ended' && msg.reason === 'wiped') closeReview();
+  });
 
   // ---- boot ------------------------------------------------------------------
 
