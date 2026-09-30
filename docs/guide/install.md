@@ -8,7 +8,8 @@ your disk, once, and Chrome keeps it. Chrome 123 or newer.
 1. Get the folder — either way works:
    - download the newest `testomat-io-<version>.zip` from
      [Releases](https://github.com/testomatio/browser-extension/releases) —
-     the single file under **Assets** — and unpack it, **or**
+     the file under **Assets** without `-webstore` in its name (that one is
+     the Chrome Web Store upload) — and unpack it, **or**
 
      ![The zip under Assets on the Releases page](img/install-release-zip.png)
 
