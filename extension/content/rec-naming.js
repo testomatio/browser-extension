@@ -126,6 +126,8 @@
     return null;
   }
 
+  // The <input> types whose value is their caption.
+  const BUTTON_INPUT = /^(button|submit|reset|image)$/i;
   // "Names itself by its own text" — buttons, links and every ARIA custom control we
   // recognize; without the roles, name/id records `Open the "tab-details" tab`.
   const isButtonish = (el) => {
@@ -133,8 +135,11 @@
     const role = (el.getAttribute && el.getAttribute('role')) || '';
     return tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY'
       || role === 'button' || !!ROLE_PHRASE[role]
-      || (tag === 'INPUT' && /^(button|submit|reset|image)$/i.test(el.type || ''));
+      || (tag === 'INPUT' && BUTTON_INPUT.test(el.type || ''));
   };
+  // Every other form field holds what the tester entered, whatever role the page gives it.
+  const holdsValue = (el) => el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
+    || (el.tagName === 'INPUT' && !BUTTON_INPUT.test(el.type || ''));
 
   // `fallback` (#74: the cell's column header) slots in AHEAD of name/id — those are
   // developer strings, a column header is what the tester actually reads. `near` (#23) is
@@ -150,7 +155,7 @@
         .filter(Boolean);
       if (named.length) return trim40(named.join(' '));
     }
-    if (isButtonish(el)) {
+    if (isButtonish(el) && !holdsValue(el)) { // a combobox input is named by its label, not its value
       const t = buttonishText(el);
       if (t) return trim40(t);
       if (el.value && String(el.value).trim()) return trim40(el.value);
