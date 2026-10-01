@@ -17,7 +17,7 @@
   // Best-effort (Luhn below is the backstop). Entries are written the way `words()` leaves
   // them: `cardnumber` has no seam to split on, so the space in `card ?num` is load-bearing.
   const CARD_NUMBER_WORDS = /\b(card ?num(ber)?|cc ?(num(ber)?|no))\b/;
-  const SENSITIVE_WORDS = /\b(card ?num(ber)?|card|cc ?(num(ber)?|no)|cvv|cvc|csc|security code|ssn|social security|passport|otp|passcode|one[- ]?time|exp(iry|iration)?|secret|token|api[- ]?key|pin|iban|routing|account number|tax id)\b/;
+  const SENSITIVE_WORDS = /\b(card ?num(ber)?|card|card ?holder|name on card|cc ?(num(ber)?|no|name)|cvv2?|cvc2?|csc|security code|ssn|social security|passport|otp|passcode|one[- ]?time|exp(iry|iration)?|mm yy(yy)?|valid thru|valid through|secret|token|api[- ]?key|pin|iban|routing|account number|tax id)\b/;
   // A revealed password is a `type=text` field (every show/hide eye flips it). Whole words,
   // not a `pass` prefix: `passport` is a government id, masked as "the value" above.
   const PASSWORD_WORDS = /\b(password|passwd|pwd|passphrase)\b/;

@@ -213,6 +213,33 @@ test('13: the icon and the severity that colours it never disagree', () => {
   assert.deepEqual(plain(h.f.icon({ kind: 'exception', level: 'error' })), { name: 'error', kind: 'error' });
 });
 
+// ---------- addresses inside a console message ----------
+
+const LEAKY = `Failed to load resource: ${SITE}/img/a.png?sig=SECRET#x`;
+
+test('an address inside a console message is trimmed in the .txt, like every request line', () => {
+  const h = load();
+  const txt = h.f.buildTxt('Run', 'Test', [con({ text: LEAKY }), con({ text: 'CSP refused http://cdn.example:8080/s.js?k=SECRET — violated script-src' })],
+    { tabTitle: 'Shop', tabUrl: `${SITE}/cart`, windowSec: 60 });
+  assert.equal(txt.includes('SECRET'), false);
+  assert.ok(txt.includes(`console.error: Failed to load resource: ${SITE}/img/a.png (query trimmed)`));
+  assert.ok(txt.includes('CSP refused http://cdn.example:8080/s.js (query trimmed) — violated script-src'));
+});
+
+test('the entry Attach quotes into a comment has its addresses trimmed the same way', () => {
+  const h = load();
+  const out = h.f.entrySnippet(con({ text: LEAKY }));
+  assert.equal(out.includes('SECRET'), false);
+  assert.ok(out.includes(`${SITE}/img/a.png (query trimmed)`));
+});
+
+test('a message with a clean address, or none, is left exactly as the page wrote it', () => {
+  const h = load();
+  assert.equal(h.f.trimAddresses(`see ${SITE}/docs for more`), `see ${SITE}/docs for more`);
+  assert.equal(h.f.trimAddresses('Uncaught TypeError: x is undefined'), 'Uncaught TypeError: x is undefined');
+  assert.equal(h.f.trimAddresses(`a ${SITE}/a?t=1 and ${SITE}/b#c`), `a ${SITE}/a (query trimmed) and ${SITE}/b (query trimmed)`);
+});
+
 // ---------- the .txt that leaves the browser (rows 14-17) ----------
 
 test('14: the log reads as a document — header, Console, Network, bodies indented under their request', () => {

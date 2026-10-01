@@ -54,6 +54,11 @@ const EvidenceFormat = {
     return `${ticks}${pad}${s}${pad}${ticks}`;
   },
 
+  // A console message can quote an address, token and all (our own "Failed to load resource" does).
+  trimAddresses(s) {
+    return String(s == null ? '' : s).replace(/\bhttps?:\/\/[^\s"'<>`()[\]{}]+/g, (u) => envTrimUrl(u));
+  },
+
   // Goes into the tester's comment, which is UPLOADED with the result — so the address is
   // trimmed here, exactly as the .txt trims its own (PRIVACY.md); the on-screen row keeps it whole.
   entrySnippet(e) {
@@ -69,7 +74,7 @@ const EvidenceFormat = {
       }
       return out;
     }
-    return `> ${EvidenceFormat.inlineCode(`[${EvidenceFormat.label(e)} ${t}] ${EvidenceFormat.oneLine(e.text)}`)}`;
+    return `> ${EvidenceFormat.inlineCode(`[${EvidenceFormat.label(e)} ${t}] ${EvidenceFormat.oneLine(EvidenceFormat.trimAddresses(e.text))}`)}`;
   },
 
   rowText(e) {
@@ -116,7 +121,7 @@ const EvidenceFormat = {
     if (!cons.length) lines.push('(none)');
     for (const e of cons) {
       const at = EvidenceFormat.loc(e, envTrimUrl);
-      const said = EvidenceFormat.oneLine(e.text, 500);
+      const said = EvidenceFormat.oneLine(EvidenceFormat.trimAddresses(e.text), 500);
       lines.push(`[${EvidenceFormat.time(e.ts)}] ${EvidenceFormat.label(e)}: ${said}${at ? ` (${at})` : ''}`);
     }
     lines.push('');

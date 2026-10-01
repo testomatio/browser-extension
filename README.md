@@ -7,8 +7,8 @@ without leaving the tab: an annotated screenshot, a screen recording, the
 page's console & network log. New tests can be written in the panel too, or
 recorded from your clicks on the page.
 
-Works with `app.testomat.io` and with self-hosted instances. Not in the
-Chrome Web Store: you load it from a folder, once.
+Works with `app.testomat.io` and with self-hosted instances. Coming to the
+Chrome Web Store; until then you load it from a folder, once.
 
 ![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/guide/img/readme-hero.gif)
 
@@ -59,10 +59,9 @@ update](docs/guide/install.md).
 
 ## Privacy
 
-Nothing runs on a page without your click, and nothing the extension reads
-goes anywhere except your own Testomat.io instance. What is stored, what is
-sent and when, every permission and why it is needed, and every off switch:
-[PRIVACY.md](PRIVACY.md).
+The extension uploads only to your own Testomat.io instance. What is stored,
+what is sent and when — including where Polish with AI goes after that — every
+permission and why it is needed, and every off switch: [PRIVACY.md](PRIVACY.md).
 
 ## Where to report
 
