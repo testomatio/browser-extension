@@ -271,9 +271,15 @@
   // Same best-effort contract as loadTemplates: ANY failure (no session, offline, no
   // permission) answers '' — an unknown language must not cost a non-BDD project its
   // templates. Only a BDD project answers 'gherkin'.
+  // One project read per document: its language and its AI status both come from it.
+  let projectInfoPromise = null;
+  function projectInfoOnce() {
+    if (!projectInfoPromise) projectInfoPromise = Promise.resolve().then(() => TestomatAPI.getProjectInfo());
+    return projectInfoPromise;
+  }
   async function loadProjectLang() {
     try {
-      const doc = await TestomatAPI.getProjectInfo();
+      const doc = await projectInfoOnce();
       const attrs = (doc && doc.data && doc.data.attributes) || {};
       return String(attrs.lang || '').toLowerCase();
     } catch { return ''; }
@@ -949,6 +955,10 @@
     // The switch may move at any point in a recording — only where it stands at Stop counts.
     polishInput.addEventListener('change', () => { rec.setPolishOn(polishInput.checked); });
     rec.loadPolishPref();
+    // A company without AI keeps the switch in view, but it explains instead of sending.
+    if (TestomatAPI.jwtAvailable() !== false) {
+      projectInfoOnce().then((doc) => rec.setAiStatus(RecFormat.aiStatusOf(doc)), () => {});
+    }
 
     // ---- Attach screenshots (previews held until Save) -----------------------
     // Rebuilt whole on every change: at most MAX_SHOTS rows, and a diff would only be a

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Testomat.io",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Run Testomat.io manual tests next to the site you test, and attach screenshots, screen recordings and console & network logs.",
   "minimum_chrome_version": "123",
   "icons": {

@@ -66,6 +66,12 @@ Testomat.io AI rewrites the recorded steps into cleaner prose. **Undo
 polish** puts the recorded wording back. If the AI is unavailable, the
 raw steps are kept and the editor says so.
 
+The polish runs on your company's Testomat.io AI. When your company has no
+AI features — the plan does not include them, or the company owner has not
+switched them on in the company settings — the switch stays off and says
+so when you click it, and nothing is sent. On a server with no AI at all,
+the switch is not shown.
+
 ## If it didn't work
 
 - **Record steps does nothing / says the page can't be recorded** — the
