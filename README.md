@@ -88,7 +88,8 @@ and leave them alone.
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Vendored under `extension/vendor/` with their
-own licences: [showdown](https://github.com/showdownjs/showdown) (MIT) and
+own licence files: [showdown](https://github.com/showdownjs/showdown) (MIT) and
 [OverType](https://github.com/panphora/overtype) (MIT); icon paths from
 [Material Symbols](https://fonts.google.com/icons) (Apache-2.0); JetBrains
-Mono under the SIL Open Font License (`extension/shared/fonts/OFL.txt`).
+Mono and Fira Mono under the SIL Open Font License (`extension/shared/fonts/OFL.txt`
+and `OFL-FiraMono.txt`).
