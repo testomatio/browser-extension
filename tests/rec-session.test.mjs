@@ -466,15 +466,87 @@ test('91: 401/403 or an auth refusal switches polishing off for this server', as
   }
 });
 
+const AI_OFF = 'AI isn’t available for your company: it needs a plan with AI, switched on by the company owner in the company settings';
+
 test('92: a 422 is the server explaining itself — its sentence, not ours', async () => {
   const env = open();
   await recordAndStop(env, ['Click Save']);
+  env.answerWith(() => Promise.reject({ kind: 'http', status: 422, message: 'Prompt is too long' }));
+  await env.session.polish();
+  assert.ok(env.toastText().includes('Prompt is too long'));
+  assert.equal(env.rowHidden.length, 0);
+});
+
+test('92a: a plan without AI turns the switch off, explains, and leaves it in view', async () => {
+  const env = open();
+  await recordAndStop(env, ['Click Save']);
+  env.session.setPolishOn(true);
+  env.localSets.length = 0;
+  // The shape extension/api/errors.js really hands over: the body already read into `message`.
   env.answerWith(() => Promise.reject({
-    status: 422, message: '{"error":"Ai is not available in your subscription plan"}',
+    kind: 'http', status: 422, message: 'Ai is not available in your subscription plan',
   }));
   await env.session.polish();
-  assert.ok(env.toastText().includes('Ai is not available in your subscription plan'));
-  assert.equal(env.rowHidden.length, 0); // a plan limit is not a reason to hide the switch
+  assert.ok(env.toastText().includes(AI_OFF));
+  assert.equal(env.session.polishOn(), false);
+  assert.equal(env.switchOn[env.switchOn.length - 1], false);
+  assert.equal(env.rowHidden.length, 0); // in view: it says why, rather than vanishing
+  assert.deepEqual(plain(env.localSets), []); // the choice stands for a company that has AI
+});
+
+test('92b: a company whose owner never switched AI on is answered "AI is disabled" — the same', async () => {
+  const env = open();
+  await recordAndStop(env, ['Click Save']);
+  const before = env.body();
+  env.session.setPolishOn(true);
+  env.answerWith(() => Promise.resolve({ text: 'AI is disabled' }));
+  await env.session.polish();
+  assert.ok(env.toastText().includes(AI_OFF));
+  assert.equal(env.session.polishOn(), false);
+  assert.equal(env.body(), before); // the recorded steps stand
+});
+
+test('92c: a project that says AI is off keeps the switch inert — turning it on explains and sends nothing', async () => {
+  const env = open();
+  env.session.setAiStatus('off');
+  assert.equal(env.rowHidden.length, 0);
+  env.session.setPolishOn(true);
+  assert.equal(env.session.polishOn(), false);
+  assert.equal(env.switchOn[env.switchOn.length - 1], false);
+  assert.ok(env.toastText().includes(AI_OFF));
+  await recordAndStop(env, ['Click Save']);
+  await env.session.polish();
+  assert.deepEqual(env.apiCalls, []);
+});
+
+test('92d: a stored "on" is overruled for this editor, and only for it', async () => {
+  const env = open({ local: { polishSteps: true } });
+  env.session.setAiStatus('off');
+  await env.session.loadPolishPref();
+  assert.equal(env.session.polishOn(), false);
+  assert.equal(env.stored.polishSteps, true);
+});
+
+test('92e: an instance with no AI at all does not offer the switch, whatever arrives first', async () => {
+  const early = open();
+  early.session.setAiStatus('none');
+  await early.session.loadPolishPref(); // the stored choice lands after the project's answer
+  assert.equal(early.rowHidden[early.rowHidden.length - 1], true);
+  const late = open();
+  await late.session.loadPolishPref();
+  late.session.setAiStatus('none');
+  assert.equal(late.rowHidden[late.rowHidden.length - 1], true);
+  assert.equal(late.session.polishOn(), false);
+});
+
+test('92f: "on" and "unknown" change nothing', async () => {
+  for (const status of ['on', 'unknown']) {
+    const env = open();
+    env.session.setAiStatus(status);
+    env.session.setPolishOn(true);
+    assert.equal(env.session.polishOn(), true, status);
+    assert.equal(env.toastText().includes(AI_OFF), false, status);
+  }
 });
 
 test('93: an answer with no numbered items is a failure, not an empty rewrite', async () => {

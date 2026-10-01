@@ -1582,7 +1582,11 @@ belongs to the editor now, and only rewriting our own copy would fork the two.
 
 **Polishing (#23, editor side — `editor/rec-session.js`)**. The `Polish with AI`
 switch (`storage.local`
-`polishSteps`, default off, hidden when `jwtAvailable() === false`) changes
+`polishSteps`, default off, hidden when `jwtAvailable() === false` or when the
+project's `company-settings.ai_hidden` says the instance has no AI; with
+`ai_enabled` present but not `true` (prod answers `null` for a company with no
+subscription) it stays in view but inert — turning it on explains and sends
+nothing, and a 422 plan refusal or an "AI is disabled" answer does the same) changes
 **nothing** about the insertion: every entry goes in raw, at once, exactly as it
 did before the feature existed. What the editor keeps alongside the body is the
 recording itself — `recEntries` (the entries, packets and all), `recStart` (the

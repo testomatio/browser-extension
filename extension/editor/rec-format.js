@@ -78,12 +78,32 @@ const RecFormat = (() => {
       const j = JSON.parse((e && e.message) || '');
       const m = j && (j.error || j.details || j.message);
       if (m) return String(Array.isArray(m) ? m.join('; ') : m);
-    } catch { /* not JSON — we have no better words than our own */ }
-    return '';
+    } catch { /* not JSON — an ApiError may already carry the server's sentence as text */ }
+    const said = e && e.kind === 'http' && typeof e.message === 'string' ? e.message.trim() : '';
+    return said && !/^HTTP \d+$/.test(said) ? said : '';
+  }
+
+  // The project's word on AI: 'none' (the instance has none), 'off' (not for this company), 'on' or 'unknown'.
+  function aiStatusOf(doc) {
+    const a = (doc && doc.data && doc.data.attributes) || {};
+    const cs = a['company-settings'] || a.company_settings;
+    if (!cs || typeof cs !== 'object') return 'unknown';
+    const has = (k) => k in cs || k.replace(/_/g, '-') in cs;
+    const pick = (k) => (k in cs ? cs[k] : cs[k.replace(/_/g, '-')]);
+    if (pick('ai_hidden') === true) return 'none';
+    // Present but not true is no AI: a company with no subscription is answered null, not false.
+    if (!has('ai_enabled')) return 'unknown';
+    return pick('ai_enabled') === true ? 'on' : 'off';
+  }
+
+  // What the server says, instead of a rewrite, when the company has no AI.
+  function aiRefused(res, e) {
+    if (e) return e.status === 422 && /not available in your subscription plan|ai is not enabled/i.test(serverMessage(e));
+    return /^\s*AI is disabled\s*$/i.test((res && (res.steps || res.text)) || '');
   }
 
   return {
     STEPS_OPTS, stepsHeading, splitRecorded, insertRecorded,
-    polishedSection, asExpected, parsePolishedItems, serverMessage,
+    polishedSection, asExpected, parsePolishedItems, serverMessage, aiStatusOf, aiRefused,
   };
 })();

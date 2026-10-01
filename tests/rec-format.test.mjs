@@ -35,7 +35,7 @@ test('the module publishes exactly the surface editor.js destructures', () => {
   // `stepsHeading` joined the surface with #246: rec-session names the section ONCE per call and
   // hands the same name to `insertRecorded`, so its count and the insert cannot disagree.
   assert.deepEqual(Object.keys(RecFormat).sort(), [
-    'STEPS_OPTS', 'asExpected', 'insertRecorded', 'parsePolishedItems',
+    'STEPS_OPTS', 'aiRefused', 'aiStatusOf', 'asExpected', 'insertRecorded', 'parsePolishedItems',
     'polishedSection', 'serverMessage', 'splitRecorded', 'stepsHeading',
   ]);
   assert.deepEqual(plain(RecFormat.STEPS_OPTS), { ordered: true });
@@ -239,3 +239,47 @@ test('27: precedence is error, then details, then message', () => {
   assert.equal(serverMessage({ message: '{"details":["d"],"message":"M"}' }), 'd');
 });
 
+test('27a: an ApiError already carries the server\'s sentence as text — that is its own words too', () => {
+  // extension/api/errors.js reads the body into `message` before the editor ever sees it.
+  assert.equal(serverMessage({ kind: 'http', status: 422, message: 'Ai is not available in your subscription plan' }),
+    'Ai is not available in your subscription plan');
+  assert.equal(serverMessage({ kind: 'http', status: 422, message: 'HTTP 422' }), ''); // nothing was said
+  assert.equal(serverMessage({ kind: 'network', message: 'Failed to fetch' }), ''); // not the server talking
+});
+
+// ===================== the company's AI, as the project reports it ==========
+
+const project = (cs) => ({ data: { attributes: cs === undefined ? {} : { 'company-settings': cs } } });
+
+test('aiStatusOf: the project says whether this company has AI, and whether the instance has any', () => {
+  const { aiStatusOf } = RecFormat;
+  assert.equal(aiStatusOf(project({ ai_enabled: true, ai_hidden: false })), 'on');
+  assert.equal(aiStatusOf(project({ ai_enabled: false, ai_hidden: false })), 'off');
+  assert.equal(aiStatusOf(project({ ai_enabled: false, ai_hidden: true })), 'none');
+  assert.equal(aiStatusOf(project({ 'ai-enabled': false })), 'off'); // keys dasherised too
+  // Seen on prod: a company with no subscription is answered null — no AI, not "unknown".
+  assert.equal(aiStatusOf(project({ ai_enabled: null, ai_hidden: false })), 'off');
+  assert.equal(aiStatusOf(project({ ai_enabled: 'yes' })), 'off'); // anything but true sends nothing
+});
+
+test('aiStatusOf: an older server, or no answer at all, is unknown — never a guess', () => {
+  const { aiStatusOf } = RecFormat;
+  for (const doc of [project(), project({}), project({ ai_hidden: false }), project('x'), null, {}]) {
+    assert.equal(aiStatusOf(doc), 'unknown');
+  }
+});
+
+test('aiRefused: the plan refusal, the switched-off company, and nothing else', () => {
+  const { aiRefused } = RecFormat;
+  const err = (status, error) => ({ status, message: JSON.stringify({ error }) });
+  const apiErr = (status, message) => ({ kind: 'http', status, message }); // what the editor really gets
+  assert.equal(aiRefused(null, apiErr(422, 'Ai is not available in your subscription plan')), true);
+  assert.equal(aiRefused(null, apiErr(422, 'HTTP 422')), false);
+  assert.equal(aiRefused(null, err(422, 'Ai is not available in your subscription plan')), true);
+  assert.equal(aiRefused(null, err(422, 'AI is not enabled for this project')), true);
+  assert.equal(aiRefused(null, err(422, 'Prompt is too long')), false);
+  assert.equal(aiRefused(null, err(500, 'Ai is not available in your subscription plan')), false);
+  assert.equal(aiRefused({ text: 'AI is disabled' }), true);
+  assert.equal(aiRefused({ steps: '1. AI is disabled on the settings page' }), false);
+  assert.equal(aiRefused({}), false);
+});

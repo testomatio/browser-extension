@@ -6,7 +6,7 @@
 const RecSession = (() => {
   const {
     STEPS_OPTS, stepsHeading, splitRecorded, insertRecorded,
-    polishedSection, parsePolishedItems, serverMessage,
+    polishedSection, parsePolishedItems, serverMessage, aiRefused,
   } = RecFormat;
 
   // BLIND: the recorded tab moved to a page Chrome keeps extensions off (chrome://, the
@@ -23,6 +23,7 @@ const RecSession = (() => {
   const REC_TIP_POLISHING = 'Testomat AI is rewriting the steps you just recorded';
 
   const POLISH_KEY = 'polishSteps';   // its OWN storage.local key, like stepRecNeverValues
+  const AI_OFF_MSG = 'AI isn’t available for your company: it needs a plan with AI, switched on by the company owner in the company settings';
   // One button, two jobs — and no button at all when there is no recording to do them to.
   const POLISH_DO = 'Polish recorded steps';
   const POLISH_UNDO = 'Undo polish';
@@ -73,6 +74,8 @@ const RecSession = (() => {
     // ---- AI polish (#23) — off by default, ONE request when the recording stops ----
     let polishOn = false;
     let polishAvailable = true;  // a session to ask; basic mode has none, so the row goes away
+    let aiOff = false;           // the company has no AI: the switch stays in view, explains, sends nothing
+    let aiNone = false;          // the instance has no AI at all: the switch is not offered
     let polishTimeoutMs = 30000;        // per request; __tc.setPolishTimeout shortens it in e2e
     let lastPolishMessage = '';         // e2e reads the exact message that went out
     let recPolishing = false;           // a request is out — the record button says so
@@ -165,6 +168,7 @@ const RecSession = (() => {
 
     async function polishRecording() {
       if (!hasRecording() || recPolishing) return;
+      if (aiOff) { showToast(AI_OFF_MSG); return; }
       recPolishing = true;
       updateRecUi(0, false, false, false);
       updatePolishBtn();
@@ -173,6 +177,7 @@ const RecSession = (() => {
         const res = await withTimeout(
           api.polishRecordedSteps(lastPolishMessage, testUid), polishTimeoutMs,
         );
+        if (aiRefused(res)) throw { kind: 'ai-off' };
         const items = parsePolishedItems(polishedSection(res));
         if (!items.length) throw new Error('nothing came back');
         // The raw texts are captured BEFORE the write, so Undo has somewhere to go back to.
@@ -216,6 +221,7 @@ const RecSession = (() => {
     // away rather than failing again on the next recording.
     function polishFailed(e) {
       if (e && (e.kind === 'auth' || e.status === 401 || e.status === 403)) { disablePolish(); return; }
+      if (e && (e.kind === 'ai-off' || aiRefused(null, e))) { turnAiOff(true); return; }
       const own = e && e.status === 422 ? serverMessage(e) : '';
       showToast(own || `Couldn’t polish — raw steps kept (${reasonOf(e)})`, { error: true });
     }
@@ -312,14 +318,28 @@ const RecSession = (() => {
       if (!hasLocal()) return;
       try { chrome.storage.local.set({ [POLISH_KEY]: !!on }); } catch { /* best effort */ }
     }
+    // The switch goes off for this editor only: the stored choice stands for a company that has AI.
+    function turnAiOff(say) {
+      aiOff = true;
+      polishOn = false;
+      ui.polishSwitch(false);
+      updatePolishBtn();
+      if (say) showToast(AI_OFF_MSG);
+    }
+    // 'off': in view but inert; 'none': not offered; 'on' and 'unknown' change nothing.
+    function setAiStatus(status) {
+      if (status === 'none') { aiNone = true; turnAiOff(false); syncPolishVisible(); }
+      else if (status === 'off') turnAiOff(false);
+    }
     // Basic mode has no session to ask, so the row does not offer it at all.
     function syncPolishVisible() {
-      polishAvailable = api.jwtAvailable() !== false;
+      polishAvailable = api.jwtAvailable() !== false && !aiNone;
       ui.polishRow(!polishAvailable);
       updatePolishBtn();
     }
     // The switch may move at any point in a recording — only where it stands at Stop counts.
     function setPolishOn(on) {
+      if (on && aiOff) { ui.polishSwitch(false); showToast(AI_OFF_MSG); return; }
       polishOn = !!on;
       ui.polishSwitch(polishOn);
       writePolishPref(polishOn);
@@ -330,6 +350,7 @@ const RecSession = (() => {
         try { polishOn = (await chrome.storage.local.get(POLISH_KEY))[POLISH_KEY] === true; }
         catch { /* default off */ }
       }
+      if (aiOff) polishOn = false;
       ui.polishSwitch(polishOn);
       syncPolishVisible();
     }
@@ -428,6 +449,7 @@ const RecSession = (() => {
       loadPolishPref,
       syncPolishVisible,
       setPolishOn,
+      setAiStatus,
       setPolishTimeout: (ms) => { polishTimeoutMs = Number(ms) || polishTimeoutMs; },
       isRecording: () => recording,
       isPolished: () => recPolished,
