@@ -9,7 +9,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-const source = readFileSync(join(repoRoot, 'extension/content/rec-mask.js'), 'utf8');
+// REC_MASK_SRC runs the file against a mutated copy, so a falsification run never edits the shipped one.
+const source = readFileSync(process.env.REC_MASK_SRC || join(repoRoot, 'extension/content/rec-mask.js'), 'utf8');
 // Injected files publish onto `window`, which in a page is the global itself — so the sandbox
 // has to be its own window before the module will hand anything back.
 const sandbox = {};
@@ -89,6 +90,15 @@ test('everything else sensitive is "the value" — the noun is never a guess', (
     assert.equal(RecMask.maskedAs(field({ name, value: 'x' })), 'the value', name);
   }
   assert.equal(RecMask.maskedAs(field({ name: 'cardTitle', value: 'Fix login' })), 'the value');
+});
+
+test('the cardholder, the expiry written as MM / YY and a CVV2 are "the value" too', () => {
+  for (const f of [
+    { name: 'cardholder' }, { name: 'cardHolderName' }, { 'aria-label': 'Name on card' }, { name: 'cc-name' },
+    { placeholder: 'MM / YY' }, { placeholder: 'MM/YYYY' }, { 'aria-label': 'Valid thru' }, { name: 'cvv2' }, { name: 'cvc2' },
+  ]) {
+    assert.equal(RecMask.maskedAs(field({ ...f, value: 'x' })), 'the value', JSON.stringify(f));
+  }
 });
 
 test('an ordinary field is not masked at all', () => {

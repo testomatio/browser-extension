@@ -23,8 +23,9 @@ const StepRecCore = (() => {
     return `${cut.slice(0, at > SR_TITLE_MAX / 2 ? at : SR_TITLE_MAX).replace(/[\s\-–—|·:;,]+$/, '')}…`;
   };
 
+  // Chrome's placeholder is the address, query and all: such a page is named by its host.
   const srCleanTitle = (title, url) => {
-    const t = srTrimTitle(title);
+    const t = srIsUrlTitle(title, url) ? '' : srTrimTitle(title);
     if (t) return t;
     try { return new URL(url).hostname; } catch { return url || 'the'; }
   };
@@ -118,16 +119,15 @@ const StepRecCore = (() => {
     return es.length;
   }
 
-  // Chrome fills tab.title with a URL-derived placeholder until the real <title> parses. A title
-  // is that placeholder only when it IS the address — host+path+search, the host, or the href.
+  // Chrome's URL-derived placeholder title (kept for a page with none): the host alone, or the host and more.
   function srIsUrlTitle(title, url) {
     const t = (title || '').trim();
     if (!t) return true;
     try {
       const u = new URL(url);
-      const bare = (s) => String(s).replace(/\/+$/, '');
-      const seen = bare(t);
-      return seen === bare(u.host + u.pathname + u.search) || seen === bare(u.host) || seen === bare(u.href);
+      const seen = t.toLowerCase().replace(/^[a-z][a-z\d+.-]*:\/\//, '').replace(/\/+$/, '');
+      const host = u.host.toLowerCase();
+      return seen === host || (seen.startsWith(host) && /^[/?#]/.test(seen.slice(host.length)));
     } catch { return false; }
   }
 

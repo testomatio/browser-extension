@@ -297,6 +297,32 @@ test('W32: with an unparsable URL there is nothing to compare, so the title stan
   assert.equal(load().api.srIsUrlTitle('Checkout', 'not-a-url'), false);
 });
 
+test('W32b: Chrome\'s placeholder carries the query and fragment too, and is still no title', () => {
+  const { srIsUrlTitle } = load().api;
+  const url = 'https://shop.example.com/reset?token=SECRET#step-2';
+  assert.equal(srIsUrlTitle('shop.example.com/reset?token=SECRET#step-2', url), true);
+  assert.equal(srIsUrlTitle('https://shop.example.com/reset?token=SECRET', url), true);
+  assert.equal(srIsUrlTitle('shop.example.com/reset?token=SECRET%20x', url), true); // however Chrome escapes it
+  assert.equal(srIsUrlTitle('127.0.0.1:8080/reset?token=SECRET', 'http://127.0.0.1:8080/reset?token=SECRET'), true);
+  // Should Chrome ever drop the slash before a query or a fragment, it is still the address.
+  assert.equal(srIsUrlTitle('shop.example.com?token=SECRET', 'https://shop.example.com/?token=SECRET'), true);
+  assert.equal(srIsUrlTitle('shop.example.com#token=SECRET', 'https://shop.example.com/#token=SECRET'), true);
+});
+
+test('W32d: a real title that merely starts with the host is still the page\'s own words', () => {
+  const { srIsUrlTitle } = load().api;
+  const url = 'https://shop.example.com/sale?token=SECRET';
+  assert.equal(srIsUrlTitle('shop.example.com — Summer sale', url), false);
+  assert.equal(srIsUrlTitle('shop.example.company', url), false);
+});
+
+test('W32c: a page named by Chrome\'s placeholder is named by its host, so no query reaches the step', () => {
+  const { srCleanTitle } = load().api;
+  const url = 'https://shop.example.com/reset?token=SECRET#step-2';
+  assert.equal(srCleanTitle('shop.example.com/reset?token=SECRET#step-2', url), 'shop.example.com');
+  assert.equal(srCleanTitle('Reset your password', url), 'Reset your password');
+});
+
 // ======================= the title refine (srRefineNav) =====================
 
 const navSt = (over = {}) => mkSt({
