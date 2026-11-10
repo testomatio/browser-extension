@@ -1,14 +1,17 @@
 # Testomat.io Chrome extension
 
-Run [Testomat.io](https://testomat.io) manual tests in Chrome's side panel,
-next to the site you are testing. Open a run, read the steps, tick them
-off, mark passed / failed / skipped with a comment — and attach the evidence
-without leaving the tab: an annotated screenshot, a screen recording, the
-page's console & network log. New tests can be written in the panel too, or
-recorded from your clicks on the page.
+Run tests, capture screenshots, record videos, and collect browser logs right
+next to the website you're testing. Keep all your testing work in Chrome
+without switching tabs.
 
-Works with `app.testomat.io` and with self-hosted instances. Coming to the
-Chrome Web Store; until then you load it from a folder, once.
+## What You Can Do
+
+- Run manual tests – Follow test steps and mark results.
+- Capture screenshots – Take, annotate, crop, and blur screenshots.
+- Record your screen – Capture browser activity and attach video recordings.
+- Capture browser logs – Collect console errors, warnings, and network requests.
+- Create test cases – Write new tests in Markdown and add parameters.
+- Record test steps – Turn your actions on a website into test steps automatically.
 
 ![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/guide/img/readme-hero.gif)
 
