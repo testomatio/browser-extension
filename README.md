@@ -1,31 +1,29 @@
 # Testomat.io Chrome extension
 
-Run [Testomat.io](https://testomat.io) manual tests in Chrome's side panel,
-next to the site you are testing. Open a run, read the steps, tick them
-off, mark passed / failed / skipped with a comment — and attach the evidence
-without leaving the tab: an annotated screenshot, a screen recording, the
-page's console & network log. New tests can be written in the panel too, or
-recorded from your clicks on the page.
+Run tests, capture screenshots, record videos, and collect browser logs right
+next to the website you're testing. Keep all your testing work in Chrome
+without switching tabs.
 
-Works with `app.testomat.io` and with self-hosted instances. Coming to the
-Chrome Web Store; until then you load it from a folder, once.
+## What You Can Do
+
+- Run manual tests – Follow test steps and mark results.
+- Capture screenshots – Take, annotate, crop, and blur screenshots.
+- Record your screen – Capture browser activity and attach video recordings.
+- Capture browser logs – Collect console errors, warnings, and network requests.
+- Create test cases – Write new tests in Markdown and add parameters.
+- Record test steps – Turn your actions on a website into test steps automatically.
 
 ![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/guide/img/readme-hero.gif)
 
 ## Install
 
-1. Download the newest zip from
-   [Releases](https://github.com/testomatio/browser-extension/releases) and
-   unpack it — or `git clone` this repository.
-2. Open `chrome://extensions` and switch on **Developer mode** (top right).
-3. Click **Load unpacked** and pick the folder you unpacked — from a clone,
-   the **`extension/`** folder inside it, not the repository root.
-4. Click the puzzle icon in Chrome's toolbar and pin **Testomat.io**.
-5. Click the pinned icon — the panel opens and asks you to connect.
+1. Open [Testomat.io in the Chrome Web Store](https://chromewebstore.google.com/detail/testomatio/amcnjlghmkkjfaajanfeghpgbjakdcka)
+   and click **Add to Chrome**, then **Add extension**.
+2. Click the puzzle icon in Chrome's toolbar and pin **Testomat.io**.
+3. Click the pinned icon — the panel opens and asks you to connect.
 
-Chrome 123 or newer. Nothing to build. To update, replace the folder's
-contents and press reload (↻) on the extension's card — your settings and
-unsent results survive it. Details and pictures: [Install and
+Chrome 123 or newer. Chrome updates the extension by itself. Details and
+pictures, and how to run it from source: [Install and
 update](docs/guide/install.md).
 
 ## Quick start
@@ -47,7 +45,7 @@ update](docs/guide/install.md).
 
 | Page | Covers |
 |---|---|
-| [Install and update](docs/guide/install.md) | Load the folder, pin the icon, update without losing anything |
+| [Install and update](docs/guide/install.md) | Add from the Chrome Web Store, pin the icon, updates, install from source |
 | [Connect](docs/guide/connect.md) | Authorize, pick a project, self-hosted instances, basic mode |
 | [Run a manual run](docs/guide/run-tests.md) | Runs, steps, statuses, comments, hotkeys, finish, working offline |
 | [Attach a screenshot](docs/guide/screenshots.md) | Capture the tab, annotate over the page, full-page shots |
