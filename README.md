@@ -17,18 +17,13 @@ without switching tabs.
 
 ## Install
 
-1. Download the newest zip from
-   [Releases](https://github.com/testomatio/browser-extension/releases) and
-   unpack it — or `git clone` this repository.
-2. Open `chrome://extensions` and switch on **Developer mode** (top right).
-3. Click **Load unpacked** and pick the folder you unpacked — from a clone,
-   the **`extension/`** folder inside it, not the repository root.
-4. Click the puzzle icon in Chrome's toolbar and pin **Testomat.io**.
-5. Click the pinned icon — the panel opens and asks you to connect.
+1. Open [Testomat.io in the Chrome Web Store](https://chromewebstore.google.com/detail/testomatio/amcnjlghmkkjfaajanfeghpgbjakdcka)
+   and click **Add to Chrome**, then **Add extension**.
+2. Click the puzzle icon in Chrome's toolbar and pin **Testomat.io**.
+3. Click the pinned icon — the panel opens and asks you to connect.
 
-Chrome 123 or newer. Nothing to build. To update, replace the folder's
-contents and press reload (↻) on the extension's card — your settings and
-unsent results survive it. Details and pictures: [Install and
+Chrome 123 or newer. Chrome updates the extension by itself. Details and
+pictures, and how to run it from source: [Install and
 update](docs/guide/install.md).
 
 ## Quick start
@@ -50,7 +45,7 @@ update](docs/guide/install.md).
 
 | Page | Covers |
 |---|---|
-| [Install and update](docs/guide/install.md) | Load the folder, pin the icon, update without losing anything |
+| [Install and update](docs/guide/install.md) | Add from the Chrome Web Store, pin the icon, updates, install from source |
 | [Connect](docs/guide/connect.md) | Authorize, pick a project, self-hosted instances, basic mode |
 | [Run a manual run](docs/guide/run-tests.md) | Runs, steps, statuses, comments, hotkeys, finish, working offline |
 | [Attach a screenshot](docs/guide/screenshots.md) | Capture the tab, annotate over the page, full-page shots |
