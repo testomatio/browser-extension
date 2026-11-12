@@ -8,7 +8,7 @@ Companion docs — read across, they are not repeated here:
 
 | Doc | What it is for |
 |---|---|
-| [`README.md`](../README.md) + [`docs/guide/`](guide/) | The tester-facing docs: the landing page and a task-shaped guide with screenshots — what every button does and where the limits are. Read them once — it is the fastest way to learn the product. |
+| [`README.md`](../README.md) + [the guide on docs.testomat.io](https://docs.testomat.io/advanced/browser-extension/install/) | The tester-facing docs: the landing page and a task-shaped guide with screenshots — what every button does and where the limits are. Read them once — it is the fastest way to learn the product. The guide lives in the [docs repo](https://github.com/testomatio/docs/tree/docs/src/content/docs/advanced/browser-extension): change it there, in its own PR. |
 | [`docs/host-handoff.md`](host-handoff.md) | The `handoff.json` contract for an app that launches the browser and signs the panel in. |
 | [`PRIVACY.md`](../PRIVACY.md) | What the extension collects, where it goes, and every off switch. |
 

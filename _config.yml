@@ -1,2 +1,4 @@
 theme: jekyll-theme-primer
 title: Testomat.io Chrome extension
+plugins:
+  - jekyll-redirect-from
