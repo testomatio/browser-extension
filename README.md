@@ -13,7 +13,7 @@ without switching tabs.
 - Create test cases – Write new tests in Markdown and add parameters.
 - Record test steps – Turn your actions on a website into test steps automatically.
 
-![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/guide/img/readme-hero.gif)
+![A run open beside the site: open a test, do the step on the page, tick it, mark Passed, move to the next, mark it Failed with a comment](docs/img/readme-hero.gif)
 
 ## Install
 
@@ -24,18 +24,18 @@ without switching tabs.
 
 Chrome 123 or newer. Chrome updates the extension by itself. Details and
 pictures, and how to run it from source: [Install and
-update](docs/guide/install.md).
+update](https://docs.testomat.io/advanced/browser-extension/install/).
 
 ## Quick start
 
 1. **Connect.** Press **Open Testomat.io & authorize**, paste the token it
    gives you, press **Connect**, pick your project.
-   → [Connect](docs/guide/connect.md)
+   → [Connect](https://docs.testomat.io/advanced/browser-extension/connect/)
 2. **Open a run.** **Runs** tab → click a run → click a test.
 3. **Mark it.** Tick the steps, press **Passed**, **Failed** or **Skipped**
    (with a comment), then the **›** arrow in the test's pager (or `N` for
    the next untested test). Nothing navigates on its own.
-   → [Run a manual run](docs/guide/run-tests.md)
+   → [Run a manual run](https://docs.testomat.io/advanced/browser-extension/run-tests/)
 4. **Attach evidence.** In the test's **Attachments** fold: **Attach
    screenshot** opens an annotator over the page, **Attach screen
    recording** records the tab; with **Rec** on, marking a test Failed
@@ -45,15 +45,15 @@ update](docs/guide/install.md).
 
 | Page | Covers |
 |---|---|
-| [Install and update](docs/guide/install.md) | Add from the Chrome Web Store, pin the icon, updates, install from source |
-| [Connect](docs/guide/connect.md) | Authorize, pick a project, self-hosted instances, basic mode |
-| [Run a manual run](docs/guide/run-tests.md) | Runs, steps, statuses, comments, hotkeys, finish, working offline |
-| [Attach a screenshot](docs/guide/screenshots.md) | Capture the tab, annotate over the page, full-page shots |
-| [Attach a screen recording](docs/guide/screen-recording.md) | Record the tab, review and trim, attach |
-| [Console & network log](docs/guide/console-network-log.md) | Rec: the log that lands on a failed result |
-| [Create tests](docs/guide/create-tests.md) | Add by title, write in the editor, parameters |
-| [Step recorder](docs/guide/step-recorder.md) | Do the flow once, the test writes itself; polish with AI |
-| [Settings and shortcuts](docs/guide/settings.md) | Every setting with its default, sign out, keyboard shortcuts |
+| [Install and update](https://docs.testomat.io/advanced/browser-extension/install/) | Add from the Chrome Web Store, pin the icon, updates, install from source |
+| [Connect](https://docs.testomat.io/advanced/browser-extension/connect/) | Authorize, pick a project, self-hosted instances, basic mode |
+| [Run a manual run](https://docs.testomat.io/advanced/browser-extension/run-tests/) | Runs, steps, statuses, comments, hotkeys, finish, working offline |
+| [Attach a screenshot](https://docs.testomat.io/advanced/browser-extension/screenshots/) | Capture the tab, annotate over the page, full-page shots |
+| [Attach a screen recording](https://docs.testomat.io/advanced/browser-extension/screen-recording/) | Record the tab, review and trim, attach |
+| [Console & network log](https://docs.testomat.io/advanced/browser-extension/console-network-log/) | Rec: the log that lands on a failed result |
+| [Create tests](https://docs.testomat.io/advanced/browser-extension/create-tests/) | Add by title, write in the editor, parameters |
+| [Step recorder](https://docs.testomat.io/advanced/browser-extension/step-recorder/) | Do the flow once, the test writes itself; polish with AI |
+| [Settings and shortcuts](https://docs.testomat.io/advanced/browser-extension/settings/) | Every setting with its default, sign out, keyboard shortcuts |
 
 ## Privacy
 
