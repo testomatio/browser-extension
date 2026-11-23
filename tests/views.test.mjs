@@ -1379,3 +1379,12 @@ test('V83: a status line the screen does not have is not an error either', () =>
   const h = load();
   h.fn.setAuthExpiredLine('nope'); // no throw
 });
+
+test('V84: a screen that takes the caret on open draws no focus ring around itself', () => {
+  const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
+  const css = readFileSync(join(repoRoot, 'extension/sidepanel/style.css'), 'utf8');
+  for (const v of VIEWS) {
+    assert.match(html, new RegExp(`<section id="view-${v}"[^>]*tabindex="-1"`), `view-${v} holds the caret`);
+  }
+  assert.match(css, /section\[id\^="view-"\]\[tabindex="-1"\]:focus\s*\{\s*outline:\s*none;\s*\}/);
+});

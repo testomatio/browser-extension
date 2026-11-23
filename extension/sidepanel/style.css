@@ -81,6 +81,8 @@ main { flex: 1 1 auto; display: flex; flex-direction: column; }
 #view-tclist:not([hidden]) { display: flex; flex-direction: column; }
 /* The list is the part that gives: it takes the leftover height so the bar lands on the bottom edge. */
 #view-tclist:not([hidden]), #tc-list { flex: 1 1 auto; }
+/* A screen takes focus on open so the keyboard starts there; it is not a control, so no ring. */
+section[id^="view-"][tabindex="-1"]:focus { outline: none; }
 
 /* Keyed on a body attribute in the markup, so it holds from the first paint; skeleton.js clears it. */
 body[data-booting="true"] #header-top { display: none; }
