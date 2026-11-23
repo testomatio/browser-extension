@@ -1,7 +1,7 @@
 // TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
 // in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
 
-/* global TestomatAPI, Handoff, OverType, Md, EditorIcons, ParamsGrid, EditorDraft, PriorityControl, EditorView, RecSession, defaultToolbarButtons, Icons, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, Dropdown, ImgHydrate, PanelLink */
+/* global TestomatAPI, Handoff, OverType, Md, EditorIcons, ParamsGrid, EditorDraft, PriorityControl, EditorView, RecSession, defaultToolbarButtons, Icons, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, Dropdown, ImgHydrate, PanelLink, TabIndent */
 (() => {
   'use strict';
 
@@ -755,6 +755,7 @@
     if (filtered) opts.toolbarButtons = filtered;
     const [editor] = new OverType('#editor', opts);
     mounted = true;
+    TabIndent.attach(host, editor.textarea); // Tab indents the caret's line; Esc, then Tab leaves the field
     // The vendored toolbar labels its buttons with the browser's own `title`, which would
     // open an OS tooltip beside ours — moved here once, right after the mount.
     Tooltip.adopt(host);
