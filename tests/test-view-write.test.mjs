@@ -104,6 +104,7 @@ function load(opts = {}) {
     envMeta: [],        // every collectEnvMeta(settings)
     logUploads: [],
     probes: 0,          // awaitRunState()
+    reads: [],          // ['testrun' | 'test', id]
   };
 
   // Reassignable after load(), so a later call can answer differently, or mid-call.
@@ -119,6 +120,8 @@ function load(opts = {}) {
     collectEnvMeta: async () => [],
     evidenceLog: async () => '',
     awaitRunState: async () => {},
+    getTestrun: async () => null,
+    getTest: async () => null,
   };
 
   const state = {
@@ -202,6 +205,8 @@ function load(opts = {}) {
       setStatus: async (payload) => { calls.setStatus.push(plain(payload)); calls.order.push('setStatus'); return on.setStatus(payload); },
       setStep: async (id, body) => { calls.setStep.push({ id, body: plain(body) }); calls.order.push('setStep'); return on.setStep(id, body); },
       setTestrunMeta: async (id, entries) => { calls.meta.push({ id, entries: plain(entries) }); return on.setTestrunMeta(id, entries); },
+      getTestrun: async (id) => { calls.reads.push(['testrun', id]); return on.getTestrun(id); },
+      getTest: async (id) => { calls.reads.push(['test', id]); return on.getTest(id); },
     },
     // The write only owes the draft store a call, so the stub records that and nothing else.
     CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },
@@ -597,4 +602,122 @@ test('109: an untested row the filter hides is not a candidate', () => {
   const shown = load({ recordId: 1, records: [rec(1, { status: 'passed' }), rec(2)] });
   shown.fn.nextTest();
   assert.deepEqual(shown.calls.opened, [2]);
+});
+
+// The web's toggle: a second click on the lit status puts the test back to pending.
+function marked(over = {}) {
+  const h = load({ records: [rec(7, { status: 'passed', message: 'ok', ...over })], comment: over.message ?? 'ok', ...over.load });
+  h.calls.refreshed = [];
+  h.fn.refreshDescription = (r) => { h.calls.refreshed.push(r.id); };
+  return h;
+}
+
+test('110: a second click on the lit status resets the result to pending', async () => {
+  const h = marked();
+  await h.fn.clickStatus('passed');
+  assert.deepEqual(h.calls.setStatus.map((c) => c.status), ['pending']);
+  assert.deepEqual(h.calls.progressToasts, ['Resetting to Pending…']);
+  assert.equal(h.state.records[0].status, 'pending');
+  assert.equal(h.writeState(), 'saved');
+  // A reset leaves the tester where they were, and re-reads the text the run had frozen.
+  assert.notEqual(h.node.tabTestStatus.getAttribute('aria-selected'), 'true');
+  assert.deepEqual(h.calls.refreshed, [7]);
+});
+
+test('110a: a changed comment saves on the lit status instead of resetting it', async () => {
+  const h = marked();
+  h.node.testComment.value = 'ok, but slow';
+  await h.fn.clickStatus('passed');
+  assert.deepEqual(h.calls.setStatus.map((c) => [c.status, c.message]), [['passed', 'ok, but slow']]);
+  assert.deepEqual(h.calls.refreshed, []);
+});
+
+test('110b: the hotkey path saves the lit status again and never resets it', async () => {
+  const h = marked();
+  await h.fn.clickStatus('passed', { key: true });
+  assert.deepEqual(h.calls.setStatus.map((c) => c.status), ['passed']);
+});
+
+test('110c: another status still writes that status, and a pending test is marked as before', async () => {
+  const h = marked();
+  await h.fn.clickStatus('failed');
+  assert.deepEqual(h.calls.setStatus.map((c) => c.status), ['failed']);
+  const fresh = load();
+  await fresh.fn.clickStatus('passed');
+  assert.deepEqual(fresh.calls.setStatus.map((c) => c.status), ['passed']);
+});
+
+test('110d: an unset result writes no environment and uploads no log', async () => {
+  const h = marked({ status: 'failed' });
+  await h.fn.clickStatus('failed');
+  assert.deepEqual(h.calls.setStatus.map((c) => c.status), ['pending']);
+  assert.deepEqual(h.calls.envMeta, []);
+  assert.deepEqual(h.calls.meta, []);
+  assert.deepEqual(h.calls.logUploads, []);
+});
+
+test('110e: a reset queued offline says pending is queued and re-reads nothing', async () => {
+  const h = marked();
+  h.on.setStatus = async () => { throw Object.assign(new Error('offline'), { kind: 'network' }); };
+  await h.fn.clickStatus('passed');
+  assert.deepEqual(h.calls.enqueued.map((e) => e.status), ['pending']);
+  assert.equal(h.lastLine().text, 'pending — queued offline, will sync when back online');
+  assert.deepEqual(h.calls.refreshed, []);
+});
+
+test('110f: a locked result is not reset either', async () => {
+  const h = marked({ load: { lock: LOCK } });
+  await h.fn.clickStatus('passed');
+  assert.deepEqual(h.calls.setStatus, []);
+});
+
+test('111: the lit button offers the reset; the lock reason outranks it', () => {
+  const h = load({ records: [rec(7, { status: 'failed' })] });
+  for (const [id, tip] of [['btnPassed', 'Passed (⌘⏎)'], ['btnFailed', 'Failed (⌘U)'], ['btnSkipped', 'Skipped (⌘I)']]) {
+    delete h.node[id].dataset.baseTip;
+    h.node[id].dataset.tip = tip;
+  }
+  h.gates.update();
+  assert.deepEqual([h.node.btnPassed, h.node.btnFailed, h.node.btnSkipped].map((b) => b.dataset.tip),
+    ['Passed (⌘⏎)', 'Reset to Pending', 'Skipped (⌘I)']);
+  h.state.records[0].status = 'pending';
+  h.gates.update();
+  assert.equal(h.node.btnFailed.dataset.tip, 'Failed (⌘U)');
+});
+
+test('112: after a reset the latest test text is drawn, the run\'s frozen copy is not', async () => {
+  const h = load({ records: [rec(7, { status: 'pending' })] });
+  h.on.getTestrun = async () => ({ id: 7 }); // a pending testrun carries no frozen description
+  h.on.getTest = async () => ({ description: 'Step one, as edited today' });
+  const drawn = [];
+  h.fn.applyExample = (d) => d;
+  h.fn.renderSteps = (md, r) => { drawn.push([md, r.id]); };
+  await h.fn.refreshDescription(h.state.records[0]);
+  assert.deepEqual(h.calls.reads, [['testrun', 7], ['test', 700]]);
+  assert.deepEqual(drawn, [['Step one, as edited today', 7]]);
+});
+
+test('112a: a tester who moved on, or marked it again meanwhile, keeps the screen they have', async () => {
+  const h = load({ records: [rec(7, { status: 'pending' }), rec(8)] });
+  h.on.getTest = async () => ({ description: 'new text' });
+  const drawn = [];
+  h.fn.applyExample = (d) => d;
+  h.fn.renderSteps = (md) => { drawn.push(md); };
+  const r = h.state.records[0];
+  const moved = h.fn.refreshDescription(r);
+  h.state.currentRecordId = 8;
+  await moved;
+  h.state.currentRecordId = 7;
+  r.status = 'passed';
+  await h.fn.refreshDescription(r);
+  assert.deepEqual(drawn, []);
+  r.status = 'pending';
+  await h.fn.refreshDescription(r); // the same call on the screen it belongs to does draw
+  assert.deepEqual(drawn, ['new text']);
+});
+
+test('111a: on a locked result the lit button keeps the lock reason, not the reset offer', () => {
+  const h = load({ records: [rec(7, { status: 'failed' })], lock: LOCK });
+  h.gates.update();
+  assert.equal(h.node.btnFailed.dataset.tip, LOCK);
 });

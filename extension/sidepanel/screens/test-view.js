@@ -349,7 +349,7 @@ function setWriteState(kind) {
   else delete el.dataset.write;
 }
 
-async function clickStatus(status) {
+async function clickStatus(status, { key = false } = {}) {
   if (state.saving) return;
   const record = recordFor(state.currentRecordId);
   // A click can land while the run's archived answer is in flight; `state.saving` is the guard.
@@ -367,33 +367,37 @@ async function clickStatus(status) {
   }
   const prev = record ? { ...record } : null;
   const typed = $('test-comment').value.trim();
+  // A second click on the lit status unsets it; a changed comment or a hotkey saves instead.
+  const unset = !key && !!record && record.status === status && typed === (record.message || '').trim();
+  const next = unset ? 'pending' : status;
   // The tester can leave mid-write, so view paints below check stillHere(); the write itself does not.
   const stillHere = () => String(state.currentRecordId) === String(record?.id);
 
   state.saving = true; // guard re-entrancy across the async env-info read below
-  progressToast(`Saving ${status}…`);
+  progressToast(unset ? 'Resetting to Pending…' : `Saving ${status}…`);
   setWriteState('saving');
   try {
-    const res = await WriteCore.writeStatus(record, status, typed, renderTestProgress);
+    const res = await WriteCore.writeStatus(record, next, typed, renderTestProgress);
     const queued = !!(res && res.queued);
     delete state.stepTicks[record?.id]; // leaving the test resets ticks
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.updateTestMarker();
     if (!stillHere()) { hideToast(); return; } // tester already moved on — nothing left to paint here
     // A rejected token is not "offline": waiting for a connection that is there costs the session.
     const queuedLine = res && res.reason === 'auth'
-      ? `${status} — saved here, but the token was rejected; authorize again in Settings`
-      : `${status} — queued offline, will sync when back online`;
+      ? `${next} — saved here, but the token was rejected; authorize again in Settings`
+      : `${next} — queued offline, will sync when back online`;
     setStatusLine('test-status', queued ? queuedLine : '', queued ? 'ok' : '');
     setWriteState(queued ? 'queued' : 'saved');
     // The controls below apply only once a row has a status, so the screen follows it.
-    showTestSection('status');
+    if (!unset) showTestSection('status');
     TestGates.update();
     TestMeta.renderSubstatus(record); // status changed -> offer that status's reply group
     TestMeta.renderSubstatusMark(record);
     TestMeta.applyAssigneeGate(record); // status changed -> the row is no longer re-assignable
     if (!queued) TestSummary.refresh(record);
+    if (unset && !queued) refreshDescription(record);
     // No status navigates away: moving on is an explicit act ("Next test →" or its hotkey).
-    if (status === 'failed') TestGates.expandForFailure();
+    if (next === 'failed') TestGates.expandForFailure();
   } catch (e) {
     if (record && prev) Object.assign(record, prev);
     renderTestProgress();
@@ -409,6 +413,17 @@ async function clickStatus(status) {
   } finally {
     state.saving = false;
   }
+}
+
+// A pending result reads the live test, so the text the run froze gives way to the latest one.
+async function refreshDescription(record) {
+  try {
+    let source = await TestomatAPI.getTestrun(record.id);
+    if (!source?.description && record.test_id) source = await TestomatAPI.getTest(record.test_id);
+    if (String(state.currentRecordId) !== String(record.id) || record.status !== 'pending') return;
+    renderSteps(applyExample(source?.description || ''), record);
+    TestGates.update(); // fresh step circles take the lock like the old ones
+  } catch { /* the reset is saved; the old text stays until the next open */ }
 }
 
 // Disabled, not hidden: an edge that removed a button would shift the two beside it.

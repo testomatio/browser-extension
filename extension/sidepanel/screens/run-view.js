@@ -473,6 +473,7 @@ const ROW_STATUS_BTNS = [
   ['skipped', 'remove', 'Mark skipped'],
 ];
 const ROW_BTN_LABEL = Object.fromEntries(ROW_STATUS_BTNS.map(([status, , label]) => [status, label]));
+const RESET_TIP = 'Reset to Pending';
 
 // Each writes its own record — parametrized example rows are separate records.
 function rowStatusButtons(r, li) {
@@ -489,8 +490,9 @@ function rowStatusButtons(r, li) {
     btn.setAttribute('tabindex', '-1');
     btn.append(StatusIcons.svgIcon(icon, 14));
     btn.disabled = !!lock;
-    Tooltip.set(btn, lock || label);
-    btn.setAttribute('aria-label', label);
+    const tip = r.status === status ? RESET_TIP : label;
+    Tooltip.set(btn, lock || tip);
+    btn.setAttribute('aria-label', tip);
     if (r.status === status) btn.classList.add('active');
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); writeRowStatus(r, status, li); });
     group.append(btn);
@@ -597,7 +599,11 @@ function statusMark(r) {
 function repaintRow(li, r) {
   const mark = li.querySelector('.row-status');
   if (mark) mark.replaceWith(statusMark(r));
-  li.querySelectorAll('.row-actions .row-st').forEach((b) => b.classList.toggle('active', r.status === b.dataset.status));
+  li.querySelectorAll('.row-actions .row-st').forEach((b) => {
+    const on = r.status === b.dataset.status;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-label', on ? RESET_TIP : ROW_BTN_LABEL[b.dataset.status]);
+  });
   RunLock.applyRowLock(li); // a repaint (own write or livesync) re-asserts the lock
   repaintRowSubstatus(li, r);
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.decorateRow(li, r.id); // «queued» marker follows the queue
@@ -641,7 +647,8 @@ function refreshSuiteFraction(li) {
 }
 
 async function writeRowStatus(record, status, li) {
-  if (!record || record.status === status) return;
+  if (!record) return;
+  const next = record.status === status ? 'pending' : status; // a second click unsets, as on the web
   const btn = li.querySelector(`.row-actions .row-st[data-status="${status}"]`);
   // Claim the row before any await: two fast clicks inside the probe window would both get through.
   setRowButtonsBusy(li, true);
@@ -658,7 +665,7 @@ async function writeRowStatus(record, status, li) {
   const prev = { ...record };
   state.inlineWrites += 1;
   try {
-    const res = await WriteCore.writeStatus(record, status, ''); // no comment / no view-specific bits at run level
+    const res = await WriteCore.writeStatus(record, next, ''); // no comment / no view-specific bits at run level
     if (btn) btn.classList.remove('busy');
     repaintRow(li, record);          // repaint reflects the queued marker too (decorateRow)
     if (!(res && res.queued)) flashRowSaved(li); // green flash only when the write actually landed

@@ -986,8 +986,9 @@ test('108: the three write buttons carry their labels, and the row\'s own status
   const li = h.fn.testRow(rec(1, { status: 'failed' }));
   const btns = li.querySelectorAll('.row-actions .row-st');
   assert.deepEqual(btns.map((b) => b.dataset.status), ['passed', 'failed', 'skipped']);
-  assert.deepEqual(btns.map((b) => b.getAttribute('aria-label')), ['Mark passed', 'Mark failed', 'Mark skipped']);
-  assert.deepEqual(btns.map((b) => b.dataset.tip), ['Mark passed', 'Mark failed', 'Mark skipped']);
+  // The lit one offers the reset, as the web's second click does.
+  assert.deepEqual(btns.map((b) => b.getAttribute('aria-label')), ['Mark passed', 'Reset to Pending', 'Mark skipped']);
+  assert.deepEqual(btns.map((b) => b.dataset.tip), ['Mark passed', 'Reset to Pending', 'Mark skipped']);
   assert.deepEqual(btns.map((b) => b.classList.contains('active')), [false, true, false]);
   assert.deepEqual(btns.map((b) => b.disabled), [false, false, false]);
 });
@@ -1083,16 +1084,29 @@ function written(opts = {}) {
   return { h, li, record: h.state.records[0], btn: (s) => li.querySelector(`.row-st[data-status="${s}"]`) };
 }
 
-test('40: clicking the status a row already carries writes nothing at all', async () => {
+test('40: clicking the status a row already carries resets it to pending', async () => {
   const { h, li, record } = written();
   record.status = 'passed';
   await h.fn.writeRowStatus(record, 'passed', li);
-  assert.deepEqual(h.calls.writes, []);
+  assert.deepEqual(h.calls.writes, [{ id: 1, status: 'pending', comment: '' }]);
   assert.equal(h.state.inlineWrites, 0);
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
-  // A different status does write, so the silence above is the guard and not a dead fixture.
+  // A different status writes that status, so the reset is the second click and not every click.
   await h.fn.writeRowStatus(record, 'failed', li);
-  assert.deepEqual(h.calls.writes, [{ id: 1, status: 'failed', comment: '' }]);
+  assert.deepEqual(h.calls.writes.at(-1), { id: 1, status: 'failed', comment: '' });
+});
+
+test('40a: after a reset the row lights nothing and each button says its own label again', async () => {
+  const { h, li, record } = written();
+  record.status = 'passed';
+  h.fn.repaintRow(li, record);
+  const btns = () => li.querySelectorAll('.row-st');
+  assert.deepEqual(btns().map((b) => b.dataset.tip), ['Reset to Pending', 'Mark failed', 'Mark skipped']);
+  assert.deepEqual(btns().map((b) => b.getAttribute('aria-label')), ['Reset to Pending', 'Mark failed', 'Mark skipped']);
+  await h.fn.writeRowStatus(record, 'passed', li);
+  assert.deepEqual(btns().map((b) => b.classList.contains('active')), [false, false, false]);
+  assert.deepEqual(btns().map((b) => b.getAttribute('aria-label')), ['Mark passed', 'Mark failed', 'Mark skipped']);
+  assert.deepEqual(btns().map((b) => b.dataset.tip), ['Mark passed', 'Mark failed', 'Mark skipped']);
 });
 
 test('115: a row without a record is not written either', async () => {

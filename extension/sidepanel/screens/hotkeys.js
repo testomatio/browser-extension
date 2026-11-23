@@ -88,7 +88,7 @@ function onHotkey(e) {
     const status = HOTKEY_STATUS[code];
     if (!status) return;
     e.preventDefault();                      // beat browser defaults (view-source/italic/underline)
-    clickStatus(status);                     // the buttons' own path; unlike the web, it never navigates
+    clickStatus(status, { key: true });      // the buttons' path; never navigates, never unsets
     return;
   }
   if (e.altKey || e.shiftKey) return;
