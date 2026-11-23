@@ -9,7 +9,8 @@ import {
 } from './helpers/api-harness.mjs';
 
 const V2KEY = 'V2KEY';                       // a minted project key — a literal, never a real one
-const keyDoc = (attrs) => ok({ data: { attributes: attrs } });
+const keyDoc = (attrs) => ok({ data: { attributes: attrs } }); // an older server: the key inside the project
+const tokenDoc = (key) => ok({ api_key: key });                 // GET /api/tokens/<slug>
 const loginOk = ok({ jwt: JWT });
 
 // ---- error mapping — toError / ApiError ----
@@ -329,11 +330,11 @@ test('35: once read-only is proven, opting out of the probe does not opt out of 
 
 test('36: a minted key that answers 401 is dropped, re-minted and retried — ONCE', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
   h.route('/api/v2/', fail(401));
   assert.equal((await rejection(h.mod.validate())).kind, 'auth');
   // One mint for the first try, one for the retry — and then it gives up rather than loop.
-  assert.equal(h.matching('/api/projects/p1').length, 2);
+  assert.equal(h.matching('/api/tokens/p1').length, 2);
   assert.equal(h.matching('/api/v2/').length, 2);
   h.clear();
   assert.equal((await rejection(h.mod.validate())).kind, 'auth');
@@ -343,7 +344,7 @@ test('36: a minted key that answers 401 is dropped, re-minted and retried — ON
 test('36a: a rotated key: the first refusal is invisible, the write lands on the fresh key', async () => {
   const h = load().configure({ apiToken: JWT });
   let minted = 0;
-  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('/api/tokens/p1', () => { minted += 1; return tokenDoc(`KEY${minted}`); });
   // The owner rotated it: KEY1 is dead, whatever is minted next works.
   h.route('/api/v2/', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(401) : ok({ data: {} })));
   await h.inner.request('/tests', { method: 'POST', body: { a: 1 } });
@@ -356,7 +357,7 @@ test('36a: a rotated key: the first refusal is invisible, the write lands on the
 test('36b: a 403 the corroboration CLEARS rotates too — one route refused can be a dead key', async () => {
   const h = load().configure({ apiToken: JWT });
   let minted = 0;
-  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('/api/tokens/p1', () => { minted += 1; return tokenDoc(`KEY${minted}`); });
   h.route('per_page=1', ok({ data: [] }));   // the plain read is fine: NOT read-only
   h.route('/tests', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(403) : ok({ data: {} })));
   await h.inner.request('/tests');
@@ -368,17 +369,17 @@ test('36b: a 403 the corroboration CLEARS rotates too — one route refused can 
 
 test('36b2: a read-only project keeps its verdict — the corroboration outranks the rotation', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
   h.route('/api/v2/', fail(403));
   const e = await rejection(h.mod.validate());
   assert.equal(e.kind, 'readonly');
-  assert.equal(h.matching('/api/projects/p1').length, 1); // no key churn on a read-only project
+  assert.equal(h.matching('/api/tokens/p1').length, 1); // no key churn on a read-only project
   assert.equal(h.matching('remint').length, 0);           // `remint` is ours, never a query param
 });
 
 test('36c: three routes refused at once on a minted key still share ONE corroboration read', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
   h.route('per_page=1', fail(403));
   h.route('/api/v2/', fail(403));
   const errs = await Promise.all(['/a', '/b', '/c'].map((p) => rejection(h.inner.request(p))));
@@ -389,7 +390,7 @@ test('36c: three routes refused at once on a minted key still share ONE corrobor
 test('36d: the corroboration probe does NOT re-mint, whatever it is answered', async () => {
   const h = load().configure({ apiToken: JWT });
   let minted = 0;
-  h.route('/api/projects/p1', () => { minted += 1; return keyDoc({ 'api-key': `KEY${minted}` }); });
+  h.route('/api/tokens/p1', () => { minted += 1; return tokenDoc(`KEY${minted}`); });
   h.route('/api/v2/', fail(403)); // the probe is refused too, so it must not start its own rotation
   await rejection(h.inner.request('/a'));
   assert.equal(minted, 1);
@@ -401,11 +402,12 @@ test('36e: a General token is not ours to rotate — nothing is dropped, nothing
   assert.equal((await rejection(h.mod.validate())).kind, 'auth');
   assert.equal(h.calls.length, 1);
   assert.equal(h.matching('/api/projects/').length, 0);
+  assert.equal(h.matching('/api/tokens/').length, 0);
 });
 
 test('36f: deleteAttachment keeps its two legs — the v2 403 is the route, not the key', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
   h.route('/api/v2/', fail(403));
   h.route('/api/p1/attachments/', { status: 204 });
   assert.equal(await h.mod.deleteAttachment('t1', 'a1'), null);
@@ -454,19 +456,19 @@ test('40: trailing slashes are stripped off the instance URL', async () => {
 
 test('41: switching project and back keeps the minted keys — a tab change must not re-mint', async () => {
   const h = load();
-  h.route('/api/projects/', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/', tokenDoc(V2KEY));
   h.route('/api/v2/', ok({ data: [] }));
   for (const projectId of ['p1', 'p2', 'p1']) {
     h.configure({ apiToken: JWT, projectId });
     await h.mod.validate();
   }
-  assert.equal(h.matching('/api/projects/p1').length, 1);
-  assert.equal(h.matching('/api/projects/p2').length, 1);
+  assert.equal(h.matching('/api/tokens/p1').length, 1);
+  assert.equal(h.matching('/api/tokens/p2').length, 1);
 });
 
 test('42: a different credential drops the minted keys, the signed hosts and the verdict', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
   h.route('/artifacts/presign', ok({ url: 'https://bucket.s3/x?sig=abc' }));
   h.route('/api/v2/', fail(403));
   const signed = await h.mod.presignArtifact('https://bucket.s3/x');
@@ -478,7 +480,7 @@ test('42: a different credential drops the minted keys, the signed hosts and the
   assert.equal((await rejection(h.mod.fetchAsset(signed))).message, 'Off-instance asset refused');
   h.clear();
   await rejection(h.mod.validate());
-  assert.equal(h.matching('/api/projects/p1').length, 1); // re-read, so the map was cleared
+  assert.equal(h.matching('/api/tokens/p1').length, 1); // re-read, so the map was cleared
 });
 
 test('43: a fresh handoff session resets the session but NOT the read-only lockout', async () => {
@@ -495,25 +497,74 @@ test('43: a fresh handoff session resets the session but NOT the read-only locko
 test('44: an eyJ token is a session, so it is adopted and mints a key instead of being one', async () => {
   const h = load().configure({ apiToken: JWT });
   assert.equal(h.inner.v2TokenInHand(), null);
-  h.reply(keyDoc({ 'api-key': V2KEY }), ok({ data: [] }));
+  h.reply(tokenDoc(V2KEY), ok({ data: [] }));
   await h.mod.validate();
-  assert.equal(h.urls()[0], `${BASE}/api/projects/p1`);
+  assert.equal(h.urls()[0], `${BASE}/api/tokens/p1`);
   assert.equal(h.matching('/api/login').length, 0);
   assert.equal(h.mod.jwtUserId(), '7');
 });
 
 test('45: the project own key is used as the bearer and cached for the next call', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.reply(keyDoc({ 'api-key': V2KEY }), ok({ data: [] }), ok({ data: [] }));
+  h.reply(tokenDoc(V2KEY), ok({ data: [] }), ok({ data: [] }));
   await h.mod.validate();
   await h.mod.validate();
-  assert.equal(h.matching('/api/projects/p1').length, 1);
+  assert.equal(h.matching('/api/tokens/p1').length, 1);
   assert.equal(h.matching('/api/v2/')[1].headers.Authorization, `Bearer ${V2KEY}`);
+});
+
+// Since 2026-11-09 the key lives at /api/tokens/<slug>; older self-hosted servers keep it in the project.
+test('45a: the key comes from /api/tokens/<slug> — the project itself is not read', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/tokens/p1', tokenDoc(V2KEY));
+  h.route('/api/projects/p1', keyDoc({ 'api-key': 'OLD' }));
+  h.route('/api/v2/', ok({ data: [] }));
+  await h.mod.validate();
+  assert.equal(h.matching('/api/v2/')[0].headers.Authorization, `Bearer ${V2KEY}`);
+  assert.equal(h.matching('/api/projects/').length, 0);
+});
+
+test('45b: an older server answers 404 there — the key inside the project is used', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/tokens/p1', fail(404));
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', ok({ data: [] }));
+  await h.mod.validate();
+  assert.equal(h.matching('/api/v2/')[0].headers.Authorization, `Bearer ${V2KEY}`);
+  assert.deepEqual(h.urls().slice(0, 2), [`${BASE}/api/tokens/p1`, `${BASE}/api/projects/p1`]);
+});
+
+test('45c: an answer with no key in it falls back the same way as a 404', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/tokens/p1', ok({}));
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  h.route('/api/v2/', ok({ data: [] }));
+  await h.mod.validate();
+  assert.equal(h.matching('/api/v2/')[0].headers.Authorization, `Bearer ${V2KEY}`);
+});
+
+test('45d: any other failure there is the answer — no second read, no v2 call', async () => {
+  const h = load().configure({ apiToken: JWT });
+  h.route('/api/tokens/p1', { status: 500, json: { message: 'boom' } });
+  h.route('/api/projects/p1', keyDoc({ 'api-key': V2KEY }));
+  const e = await rejection(h.mod.validate());
+  assert.equal(e.kind, 'http');
+  assert.equal(e.message, 'boom');
+  assert.equal(h.matching('/api/projects/').length, 0);
+  assert.equal(h.matching('/api/v2/').length, 0);
+});
+
+test('45e: the slug is encoded in the tokens route', async () => {
+  const h = load().configure({ apiToken: JWT, projectId: 'a b/c' });
+  h.route('/api/tokens/', tokenDoc(V2KEY));
+  h.route('/api/v2/', ok({ data: [] }));
+  await h.mod.validate();
+  assert.equal(new URL(h.urls()[0]).pathname, '/api/tokens/a%20b%2Fc');
 });
 
 test('46: a role with no API key gets the sentence naming the way out', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.reply(keyDoc({ title: 'Shop' }));
+  h.reply(fail(404), keyDoc({ title: 'Shop' })); // no token, and no key inside the project either
   const e = await rejection(h.mod.validate());
   assert.equal(e.kind, 'auth');
   assert.equal(e.status, 403);
@@ -523,9 +574,9 @@ test('46: a role with no API key gets the sentence naming the way out', async ()
   );
 });
 
-test('47: the snake_case spelling of the key is taken too', async () => {
+test('47: the snake_case spelling of the key inside the project is taken too', async () => {
   const h = load().configure({ apiToken: JWT });
-  h.reply(keyDoc({ api_key: V2KEY }), ok({ data: [] }));
+  h.reply(fail(404), keyDoc({ api_key: V2KEY }), ok({ data: [] }));
   await h.mod.validate();
   assert.equal(h.matching('/api/v2/')[0].headers.Authorization, `Bearer ${V2KEY}`);
 });

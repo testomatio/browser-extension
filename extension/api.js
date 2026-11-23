@@ -82,13 +82,29 @@ const TestomatAPI = (() => {
   async function v2Token() {
     const inHand = v2TokenInHand();
     if (inHand) return inHand;
-    const doc = await jwtRequestRoot(`/projects/${encodeURIComponent(cfg.projectId)}`);
-    const attrs = doc?.data?.attributes || {};
-    const key = attrs['api-key'] || attrs.api_key;
-    // A role without API access answers the project fine and simply carries no key.
+    const key = (await keyFromTokens()) || (await keyFromProject());
+    // A role without API access has no token there and no key inside the project.
     if (!key) throw new ApiError('auth', 403, NO_PROJECT_KEY);
     v2Keys.set(cfg.projectId, key);
     return key;
+  }
+
+  // GET /api/tokens/<slug> since 2026-11-09; its 404 is "no token" — or a server without the route.
+  async function keyFromTokens() {
+    try {
+      const doc = await jwtRequestRoot(`/tokens/${encodeURIComponent(cfg.projectId)}`);
+      return doc?.api_key || null;
+    } catch (e) {
+      if (e?.kind === 'notfound') return null;
+      throw e;
+    }
+  }
+
+  // An older self-hosted server still carries the key inside the project.
+  async function keyFromProject() {
+    const doc = await jwtRequestRoot(`/projects/${encodeURIComponent(cfg.projectId)}`);
+    const attrs = doc?.data?.attributes || {};
+    return attrs['api-key'] || attrs.api_key || null;
   }
 
   const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;

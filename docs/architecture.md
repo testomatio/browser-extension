@@ -2165,10 +2165,11 @@ the session's JWT). It speaks **two protocols to the same instance**:
 **One credential covers both.** What the tester supplies is an account
 *session* — a JWT, or a General token that `login()` exchanges for one — and a
 session can read any project's own v2 key on demand
-(`GET /projects/{slug}` → `attributes.api-key`). So v2 keys are MINTED, per
-project, held in memory for the boot and never typed. A role with no API access
-answers that read fine and simply carries no key, which is its own message
-("This project has no API key for your role"). A handed-off config
+(`GET /tokens/{slug}` → `api_key`; on an older self-hosted server, which answers
+that route 404, `GET /projects/{slug}` → `attributes.api-key`). So v2 keys are
+MINTED, per project, held in memory for the boot and never typed. A role with no
+API access gets a 404 from the first read and no key from the second, which is
+its own message ("This project has no API key for your role"). A handed-off config
 (`shared/handoff.js`) is the same session arriving from a host app instead of a
 paste box, sometimes with one project's key alongside it.
 
