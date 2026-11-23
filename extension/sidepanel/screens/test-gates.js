@@ -33,13 +33,14 @@ const TestGates = (() => {
   }
 
   // The buttons double as the result display: the matching one takes the `.solid` fill.
-  function paintStatusButtons(status) {
+  function paintStatusButtons(status, lock) {
     const s = status && status !== 'pending' ? StatusIcons.normStatus(status) : '';
     for (const st of ['passed', 'failed', 'skipped']) {
       const btn = $(`btn-${st}`);
       if (!btn) continue;
       btn.classList.toggle('solid', st === s);
       btn.classList.toggle('outline', st !== s);
+      if (!lock) Tooltip.set(btn, st === s ? 'Reset to Pending' : btn.dataset.baseTip); // the lock's reason wins
     }
   }
 
@@ -78,7 +79,7 @@ const TestGates = (() => {
     for (const id of ['btn-passed', 'btn-failed', 'btn-skipped']) applyActionGate(id, null, lock);
     const lockNote = $('status-lock-reason');
     if (lockNote) { lockNote.textContent = lock; lockNote.hidden = !lock; }
-    paintStatusButtons(record?.status);
+    paintStatusButtons(record?.status, lock);
     // The comment rides the status write, so a lock makes it read-only too.
     const comment = $('test-comment');
     if (comment) { comment.disabled = !!lock; Tooltip.set(comment, lock); }

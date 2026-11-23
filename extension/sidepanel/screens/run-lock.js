@@ -2,7 +2,7 @@
 
 /* global state, $, TestomatAPI, ConfirmDialog, toast, progressToast, setStatusLine, handleApiError,
    isAuthError, sleep, stepWriteChain, byRecordId, Tooltip, TestGates, recordFor, ROW_BTN_LABEL,
-   updateRunActions, applyRunInfo, renderRunView, awaitRunState */
+   RESET_TIP, updateRunActions, applyRunInfo, renderRunView, awaitRunState */
 
 // The server never checks run state on writes (CI writes to finished runs), so the gate lives here.
 const TERMINAL_RUN_STATUS = new Set(['passed', 'failed', 'terminated', 'finished']);
@@ -75,7 +75,8 @@ const RunLock = {
   applyRowLock(li, reason = RunLock.recordWriteLock(recordFor(li.dataset.recordId))) {
     li.querySelectorAll('.row-actions .row-st').forEach((b) => {
       b.disabled = !!reason;
-      Tooltip.set(b, reason || ROW_BTN_LABEL[b.dataset.status] || '');
+      const idle = b.classList.contains('active') ? RESET_TIP : ROW_BTN_LABEL[b.dataset.status];
+      Tooltip.set(b, reason || idle || '');
     });
   },
 

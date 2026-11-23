@@ -6,7 +6,7 @@
 const WriteCore = (() => {
   // Runs after the status write: a not-yet-graded row only gets its id in that response.
   async function writeEnvMeta(record, status, opts = {}) {
-    if (!record?.id) return;
+    if (!record?.id || status === 'pending') return; // an unset result ran nowhere
     // Lock check scoped to the open run: a queue replay into another, still-live run keeps its meta.
     const open = recordFor(record.id);
     if (open && typeof RunLock !== 'undefined' && RunLock.recordWriteLock(open)) return;

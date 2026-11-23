@@ -73,6 +73,7 @@ function load(opts = {}) {
   const calls = {
     order: [],          // one ordered trace: "attRemember, then the repaint, then the line" is a row
     clickStatus: [],
+    clickOpts: [],
     openTestView: [],
     nextTest: 0,
     tips: [],
@@ -138,7 +139,7 @@ function load(opts = {}) {
     pagerRecords: () => o.records.filter((r) => (o.visible || o.records).some((v) => String(v.id) === String(r.id))
       || String(r.id) === String(state.currentRecordId)),
     openTestView: (id) => { calls.openTestView.push(String(id)); calls.order.push('openTestView'); },
-    clickStatus: (s) => { calls.clickStatus.push(s); calls.order.push('clickStatus'); },
+    clickStatus: (s, o) => { calls.clickStatus.push(s); calls.clickOpts.push(o); calls.order.push('clickStatus'); },
     nextTest: () => { calls.nextTest += 1; calls.order.push('nextTest'); },
     recordFor: (id) => o.records.find((r) => String(r.id) === String(id)) || null,
     RunLock: {
@@ -360,6 +361,7 @@ test('14: Cmd+Enter marks it passed through the buttons own path, and stays put'
   const h = load();
   const ev = h.key({ metaKey: true, code: 'Enter' });
   assert.deepEqual(h.calls.clickStatus, ['passed']);
+  assert.equal(h.calls.clickOpts[0]?.key, true, 'a hotkey on the lit status saves it again, it never unsets');
   assert.equal(ev.defaultPrevented, true);
   assert.deepEqual(h.calls.openTestView, []); // the deliberate divergence from the web runner
   assert.equal(h.calls.nextTest, 0);
