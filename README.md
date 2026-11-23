@@ -1,5 +1,7 @@
 # Testomat.io Chrome extension
 
+<a href="https://chromewebstore.google.com/detail/testomatio/amcnjlghmkkjfaajanfeghpgbjakdcka"><img src="docs/img/chrome-web-store-badge.png" width="206" alt="Available in the Chrome Web Store"></a>
+
 Run tests, capture screenshots, record videos, and collect browser logs right
 next to the website you're testing. Keep all your testing work in Chrome
 without switching tabs.
