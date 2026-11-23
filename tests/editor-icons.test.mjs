@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// The editor page's glyph names live in one file so two screens cannot drift onto different
-// glyphs (#192). Run: node --test tests/editor-icons.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +24,6 @@ test('every glyph the editor draws is named here, and nowhere else', () => {
     'ICON_MARKDOWN', 'ICON_MINUS', 'ICON_OPEN_IN_NEW', 'ICON_PREVIEW', 'ICON_RECORD', 'ICON_STOP',
     'ICON_TEMPLATE', 'icon',
   ]);
-  // The four the parameters grid draws, pinned by value: params-grid.js held its own copies of
-  // these until they drifted apart was a real possibility (#192 PR 2).
   assert.equal(EditorIcons.ICON_CLOSE, 'close');
   assert.equal(EditorIcons.ICON_ADD, 'add');
   assert.equal(EditorIcons.ICON_MINUS, 'remove');

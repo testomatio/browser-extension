@@ -1,6 +1,3 @@
-// TC Studio test page: read-only view (?test) + editor (&edit / ?suite), served both
-// in the side panel and in a tab. Needs the panel's `TestomatAPI` global and OverType.
-
 /* global TestomatAPI, Handoff, OverType, Md, EditorIcons, ParamsGrid, EditorDraft, PriorityControl, EditorView, RecSession, defaultToolbarButtons, Icons, Annotate, CaptureAnnotate, ensureSiteAccess, Tooltip, Dropdown, ImgHydrate, PanelLink, TabIndent */
 (() => {
   'use strict';
@@ -8,20 +5,15 @@
   const $ = (id) => document.getElementById(id);
   const rootEl = () => $('root');
 
-  // One img-hydrate group: the read-only body and the Preview tab are the same render,
-  // and only one of them is ever on screen.
+  // One group: the read-only body and the Preview tab are the same render, only one ever on screen.
   const PREVIEW_IMG_GROUP = 'editor-preview';
-  // The Markdown tab's thumbnail strip (#51) keeps its OWN blobs: it stands while the Preview
-  // pane is torn down and rebuilt, and it is released on a ref change rather than a keystroke.
+  // The strip keeps its own blobs: it outlives Preview rebuilds and is released on a ref change only.
   const STRIP_IMG_GROUP = 'editor-strip';
 
-  // Icon names resolved by shared/icons.js (Material Symbols Rounded), in editor-icons.js so the
-  // extracted modules draw the same glyphs. ICON_ADD/MINUS/FOLD are the parameters grid's alone.
   const { icon, ICON_BACK, ICON_ERROR, ICON_OPEN_IN_NEW, ICON_CAMERA, ICON_CLOSE, ICON_RECORD, ICON_STOP,
     ICON_EDIT, ICON_MARKDOWN, ICON_PREVIEW, ICON_TEMPLATE } = EditorIcons;
 
-  // Re-skins the vendored toolbar from shared/icons.js by replacing each button's `icon`
-  // as data; a name missing here keeps that button's own glyph rather than drawing blank.
+  // A name missing here keeps that button's own glyph rather than drawing blank.
   const TOOLBAR_ICONS = {
     bold: 'md_bold',
     italic: 'md_italic',
@@ -35,10 +27,6 @@
     quote: 'format_quote',
   };
 
-  // Priority values are the v2 enum (verified live); order/icons/colors live in
-  // shared/priority-icons.js.
-
-  // ---- URL context ---------------------------------------------------------
   function parseContext() {
     const p = new URLSearchParams(location.search);
     return {
@@ -51,9 +39,7 @@
     };
   }
 
-  // ---- theme: OverType's 'solar' (light) / 'cave' (dark), repainted ---------
-  // OverType injects these as CSS custom properties into this document, so `var(--…)`
-  // resolves against shared/tokens.css and follows the OS switch — one map serves both.
+  // OverType injects these as CSS custom properties, so `var(--…)` follows tokens.css and the OS.
   const EDITOR_COLORS = {
     bgPrimary: 'var(--bg)',
     bgSecondary: 'var(--bg)',
@@ -71,16 +57,14 @@
     codeBg: 'var(--surface-2)',
     blockquote: 'var(--muted)',
     hr: 'var(--border)',
-    // Marks take the words' accent; editor.css also cancels the vendored
-    // `.syntax-marker` opacity, so nothing here dims text to rank it.
+    // Marks take the words' accent; editor.css cancels the vendored opacity, so nothing dims text.
     syntaxMarker: 'var(--accent)',
     syntax: 'var(--muted)',
     cursor: 'var(--accent)',
-    // Must stay translucent: the native selection of the (invisible) textarea paints
-    // UNDER the coloured overlay glyphs, and an opaque wash blots them out.
+    // Translucent: the hidden textarea's selection paints under the overlay glyphs; opaque blots them.
     selection: 'color-mix(in srgb, var(--accent) 35%, transparent)',
     listMarker: 'var(--accent)',
-    // `raw-line` is the line the CURSOR is on, redrawn as raw markdown (overtype.min.js).
+    // `raw-line` is the line the cursor is on, redrawn as raw markdown (overtype.min.js).
     rawLine: 'var(--fg-strong)',
     border: 'var(--border)',
     hoverBg: 'var(--hover-overlay)',
@@ -96,8 +80,7 @@
   function applyTheme() { try { OverType.setTheme(themeName(), EDITOR_COLORS); } catch { /* pre-init */ } }
   mql.addEventListener('change', applyTheme);
 
-  // The order of the Testomat app's own markdown toolbar, so a tester moving between the
-  // two editors reaches for the same button in the same place. Unlisted names sort last.
+  // The Testomat app's own toolbar order, so testers find the same button in both editors.
   const TOOLBAR_ORDER = [
     'h1', 'h2', 'h3',
     'bold', 'italic',
@@ -111,43 +94,35 @@
     return i === -1 ? TOOLBAR_ORDER.length : i;
   };
 
-  // ---- toolbar: default button set minus the dropped ones -------------------
-  // The vendored UMD tail overwrites `window.OverType` with the CLASS and leaves the button
-  // array in the bare global `defaultToolbarButtons`, so both homes have to be checked.
+  // The vendored UMD tail puts the class on window.OverType, the buttons in a bare global: check both.
   function filteredToolbarButtons() {
     const all = (typeof defaultToolbarButtons !== 'undefined' && Array.isArray(defaultToolbarButtons))
       ? defaultToolbarButtons
       : (Array.isArray(OverType.defaultToolbarButtons) ? OverType.defaultToolbarButtons : null);
     if (!all) return null; // fall back to OverType's default set
     return all
-      // taskList: `- [ ]` renders as a dead checkbox outside Steps (owner bug report 2026-07-22).
+      // taskList: `- [ ]` renders as a dead checkbox outside Steps.
       .filter((b) => b && b.name !== 'viewMode' && b.name !== 'taskList')
       .sort((a, b) => orderOf(a.name) - orderOf(b.name))
-      // A copy per button: the array is the vendored module's own, and mutating it would
-      // re-skin every OverType on the page. `name` is what the toolbar writes as data-button.
+      // A copy per button: the array is the vendored module's own, and mutating it re-skins every OverType.
       .map((b) => {
         const glyph = TOOLBAR_ICONS[b.name] && Icons.markup(TOOLBAR_ICONS[b.name], 20);
         return glyph ? { ...b, icon: glyph } : b;
       });
   }
 
-  // ---- markdown preview: the panel's renderer, not a second one (shared/markdown.js)
   function renderPreviewInto(box, md) {
     const tmp = Md.render(md);
-    // #205: the CSP allows no remote <img>, so bytes are fetched as blob: URLs. Released
-    // FIRST — this runs on every keystroke, and the body about to be dropped owns the last batch.
+    // The CSP allows no remote <img>; released first, as this runs per keystroke and owns the last batch.
     ImgHydrate.release(PREVIEW_IMG_GROUP);
     ImgHydrate.hydrate(PREVIEW_IMG_GROUP, tmp); // detached: the raw src never reaches the document
     box.replaceChildren(...tmp.childNodes);
   }
 
-  // ---- image strip (#51): the pictures a test references, listed under the Markdown tab --
-  // OverType draws a transparent textarea over a character-aligned mirror, so an inline <img>
-  // would slide every line under it out of place — the thumbnails go in a row of their own.
+  // OverType's mirror is character-aligned, so an inline <img> would shift lines: thumbnails get a row.
   const IMG_REF_RE = /!\[([^\]]*)\]\(([^)\s]+)/g;
 
-  // `{url, alt}` in the order the body names them, first mention wins. Our own regex rather
-  // than OverType's private one.
+  // Our own regex rather than OverType's private one; first mention wins.
   function imageRefs(md) {
     const seen = new Map();
     for (const m of String(md || '').matchAll(IMG_REF_RE)) {
@@ -156,8 +131,7 @@
     return [...seen].map(([url, alt]) => ({ url, alt }));
   }
 
-  // Full size over the editor. Held as a closer, not a flag: whatever revokes the strip's
-  // blobs — a rebuild, a Save handing the page over — has to take the overlay showing one with it.
+  // A closer, not a flag: whatever revokes the strip's blobs must take the overlay showing one with it.
   let closeImageLightbox = null;
   function openImageLightbox(src, alt) {
     const box = document.createElement('div');
@@ -179,16 +153,13 @@
     closeImageLightbox = close;
   }
 
-  // A non-empty description can still render to nothing (a lone HTML comment, markup the
-  // sanitizer takes out whole), so emptiness is decided by the pane, not by the string.
+  // A non-empty description can render to nothing (a lone HTML comment), so the pane decides emptiness.
   function paneHasContent(box) {
     return box.textContent.trim() !== ''
       || !!box.querySelector('img, svg, video, iframe, canvas, table, hr, input');
   }
 
-  // ---- toast (bottom, auto-hides) -----------------------------------------
-  // `{ error: true }` escalates the live region to `alert` so a reader interrupts instead
-  // of queueing — the same contract the panel toast follows (#72/#81).
+  // `{ error: true }` makes the live region an `alert`, so a reader is interrupted instead of queued.
   let toastTimer = null;
   function showToast(msg, { error = false } = {}) {
     const el = $('tc-toast');
@@ -212,12 +183,9 @@
     toastTimer = setTimeout(() => { el.hidden = true; el.setAttribute('role', 'status'); }, 3500);
   }
 
-  // The unsaved draft and the dirty tracking around it live in draft.js, with its own test file.
   const { editorDraftKey, readEditorDraft, removeEditorDraft, readDraftShots, makeDirtyTracker } = EditorDraft;
 
-  // ---- config: same settings the panel persists --------------------------
-  // `chrome.storage` is torn out from under a page whose extension reloaded or updated
-  // while it was open, so every read is guarded — the page can't recover and says so.
+  // `chrome.storage` vanishes when the extension reloads under an open page, so every read is guarded.
   let activeSettings = null;
   const NEED_SETUP = 'Not configured — open the panel settings first.';
   // Each staged screenshot is a full JPEG held in this page's memory until Save.
@@ -237,7 +205,6 @@
     return true;
   }
 
-  // ---- read-only access probe (#155/#187) ---------------------------------
   // The panel's readonlyGate on the client's own tri-state: this document has no panel `state`.
   const READONLY_BLOCK = 'Your access to this project is read-only — the panel can’t author tests here. '
     + 'Pick another project in the panel settings, or ask a project owner for access that can write.';
@@ -247,18 +214,14 @@
     return TestomatAPI.readonlyAccess() === true;
   }
 
-  // ---- the web URL of a test (#113) ---------------------------------------
-  // Verified against the product: Rails `Test#to_url` and the Ember route `suites.test`
-  // both map `/projects/<slug>/test/<public_uid>` — singular `test`, the PUBLIC uid.
+  // Rails `Test#to_url` and Ember `suites.test` both map `/projects/<slug>/test/<public_uid>`.
   function testWebUrl(uid, s = activeSettings) {
     if (!uid || !s || !s.baseUrl || !s.projectId) return null;
     const base = String(s.baseUrl).replace(/\/+$/, '');
     return `${base}/projects/${encodeURIComponent(s.projectId)}/test/${encodeURIComponent(uid)}`;
   }
 
-  // ---- project templates (#104) -------------------------------------------
-  // Best-effort by contract: an empty list or ANY failure (no session, offline, no
-  // permission) falls back to an empty body — never a blocking error.
+  // Best-effort: an empty list or any failure falls back to an empty body, never a blocking error.
   async function loadTemplates() {
     try {
       const list = await TestomatAPI.listTemplates('test');
@@ -267,11 +230,7 @@
   }
   const pickDefaultTemplate = (list) => list.find((t) => t.isDefault) || list[0] || null;
 
-  // ---- project language (#35) ---------------------------------------------
-  // Same best-effort contract as loadTemplates: ANY failure (no session, offline, no
-  // permission) answers '' — an unknown language must not cost a non-BDD project its
-  // templates. Only a BDD project answers 'gherkin'.
-  // One project read per document: its language and its AI status both come from it.
+  // Best-effort: any failure answers '', so an unknown language never costs a non-BDD project templates.
   let projectInfoPromise = null;
   function projectInfoOnce() {
     if (!projectInfoPromise) projectInfoPromise = Promise.resolve().then(() => TestomatAPI.getProjectInfo());
@@ -284,14 +243,13 @@
       return String(attrs.lang || '').toLowerCase();
     } catch { return ''; }
   }
-  // Shared by the create seed (#35) and both parameter blocks (#32) — one probe per document.
+  // Shared by the create seed and both parameter blocks: one probe per document.
   let projectLangPromise = null;
   function projectLangOnce() {
     if (!projectLangPromise) projectLangPromise = loadProjectLang();
     return projectLangPromise;
   }
 
-  // ---- a plain message screen (unconfigured / load error / stub) ----------
   function renderMessage(text, { back = false, error = false } = {}) {
     const host = rootEl();
     host.replaceChildren();
@@ -310,22 +268,18 @@
     host.append(box);
   }
 
-  // ---- breadcrumb trail (panel ctx only) ----------------------------------
-  // The suite comes from the `tcReturn` entry openEditor() left in sessionStorage — read
-  // here, never consumed: the panel's own boot needs it to land back on that suite's list.
+  // Read here, never consumed: the panel's own boot needs `tcReturn` to land back on that suite.
   function tcReturn() {
     try { return JSON.parse(sessionStorage.getItem('tcReturn') || 'null'); } catch { return null; }
   }
 
-  // Dropping the return breadcrumb is what makes the panel land on the TC tree
-  // rather than on the suite this page came from.
+  // Dropping the breadcrumb lands the panel on the TC tree rather than the suite this page came from.
   function toTestsRoot() {
     try { sessionStorage.removeItem('tcReturn'); } catch { /* best effort */ }
     location.href = '../sidepanel/index.html';
   }
 
-  // Both handlers are the page's own leave paths (the editor sends them through its
-  // guard) — a crumb must never be a second, quieter way to lose an edit.
+  // Both handlers are the page's guarded leave paths: a crumb must never quietly lose an edit.
   function buildCrumbs({ onRoot, onSuite }) {
     const ret = tcReturn();
     const nav = document.createElement('nav');
@@ -353,7 +307,6 @@
     return nav;
   }
 
-  // The bar's flexible column: the trail over the page's title (or its title field).
   function barMain(...kids) {
     const main = document.createElement('div');
     main.className = 'tc-bar-main';
@@ -361,27 +314,20 @@
     return main;
   }
 
-  // The priority picker lives in priority-control.js, which has its own test file.
   const { buildPriorityControl } = PriorityControl;
 
-  // The parameters grid lives in params-grid.js, which has its own test file.
   const { buildParamsControl } = ParamsGrid;
 
-  // The read-only view of a test lives in view.js, which has its own test file.
   const { renderView } = EditorView;
 
-  // The recording and its polish live in rec-session.js, which has its own test file.
   const { createRecSession } = RecSession;
-  // The page chrome the view borrows, and the three members that read module state HERE:
-  // they are handed over to be called, never copied into the module.
+  // Members that read module state here are handed over to be called, never copied into the module.
   const VIEW_SHELL = {
     rootEl, barMain, buildCrumbs, toTestsRoot, renderPreviewInto, paneHasContent,
     testWebUrl, projectLang: projectLangOnce, onSettings: (s) => { activeSettings = s; },
   };
 
-  // ---- the authoring surface (create AND edit) ----------------------------
-  // One screen, two modes: create POSTs into `suite` and seeds from a template; edit
-  // PATCHes title/description/priority of `uid` and leaves the suite alone.
+  // Create POSTs into `suite` and seeds from a template; edit PATCHes `uid` and leaves the suite alone.
   function renderEditor({
     ctx, mode = 'create', uid = null, test = null,
     suite, title, markdown, priority, dirty: initialDirty = false, savedId: restoredSavedId = null,
@@ -389,7 +335,6 @@
     shots = [], shotsLost = 0,
   }) {
     const editing = mode === 'edit';
-    // The page this screen returns to: the test's own read-only view, minus `edit`.
     const viewHref = () => {
       const q = new URLSearchParams(location.search);
       q.delete('edit');
@@ -400,15 +345,13 @@
     const draftKey = editorDraftKey(editing ? { test: uid } : { suite });
     let saving = false;
     let done = false;        // saved → the read-only view took over this page
-    // The id the first Save got. A second Save updates that test instead of creating another,
-    // which is what lets a half-written Save be retried at all.
+    // The first Save's id: a second Save updates that test, which is what lets a failed Save be retried.
     let savedId = restoredSavedId;
     let previewing = false;
     // Annotated screenshots held until Save, uploaded in the order they were taken.
     const pendingShots = shots.slice(); // …starting with the ones a restored draft was holding
     let shotsRev = 0; // the strip's revision: the tracker writes the pictures only when it moves
-    // The tracker owns `dirty`, the throttled write and the tab-ctx `beforeunload` guard; the
-    // getters are how it reaches the controls below, which are built long after it.
+    // The getters reach controls built long after the tracker.
     const { markDirty, clearDirty, schedulePersist, onEdited, isDirty } = makeDirtyTracker({
       ctx,
       draftKey,
@@ -449,13 +392,11 @@
       bar.append(backBtn);
     }
 
-    // Title + its inline validation line (#82), `hidden` while valid so the row grows
-    // only when an error appears.
+    // The validation line is `hidden` while valid, so the row grows only when an error appears.
     const titleField = document.createElement('div');
     titleField.className = 'tc-title-field';
 
-    // A textarea, not an input: the shared `.autogrow` field (components.css) wraps
-    // instead of scrolling its own beginning out of sight.
+    // A textarea, not an input: the shared `.autogrow` field wraps instead of scrolling its start away.
     const titleInput = document.createElement('textarea');
     titleInput.id = 'tc-title';
     titleInput.className = 'textarea autogrow size-md tc-title-input';
@@ -463,8 +404,7 @@
     titleInput.placeholder = 'Test case title';
     titleInput.value = title || '';
     titleInput.addEventListener('input', () => { clearTitleError(); syncSaveEnabled(); onEdited(); });
-    // Enter moves to the body: a title is one line of text, and a stray newline in it
-    // would travel to the API.
+    // Enter moves to the body: a stray newline in the title would travel to the API.
     titleInput.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
       e.preventDefault();
@@ -478,13 +418,11 @@
     titleError.setAttribute('role', 'alert'); // announced the moment it is filled
     titleError.hidden = true;
     titleField.append(titleInput, titleError);
-    // BOTH crumbs leave through requestBack(), so the unsaved-changes guard covers them
-    // exactly as it covers Back; they differ only in where the leave lands.
+    // Both crumbs leave through requestBack(), so the unsaved-changes guard covers them like Back.
     bar.append(ctx === 'panel'
       ? barMain(buildCrumbs({
         onRoot: () => requestBack(toTestsRoot),
-        // The suite crumb goes to the SUITE in every mode — unlike the arrow beside it,
-        // which walks back one step (out of an edit, that is the test's own view).
+        // The suite crumb goes to the suite in every mode, unlike the back arrow, which walks back one step.
         onSuite: () => requestBack(toPanelHome),
       }))
       : Object.assign(document.createElement('span'), { className: 'bar-spacer' }));
@@ -507,8 +445,7 @@
     const priorityCtrl = buildPriorityControl(priority, onEdited);
     bar.append(priorityCtrl.wrap);
 
-    // Edit mode only (#113): a create has no test to open until it saves, so `tc-open-web`
-    // is absent rather than hidden. It opens a new tab, so no leave guard is needed.
+    // Edit only: a create has no test to open until it saves; a new tab needs no leave guard.
     if (editing) {
       const openLink = document.createElement('a');
       openLink.id = 'tc-open-web';
@@ -529,8 +466,7 @@
     titleRow.append(titleField);
     wrap.append(titleRow);
 
-    // The panel's own tab bar (`.tabs.fill`, icon + label), so the switch is the one a
-    // tester already knows from Tests / Runs / Settings.
+    // The panel's own tab bar, so the switch is the one testers know from Tests / Runs / Settings.
     const tabs = document.createElement('nav');
     tabs.className = 'tabs fill tc-tabs';
     tabs.setAttribute('role', 'tablist');
@@ -545,20 +481,17 @@
       b.innerHTML = `${icon(name, 16)}<span class="tab-label">${label}</span>`;
       return b;
     };
-    // The id stays `tc-tab-edit` though the label says Markdown — it is what the e2e
-    // and the hotkeys address.
+    // The id stays `tc-tab-edit` though the label says Markdown: the e2e and hotkeys address it.
     const editTab = buildTab('tc-tab-edit', 'Markdown', ICON_MARKDOWN, true);
     const previewTab = buildTab('tc-tab-preview', 'Preview', ICON_PREVIEW, false);
     tabs.append(editTab, previewTab);
     wrap.append(tabs);
 
-    // The writing tools all act on the text being written, so the row belongs to the
-    // Markdown tab alone — showPreview hides it.
+    // The tools act on the text, so the row belongs to the Markdown tab alone; showPreview hides it.
     const tools = document.createElement('div');
     tools.className = 'toolbar divided tc-tools';
 
-    // Template picker (#104) on the shared `Dropdown`, not a native <select> whose OS popup
-    // opens as a full-width slab; `align: 'end'` keeps a long title on the 380px panel.
+    // The shared Dropdown, not a native <select> whose OS popup is a full-width slab.
     let templateId = initialTemplateId;
     const tmplDD = Dropdown.create({
       id: 'tc-template',
@@ -573,13 +506,11 @@
       })),
       value: templateId,
       fallbackFirst: true,
-      // Picking REPLACES the body — free while nothing has been authored, a confirm once
-      // something has. (The helpers below are declared later; none runs before a click.)
+      // Picking replaces the body: free while nothing is authored, a confirm once something is.
       onChange: (id) => {
         const next = templateById(id);
         if (!next) return;
-        // Comparing ids is NOT enough: a restored draft leaves the pick on the default
-        // while the body is the tester's own, and re-picking it must still apply it.
+        // Comparing ids is not enough: a restored draft leaves the default picked over the tester's own body.
         if (editor.getValue() === next.body) { templateId = next.id; return; }
         if (bodyIsUnauthored()) applyTemplate(next.id);
         else openTemplateGuard(next.id);
@@ -599,8 +530,7 @@
     recContinue.textContent = 'Continue';
     recContinue.hidden = true;
     Tooltip.set(recContinue, 'Carry on recording into this test');
-    // #23: a SWITCH, not a checkbox — it writes itself on change and the recording that stops
-    // next is already treated differently, so there is no Save for it to belong to.
+    // A switch, not a checkbox: it applies on change to the next stop, with no Save to belong to.
     const polishLabel = document.createElement('label');
     polishLabel.className = 'choice tc-polish';
     const polishInput = document.createElement('input');
@@ -608,16 +538,14 @@
     polishInput.type = 'checkbox';
     polishInput.className = 'switch';
     polishInput.setAttribute('role', 'switch');
-    // The words in a SPAN, not a bare text node: the short row hides them (fitTools), and the
-    // switch keeps the same name on the input either way.
+    // The words in a span: the short row hides them, and the input keeps its name either way.
     const polishText = document.createElement('span');
     polishText.className = 'tc-polish-text';
     polishText.textContent = 'Polish with AI';
     polishInput.setAttribute('aria-label', 'Polish with AI');
     polishLabel.append(polishInput, polishText);
     Tooltip.set(polishLabel, 'Rewrite the recorded steps with Testomat AI when you stop recording');
-    // The same one button both ways: it polishes a recording that was not, and undoes one
-    // that was. It exists only while this editor still holds a recording.
+    // One button both ways: it polishes an unpolished recording and undoes a polished one.
     const polishBtn = document.createElement('button');
     polishBtn.id = 'tc-polish-btn';
     polishBtn.type = 'button';
@@ -635,33 +563,26 @@
     shotPreview.className = 'thumb-row tc-shot-preview';
     shotPreview.setAttribute('aria-label', 'Screenshots to attach on Save');
     shotPreview.hidden = true;
-    // The buttons that get used over and over hold the HEAD of the row; the AI switch and the
-    // template, both settings for what those buttons do, sit at its tail — one auto margin moves
-    // the pair together (editor.css).
+    // Repeated-use buttons hold the row's head; the AI switch and template sit at its tail.
     tools.append(recBtn, recContinue, polishBtn, attachBtn, polishLabel, tmplField, shotPreview);
     wrap.append(tools);
 
-    // The row wears its words only while they FIT: dragged narrower, the labels go and the
-    // controls stand as icons rather than wrapping onto a second line. Measured, not a
-    // breakpoint — how much width the row needs depends on which controls are showing.
+    // Measured, not a breakpoint: the width the row needs depends on which controls are showing.
     let toolsFitWidth = 0; // the width it was last fitted at, the observer's guard
     const fitTools = () => {
       if (!tools.clientWidth) return; // hidden on the Preview tab, and nothing to measure
-      // Words back on FIRST, or a panel dragged wider would keep the short row.
+      // Words back on first, or a panel dragged wider would keep the short row.
       tools.classList.remove('is-short');
       const line = [recBtn, recContinue, polishBtn, attachBtn, polishLabel, tmplField]
         .filter((el) => !el.hidden && el.offsetParent);
-      // Their CENTRES, not their tops: the row centres what it holds, so the switch — shorter
-      // than the buttons — starts lower than they do while sitting on the same line. Reading
-      // the geometry is also what forces the layout the line above just asked for.
+      // Centres, not tops: the shorter switch starts lower on the same line; reading also forces layout.
       const mid = (el) => el.offsetTop + el.offsetHeight / 2;
       if (line.length && line.some((el) => Math.abs(mid(el) - mid(line[0])) > 1)) {
         tools.classList.add('is-short');
       }
       toolsFitWidth = tools.clientWidth;
     };
-    // The observer also fires for the width the fit itself settled at, hence the guard — the
-    // same shape the side panel's own rows use (sidepanel/core/views.js).
+    // The observer also fires for the width the fit itself settled at, hence the guard.
     new ResizeObserver(() => {
       if (tools.clientWidth && tools.clientWidth !== toolsFitWidth) fitTools();
     }).observe(tools);
@@ -678,8 +599,7 @@
     body.append(editHost, previewPane);
     wrap.append(body);
 
-    // The referenced pictures (#51), a band under the text like the parameters one below it —
-    // inside .tc-body it would hang off the bottom of a pane that is 100% of that box.
+    // A band under the text: inside .tc-body it would hang off a pane that is 100% of that box.
     const strip = document.createElement('div');
     strip.id = 'tc-image-strip';
     strip.className = 'tc-image-strip';
@@ -696,13 +616,10 @@
     strip.append(stripLabel, stripRow);
     wrap.append(strip);
 
-    // The parameters grid (#5), between the text and the footer: a band of its own, folded until
-    // the test has something to run with. A restored draft seeds it — see loadParams below.
     const paramsCtl = buildParamsControl({ seed: params, onEdited });
     wrap.append(paramsCtl.section);
 
-    // Cancel is the same leave Back performs, guard and all — and the only way out in the
-    // tab context, which has no Back arrow.
+    // Cancel is the same leave Back performs, and the only way out in the tab context.
     const footer = document.createElement('footer');
     footer.className = 'bar footer tc-footer';
     footer.dataset.tipSide = 'top'; // nothing below this row to open a tip into
@@ -712,7 +629,6 @@
     saveBtn.className = 'btn primary';
     saveBtn.textContent = 'Save';
     saveBtn.addEventListener('click', () => { save(); });
-    // A title is required, so Save is not offered without one — the same rule quick add follows.
     // Also what re-arms the button after a save attempt, in place of a bare `disabled = false`.
     function syncSaveEnabled() {
       saveBtn.disabled = saving || done || !titleInput.value.trim();
@@ -737,13 +653,11 @@
     host.append(wrap);
 
     applyTheme();
-    // OverType fires `onChange` while it lays in the initial `value`, so dirty tracking
-    // stays unarmed until the mount returns or an untouched editor opens dirty.
+    // OverType fires `onChange` while laying in the initial value, so dirty tracking waits for the mount.
     let mounted = false;
     const opts = {
       toolbar: true,
-      // These MUST go through the options, not a stylesheet: OverType pins its textarea and
-      // its overlay to one --instance-font-* set, and sizing either alone slides the caret.
+      // Through the options, not a stylesheet: textarea and overlay share one font set or the caret slides.
       fontFamily: 'var(--font-md-editor)',
       fontSize: 'var(--fs-base)',
       lineHeight: 'var(--leading-md-editor)',
@@ -756,12 +670,9 @@
     const [editor] = new OverType('#editor', opts);
     mounted = true;
     TabIndent.attach(host, editor.textarea); // Tab indents the caret's line; Esc, then Tab leaves the field
-    // The vendored toolbar labels its buttons with the browser's own `title`, which would
-    // open an OS tooltip beside ours — moved here once, right after the mount.
+    // The vendored toolbar's native `title`s would open an OS tooltip beside ours, so they move here once.
     Tooltip.adopt(host);
 
-    // ---- tab toggle ----
-    // The open tab is said twice: in the class the bar paints from, and in `aria-selected`.
     function setTab(open, closed) {
       open.classList.add('active');
       open.setAttribute('aria-selected', 'true');
@@ -772,7 +683,7 @@
       previewing = false;
       previewPane.hidden = true;
       editHost.hidden = false;
-      strip.hidden = !stripRow.childElementCount; // the strip belongs to this tab (#51)
+      strip.hidden = !stripRow.childElementCount; // the strip belongs to this tab
       tools.hidden = false;
       setTab(editTab, previewTab);
     }
@@ -788,9 +699,7 @@
     editTab.addEventListener('click', showEdit);
     previewTab.addEventListener('click', showPreview);
 
-    // ---- image strip (#51) ----
-    // Rebuilding refetches every picture, so it happens only when the ORDERED set of refs
-    // moved — not on the keystrokes between.
+    // Rebuilding refetches every picture, so only when the ordered set of refs moved, not per keystroke.
     let stripKey = null;
     let stripTimer = null;
     function refreshStrip() {
@@ -820,9 +729,7 @@
     }
     refreshStrip(); // the body the mount just laid in
 
-    // ---- template picker behaviour (#104) ----
-    // "Unauthored" = blank, or byte-equal to some template we offer (the seed, or an
-    // earlier pick).
+    // "Unauthored" = blank, or byte-equal to a template we offer (the seed, or an earlier pick).
     const templateById = (id) => templates.find((t) => t.id === id) || null;
     function bodyIsUnauthored() {
       const cur = editor.getValue();
@@ -838,8 +745,7 @@
       if (previewing) renderPreviewInto(previewPane, editor.getValue());
       onEdited(); // a swapped body is an unsaved change like any other
     }
-    // The pick already moved the closed face; `setValue` is the silent path, so putting it
-    // back cannot re-enter onChange.
+    // `setValue` is the silent path, so putting the pick back cannot re-enter onChange.
     function revertTemplateSelect() { if (templateId) tmplDD.setValue(templateId); }
 
     let tmplGuard = null;
@@ -891,12 +797,7 @@
       if (b) b.focus();
     }
 
-    // ---- step recorder (message-driven; background owns the canonical state) --
-    // The session itself is rec-session.js; what stays here is the half that touches the page —
-    // the words it decides on, painted onto the two buttons and the switch.
-
-    // The label carries only words, so textContent stays the plain sentence the e2e reads.
-    // `name` must not be called `icon`: it would shadow the module's own icon() helper.
+    // Only words in the label, so textContent stays the plain sentence the e2e reads.
     const setRecBtn = (name, label) => {
       recBtn.innerHTML = icon(name, 16);
       const span = document.createElement('span');
@@ -961,9 +862,7 @@
       projectInfoOnce().then((doc) => rec.setAiStatus(RecFormat.aiStatusOf(doc)), () => {});
     }
 
-    // ---- Attach screenshots (previews held until Save) -----------------------
-    // Rebuilt whole on every change: at most MAX_SHOTS rows, and a diff would only be a
-    // second place for their order to be wrong.
+    // Rebuilt whole: at most MAX_SHOTS rows, and a diff would be a second place to get their order wrong.
     function renderShotPreview() {
       shotsRev += 1; // the one place every change to the strip goes through
       shotPreview.replaceChildren();
@@ -987,14 +886,13 @@
         shotPreview.append(cell);
       });
     }
-    // Focus cannot stay on a button that is gone: it lands on the next picture's remove,
-    // or on the camera when the last one goes.
+    // Focus can't stay on a removed button: it moves to the next picture's remove, or the camera.
     function dropShot(i) {
       if (i < 0 || i >= pendingShots.length) return;
       pendingShots.splice(i, 1);
       renderShotPreview();
       markDirty();
-      schedulePersist(); // the strip IS the change here — nothing else will write the draft
+      schedulePersist(); // the strip is the change here; nothing else will write the draft
       const next = shotPreview.querySelector(`.thumb-remove[data-shot="${Math.min(i, pendingShots.length - 1)}"]`);
       (next || attachBtn).focus();
     }
@@ -1013,8 +911,7 @@
         const perm = await CaptureAnnotate.ensureCapturePermission();
         if (!perm.ok) { showToast(perm.error, { error: true }); return; }
         const resp = await CaptureAnnotate.captureTab({ fullPage: false });
-        // `needsGrant` (#101): the worker's sentence already names the fix (a toolbar
-        // click), so it is shown as it stands rather than prefixed with a diagnostic.
+        // `needsGrant`: the worker's sentence already names the fix, so it is shown as it stands.
         if (!resp.ok) {
           showToast(resp.needsGrant ? resp.error : `Capture failed: ${resp.error || 'unknown'}`, { error: true });
           return;
@@ -1034,10 +931,7 @@
     rec.refresh();
     syncSaveEnabled(); // a create opens with no title, so Save opens greyed out
 
-    // ---- parameters: what the test already has (#5) --------------------------
-    // Session-only, so basic mode drops the block whole rather than offering a grid that could not
-    // be saved. Any other failure is said once and leaves an empty grid to write in.
-    // BDD drops it too (#32): the body's Examples own the data — a grid write collides server-side.
+    // Session-only, so basic mode drops the block; BDD too: the body's Examples own the data.
     async function loadParams() {
       if (TestomatAPI.jwtAvailable() === false) { paramsCtl.disable(); return; }
       if ((await projectLangOnce()) === 'gherkin') { paramsCtl.disable(); return; }
@@ -1054,17 +948,16 @@
         showToast(`Parameters couldn't be loaded: ${(e && e.message) || e}`, { error: true });
       }
     }
-    // …and the same probe answers whether the AI switch has a session to work with.
+    // The same probe answers whether the AI switch has a session to work with.
     loadParams().then(rec.syncPolishVisible, rec.syncPolishVisible);
 
-    // Latching `done` is what makes a second Save (button or Cmd+S) impossible —
-    // creating, that would be a duplicate TC.
+    // Latching `done` makes a second Save impossible; creating, that would be a duplicate TC.
     function handOverToView(id, saved) {
       done = true;
       rec.handOver();
       clearTimeout(stripTimer);
       if (closeImageLightbox) closeImageLightbox();
-      ImgHydrate.release(STRIP_IMG_GROUP); // the view that takes over draws its own images (#51)
+      ImgHydrate.release(STRIP_IMG_GROUP); // the view that takes over draws its own images
       document.removeEventListener('keydown', onEditorKey);
       const p = new URLSearchParams(location.search);
       p.delete('suite');
@@ -1074,44 +967,34 @@
       renderView({ shell: VIEW_SHELL, ctx, uid: id, ...saved });
     }
 
-    // ---- save: writes the TC; returns its uid, or null on failure ------------
     async function save() {
       if (saving || done) return null;
-      // Claim the flag before the first await (the recorder drain below is one), or a
-      // second chord slips past it into a duplicate POST.
+      // Claim the flag before the first await, or a second chord slips past into a duplicate POST.
       saving = true;
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {
-        // A running recorder is drained FIRST — what is not in the body is not in the payload.
+        // A running recorder is drained first: what is not in the body is not in the payload.
         if (rec.isRecording()) await rec.runExclusive(() => rec.finish());
-        // …and a polish already out (Stop's, or the button's) is waited for, or Save would
-        // send the raw text a moment before the answer rewrites it.
+        // A polish already out is waited for, or Save sends the raw text just before the answer rewrites it.
         await rec.settle();
         const description = editor.getValue();
-        // A paste can bring real newlines into the wrapping field; what goes to the API
-        // is one line either way.
+        // A paste can bring real newlines into the wrapping field; the API gets one line.
         const t = titleInput.value.replace(/\s+/g, ' ').trim();
         const priority = priorityCtrl.getPriority();
         if (!t) { showTitleError('Title is required'); return null; }
-        // The grid is judged BEFORE anything is written: a row under a nameless column would land
-        // as a test nobody can read, so nothing goes out until the columns have names.
+        // The grid is judged before anything is written: a row under a nameless column would be unreadable.
         const paramsWrite = paramsCtl.plan();
         if (!paramsWrite) return null;
-        // The update deliberately omits `suite_id` — sending it would MOVE the test
-        // (contract m3), and this editor changes its text, not where it lives.
-        // A test this editor already created is UPDATED by the retry below — writing it again
-        // would leave two tests behind.
+        // Never `suite_id` on update, it would move the test; one already created here is updated on retry.
         const target = savedId || (editing ? uid : null);
         const written = target
           ? await TestomatAPI.updateTest(target, { title: t, description, priority })
           : await TestomatAPI.createTest({ title: t, suite_id: suite, description, priority });
-        // Editing, the uid is known before the request and stays the uid whatever the
-        // response echoes back.
+        // Editing, the uid is known up front and stays whatever the response echoes.
         const id = (written && written.id) || target;
         savedId = id;
-        // Best-effort: a failed upload toasts but never fails Save, and the shots that did
-        // NOT land stay staged, so a second Save retries exactly them.
+        // Best-effort: a failed upload toasts, and shots that did not land stay staged for the next Save.
         let shotError = null;
         let shotFailed = 0;
         if (pendingShots.length && id) {
@@ -1132,8 +1015,7 @@
         }
         // The test itself is saved either way; the parameters leg is best-effort, as the uploads are.
         const paramsError = id ? await paramsCtl.commit(id, paramsWrite) : null;
-        // What did not land is still only in this grid: hold the editor, its draft and the dirty
-        // flag, so a second Save sends exactly those rows.
+        // What did not land is only in this grid: keep the editor, draft and dirty flag for a second Save.
         if (paramsError) {
           // The draft has to learn the test exists, or a reload before the retry makes a second one.
           schedulePersist();
@@ -1142,11 +1024,9 @@
         }
         clearDirty();
         removeEditorDraft(draftKey); // clearDirty only removes it when it was still dirty
-        // For a create, `test: {}` is not a missing record: it is the `manual` kind
-        // TestType reads out of a record carrying no state flags.
+        // For a create, `test: {}` is the `manual` kind TestType reads from a record without state flags.
         const record = (editing && test) ? { ...test, title: t, priority } : {};
-        // View first, then the toast — showToast targets the view's own element. With no
-        // id back (never seen on v2) just latch `done`, so a retry can't create a copy.
+        // View first, then the toast: showToast targets the view's own element.
         if (id) handOverToView(id, { title: t, markdown: description, priority, test: record });
         else done = true;
         if (shotError) {
@@ -1166,14 +1046,11 @@
       }
     }
 
-    // ---- leave guards (the in-page dialog; tab ctx also keeps beforeunload) ----
-    // The leave target is held here so the guard's own Save & leave / Discard go where the
-    // leave that opened them was headed; in ctx=tab leaving closes this window.
+    // Held here so the guard's Save & leave / Discard go where the leave was headed; a tab closes.
     const toPanelHome = ctx === 'panel'
       ? () => { location.href = '../sidepanel/index.html'; }
       : () => { window.close(); };
-    // …but an EDIT was opened from the test's own read-only view, in both contexts —
-    // closing the tab there would throw away the test the tester came to read.
+    // An edit returns to the test's own view in both contexts: closing the tab would lose the test.
     const goHome = editing ? () => { location.href = viewHref(); } : toPanelHome;
     let leaveTo = goHome;
     function navigateBack() { leaveTo(); }
@@ -1184,16 +1061,14 @@
       const s = $('tc-guard-save');
       if (s) s.focus();
     }
-    // A leave while recording is intercepted ONCE: stop + insert (work is never silently
-    // lost), stay in the editor. A second one leaves through the unsaved-changes dialog.
+    // A leave while recording is intercepted once: stop + insert, stay; a second goes through the dialog.
     function requestBack(to = goHome) {
       leaveTo = to;
       if (rec.isRecording()) { rec.runExclusive(() => rec.finish('Recording stopped')); return; }
       if (isDirty()) openGuard(); else navigateBack();
     }
 
-    // Built in BOTH contexts: Cancel is an in-page leave in a tab too, and `beforeunload`
-    // does not fire for the window.close() it performs.
+    // Built in both contexts: `beforeunload` does not fire for the window.close() Cancel performs.
     const guard = document.createElement('div');
     guard.id = 'tc-guard';
     guard.className = 'tc-guard';
@@ -1226,8 +1101,7 @@
     gCancel.addEventListener('click', closeGuard);
     wrap.append(guard);
 
-    // Named + removable: the read-only view that takes over after a create must not keep
-    // a live Save chord pointing at this (detached) editor.
+    // Named and removable: the view that takes over must not keep a live Save chord on this editor.
     function onEditorKey(e) {
       if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === 's') {
         e.preventDefault(); // always on the chord — else the browser Save dialog appears
@@ -1235,8 +1109,7 @@
         return;
       }
       if (e.key !== 'Escape') return;
-      // The template swap is checked first: it is the dialog that can sit on top of an
-      // already-dirty editor.
+      // The template swap first: it is the dialog that can sit on top of an already-dirty editor.
       if (tmplGuard && !tmplGuard.hidden) {
         e.preventDefault(); closeTemplateGuard(); revertTemplateSelect(); return;
       }
@@ -1244,7 +1117,6 @@
     }
     document.addEventListener('keydown', onEditorKey);
 
-    // ---- e2e hooks ----
     window.__tc = {
       ready: true,
       ctx,
@@ -1271,8 +1143,7 @@
       templateId: () => templateId,
       pickTemplate: (id) => tmplDD.pick(String(id)),
       recording: () => rec.isRecording(),
-      // Stop flips `recording` at once, but its tail insert — and the polish behind it — are
-      // round trips away; a reader of the body has to wait for this to clear as well.
+      // Stop flips `recording` at once, but its insert and polish are round trips away; wait for this too.
       recStopping: () => rec.isBusy(),
       polishing: () => rec.polishOn(),
       setPolishing: (on) => rec.setPolishOn(on),
@@ -1301,8 +1172,7 @@
       dropShot: (i) => { dropShot(i); return pendingShots.length; },
     };
 
-    // A restored panel-ctx draft is already unsaved content (it stays in storage until
-    // save/discard).
+    // A restored draft is already unsaved content: it stays in storage until save or discard.
     if (initialDirty) markDirty();
     // Said now, while the shots can still be retaken — not at Save, when the test is written.
     if (shotsLost > 0) {
@@ -1312,7 +1182,6 @@
     }
   }
 
-  // ---- demo: local round-trip proof for the harness (no API) --------------
   function renderDemo() {
     document.title = 'Test editor — demo';
     const host = rootEl();
@@ -1333,8 +1202,7 @@
     host.append(wrap);
 
     applyTheme();
-    // The e2e harness supplies the samples to __roundtrip; with none set the pane just
-    // shows this placeholder.
+    // The e2e harness supplies samples to __roundtrip; with none set the pane shows this placeholder.
     const demoOpts = {
       toolbar: true,
       fontFamily: 'var(--font-md-editor)',
@@ -1347,18 +1215,15 @@
     const [editor] = new OverType('#editor', demoOpts);
     Tooltip.adopt(host); // the vendored toolbar's `title`s, same as the real editor
 
-    // A real OverType set/get cycle per sample ({ name, markdown }): it edits raw
-    // markdown, so this is byte-identity for every construct.
+    // OverType edits raw markdown, so a set/get cycle per sample proves byte-identity.
     window.__roundtrip = async (samples) => (Array.isArray(samples) ? samples : []).map(({ name, markdown }) => {
       editor.setValue(markdown);
       return { name, input: markdown, output: editor.getValue() };
     });
   }
 
-  // ---- boot ---------------------------------------------------------------
   async function boot() {
-    // Before every early return below: a toolbar click must not re-open the panel out from
-    // under a message screen, the annotator or a half-written test (a tab never registers).
+    // Before every early return: a toolbar click must not re-open the panel over this page.
     if (typeof PanelLink !== 'undefined') PanelLink.init();
     // `?annotate=<key>` hands the whole page to the annotator — no OverType, no API.
     const annotateKey = new URLSearchParams(location.search).get('annotate');
@@ -1380,19 +1245,17 @@
       return;
     }
 
-    // Painted BEFORE the probe's round trip (#187), and by the same call that renders the
-    // result, so what arrives replaces the bars in place rather than swapping screens.
+    // Painted before the probe, by the same call that renders the result, so bars are replaced in place.
     if (cx.test) renderView({ shell: VIEW_SHELL, ctx: cx.ctx, uid: cx.test, loading: true });
     // The template seed rides along with the probe — loadTemplates swallows every failure.
     const templatesLoad = cx.suite ? loadTemplates() : null;
-    // Started at boot so the language read (#35, #32) overlaps the other round trips.
+    // Started at boot so the language read overlaps the other round trips.
     const projectLangLoad = (cx.suite || cx.test) ? projectLangOnce() : null;
 
-    // #187 — a direct load (restored tab, bookmark) never passed the Tests tab's own gate.
+    // A direct load (restored tab, bookmark) never passed the Tests tab's own gate.
     if (await readonlyGate()) { renderMessage(READONLY_BLOCK, { back: panelCtx }); return; }
 
-    // One read serves both screens: the editor opens on the test's CURRENT text, which is
-    // the same text the view would render.
+    // One read serves both screens: the editor opens on the test's current text.
     if (cx.test) {
       try {
         const tc = await TestomatAPI.getTest(cx.test);
@@ -1405,8 +1268,7 @@
           let restoredDirty = false;
           let shots = [];
           let shotsLost = 0;
-          // An unsaved edit of THIS test outranks what the server still holds — a panel closed
-          // or a tab torn down mid-sentence is not a discard, in either context.
+          // An unsaved edit of this test outranks the server: a closed panel is not a discard.
           const key = editorDraftKey({ test: cx.test });
           const draft = await readEditorDraft(key);
           if (draft) {
@@ -1418,8 +1280,7 @@
             ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
             restoredDirty = true;
           }
-          // No `templates`: a template SEEDS an unwritten body, and this one is written —
-          // the picker would only offer to replace the test.
+          // No `templates`: a template seeds an unwritten body, and this one is written.
           renderEditor({
             ctx: cx.ctx, mode: 'edit', uid: cx.test, test: tc || null,
             title, markdown, priority, params, recorded, dirty: restoredDirty, shots, shotsLost,
@@ -1447,14 +1308,7 @@
       return;
     }
 
-    // Create mode: the initial markdown is seeded from the project's default test
-    // template (#104; no templates → empty body). A BDD project is the exception (#35):
-    // there are no test templates there — the web app's test form hides its Use Template
-    // button behind `project.isGherkin` and seeds a new body from code as `Scenario: `.
-    // The server hands every project a default test template regardless, so without this
-    // the picker would offer one the web never has and the body would open on a literal
-    // `{{ title }}` no web user ever sees. A failed language probe reads as non-gherkin,
-    // which keeps templates on offer instead of stripping them over a flaky round trip.
+    // A BDD project gets no templates, as on the web; a failed probe reads as non-gherkin and keeps them.
     const gherkin = (await projectLangLoad) === 'gherkin';
     const templates = gherkin ? [] : await templatesLoad;
     const initialTemplate = pickDefaultTemplate(templates);
@@ -1476,8 +1330,7 @@
       if (draft.markdown != null) markdown = draft.markdown;
       priority = draft.priority || 'normal';
       params = draft.params || null;
-      // #23: the recording it was holding — the steps are already in the body, and this is
-      // what still lets them be polished (or put back).
+      // The recording it held: its steps are in the body, and this still lets them be polished or put back.
       recorded = draft.recording || null;
       ({ shots, lost: shotsLost } = await readDraftShots(draft, key));
       savedId = draft.savedId || null;

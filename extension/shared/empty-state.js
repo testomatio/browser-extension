@@ -1,5 +1,4 @@
-// Empty states (IIFE global `EmptyState`); the shape lives in shared/components.css.
-// Load AFTER shared/icons.js — it draws its mark from there.
+// Load after shared/icons.js, which draws the mark; the shape lives in shared/components.css.
 
 /* exported EmptyState */
 (() => {
@@ -15,8 +14,7 @@
     return node;
   };
 
-  // A string, a node, or a list of either: the sentence is prose in most states and
-  // prose-with-a-link in a few.
+  // A string, a node, or a list of either: a few states carry a link in the sentence.
   function fill(node, content) {
     const parts = Array.isArray(content) ? content : [content];
     for (const part of parts) {
@@ -26,7 +24,6 @@
     return node;
   }
 
-  // `tag` is 'li' when the state is the only child of a list (a <div> inside a <ul>).
   // `live` is what stops a filtered list going empty from being silent to a reader.
   function build({
     icon,
@@ -49,8 +46,7 @@
       if (svg) { mark.append(svg); box.append(mark); }
     }
 
-    // Drawn even for a text-only state: it is what keeps the sentence in a column
-    // beside the mark instead of on the same baseline as it.
+    // Drawn even for a text-only state: it keeps the sentence in a column beside the mark.
     if (title || text) {
       const body = el('div', 'empty-body');
       if (title) body.append(fill(el('p', 'empty-title'), title));
@@ -63,7 +59,6 @@
     return box;
   }
 
-  // Picks the tag for the caller, since the container is right there to be asked.
   function into(host, opts) {
     if (!host) return null;
     const node = build({ tag: host.tagName === 'UL' || host.tagName === 'OL' ? 'li' : 'div', ...opts });

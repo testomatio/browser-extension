@@ -1,19 +1,11 @@
-// The test's workflow metadata (IIFE global `TestMeta`): the custom status the project replies with
-// and the person the result is assigned to. Neither is the verdict — each is written on its own
-// request, gated on its own rule (a marked row is no longer re-assignable, a locked run refuses a
-// custom status), and the verdict path only asks this to repaint. So it used to share one closure
-// with the screen that marks a test, and a change to the assignee listbox meant editing that screen.
-//
-// The assignee is a hand-built listbox rather than the shared Dropdown, because an OS menu draws
-// neither a monogram nor a filter box — hence the cursor, the keyboard block and the popup below.
+// The test's workflow metadata: its custom status and its assignee, each on its own write and gate.
 
 /* global TestomatAPI, Dropdown, Tooltip, UserCell, Icons, state, capabilities, usersList, $,
    recordFor, RunLock, displayStatus, runRepliesFor, syncBeginWrite, syncEndWrite,
    isAuthError, setAuthExpiredLine, toast */
 
 const TestMeta = (() => {
-  // Read-only mark of the custom status (#109) — tinted by the row's STATUS, not
-  // the value, and JWT-gated like the select that writes it.
+  // Tinted by the row's status, not the value, and JWT-gated like the select that writes it.
   function renderSubstatusMark(record) {
     const el = $('test-substatus-mark');
     if (!el) return;
@@ -25,8 +17,7 @@ const TestMeta = (() => {
     if (show) Tooltip.set(el, `Custom status: ${sub}`);
   }
 
-  // JWT-only, and only once the row has a real status AND the project defines
-  // replies for it. The empty row is how a custom status comes back off.
+  // The empty row is how a custom status comes back off.
   const SUBSTATUS_NONE = '— none —';
 
   // Wired once from app init — the mount is static markup, the control is not.
@@ -57,8 +48,7 @@ const TestMeta = (() => {
       { value: group.includes(record.substatus) ? record.substatus : '' });
   }
 
-  // JWT-only, custom listbox (an OS menu draws no monogram or filter box). The v2
-  // read folds the assignee to ONE email, so single-select — more would be unpicked.
+  // A custom listbox (an OS menu draws no monogram or filter box); single, as v2 reads one email back.
   let assigneeFilter = '';
   let assigneeActiveId = null;
 
@@ -78,7 +68,7 @@ const TestMeta = (() => {
     if (!show) { closeAssigneeMenu(); applyAssigneeGate(null); return; }
     paintAssigneeTrigger(record);
     if ($('assignee-menu') && !$('assignee-menu').hidden) renderAssigneeOptions();
-    applyAssigneeGate(record); // #153 — a marked row is no longer re-assignable
+    applyAssigneeGate(record); // a marked row is no longer re-assignable
   }
 
   function paintAssigneeTrigger(record) {
@@ -105,8 +95,6 @@ const TestMeta = (() => {
     cell.append(mark, name);
     return cell;
   }
-
-  // ---- the popup (search + rows) --------------------------------------------
 
   function renderAssigneeOptions() {
     const list = $('assignee-list');
@@ -231,16 +219,13 @@ const TestMeta = (() => {
     onAssigneeChange(value);
   }
 
-  // Wired once from app init — the markup is static.
   function initAssigneeDropdown() {
     $('assignee-trigger').addEventListener('click', onAssigneeTriggerClick);
     $('assignee-trigger').addEventListener('keydown', onAssigneeTriggerKey);
     $('assignee-filter').addEventListener('input', onAssigneeFilterInput);
   }
 
-  // ---- assignee gate (#153) ----
-  // Web parity (`AssignTo @disabled={{...hasStatus}}`). The server accepts the write
-  // regardless — no check on its side — so the panel IS the gate.
+  // Web parity: the server accepts a re-assign regardless, so the panel is the gate.
   const ASSIGN_GATE_REASON = "Can't re-assign already marked test";
 
   function assigneeGateReason(record) {
@@ -261,7 +246,7 @@ const TestMeta = (() => {
     return reason;
   }
 
-  // v2 echoes the assignee as an EMAIL — map it back to the member id.
+  // v2 echoes the assignee as an email; map it back to the member id.
   function assignedUserId(record) {
     const email = record?.assigned_to;
     if (!email) return '';
@@ -278,14 +263,13 @@ const TestMeta = (() => {
     setTimeout(() => trigger.classList.remove('saved-flash'), 1000);
   }
 
-  // Optimistic, serialized like substatus. The optimistic value is the member's
-  // EMAIL — the shape the v2 read echoes — so the immediate refetch finds no diff.
+  // Optimistic with the member's email, the shape v2 echoes, so the immediate refetch finds no diff.
   let assignWriting = false;
   async function onAssigneeChange(value) {
     const record = recordFor(state.currentRecordId);
     if (!record?.id) return;
-    if (assignWriting) { paintAssigneeTrigger(record); return; } // ignore + re-sync
-    // #153: the trigger is already disabled — this only catches the status-landed race.
+    if (assignWriting) { paintAssigneeTrigger(record); return; }
+    // The trigger is already disabled; this catches only the status-landed race.
     if (assigneeGateReason(record)) { paintAssigneeTrigger(record); applyAssigneeGate(record); return; }
     const prevId = assignedUserId(record);
     if (value === prevId) return;
@@ -306,26 +290,25 @@ const TestMeta = (() => {
       else toast(`Assignee not saved: ${e.message}`, { error: true });
     } finally {
       assignWriting = false;
-      // Not a bare `disabled = false`: a status may have landed and the #153 gate must hold.
+      // Not a bare `disabled = false`: a status may have landed and the gate must hold.
       applyAssigneeGate(record);
       syncEndWrite();
     }
   }
 
-  // Optimistic + serialized. The Dropdown has ALREADY moved its closed face to the
-  // new value, so every path that refuses the change must put the face back.
+  // The Dropdown has already moved its face to the new value, so every refusal must put it back.
   let substatusWriting = false;
   async function onSubstatusChange(value) {
     const dd = Dropdown.of('substatus-select');
     const record = recordFor(state.currentRecordId);
     if (!record?.id) return;
     const resync = () => dd.setValue(record.substatus || '');
-    if (substatusWriting) { resync(); return; }                    // ignore + re-sync
-    if (RunLock.recordWriteLock(record)) { resync(); return; }     // #152/#154 — locked, re-sync
+    if (substatusWriting) { resync(); return; }
+    if (RunLock.recordWriteLock(record)) { resync(); return; }
     const prev = record.substatus || '';
     substatusWriting = true;
     syncBeginWrite();
-    record.substatus = value; // optimistic
+    record.substatus = value;
     renderSubstatusMark(record);
     try {
       if (value) await TestomatAPI.setSubstatus(record.id, value);
@@ -342,8 +325,7 @@ const TestMeta = (() => {
     }
   }
 
-  // The panel reaches the nine the ticket names; the rest are published because
-  // tests/test-meta.test.mjs drives the listbox one keystroke at a time.
+  // Several of these are published only so tests can drive the listbox key by key.
   return {
     initSubstatus: initSubstatusDropdown,
     renderSubstatus,

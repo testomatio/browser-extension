@@ -1,23 +1,17 @@
-// The test-parameters grid (IIFE global `ParamsGrid`): the model a seed is squared off into, and
-// the folded control that renders it. The read-only table under a test is view.js's.
+// The editor's parameters grid; the read-only table under a test lives in view.js.
 
 /* global EditorIcons, Tooltip, TestomatAPI */
 const ParamsGrid = (() => {
-  // The same icon names editor.js uses, resolved by shared/icons.js.
   const { icon, ICON_CLOSE, ICON_ADD, ICON_MINUS, ICON_FOLD } = EditorIcons;
 
-  // ---- test parameters (#5) ------------------------------------------------
-  // A test's parameters are COLUMN NAMES (`params` on the test) over example ROWS (one record each,
-  // `data` positional to the columns); a step names one with `${name}`, and every row runs as its
-  // own test. Both live on the JSON:API leg alone, so the whole surface is session-only.
+  // Params and example rows live on the JSON:API leg only, so the whole surface is session-only.
   const PARAM_MIN_COL = 1;
   const paramCells = (row) => (Array.isArray(row) ? row : (row && row.cells) || []);
   const paramText = (v) => String(v == null ? '' : v);
   const sameCells = (a, b) => Array.isArray(a) && Array.isArray(b)
     && a.length === b.length && a.every((v, i) => v === b[i]);
 
-  // Any seed — a server read, a restored draft, an e2e hook — squared off: one column at the
-  // minimum, and every row exactly as wide as the header list.
+  // Seeds come from a server read, a restored draft or an e2e hook, so each is squared off.
   function paramsModel(seed) {
     const headers = (seed && Array.isArray(seed.headers) ? seed.headers : []).map(paramText);
     const rows = (seed && Array.isArray(seed.rows) ? seed.rows : []).map((r) => ({
@@ -36,13 +30,11 @@ const ParamsGrid = (() => {
   });
   const paramsHaveData = (m) => m.rows.length > 0 || m.headers.some((h) => h.trim());
 
-  // The editor's grid: header inputs over value rows, folded behind a disclosure. `onEdited` is the
-  // editor's own dirty+persist tick, so every keystroke in here counts as unsaved work.
+  // `onEdited` is the editor's dirty+persist tick, so every keystroke here counts as unsaved work.
   function buildParamsControl({ seed = null, onEdited }) {
     let model = paramsModel(seed);
     const fromDraft = !!seed;
-    // What the server holds, so Save writes only what actually changed. Empty until a read lands —
-    // which is also what a create starts from.
+    // Server copy, so Save writes only what changed; empty until a read lands, as for a create.
     let baseHeaders = [];
     let baseRows = new Map();
     let ready = !!seed;   // the draft may carry the grid only once it stands for something
@@ -146,8 +138,7 @@ const ParamsGrid = (() => {
       return el;
     }
 
-    // The blank row is web parity: typing into it is what makes it a row, and the grid grows
-    // another blank one under it. The keystroke that promoted it is already in the value.
+    // Web parity: typing into the blank row makes it a row; that keystroke is already in the value.
     function promoteRow(col, value) {
       if (!value) return; // a paste of nothing is not a row
       const cells = model.headers.map(() => '');
@@ -176,7 +167,7 @@ const ParamsGrid = (() => {
       focusCell('head', model.headers.length - 1);
       onEdited();
     }
-    // The LAST column goes, values and all; one column always stays, or there is nothing to name.
+    // One column always stays, or there is nothing to name.
     function dropColumn() {
       if (model.headers.length <= PARAM_MIN_COL) return;
       model.headers.pop();
@@ -191,13 +182,11 @@ const ParamsGrid = (() => {
     // The cell under the ✕ column, so the grid's last track keeps its width on every row.
     const corner = () => Object.assign(document.createElement('span'), { className: 'tc-params-corner' });
 
-    // Rebuilt whole on every change: a grid this small has nothing to gain from a diff, and one
-    // rebuild is one place for the row order to be right.
+    // Rebuilt whole: a grid this small gains nothing from a diff, and row order has one place to be right.
     function render() {
       grid.replaceChildren();
       grid.style.gridTemplateColumns = `repeat(${model.headers.length}, minmax(88px, 1fr)) var(--tc-params-gutter)`;
-      // The names ride in a box of their own so they can stay put while the values scroll under them;
-      // the grid's own tracks reach through it (subgrid, editor.css), so the columns still line up.
+      // Names sit in their own box to stay put while values scroll; subgrid keeps the columns aligned.
       const headRow = document.createElement('div');
       headRow.className = 'tc-params-headrow';
       model.headers.forEach((value, col) => {
@@ -235,7 +224,7 @@ const ParamsGrid = (() => {
       dropColBtn.disabled = model.headers.length <= PARAM_MIN_COL;
     }
 
-    // Enter walks DOWN the column the tester is in — the blank row makes that always possible.
+    // Enter walks down the column; the blank row makes that always possible.
     function onCellKey(e, r, col) {
       if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
       e.preventDefault();
@@ -263,15 +252,13 @@ const ParamsGrid = (() => {
       const kept = headers.slice(0, width);
       const unnamed = kept.findIndex((h) => !h);
       if (unnamed !== -1) { showError('Every parameter needs a name', unnamed); return null; }
-      // `${name}` resolves to the FIRST column of that name, so a second one is values nobody can
-      // reach. Points at the second occurrence — that is the one the tester has to rename.
+      // `${name}` resolves to the first column of that name; point at the second, the one to rename.
       const twice = kept.findIndex((h, i) => kept.indexOf(h) !== i);
       if (twice !== -1) { showError('Two parameters have the same name', twice); return null; }
       const writes = [];
       for (const r of rows) {
         const w = { kind: r.id ? 'update' : 'create', id: r.id, cells: r.cells.slice(0, width) };
-        // A row the server already holds exactly travels no further; the rest is remembered by
-        // the write it produced, so what lands can be written back onto it.
+        // Unchanged rows are skipped; the rest map to their write so a landed id finds its row.
         if (w.kind === 'update' && sameCells(baseRows.get(w.id), w.cells)) continue;
         planRows.set(w, r.row);
         writes.push(w);
@@ -284,8 +271,7 @@ const ParamsGrid = (() => {
       };
     }
 
-    // A create that landed hands its row the id the server gave it, or a second Save would create
-    // a SECOND example holding the same values.
+    // A landed create hands its row the server id, or a second Save would create a duplicate example.
     function landedCreate(w, made) {
       const id = made && made.id ? String(made.id) : null;
       if (!id) return;
@@ -293,17 +279,14 @@ const ParamsGrid = (() => {
       if (row) row.id = id;
       baseRows.set(id, w.cells.slice());
     }
-    // A delete that landed leaves the model — both the row taken out and the one emptied in
-    // place — so the retry does not ask the server to delete it a second time.
+    // A landed delete leaves the model (removed or emptied row), so a retry does not delete it again.
     function landedDelete(id) {
       const i = model.removed.indexOf(id);
       if (i !== -1) model.removed.splice(i, 1);
       for (const r of model.rows) if (r.id === id) r.id = null;
     }
 
-    // Sequential and best-effort, like the screenshot uploads: the first failure is what gets
-    // reported, and the writes behind it still go out. Returns that message, or null.
-    // Every leg that lands advances the baseline, so a second plan() carries only what did not.
+    // Best-effort: returns the first failure, later writes still go, each landed leg moves the baseline.
     async function commit(uid, planned) {
       let failure = null;
       const fail = (e) => { if (!failure) failure = (e && e.message) || String(e); };
@@ -335,8 +318,7 @@ const ParamsGrid = (() => {
       section,
       plan,
       commit,
-      // What the server holds is the BASELINE even when the grid came back from a draft: the draft
-      // is what the tester typed and outranks the server copy, exactly like title and markdown.
+      // Server copy is the baseline even with a draft: what the tester typed outranks it.
       load(server) {
         baseHeaders = (server.headers || []).map(paramText);
         baseRows = new Map((server.rows || []).map((r) => [String(r.id), paramCells(r).map(paramText)]));

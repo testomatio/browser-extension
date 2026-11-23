@@ -1,38 +1,5 @@
-// A hand-written IndexedDB for node:vm tests — `indexedDB.open`, one database, one object store, a
-// transaction and a cursor. Written from the API contract, NOT from a browser run: cursor key types,
-// `onblocked` timing and quota-abort behaviour are the three places it is most likely to drift from
-// Chrome, so sanity-check those against a real browser before this fake is a module's only cover.
-//
-// Three shapes here are load-bearing, each because a module under test depends on it:
-//   - every handler fires asynchronously (queueMicrotask), never from inside `open()` — callers
-//     assign `onupgradeneeded`/`onsuccess`/`onerror`/`onblocked` AFTER `open()` has returned;
-//   - `tx.oncomplete` fires only once every request callback the transaction queued has run, so a
-//     caller that hands its answer over on COMMIT is really being held to the commit;
-//   - the cursor carries `key` next to `value` — a sweep that judges records by `cur.key` would
-//     delete the whole store against a fake that omits it, and every one of its rows would pass.
-// `calls` logs open/createObjectStore/transaction/put/get/delete/openCursor/close with arguments,
-// so a row can assert what was NEVER called.
-//
-// Deliberately NOT modelled: versions past "the first open creates the store" (no re-upgrade, no
-// `versionchange`, no `deleteDatabase`); more than one object store; indexes, key ranges, `getAll`,
-// `count`, cursor direction or `advance`; IndexedDB key ordering and key coercion (records come back
-// in insertion order and keys are compared with `===`); out-of-line keys (`put(value, key)`);
-// per-request failure (`req.onerror`) and DOMException types; DataCloneError on an uncloneable
-// value; rollback on abort (an aborted transaction here keeps the writes it made); `tx.abort()`,
-// transaction scoping and isolation; `db.onversionchange`, and a closed db refusing to serve.
-// Handlers are called with no argument — there are no Event objects.
+// Modelled on the IndexedDB spec, not on Chrome: cursor keys, onblocked and quota aborts may drift.
 
-/**
- * @param {object}  [opts]
- * @param {object[]} [opts.records]  seed rows `{key, shots, at}`; seeding means the store exists
- * @param {boolean} [opts.failOpen]     `indexedDB.open` throws — IndexedDB disabled in the browser
- * @param {boolean} [opts.openError]    the open request fires `onerror`
- * @param {boolean} [opts.openBlocked]  the open request fires `onblocked` — another connection holds it
- * @param {boolean} [opts.txThrows]     `db.transaction()` throws — the store is missing
- * @param {boolean} [opts.txAborts]     the transaction fires `onabort` instead of `oncomplete`
- * @param {string}  [opts.storeName]    the one store's name
- * @returns {{indexedDB: object, calls: object[], records: object[]}}
- */
 export function makeIdb({
   records = [], failOpen, openError, openBlocked, txThrows, txAborts, storeName = 'shots',
 } = {}) {
@@ -49,8 +16,7 @@ export function makeIdb({
   const indexOf = (key) => rows.findIndex((r) => r[keyPath] === key);
   const drop = (key) => { const at = indexOf(key); if (at >= 0) rows.splice(at, 1); };
 
-  // Requests complete one microtask apart; `done` runs only once the queue has finally emptied,
-  // so a callback that queues more work — a cursor walking on — still runs before the commit.
+  // `done` runs only once the queue empties, so a cursor walking on still runs before the commit.
   function pump(queue, done) {
     const step = () => {
       const job = queue.shift();

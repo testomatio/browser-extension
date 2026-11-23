@@ -1,8 +1,5 @@
-// Formatting and escaping for the console & network log — the row line, the snippet Attach quotes
-// into the comment, the uploaded .txt. The text is the page's, so the escaping keeps it out of markdown.
+// The log text is written by the page, so every format here escapes it out of markdown.
 
-// `envTrimUrl` (core/env-info.js) and `evWindowSeconds` (screens/evidence.js) are reached as
-// late-bound globals, the way every module here reaches a shared helper — both only at call time.
 /* global envTrimUrl, evWindowSeconds */
 
 const EvidenceFormat = {
@@ -19,22 +16,20 @@ const EvidenceFormat = {
 
   netStatus(e) { return e.errorText ? (e.status || 'ERR') : (e.status != null ? e.status : '—'); },
 
-  // `uncaught` (#163) is an exception or unhandled rejection — no console call made
-  // that row, so it must not read as one.
+  // An exception row reads `uncaught.*`: no console call made it, so it must not read as one.
   label(e) {
     if (e.kind === 'exception') return `uncaught.${e.level}`;
     return e.kind === 'log' ? `log.${e.level}` : `console.${e.level}`;
   },
 
-  // source:line:col — the col only an uncaught row carries. `trim` is the CALLER's policy
-  // (envTrimUrl where the text is uploaded, nothing on screen); the line and col never change.
+  // `trim` is the caller's policy: envTrimUrl where the text is uploaded, nothing on screen.
   loc(e, trim) {
     if (!e.url) return '';
     const url = trim ? trim(e.url) : e.url;
     return `${url}${e.line ? `:${e.line}${e.col ? `:${e.col}` : ''}` : ''}`;
   },
 
-  // Stands in for a body the recorder deliberately did not read (#95 toggle OFF).
+  // Stands in for a body the recorder did not read because body capture is off.
   BODY_DISABLED: '(body capture disabled)',
 
   // The fence is longer than any backtick run inside, so the body cannot break out.
@@ -44,8 +39,7 @@ const EvidenceFormat = {
     return `${fence}\n${body}\n${fence}`;
   },
 
-  // #175: message/url/errorText are written by the PAGE — a backtick would close the
-  // inline span and hand the rest to the markdown renderer; a newline ends the quote.
+  // Page-written text: a backtick would close the span and a newline would end the quote.
   inlineCode(text) {
     const s = String(text).replace(/\s+/g, ' ');
     const runs = s.match(/`+/g) || [];
@@ -59,8 +53,7 @@ const EvidenceFormat = {
     return String(s == null ? '' : s).replace(/\bhttps?:\/\/[^\s"'<>`()[\]{}]+/g, (u) => envTrimUrl(u));
   },
 
-  // Goes into the tester's comment, which is UPLOADED with the result — so the address is
-  // trimmed here, exactly as the .txt trims its own (PRIVACY.md); the on-screen row keeps it whole.
+  // Uploaded with the comment, so the address is trimmed here (PRIVACY.md); the row keeps it whole.
   entrySnippet(e) {
     const t = EvidenceFormat.time(e.ts);
     if (e.kind === 'network') {
@@ -85,15 +78,13 @@ const EvidenceFormat = {
     return `${EvidenceFormat.label(e)} · ${EvidenceFormat.oneLine(e.text, 120)} · ${t}`;
   },
 
-  // Stable across re-renders (#150): `ts` is stamped once and never rewritten, the
-  // requestId separates redirect hops, and page-hook rows carry no requestId.
+  // Stable across re-renders: `ts` never changes and requestId separates redirect hops.
   key(e) {
     if (e.kind === 'network') return `network:${e.ts}:${e.requestId || `${e.method} ${e.url}`}`;
     return `${e.kind}:${e.ts}:${e.text || ''}`;
   },
 
-  // Returns the icon AND the severity that colours it — an icon carries no colour
-  // of its own, and the two must never disagree.
+  // Icon and severity come together: an icon has no colour of its own, so the two must agree.
   icon(e) {
     if (e.kind === 'network') {
       return e.errorText ? { name: 'block', kind: 'error' } : { name: 'language', kind: 'net' };
@@ -101,17 +92,13 @@ const EvidenceFormat = {
     return e.level === 'warning' ? { name: 'warning', kind: 'warning' } : { name: 'error', kind: 'error' };
   },
 
-  // Readable .txt artifact (header + Console + Network sections) for auto-attach. UPLOADED onto the
-  // result, so every address in it goes through envTrimUrl — a query string carries tokens (PRIVACY.md).
-  // Unconditional, unlike the env meta's one line: this file is every request of a whole minute, and
-  // it stays on the result for the team to read, so the full-URL setting deliberately does not reach it.
+  // Uploaded onto the result: every address is trimmed, whatever the full-URL setting (PRIVACY.md).
   buildTxt(runTitle, testTitle, entries, status) {
     const lines = [];
     lines.push(`Console & network log — ${runTitle || 'Run'} / ${testTitle || 'Test'}`);
     lines.push(`Recorded tab: ${status.tabTitle || '—'}`);
     if (status.tabUrl) lines.push(`URL: ${envTrimUrl(status.tabUrl)}`);
-    // A status with no window would write "last undefineds" into a file that is uploaded onto
-    // the result: the panel's own kept window stands in, the way every other field here falls back.
+    // A status with no window falls back to the panel's own, or the file would say "last undefineds".
     const win = Number.isFinite(status.windowSec) ? status.windowSec : evWindowSeconds();
     lines.push(`Window: last ${win}s · ${entries.length} entries · ${new Date().toISOString()}`);
     lines.push('');
@@ -131,7 +118,6 @@ const EvidenceFormat = {
       const rt = e.resourceType ? ` [${e.resourceType}]` : '';
       const err = e.errorText ? ` — ${e.errorText}` : '';
       lines.push(`[${EvidenceFormat.time(e.ts)}] ${EvidenceFormat.netStatus(e)} ${e.method} ${envTrimUrl(e.url)}${rt}${err}`);
-      // The captured response body, indented under its request.
       if (e.bodySnippet) {
         for (const bl of e.bodySnippet.split('\n')) lines.push(`    ${bl}`);
         if (e.bodyTruncated) lines.push('    … (truncated)');

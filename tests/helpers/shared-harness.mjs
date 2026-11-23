@@ -1,22 +1,4 @@
-// The shared load() for extension/shared/*.js — the way tests/helpers/api-harness.mjs is api.js's.
-
-// LOADING. Every file here is one IIFE assigned to a top-level `const`, so the module object is the
-// script's completion value: `${source}\nHandoff;`. A `const` is lexical, never a sandbox property,
-// which is also why a file can be evaluated only ONCE per context (html-sanitize.js and markdown.js
-// both declare one at top level) — load() builds a fresh context every call.
-
-// THE FALSIFICATION SEAM. SHARED_SRC names a directory of replacement copies of
-// extension/shared/*.js: any basename present there wins over the shipped file, so a mutation run
-// never has to edit the repo and risk leaving it edited. SHARED_MODULES=name.js=/abs/path swaps one
-// file without a directory. Both mirror API_SRC / API_MODULES in api-harness.mjs.
-
-// STUBS. chromeFake() is a promise-based (MV3) chrome.storage over a plain object plus tabs/windows
-// — the same fake serves site-tab.js and handoff.js. It records every set/remove so a row can assert
-// that NOTHING was written, next to a row where something was.
-
-// TRAPS. Values built inside the vm realm carry that realm's prototypes: compare them with plain().
-// A module's own state (handoff's `offered`, storage contents) is a singleton per load — one load
-// per test.
+// A module's own state (handoff's `offered`, storage) is per load: one load per test.
 import { readFileSync } from 'node:fs';
 import { dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,10 +40,7 @@ export const settle = async (turns = 2) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-/**
- * Evaluate files into ONE context, in order, and hand back each one's completion value.
- * `files` are `['shared/html-sanitize.js', ...]` (repo-relative) or `[path, expression]` pairs.
- */
+// Evaluates files into one context, in order; a spec is a repo path or a [path, expression] pair.
 export function loadInto(sandbox, specs) {
   const context = createContext(sandbox);
   const out = [];
@@ -74,10 +53,7 @@ export function loadInto(sandbox, specs) {
   return { context, sandbox, values: out, value: out[out.length - 1] };
 }
 
-// ---- the chrome fake -------------------------------------------------------
-
-// A promise-based storage area over a plain object; `fail` makes one method reject, which is how a
-// row asks "does a broken store swallow the offer?".
+// `fail` makes one method reject, so a row can ask if a broken store swallows the offer.
 function storageArea(seed = {}, fail = {}) {
   const data = { ...seed };
   const sets = [];   // every object handed to set(), in order
@@ -109,11 +85,7 @@ function storageArea(seed = {}, fail = {}) {
   };
 }
 
-/**
- * chrome.storage.local/session over plain objects, plus tabs and windows.
- * `tabs` is an array of tab records; `queryFail` makes the windowId query throw so a row can watch
- * the lastFocusedWindow fallback answer instead.
- */
+// `queryFail` makes the windowId query throw, so a row can watch the lastFocusedWindow fallback.
 export function chromeFake(opts = {}) {
   const {
     local = {}, session = {}, localFail = {}, sessionFail = {},
@@ -166,16 +138,11 @@ export function chromeFake(opts = {}) {
   return { chrome, local: localArea, session: sessionArea, tabs: byId, queries, updates };
 }
 
-// ---- the page a sanitiser sees ---------------------------------------------
-
 /** `document.baseURI` + the matching `location.origin` — what resAllowed() reads at call time. */
 export const EXT_BASE = 'chrome-extension://abcdef/sidepanel/index.html';
 export const EXT_ORIGIN = 'chrome-extension://abcdef';
 
-// Chrome gives a chrome-extension:// URL a real origin; Node reports "null" for every scheme it
-// does not treat as special, which would make `/rails/x.png` and `javascript:x` look alike to
-// resAllowed(). This is the browser's answer, not a loosening: a different extension id still
-// compares unequal, and `javascript:` / `data:` stay origin-less.
+// Chrome gives chrome-extension:// URLs a real origin; Node reports "null" for them.
 export class ExtURL extends URL {
   get origin() {
     const own = super.origin;

@@ -1,7 +1,4 @@
-// The tab's picture is consumed HERE: an MV3 worker has no DOM, and MediaRecorder needs one.
-// Two sources, one pipeline: a tabCapture stream when Chrome granted one, or CDP screencast
-// frames drawn onto a canvas when it did not. The file leaves as a blob: URL, same extension
-// origin, so the panel fetches it to upload.
+// The tab's picture is consumed here: an MV3 worker has no DOM, and MediaRecorder needs one.
 
 'use strict';
 
@@ -12,11 +9,11 @@ const REC_SIZE_CAP = 50 * 1024 * 1024;
 const REC_CHUNK_MS = 1000;
 
 let rec = null;
-let mode = null;     // 'tab' | 'cast' while a recording is armed; state reports on IT, not on rec
+let mode = null;     // 'tab' | 'cast' while a recording is armed; state reports on it, not on rec
 let stream = null;
 let chunks = [];
 let bytes = 0;
-let castCanvas = null;   // cast mode: frames land here, the canvas IS the camera
+let castCanvas = null;   // cast mode: frames land here, the canvas is the camera
 let castTrack = null;
 let castFrames = 0;      // received, decoded frames; the state answer carries it
 let castErr = '';        // the last frame failure, surfaced instead of swallowed
@@ -58,8 +55,7 @@ function armRecorder(mediaStream) {
     if (!e.data || !e.data.size) return;
     chunks.push(e.data);
     bytes += e.data.size;
-    // The chunk stop() flushes still belongs to the take — only the cap stands down, or the
-    // memoised finish hands the same file over a second time and the parked take is revoked.
+    // Only the cap stands down on stop()'s last chunk, or the memoised finish hands the file twice.
     if (!finishing && bytes >= REC_SIZE_CAP) finish('size').then(pushFile);
   };
   rec.start(REC_CHUNK_MS);
@@ -67,15 +63,11 @@ function armRecorder(mediaStream) {
   // An earlier interval would still be ticking on a recorder this one just replaced.
   if (capTimer) { clearInterval(capTimer); capTimer = null; }
   // Ticked rather than timed out: a pause must not spend the tester's five minutes.
-  // It outlives a finish too: reset() clears it deep inside the async settle, a tick or two later.
   capTimer = setInterval(() => { if (!finishing && elapsedMs() >= REC_TIME_CAP_MS) finish('time').then(pushFile); }, 1000);
   return rec.mimeType || mimeType;
 }
 
-// ---- cast mode: CDP screencast frames ---------------------------------------
-
-// Frames come down a pipe of ours, not the broadcast every extension page also hears; the
-// worker still falls back to that one for a frame that beats the connect.
+// Frames come down our own pipe, not the broadcast every extension page also hears.
 function castConnect() {
   if (framePort) return;
   framePort = chrome.runtime.connect({ name: 'screenrec-frames' });
@@ -83,15 +75,13 @@ function castConnect() {
   framePort.onDisconnect.addListener(() => { void chrome.runtime.lastError; framePort = null; });
 }
 
-// Frames arrive faster than they decode, and two in flight each find no canvas and arm a
-// recorder of their own — one at a time, so the pipeline is built once and drawn in order.
+// One frame at a time: two decoding at once would each find no canvas and arm a recorder.
 let castChain = Promise.resolve();
 function castFrame(b64) {
   castChain = castChain.then(() => castFrameNow(b64)).catch((e) => { castErr = String((e && e.message) || e); });
 }
 
-// The pipeline is built on the FIRST frame, its size fixes the canvas, so the
-// clock and the caps start when there is a picture, not when the worker asked.
+// Built on the first frame, so the clock and caps start when there is a picture.
 async function castFrameNow(b64) {
   if (pausedAt) return; // paused: the screencast is stopped too, but never race it
   // createImageBitmap, not <img>.decode(): a hidden document decodes bitmaps reliably.
@@ -100,7 +90,7 @@ async function castFrameNow(b64) {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     img = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
   } catch (e) { castErr = `decode: ${e && e.message}`; return; }
-  // After the decode, not before: the recording can end mid-flight and arm a recorder no session is behind.
+  // After the decode: the recording can end mid-flight, leaving a recorder no session is behind.
   if (mode == null) return;
   castFrames += 1;
   if (!castCanvas) {
@@ -110,8 +100,7 @@ async function castFrameNow(b64) {
     armRecorder(castCanvas.captureStream(0));
     castTrack = stream.getVideoTracks()[0];
   }
-  // A later frame of another size (device toolbar, a rotated window) is FITTED, not
-  // restretched: mid-stream resolution changes break enough players to avoid.
+  // A frame of another size is fitted, not restretched: mid-stream resolution changes break players.
   const ctx = castCanvas.getContext('2d');
   const cw = castCanvas.width;
   const ch = castCanvas.height;
@@ -124,7 +113,7 @@ async function castFrameNow(b64) {
   img.close();
 }
 
-// ONE promise per recording: the caps, a closed tab and the tester's Stop all end here.
+// One promise per recording: the caps, a closed tab and the tester's Stop all end here.
 function finish(reason) {
   if (finishing) return finishing;
   // A cast stopped before its first frame has nothing to hand over, only state to drop.
@@ -133,8 +122,7 @@ function finish(reason) {
   finishing = new Promise((resolve) => {
     const settle = async () => {
       const raw = new Blob(chunks, { type: 'video/webm' });
-      // The streamed take carries no Duration header — written in here, or every player
-      // treats it as endless: the scrubber sits at the end and seeking misbehaves.
+      // The streamed take has no Duration header; without it players treat it as endless.
       let blob = raw;
       try { blob = new Blob([WebmDuration.patch(await raw.arrayBuffer(), ms)], { type: 'video/webm' }); }
       catch { /* the raw take still plays */ }
@@ -171,13 +159,10 @@ function pause(on) {
   else if (!on && pausedAt) { pausedMs += Date.now() - pausedAt; pausedAt = 0; if (rec && rec.state === 'paused') rec.resume(); }
 }
 
-// The trimmed take (#68 review), streamed here in chunks: this document is the byte holder —
-// blob: URLs die with their maker, and the review overlay is gone long before the upload.
+// This document holds the trimmed bytes: blob: URLs die with their maker, and the overlay goes first.
 let trimParts = [];
 
-// 'trim-swap' replaces the parked ORIGINAL with the trimmed take: the old URL is revoked,
-// so the untrimmed picture is unreachable from that moment on. The re-recorded take lacks a
-// Duration header the same way a live one does — patched with the kept footage's length.
+// Revokes the parked original, so the untrimmed picture is unreachable from then on.
 function trimSwap(oldUrl, ms) {
   let merged = new Uint8Array(trimParts.reduce((n, p) => n + p.length, 0));
   let at = 0;

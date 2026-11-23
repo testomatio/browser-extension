@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// extension/api.js: the pagination drain and the fan-outs — how much of a list the tester actually
-// sees. Rows 1-13 and 91-96 of #145. Run: node --test tests/api-paging.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, page, ok, fail, rejection, JWT, plain } from './helpers/api-harness.mjs';
@@ -8,8 +6,6 @@ import { load, page, ok, fail, rejection, JWT, plain } from './helpers/api-harne
 // n index rows; the drain only ever counts them.
 const rows = (n, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `t${from + i}` }));
 const drained = (h) => h.matching('/api/v2/');
-
-// ---- pagedData, through listTestruns (E-P0-2, fixed in #124 — regression) ----
 
 test('1: three pages drain whole, and every URL asks for page N of 100', async () => {
   const h = load().configure();
@@ -28,7 +24,7 @@ test('2: a server that caps at 50 still drains — the stop is the SERVER page s
   const h = load().configure();
   h.reply(page(rows(50), { per_page: 50 }), page(rows(50, 50), { per_page: 50 }), page(rows(12, 100), { per_page: 50 }));
   const out = await h.mod.listTestruns('r1');
-  assert.equal(out.length, 112); // pre-#124 this stopped at 50 — the ask, not the answer
+  assert.equal(out.length, 112);
   assert.equal(drained(h).length, 3);
 });
 
@@ -80,12 +76,12 @@ test('9: a list that never ends throws instead of grading a truncated pile', asy
   const e = await rejection(h.mod.listTestruns('r1'));
   assert.equal(e.kind, 'http');
   assert.equal(e.message, '/testruns is too long to drain — over 1000 pages');
-  assert.equal(drained(h).length, 1000); // pre-#124 this returned the pile
+  assert.equal(drained(h).length, 1000);
 });
 
 test('10: meta.per_page as a STRING is read as no meta at all', async () => {
   const h = load().configure();
-  // Honoured, "50" would have stopped the drain on page 1 at 30 rows; the own-length seed keeps it going.
+  // Honoured, per_page "50" would end the drain at page 1's 30 rows; the own-length seed keeps going.
   h.reply(page(rows(30), { per_page: '50' }), page(rows(30, 30)), page(rows(7, 60)));
   assert.equal((await h.mod.listTestruns('r1')).length, 67);
   assert.equal(drained(h).length, 3);
@@ -113,9 +109,7 @@ test('13: getTestsBySuite sends the bracketed key — a bare suites= 500s', asyn
   assert.ok(h.urls()[0].includes('suites%5B%5D=s1'), h.urls()[0]);
 });
 
-// ---- the fan-outs (E-P2-4 still OPEN) ----
-
-// One request per page, page 1 alone announcing how many there are; page 2 answers LAST on purpose.
+// One request per page, only page 1 says how many there are; page 2 answers last on purpose.
 const suitePage = (rec) => {
   const p = Number(new URL(rec.url).searchParams.get('page'));
   const json = { data: [{ id: `s${p}`, attributes: { position: 10 - p } }] };
@@ -149,8 +143,7 @@ test('92: listTestrunExamples fans the same way, once per open run', async () =>
   assert.deepEqual(plain(map).tr2, { values: ['v2'], params: null });
 });
 
-// A big project: 40 pages, each later page answering FASTER, so completion order is the reverse of
-// page order and an out-of-order assembly cannot hide.
+// 40 pages, each later one answering faster, so an out-of-order assembly cannot hide.
 const bigSuitePage = (rec) => {
   const p = Number(new URL(rec.url).searchParams.get('page'));
   const json = { data: [{ id: `s${p}`, attributes: { position: p } }] };
@@ -163,9 +156,9 @@ test('91a: a 40-page project sends SIX at a time, and the pages still land in pa
   h.route('/suites?page=', bigSuitePage);
   const positions = await h.inner.getSuitePositions();
   assert.equal(h.matching('/suites?page=').length, 40);
-  assert.equal(h.maxInFlight(), 6); // #106: the Tests tab no longer opens 39 requests in one frame
+  assert.equal(h.maxInFlight(), 6);
   assert.equal(positions.size, 40);
-  // Insertion order is PAGE order, not the reverse order the answers arrived in.
+  // Insertion order is page order, not the order the answers arrived in.
   assert.deepEqual([...positions.keys()].slice(0, 3), ['s1', 's2', 's3']);
   assert.equal([...positions.keys()].at(-1), 's40');
 });
@@ -206,7 +199,7 @@ test('91c: PAGE_GUARD still caps how many pages there can be at all', async () =
 test('93: fetchGroupRunsNested pages on a hardcoded 50, not on PAGE_GUARD', async () => {
   const h = load().configure({ apiToken: JWT });
   const runRows = (n, from) => rows(n, from).map((r) => ({ ...r, type: 'run', attributes: { status: 'passed' } }));
-  h.reply(ok({ data: runRows(50, 0) }), ok({ data: runRows(20, 50) })); // E-P2-4 OPEN: page <= 100
+  h.reply(ok({ data: runRows(50, 0) }), ok({ data: runRows(20, 50) }));
   const out = await h.mod.fetchGroupRunsNested('g1');
   assert.equal(out.length, 70);
   assert.equal(h.matching('nested=true').length, 2);

@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// The WRITE half of extension/sidepanel/screens/test-view.js (#164): everything that turns "the
-// tester marked this test" into a request. `writeStatus` is the panel's most-shared function — the
-// run list's inline rows and the offline queue's replay both call it — so its enqueue, its draft
-// drop and its stale-entry removal are pinned HERE rather than through the screens that borrow it.
-// Three things are easy to get quietly wrong and most of this file is about them. A landed write has
-// to spend the draft it came from AND drop the queue entry it supersedes, or the next replay writes
-// an older status back over it. A queued write has two sentences, not one: a rejected token is not
-// "offline", and telling the tester to wait for a connection that is already there costs them the
-// session. And the module keeps mutable state (the draft cache, the step chain, the two write
-// flags), so every test re-evaluates the source through its own load() rather than resetting by
-// hand. What the tester may do at all — the locks, the attach gates and their copy — is
-// tests/test-gates.test.mjs's; the rows here only read the gate back after a verdict lands.
-// Rows are the ticket's 57-62, 88-95 and 104-109. A lettered suffix is the companion case that
-// drives the same path the other way, so a row asserting "nothing happened" cannot pass against a
-// fixture where nothing could have happened anyway.
-// Run: node --test tests/test-view-write.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,8 +14,7 @@ const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/cor
 const HOST = 'app.testomat.io';
 const LOCK = 'Run is finished — results are read-only';
 
-// A promise this file resolves by hand: several rows are about what a SECOND call does while the
-// first one's request is still on the wire.
+// Resolved by hand: several rows are about a second call while the first request is still on the wire.
 function deferred() {
   let resolve;
   let reject;
@@ -41,7 +24,7 @@ function deferred() {
 
 const rec = (id, over = {}) => ({ id, test_id: id * 100, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// index.html's shape (:576-744), cut to the nodes the write path touches. `true` = hidden in markup.
+// index.html's shape, cut to the nodes the write path touches; `true` = hidden in markup.
 const NODES = [
   ['p', 'test-status'], ['textarea', 'test-comment'],
   ['button', 'btn-passed'], ['button', 'btn-failed'], ['button', 'btn-skipped'],
@@ -90,8 +73,7 @@ function load(opts = {}) {
   for (let i = 0; i < o.stepButtons; i += 1) {
     node.testSteps.append(el('button', { className: 'btn icon size-xs step-state' }));
   }
-  // chrome.storage.session's writer half: the harness's fake reads only, and every draft row is
-  // asserted on what the mirror actually wrote.
+  // The harness's fake session only reads, and every draft row is asserted on what the mirror wrote.
   const store = fakeChrome();
 
   const calls = {
@@ -124,14 +106,13 @@ function load(opts = {}) {
     probes: 0,          // awaitRunState()
   };
 
-  // Reassignable after load(), so a row can answer the second call differently from the first or
-  // change the world from inside a call the screen is awaiting.
+  // Reassignable after load(), so a later call can answer differently, or mid-call.
   const on = {
     setStatus: async (payload) => ({ id: payload.testrunId, status: payload.status }),
     setStep: async () => ({}),
     setTestrunMeta: async () => ({}),
     forcedError: () => null,
-    // offline-queue.js:30's own rule, verbatim: only a network error or a rejected token queues.
+    // offline-queue.js's own rule, verbatim: only a network error or a rejected token queues.
     qualifies: (e) => !!e && (e.kind === 'network' || e.kind === 'auth'),
     enqueue: async () => {},
     remove: async () => false,
@@ -152,16 +133,14 @@ function load(opts = {}) {
     currentSteps: [],
   };
 
-  // The substatus control the screen reaches for by id — the Dropdown's public face, not its DOM.
-  // Only the lock still reaches it from here; the writes moved to tests/test-meta.test.mjs.
+  // The substatus control, reached by id: the Dropdown's public face, not its DOM.
   const control = { trigger: el('button', { id: 'substatus-select' }), disabled: false };
 
   const rowVisible = (r) => !o.hidden.includes(String(r?.id));
 
   const globals = {
     state,
-    // The real helper, not a stub: a landed write moves the screen to Status, and showTestSection
-    // wires the section bar's arrows on its way through (#109).
+    // The real helper: a landed write moves to Status, and showTestSection wires the bar's arrows.
     Roving: loadInto({ console }, [['shared/roving.js', 'Roving']]).value,
     capabilities: { jwt: o.jwt, readonly: false },
     hasChrome: o.hasChrome,
@@ -178,10 +157,9 @@ function load(opts = {}) {
     isAuthError: (e) => e?.kind === 'auth',
     setAuthExpiredLine: (id) => { calls.authLines.push(id); calls.order.push('authLine'); },
     baseUrlHost: () => HOST,
-    // core/state.js:79's own, stringified on both sides.
+    // core/state.js's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
-    // screens/run-lock.js — one reason for every row here; the rows that need the per-record
-    // scoping drive it through whether the record is in the OPEN run at all.
+    // screens/run-lock.js gives one reason for every row; per-record scoping goes through the open run.
     RunLock: { recordWriteLock: () => o.lock },
     displayStatus: (r) => (r?.status && r.status !== 'pending' ? r.status : 'untested'),
     orderedRecords: () => state.records,
@@ -206,8 +184,7 @@ function load(opts = {}) {
     // run-view.js's pair: the run's archived answer, which may still be in flight when a click lands.
     runStateProbe: o.probe,
     awaitRunState: async () => { calls.probes += 1; calls.order.push('probe'); return on.awaitRunState(); },
-    // The real one writes data-tip on the node it is given (shared/tooltip.js:257,267); a recorder
-    // alone could not tell a tip that landed on the right element from one that went nowhere.
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -226,18 +203,15 @@ function load(opts = {}) {
       setStep: async (id, body) => { calls.setStep.push({ id, body: plain(body) }); calls.order.push('setStep'); return on.setStep(id, body); },
       setTestrunMeta: async (id, entries) => { calls.meta.push({ id, entries: plain(entries) }); return on.setTestrunMeta(id, entries); },
     },
-    // The draft store moved to screens/test-drafts.js, which has its own suite; here the write
-    // only owes it a call, so the stub records that and nothing else.
+    // The write only owes the draft store a call, so the stub records that and nothing else.
     CommentDrafts: { drop: (id) => { calls.dropped.push(id); calls.order.push('dropDraft'); } },
-    // Same for the result summary card (screens/test-summary.js, tests/test-summary.test.mjs): the
-    // write path only asks it to repaint, so row 90c reads the ask back off this list.
+    // The write path only asks the summary card to repaint, so the stub records the ask.
     TestSummary: {
       render: () => { calls.summary.push('render'); },
       hide: () => { calls.summary.push('hide'); },
       refresh: () => { calls.summary.push('refresh'); calls.order.push('refreshSummary'); },
     },
-    // And for the custom status and the assignee (screens/test-meta.js, tests/test-meta.test.mjs):
-    // a landed verdict only asks them to repaint and to re-gate, so the stub records the ask.
+    // A landed verdict only asks the meta pair to repaint and re-gate, so the stub records the ask.
     TestMeta: {
       renderSubstatus: () => { calls.metaPaints.push('substatus'); },
       renderSubstatusMark: () => { calls.metaPaints.push('mark'); },
@@ -254,16 +228,13 @@ function load(opts = {}) {
     },
   };
 
-  // The REAL core/write-status.js, evaluated over these same stub objects. clickStatus's rows are
-  // about what the tester sees for a given SERVER answer, and a fake core between them would let a
-  // queued row pass against something that never queued. tests/write-status.test.mjs owns the core.
+  // The real write core: a fake one would let a queued row pass against something that never queued.
   globals.WriteCore = runInContext(
     `${readFileSync(join(CORE_SRC, 'write-status.js'), 'utf8')}\nWriteCore;`,
     createContext({ ...globals, console, URL, Date, TestomatAPI: { ...globals.TestomatAPI, ApiError } }),
     { filename: join(CORE_SRC, 'write-status.js') },
   );
-  // Same for the REAL screens/test-gates.js (tests/test-gates.test.mjs owns it): a landed verdict
-  // repaints the gates and a FAILED one reopens the fold, and both are asserted on the DOM below.
+  // The real test-gates.js: a landed verdict repaints the gates and a failed one reopens the fold.
   const gates = loadScreen('test-gates', { globals, document: doc, store, exported: 'TestGates' }).screen;
   globals.TestGates = gates;
 
@@ -274,13 +245,11 @@ function load(opts = {}) {
     store,
     clock,
     now: o.now,
-    // Every name below is a lexical `const`/`let` — invisible as a sandbox property, reachable only
-    // off the completion value. The mutable ones are getters or a test snapshots the load-time value.
+    // Lexical names are reachable only off the completion value; mutable ones need a getter.
     exported: '({ stepWriteChain: () => stepWriteChain })',
   });
 
-  // nextTest calls openTestView, a declaration in this same file — so the seam is the sandbox
-  // property the declaration created, not a global the harness could have passed in.
+  // openTestView is a declaration in this file, so the seam is the sandbox property it created.
   h.fn.openTestView = (id) => { calls.opened.push(id); calls.order.push('openTest'); };
 
   return {
@@ -299,8 +268,6 @@ function load(opts = {}) {
     writeState: () => node.testStatus.dataset.write,
   };
 }
-
-// ---------- step writes: the ring control (rows 57-62) ----------
 
 test('57: the first click on an unset step writes passed at its web position', async () => {
   const h = load();
@@ -390,8 +357,6 @@ test('62b: …and a REJECTED first write still lets the second one through', asy
   assert.deepEqual(h.calls.setStep.map((c) => c.body.title), ['one', 'two']);
 });
 
-// ---------- status click and write state (rows 88-95) ----------
-
 test('88: a click while a write is already running returns before anything is painted', async () => {
   const h = load({ saving: true });
   await h.fn.clickStatus('passed');
@@ -473,11 +438,9 @@ test('91: a landed click says NOTHING on the line and moves the screen to Status
   assert.equal(h.calls.setStatus[0].message, 'note'); // the box is trimmed on the way out
   assert.equal(h.calls.hideToasts, 0);
   assert.equal(h.calls.markers, 1);
-  // The card belongs to screens/test-summary.js now, so the landed verdict owes it a repaint —
-  // without this row, 90c's "queued does NOT refresh" would pass against a screen refreshing never.
+  // Without this, the queued-does-not-refresh row would pass against a screen that never refreshes.
   assert.deepEqual(h.calls.summary, ['refresh']);
-  // Same for the metadata pair (screens/test-meta.js): the status just changed, so the reply group
-  // is re-offered and the #153 assignee gate re-applied — across a file boundary now.
+  // The status changed, so the reply group is re-offered and the assignee gate re-applied.
   assert.deepEqual(h.calls.metaPaints, ['substatus', 'mark', 'gate:passed']);
 });
 
@@ -548,8 +511,6 @@ test('95: clearing the write state DELETES the attribute rather than emptying it
   assert.equal('write' in h.node.testStatus.dataset, false);
   assert.equal(h.node.testStatus.getAttribute('data-write'), null);
 });
-
-// ---------- the pager (rows 104-109) ----------
 
 test('104: the position counts within the VISIBLE set, with both arrows live in the middle', () => {
   const ids = [1, 2, 3, 4, 5, 6, 7];

@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/hotkeys.js does for the tester (#158): inside an open test, Cmd or
-// Ctrl with Enter, U or I marks it passed, failed or skipped through the SAME path the buttons use and
-// deliberately without navigating anywhere; `N` jumps to the next still-untested visible row and the
-// arrows move one row either way through the list as it is currently filtered — and none of them fires
-// while the cursor is in a field or while a popup is hanging open, because an open menu leaves focus on
-// its trigger button and the typing guard alone would let bare letters through underneath it.
-// The same file runs capture → annotate → upload: the capture gives up after 30s rather than leaving
-// the panel saying "Capturing tab…" for ever, and an upload refused because the run finished while the
-// tester was drawing KEEPS the drawing in one slot under a Save button.
-// Rows 1-40 are the ticket's; a lettered suffix is the companion case that drives the same path the
-// other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Run: node --test tests/hotkeys.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
@@ -24,8 +12,6 @@ const DRAWN = 'data:image/jpeg;base64,DRAWN';
 const RUN_FINISHED = 'This run has finished — results are read-only';
 const NO_ANSWER = 'the screenshot service did not answer — reload the extension on chrome://extensions and try again';
 
-// The panel globals hotkeys.js reads, all of them real enough to be driven. They live here and not in
-// the harness: every screen has its own set, and the screens beside this one land in parallel.
 function load(opts = {}) {
   const o = {
     mac: false,
@@ -43,15 +29,14 @@ function load(opts = {}) {
     capture: { ok: true, dataUrl: SHOT, tabId: 7 },
     send: null,           // a chrome.runtime.sendMessage of the test's own
     annotated: DRAWN,     // a value, or a function called at annotation time
-    lock: '',             // a string, or (callIndex, record) => string — the lock is asked TWICE
+    lock: '',             // a string, or (callIndex, record) => string — the lock is asked twice
     upload: { url: 'https://cdn.example/x.jpg' },
     fetchImpl: null,
     now: NOW,
     ...opts,
   };
 
-  // index.html's shape, cut to the nodes this screen touches: the three status buttons and the two
-  // step buttons the tooltips land on, the "?" legend, the Save slot and the screenshot button.
+  // index.html cut to the nodes this screen touches.
   const doc = makeDocument([]);
   const btn = {
     passed: el('button', { id: 'btn-passed' }),
@@ -66,15 +51,13 @@ function load(opts = {}) {
   const legend = el('div', { id: 'hotkey-legend', hidden: true });
   doc.body.append(...Object.values(btn), legend);
   if (o.popup) {
-    // The substatus listbox's trigger, marked the way every popup control here marks its own.
     const trigger = el('button', { className: 'substatus-trigger' });
     if (o.popup !== 'bare') trigger.setAttribute('aria-haspopup', 'listbox');
     trigger.setAttribute('aria-expanded', o.popup === 'false' ? 'false' : 'true');
     doc.body.append(trigger);
   }
 
-  // mini-dom elements carry no click(), and the anchor IS the download: without one the save path
-  // would take its catch branch and row 30 would pass for the wrong reason.
+  // mini-dom elements carry no click(); without this anchor the save path would take its catch branch.
   const anchors = [];
   const created = [];
   const makeEl = doc.createElement.bind(doc);
@@ -88,7 +71,7 @@ function load(opts = {}) {
   };
 
   const calls = {
-    order: [],          // one ordered trace: "attRemember, THEN the repaint, THEN the line" is a row
+    order: [],          // one ordered trace: "attRemember, then the repaint, then the line" is a row
     clickStatus: [],
     openTestView: [],
     nextTest: 0,
@@ -139,7 +122,7 @@ function load(opts = {}) {
 
   const globals = {
     state,
-    // The three rows IS_MAC reads, in order; each settable on its own, which is what row 25 is about.
+    // The three fields IS_MAC reads, in order, each settable on its own.
     navigator: {
       userAgentData: 'uaData' in opts ? o.uaData : { platform: o.mac ? 'macOS' : 'Windows' },
       platform: 'platform' in opts ? o.platform : (o.mac ? 'MacIntel' : 'Win32'),
@@ -168,7 +151,6 @@ function load(opts = {}) {
     toast: (msg, tOpts) => { calls.toasts.push({ msg, ...(tOpts || {}) }); calls.order.push('toast'); },
     progressToast: (msg) => { calls.progress.push(msg); calls.order.push('progress'); },
     hideToast: () => { calls.hideToast += 1; calls.order.push('hideToast'); },
-    // Both live in screens/test-gates.js now; the counter keeps the name the rows below read.
     TestGates: {
       update: () => { calls.updateTestActionsState += 1; calls.order.push('updateTestActionsState'); },
       fullPageCaptureEnabled: () => o.fullPage,
@@ -198,7 +180,7 @@ function load(opts = {}) {
 
   return {
     ...h, state, calls, btn, legend, anchors, created, urls,
-    // What the tester's fingers actually do; app.js hands onHotkey a plain event with a preventDefault.
+    // app.js hands onHotkey a plain event with a preventDefault.
     key: (props) => {
       const ev = { preventDefault: () => { ev.defaultPrevented = true; }, defaultPrevented: false, ...props };
       ev.preventDefault = () => { ev.defaultPrevented = true; };
@@ -210,8 +192,6 @@ function load(opts = {}) {
 }
 
 const rows = (n) => Array.from({ length: n }, (_, i) => ({ id: String(i + 1) }));
-
-// ---------- the two guards: a caret in a field, a popup under the hand (rows 1-7) ----------
 
 test('1: a caret in any kind of field swallows the shortcut', () => {
   const h = load();
@@ -240,7 +220,7 @@ test('4: with no target on the event the focused element is asked instead', () =
   h.doc.activeElement = { tagName: 'INPUT' };
   assert.equal(h.fn.typingInField(null), true);
   assert.equal(h.fn.typingInField(undefined), true);
-  // …and the target still wins when there is one: the fallback is a fallback, not an override.
+  // The target still wins when there is one: the fallback is not an override.
   assert.equal(h.fn.typingInField({ tagName: 'BUTTON' }), false);
 });
 
@@ -249,8 +229,7 @@ test('5: nothing focused at all is not a field', () => {
   assert.equal(h.fn.typingInField(null), false);
   h.doc.activeElement = {}; // a node without a tagName is not one either
   assert.equal(h.fn.typingInField(null), false);
-  // The same document DOES answer true once the caret lands, so the two rows above are not asserting
-  // a read that never happens.
+  // The same document answers true once the caret lands, so the rows above are not hollow.
   h.doc.activeElement = { tagName: 'TEXTAREA' };
   assert.equal(h.fn.typingInField(null), true);
 });
@@ -266,13 +245,11 @@ test('7: a closed trigger, and an expanded one that is not a popup trigger, leav
   assert.equal(load().fn.popupOpen(), false); // nothing on the page at all
 });
 
-// ---------- ±1 through the list as it is filtered (rows 20-23) ----------
-
 test('20: the last visible row is the end of the road — no wrap onto the first', () => {
   const h = load({ records: rows(3), currentRecordId: '3' });
   h.fn.navigateTest(1);
   assert.deepEqual(h.calls.openTestView, []);
-  // The same call one row up moves, so the row above is not asserting a stub that never opens a test.
+  // The same call one row up moves, so the row above is not asserting a stub.
   h.state.currentRecordId = '2';
   h.fn.navigateTest(1);
   assert.deepEqual(h.calls.openTestView, ['3']);
@@ -288,12 +265,11 @@ test('21: the first visible row is the other end — no wrap onto the last', () 
 });
 
 test('22: the open test a status change filtered out still steps to its neighbours', () => {
-  // Marked out of the filter while open: it keeps its place, so ← and → land on the rows around it.
   const h = load({ records: rows(3), visible: [{ id: '1' }, { id: '3' }], currentRecordId: '2' });
   h.fn.navigateTest(1);
   h.fn.navigateTest(-1);
   assert.deepEqual(h.calls.openTestView, ['3', '1']);
-  // A filtered-out row that is NOT open is still skipped.
+  // A filtered-out row that is not open is still skipped.
   const past = load({ records: rows(3), visible: [{ id: '1' }, { id: '3' }], currentRecordId: '1' });
   past.fn.navigateTest(1);
   assert.deepEqual(past.calls.openTestView, ['3']);
@@ -306,14 +282,12 @@ test('23: numeric record ids and a string currentRecordId are the same row', () 
   assert.deepEqual(h.calls.openTestView, ['3', '1']);
 });
 
-// ---------- the dispatch matrix (rows 8-19) ----------
-
 test('8: a bare N under an open substatus listbox marks nothing', () => {
   const h = load({ popup: 'true' });
   const ev = h.key({ key: 'n' });
   assert.equal(h.calls.nextTest, 0);
   assert.equal(ev.defaultPrevented, false); // the popup gets the key, untouched
-  // The identical keypress with the listbox closed jumps — the guard is what stopped it, not the stub.
+  // With the listbox closed the same key jumps: the guard stopped it, not the stub.
   const open = load({ popup: 'false' });
   open.key({ key: 'n' });
   assert.equal(open.calls.nextTest, 1);
@@ -342,13 +316,11 @@ test('10: a non-Latin layout still jumps — the physical key is read first', ()
 });
 
 test('11: Shift+N is not the jump', () => {
-  // The ticket's own input for this row was { key: 'N', shiftKey: true }, which the `key === 'n'`
-  // compare rejects on its own — `code` is what makes the shift guard the reason nothing fires.
+  // `key === 'n'` already rejects 'N'; `code` makes the shift guard the reason nothing fires.
   const h = load();
   const ev = h.key({ code: 'KeyN', key: 'N', shiftKey: true });
   assert.equal(h.calls.nextTest, 0);
   assert.equal(ev.defaultPrevented, false);
-  // The same physical key without the shift jumps.
   const plainN = load();
   plainN.key({ code: 'KeyN', key: 'N' });
   assert.equal(plainN.calls.nextTest, 1);
@@ -397,7 +369,7 @@ test('15: Ctrl+Enter is the same key, numpad Enter included', () => {
   const ctrl = load();
   ctrl.key({ ctrlKey: true, key: 'Enter', code: 'NumpadEnter' });
   assert.deepEqual(ctrl.calls.clickStatus, ['passed']);
-  // …and the mac build takes Ctrl too: the handler accepts both everywhere, only the LABEL differs.
+  // The mac build takes Ctrl too: the handler accepts both everywhere, only the label differs.
   const onMac = load({ mac: true });
   onMac.key({ ctrlKey: true, code: 'Enter' });
   assert.deepEqual(onMac.calls.clickStatus, ['passed']);
@@ -420,7 +392,6 @@ test('17: Cmd+Z is not ours — undo still reaches the browser', () => {
   const undo = h.key({ metaKey: true, code: 'KeyZ' });
   assert.deepEqual(h.calls.clickStatus, []);
   assert.equal(undo.defaultPrevented, false); // the whole point: the page keeps its own shortcut
-  // A key that IS ours, driven the same way, does get taken.
   const ours = h.key({ metaKey: true, code: 'KeyU' });
   assert.equal(ours.defaultPrevented, true);
   assert.deepEqual(h.calls.clickStatus, ['failed']);
@@ -449,8 +420,6 @@ test('19: Alt or Shift with an arrow is somebody elses shortcut', () => {
   assert.deepEqual(bare.calls.openTestView, ['3']);
 });
 
-// ---------- the labels and the "?" legend (rows 24-28) ----------
-
 test('24: the label is the platforms own — the screen is loaded once per platform to see it', () => {
   const mac = load({ mac: true });
   assert.equal(mac.fn.hotkeyStatusLabel('passed'), '⌘⏎');
@@ -465,7 +434,7 @@ test('24: the label is the platforms own — the screen is loaded once per platf
 
 test('25: the platform is read at load, from userAgentData first and the userAgent last', () => {
   const isMac = (h) => h.fn.hotkeyStatusLabel('passed').startsWith('⌘');
-  // The hinted platform wins over both older rows, in either direction.
+  // The UA-data hint wins over platform and user agent, in either direction.
   assert.equal(isMac(load({ uaData: { platform: 'macOS' }, platform: 'Win32', userAgent: WIN_UA })), true);
   assert.equal(isMac(load({ uaData: { platform: 'Windows' }, platform: 'MacIntel', userAgent: MAC_UA })), false);
   // No hint: navigator.platform decides.
@@ -534,14 +503,11 @@ test('28b: the "?" button is wired to that toggle, and a page without a legend d
   assert.equal(bare.btn.help.getAttribute('aria-expanded'), null);
 });
 
-// ---------- the slot a refused upload must not empty (rows 29-32) ----------
-
 test('29: the Save button belongs to the record the drawing was made on, and waits there', () => {
   const h = load({ currentRecordId: '55' });
   assert.equal(h.saveShown(), false); // nothing drawn yet
   h.fn.keepRefusedAnnotation(DRAWN, 55);
   assert.equal(h.saveShown(), true);
-  // The tester walks off to the next test: the button goes, the drawing does not.
   h.state.currentRecordId = '56';
   h.fn.renderPendingAnnotation();
   assert.equal(h.saveShown(), false);
@@ -607,7 +573,6 @@ test('31: a save that fails keeps the drawing — a failed save must not be a se
   assert.deepEqual(h.anchors, []);
   assert.equal(h.saveShown(), true);
 
-  // …and what was kept is a live shot, not an empty slot: the retry saves it.
   broken = false;
   await h.fn.savePendingAnnotation();
   assert.equal(h.anchors.length, 1);
@@ -622,7 +587,6 @@ test('32: pressing Save with nothing drawn does nothing at all', async () => {
   assert.deepEqual(h.calls.statusLines, []);
   assert.deepEqual(h.anchors, []);
   assert.deepEqual(h.clock.arms(), []);
-  // The same press once something is in the slot does all four.
   h.fn.keepRefusedAnnotation(DRAWN, 55);
   await h.fn.savePendingAnnotation();
   assert.equal(h.calls.fetches.length, 1);
@@ -630,8 +594,6 @@ test('32: pressing Save with nothing drawn does nothing at all', async () => {
   assert.equal(h.anchors.length, 1);
   assert.deepEqual(h.clock.arms(), [60000]);
 });
-
-// ---------- the capture, and the worker that may not be there (rows 33-34) ----------
 
 test('33: a worker torn down mid-job is given thirty seconds, not for ever', async () => {
   const h = load({ send: () => new Promise(() => {}) }); // the worker never answers
@@ -656,14 +618,11 @@ test('34b: a worker that answers wins the race, deadline or no deadline', async 
   assert.deepEqual(plain(await h.fn.captureTab(true)), { ok: true, dataUrl: SHOT, tabId: 7 });
 });
 
-// ---------- capture, annotate, upload: the gates in order (rows 35-40) ----------
-
 test('35: a disabled screenshot button is the end of it — nothing runs, not even the finally', async () => {
   const off = load({ disabled: true });
   await off.fn.attachScreenshotAnnotated();
   assert.deepEqual(off.calls.order, []);
   assert.deepEqual(off.calls.locks, []);
-  // The same press with the button live runs the whole flow.
   const on = load();
   await on.fn.attachScreenshotAnnotated();
   assert.deepEqual(on.calls.uploads.map((u) => u.id), ['55']);
@@ -677,7 +636,6 @@ test('36: a locked record is not captured — the run is over before the shutter
   assert.deepEqual(locked.calls.resolveSiteTab, []);
   assert.equal(locked.calls.updateTestActionsState, 0); // it returned ahead of the try
   assert.equal(locked.btn.shot.disabled, false);
-  // The identical press on an open record captures and uploads.
   const open = load();
   await open.fn.attachScreenshotAnnotated();
   assert.deepEqual(open.calls.sends, [{ type: 'captureTab', fullPage: false }]);
@@ -756,7 +714,6 @@ test('37: Discard throws the shot away and changes nothing behind it', async () 
   assert.equal(discarded.calls.renderAttachmentList, 0);
   assert.equal(discarded.saveShown(), false); // discarded means discarded — nothing kept either
   assert.equal(discarded.calls.updateTestActionsState, 1);
-  // Apply, driven identically, uploads.
   const applied = load();
   await applied.fn.attachScreenshotAnnotated();
   assert.equal(applied.calls.hideToast, 0);
@@ -774,7 +731,6 @@ test('38: the run finishing while the tester draws refuses the upload and keeps 
   assert.deepEqual(h.calls.statusLines, [{ id: 'test-status', text: RUN_FINISHED, cls: 'error' }]);
   assert.equal(h.saveShown(), true);
 
-  // What it kept is the ANNOTATED image, and the Save button really takes it off the panel.
   await h.fn.savePendingAnnotation();
   assert.deepEqual(h.calls.fetches, [DRAWN]);
   assert.deepEqual(h.anchors, [{ href: 'blob:panel/1', download: `panel-annotated-55-${NOW}.jpg` }]);
@@ -793,13 +749,11 @@ test('39: a full-page request the page refused says so instead of the "Annotatin
   assert.deepEqual(clipped.calls.toasts, [{ msg: 'This page is taller than a screenshot can be — the shot stops at the full-page limit.', ms: 8000 }]);
   assert.ok(!clipped.calls.progress.includes('Annotating…'));
 
-  // A full page that came back whole says "Annotating…" and nothing else.
   const whole = load({ fullPage: true });
   await whole.fn.attachScreenshotAnnotated();
   assert.deepEqual(whole.calls.toasts, []);
   assert.deepEqual(whole.calls.progress, ['Capturing tab…', 'Annotating…', 'Uploading screenshot…']);
 
-  // …and a viewport shot nobody asked to be full-page is not a disappointment worth a toast.
   const asked = load({ fullPage: false, capture: { ok: true, dataUrl: SHOT, tabId: 7, viewportOnly: true } });
   await asked.fn.attachScreenshotAnnotated();
   assert.deepEqual(asked.calls.toasts, []);
@@ -817,8 +771,7 @@ test('40: a shot that lands is remembered, repainted and confirmed, in that orde
   assert.deepEqual(h.calls.attRemember, [{ id: '55', name, url: 'https://cdn.example/x.jpg' }]);
   assert.equal(h.calls.renderAttachmentList, 1);
   assert.deepEqual(h.calls.statusLines, [{ id: 'test-status', text: 'Screenshot attached ✓', cls: 'ok' }]);
-  // The whole gate order, once: the server list is only re-read on reopen, so the remember has to
-  // come before the repaint or the tester looks at a screen the shot is missing from.
+  // The server list is only re-read on reopen, so the remember must come before the repaint.
   assert.deepEqual(h.calls.order, [
     'resolveSiteTab', 'perm', 'progress', 'sendMessage', 'progress', 'annotate',
     'fetch', 'progress', 'upload', 'attRemember', 'renderAttachmentList', 'status',
@@ -833,12 +786,11 @@ test('40b: an upload that fails keeps the drawing, names the failure, and restor
   assert.deepEqual(h.calls.attRemember, []);
   assert.equal(h.calls.renderAttachmentList, 0);
   assert.equal(h.calls.updateTestActionsState, 1); // the finally runs whatever happened above it
-  // The drawing survives the blip that lost the upload — same slot, same Save button as a refusal.
   assert.equal(h.saveShown(), true);
   await h.fn.savePendingAnnotation();
   assert.deepEqual(h.anchors, [{ href: 'blob:panel/1', download: `panel-annotated-55-${NOW}.jpg` }]);
 
-  // A failure BEFORE the annotator ran has no drawing to keep, so no Save is offered.
+  // A failure before the annotator ran has no drawing to keep, so no Save is offered.
   const early = load({ capture: { ok: true, dataUrl: SHOT, tabId: 7 }, annotated: () => { throw new Error('annotator died'); } });
   await early.fn.attachScreenshotAnnotated();
   assert.deepEqual(early.calls.toasts, [{ msg: 'Upload failed: annotator died', error: true }]);

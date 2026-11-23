@@ -5,8 +5,7 @@ async function loadStored() {
   return chrome.storage.local.get(['settings', 'session', 'hostSettings', 'hostHistory']);
 }
 
-// One-time migration: the pre-rework single `settings` becomes the per-host map's
-// entry for its own host. No-op once `hostSettings` exists; seeds empty maps otherwise.
+// One-time migration: the single `settings` becomes the per-host map's entry for its host.
 async function migrateHostSettings(stored) {
   let hostSettings = stored.hostSettings && typeof stored.hostSettings === 'object' ? stored.hostSettings : null;
   let hostHistory = Array.isArray(stored.hostHistory) ? stored.hostHistory : null;
@@ -22,8 +21,7 @@ async function migrateHostSettings(stored) {
   state.hostHistory = hostHistory || [];
 }
 
-// #105: the AI feature is gone, so its stored API key must not be left lying in
-// chrome.storage.local — a live secret with nothing left to read it. Every boot.
+// The AI feature's stored API key is a live secret with no reader left, so every boot drops it.
 async function dropAiApiKey() {
   if (!hasChrome) return;
   try { await chrome.storage.local.remove('aiApiKey'); } catch { /* best effort */ }
@@ -31,8 +29,7 @@ async function dropAiApiKey() {
 
 function persistSession() {
   if (!hasChrome) return;
-  // Never during boot or before settings exist: a fire-and-forget write from a transient
-  // first load can race a reopen's storage reset and resurrect a phantom session.
+  // Never during boot or unsettled: a transient first load's write can resurrect a phantom session.
   if (state.booting || !state.settings) return;
   chrome.storage.local.set({
     session: {
@@ -45,8 +42,8 @@ function persistSession() {
       stepTicks: state.stepTicks,
       expandedGroups: state.expandedGroups,
       runsFilter: state.runsFilter,
-      // The KEY stays `runInfoOpen`: a rename would silently lose every existing profile's choice.
-      runInfoOpen: RunInfo.open, // the Run info disclosure (#112), open unless the user shut it
+      // The key stays `runInfoOpen`: a rename would silently lose every existing profile's choice.
+      runInfoOpen: RunInfo.open, // the Run info disclosure, open unless the user shut it
     },
   });
 }

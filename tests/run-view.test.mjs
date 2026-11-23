@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/run-view.js is for the tester (#161): an open run — the list of
-// its tests with progress, the status filter, the search, the suite sections, and Finish run. And
-// the lock: a run that has finished, been archived or turned out to be automated cannot be written
-// to, and the panel has to SAY so rather than let a button be pressed into an error.
-// Three things here are easy to get quietly wrong, so most of this file is about them. The lock has
-// three reasons and they are ranked — the tester must be told the ACTUAL one, and the paint is
-// memoised on a signature that includes the automated ROWS, so a reporter result landing mid-poll
-// still repaints. The counters split two ways: `done` is passed+failed+skipped while the chips also
-// count `all`, and a running row belongs to neither. And every write is gated twice — once when the
-// row is drawn, once after the archived answer lands — because the flag arrives a round-trip late.
-// Rows 1-65 are the ticket's; 66-131 are this file's own, where the ticket was silent about live
-// code — the lock painting, the run-state pill, the substatus counters, the three best-effort
-// re-reads, the probe and the chip bar. A lettered suffix is the companion case that drives the same
-// path the other way, so a row asserting "nothing happened" cannot pass against a broken fixture.
-// Rows 1, 46, 85, 86, 87 and 88 left with the icon vocabulary (#194) — they are
-// tests/status-icons.test.mjs now, and the real module is loaded here beside the screen. Rows 81
-// and 81a left the same way with the confirm dialog, to tests/dialog.test.mjs. Rows 7-13, 49-50,
-// 52, 66-71, 78-80a, 118 and 131 left with the write gate, to tests/run-lock.test.mjs; what stays
-// here is what that gate PAINTS over real checklist rows, and it drives the real module to do it.
-// Rows 14-28b and 89-96a left last, with the Run info card, to tests/run-info.test.mjs — the real
-// module is loaded here too, because opening a run renders that card (row 57).
-// Run: node --test tests/run-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,27 +9,21 @@ import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './
 import { loadState } from './helpers/core-harness.mjs';
 import { loadInto } from './helpers/shared-harness.mjs';
 
-// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
-// keyboard rows below are worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+// The real shared/roving.js, one per load(): its map of wired containers is a singleton.
 const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
-// A keypress from whatever has focus, which bubbles to the <ul> both handlers are delegated on —
-// the same trip a real one makes. `key` is taken here by the id-to-camelCase helper below.
+// A keypress from the focused node bubbles to the <ul> both handlers are delegated on.
 const press = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
-// The REAL formatter, not a stub: the Run info rows assert the duration a tester reads, and a
-// fake would let them pass against a wording the panel never prints (tests/format.test.mjs).
+// The real formatter: a fake would let the Run info rows pass on a wording the panel never prints.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 
-// The REAL comparator, for the same reason: #258 was one sort rule written out three times, and a
-// stub here would be a fourth free to drift. Its own rows live in tests/state.test.mjs.
+// The real comparator: a stub would be one more copy of the sort rule, free to drift.
 const { byRecordId } = loadState();
 
-// formatTimeIn falls back to the MACHINE zone when the profile zone is junk (row 18). Pinned to a
-// zone that is neither UTC nor the repo's own, so the fallback is distinguishable from a honoured
-// timeZone argument rather than accidentally equal to it.
+// Neither UTC nor the repo's zone, so the junk-zone fallback is visible.
 process.env.TZ = 'Asia/Tokyo';
 
 const BASE = 'https://app.testomat.io';
@@ -59,8 +31,7 @@ const ARCHIVED = 'Run is archived — results are read-only';
 const FINISHED = 'Run is finished — results are read-only';
 const AUTOMATED = 'Automated result — read-only in the panel';
 
-// A promise this file resolves by hand: the probe races a sleep, and which of the two lands first
-// is the whole subject of several rows.
+// Resolved by hand: whether the probe or its sleep lands first is what several rows are about.
 function deferred() {
   let resolve;
   let reject;
@@ -70,7 +41,7 @@ function deferred() {
 
 const rec = (id, over = {}) => ({ id, test_id: id, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// index.html's shape (:521-557 and the confirm dialog at :806), cut to the nodes this screen touches.
+// index.html's shape, cut to the nodes this screen touches.
 const NODES = [
   ['p', 'run-meta-note', true], ['span', 'run-kind', true], ['span', 'run-state', true],
   ['button', 'btn-finish-run', true], ['div', 'run-progress', false], ['p', 'run-lock-note', true],
@@ -82,8 +53,7 @@ const NODES = [
 ];
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// The panel globals run-view.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the screens beside this one land in parallel.
+// The panel globals run-view.js reads; each screen has its own set, so they live here.
 function load(opts = {}) {
   const o = {
     runId: 'r1',
@@ -124,9 +94,7 @@ function load(opts = {}) {
     node[key(id)] = n;
     doc.body.append(n);
   }
-  // The three members mini-dom does not have and this screen reaches for. Layout is STATED here
-  // (a browser measures it): zero-by-zero means the description fits, which is the branch that
-  // leaves the "Show more" button off — case 96 states an overflow and gets the button instead.
+  // Layout is stated, not measured: zero-by-zero means the description fits and gets no "Show more".
   const create = doc.createElement.bind(doc);
   doc.createElement = (tag) => {
     const made = create(tag);
@@ -173,8 +141,7 @@ function load(opts = {}) {
     progressToasts: [],
   };
 
-  // <dialog>'s own three members; mini-dom has no dialog element, and ConfirmDialog.ask drives all
-  // of them — showModal to open it, `open` to decide whether close() is still needed.
+  // <dialog>'s own members, which mini-dom lacks: showModal opens it, `open` decides on close().
   if (node.confirmDialog) {
     node.confirmDialog.open = false;
     node.confirmDialog.showModal = () => { node.confirmDialog.open = true; calls.order.push('showModal'); };
@@ -191,8 +158,7 @@ function load(opts = {}) {
     return d.promise;
   };
 
-  // Reassignable after load(), so a test can answer the second read differently from the first, or
-  // change the world from inside a call the screen is awaiting.
+  // Reassignable after load(): a test can answer the second read differently, or act mid-await.
   const on = {
     getRun: async () => o.detail ?? { id: o.runId, title: 'Checkout run', status: 'running' },
     listTestruns: async () => o.serverRecords ?? [],
@@ -228,8 +194,7 @@ function load(opts = {}) {
     view: o.view,
   };
 
-  // shared/user-cell.js's own normalize, verbatim in behaviour: a string with an @ is an address, a
-  // record is name+email+avatar, anything naming nobody is null. Rows 14, 16 and 28 are ABOUT it.
+  // user-cell.js's normalize: an @ string is an address, a record a person, anything else null.
   const normalize = (user) => {
     if (!user) return null;
     if (typeof user === 'string') {
@@ -244,8 +209,7 @@ function load(opts = {}) {
     return { name, email, avatar: String(user.avatar || user['avatar-url'] || user.avatarUrl || '').trim() };
   };
 
-  // shared/icons.js's own rule: an empty value or an unresolved `:shortcode:` draws nothing, so the
-  // caller falls back to the glyph.
+  // icons.js's rule: an empty value or unresolved `:shortcode:` draws nothing, so the glyph is used.
   const emojiSpan = (value, cls = '') => {
     const s = String(value || '').trim();
     if (!s || /^:[a-z0-9_+-]+:$/i.test(s)) return null;
@@ -255,8 +219,7 @@ function load(opts = {}) {
     return span;
   };
 
-  // shared/empty-state.js's shape, cut to what this screen asks of it: `live` is the role=status a
-  // filtered-empty list needs, and the actions are appended in the order the caller listed them.
+  // empty-state.js cut down: `live` is the role=status a filtered-empty list needs.
   const buildEmpty = ({ icon, title, text, actions, tag = 'div', live = false } = {}) => {
     const box = doc.createElement(tag);
     box.className = 'empty';
@@ -313,7 +276,7 @@ function load(opts = {}) {
     baseUrlHost: () => 'app.testomat.io',
     readonlyGate: async () => { calls.order.push('gate'); return o.gate; },
     byRecordId,
-    // core/state.js:79's own, stringified on both sides; every lock read goes through it.
+    // core/state.js's own, stringified on both sides; every lock read goes through it.
     recordFor: (recordId) => {
       calls.order.push('lock-read');
       return state.records.find((r) => String(r.id) === String(recordId));
@@ -326,11 +289,9 @@ function load(opts = {}) {
       const at = String(email).indexOf('@');
       return at > 0 ? String(email).slice(0, at) : String(email);
     },
-    // The real core/format.js, recorded on the way through. The ARGUMENT is the point of these
-    // rows: run-view holds SECONDS and has to multiply, so an unconverted 90 prints '0.09s'.
+    // run-view holds seconds and must multiply, so an unconverted 90 prints '0.09s'.
     Fmt: { humanDuration: (ms) => { calls.durations.push(ms); return Fmt.humanDuration(ms); } },
-    // core/write-status.js's own optimistic assign — without it a rollback row would pass
-    // against a stub that never changed the record in the first place.
+    // write-status.js's optimistic assign, or a rollback row would pass against a record never changed.
     WriteCore: {
       writeStatus: async (record, status, comment) => {
         calls.writes.push({ id: record?.id, status, comment });
@@ -351,8 +312,7 @@ function load(opts = {}) {
       decorateRow: (li, id) => { calls.decorated.push(String(id)); },
     },
     Icons: {
-      // The real one hands `cls` to classList.add, which throws on a token with a space — the arity
-      // is part of the contract, so the stub keeps it rather than joining the arguments.
+      // The real el throws on a class token with a space, so the stub keeps one token per argument.
       el: (name, size = 16, ...cls) => {
         const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
         n.classList.add(...cls.filter(Boolean));
@@ -360,8 +320,7 @@ function load(opts = {}) {
       },
       emoji: emojiSpan,
     },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // The real one writes data-tip on the node; a bare recorder could not tell where a tip landed.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -404,8 +363,7 @@ function load(opts = {}) {
     },
   };
 
-  // A repaint of the progress band is one act the ordering rows anchor on; wrapping the node is the
-  // only seam, since paintRunProgress is a module function no stub stands in front of.
+  // paintRunProgress is a module function, so wrapping the node is the only seam for ordering rows.
   if (node.runProgress) {
     const orig = node.runProgress.replaceChildren.bind(node.runProgress);
     node.runProgress.replaceChildren = (...args) => { calls.order.push('progress'); return orig(...args); };
@@ -420,13 +378,9 @@ function load(opts = {}) {
     globals,
     document: doc,
     clock,
-    // index.html's own order: core/status-icons.js, core/dialog.js, screens/run-lock.js and
-    // screens/run-info.js all stand ahead of this screen, which draws its glyphs, asks its
-    // confirm, paints its lock and renders its card through them. The REAL ones — the rows below
-    // are about what those do to a screen a stub would never have built (#194).
+    // index.html's order, real modules only: the rows assert what they do to this screen.
     before: [['status-icons', CORE_SRC], ['dialog', CORE_SRC], 'run-lock', 'run-info'],
-    // Every name below is a lexical `const` — invisible as a sandbox property, reachable only off
-    // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
+    // Every name below is a lexical `const`: reachable only off the completion value, not the sandbox.
     exported: `({ statusLabel,
       matchesRunFilter, exampleOf, rowVisible, suiteKeyOf, suiteEmojiOf, orderedRecords,
       visibleRecords, pagerRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
@@ -437,14 +391,11 @@ function load(opts = {}) {
   return {
     ...h,
     lex: h.screen,
-    // The real screens/run-lock.js and screens/run-info.js, loaded above: lexical consts, so they
-    // come back off the completion value like every other name — never sandbox properties.
     lock: h.screen.RunLock,
     info: h.screen.RunInfo,
     state, calls, on, node, doc, clock,
     // The held sleeps, so a row can let the 2000 ms probe timeout win the race on purpose.
     releaseSleeps: () => { for (const d of held.splice(0)) d.resolve(); },
-    // What the tester actually sees in the checklist.
     sectionKeys: () => node.runTests.querySelectorAll('.suite-section').map((s) => s.dataset.suite),
     sectionTitles: () => node.runTests.querySelectorAll('.suite-head .title').map((t) => t.textContent),
     rowIds: () => node.runTests.querySelectorAll('li.test-row').map((r) => r.dataset.recordId),
@@ -452,7 +403,6 @@ function load(opts = {}) {
     headFor: (suite) => node.runTests.querySelector(`.suite-section[data-suite="${suite}"] .suite-head`),
     // Every stop the arrows walk, in document order — the shape the roving model is about.
     rowTabs: () => node.runTests.querySelectorAll('li.test-row, .suite-head').map((r) => r.getAttribute('tabindex')),
-    // A row's three status buttons, whatever their state.
     cellsOf: (li) => li.querySelectorAll('.row-actions .row-st'),
     emptyTitle: () => node.runTests.querySelector('.empty-title')?.textContent ?? null,
     emptyActions: () => node.runTests.querySelectorAll('.empty-actions > *').map((a) => a.textContent),
@@ -465,10 +415,7 @@ function load(opts = {}) {
   };
 }
 
-// The row's own status mark is what the flash lands on (#274) — every row has one, so the
-// confirmation is no longer conditional on a marker that may not be there. repaintRow REPLACES that
-// mark, so the seam wraps the row's own lookup rather than one node, and `offsetWidth` — the flash's
-// reflow read — says WHEN it ran relative to the repaint.
+// repaintRow replaces the mark, so the seam wraps the lookup; offsetWidth times the flash.
 function flashTarget(h, li) {
   const find = li.querySelector.bind(li);
   li.querySelector = (sel) => {
@@ -481,8 +428,6 @@ function flashTarget(h, li) {
   };
   return () => li.querySelector('.row-status');
 }
-
-// ---------- painting the lock: the memoised signature (rows 72-76) ----------
 
 test('72: the note carries the reason and the rows go dead with it', () => {
   const h = load({ runStatus: 'finished', records: [rec(1), rec(2)] });
@@ -542,7 +487,7 @@ test('75: one row turning automated mid-poll repaints, though the run-level reas
     .querySelector(`li[data-record-id="${id}"] .row-actions .row-st`).dataset.tip;
   assert.equal(tipOf(2), 'Mark passed');
   h.state.records[1].automated = true;   // a reporter result lands on row 2
-  h.lock.applyRunLock();                   // no force: the ROW list is what changed
+  h.lock.applyRunLock();                   // no force: the row list is what changed
   assert.equal(tipOf(2), AUTOMATED);
   assert.equal(tipOf(1), 'Mark passed', 'the manual row beside it stays writable');
   assert.equal(h.node.runLockNote.hidden, true, 'and the run-level note stays silent');
@@ -559,8 +504,6 @@ test('76: applyRunLock re-asks the Finish button and the test view, when there i
   assert.equal(bare.calls.testActions, 0);
   assert.equal(bare.node.btnFinishRun.hidden, false);
 });
-
-// ---------- the Finish run button (rows 48, 77) ----------
 
 test('48: an unproven session hides Finish run; a lost one shows it disabled, with the reason', () => {
   const unknown = load({ runStatus: 'running', jwtAvailable: 'unknown' });
@@ -593,11 +536,7 @@ test('77: a re-run archived run is "running" again — Finish stays hidden anywa
   assert.doesNotThrow(() => bare.fn.updateRunActions());
 });
 
-// ---------- finishing a run (rows 51, 53a) ----------
-
-// The dialog is answered from outside, the way a tester answers it: start the call, let it reach
-// showModal, then click. `settle()` is the turn in between — never await the finishRun promise here,
-// which cannot resolve until the click that has not happened yet.
+// Never await finishRun here: it cannot resolve until the click that has not happened yet.
 async function openConfirm(h) {
   await settle();
   assert.equal(h.node.confirmDialog.open, true, 'the dialog should be open by now');
@@ -621,11 +560,6 @@ test('51: confirming finishes the run, re-reads the checklist and says so on the
   assert.deepEqual(h.rowIds(), ['1', '2'], 'and the checklist repainted');
   assert.equal(h.node.runLockNote.textContent, FINISHED);
 });
-
-// Rows 81 and 81a are tests/dialog.test.mjs now — the sentence, the label and the three ways of
-// saying no belong to the module, and every row above drives that same real one (#194).
-
-// ---------- the status vocabulary and the counters (rows 2-3, 5-6, 82-84, 86a, 88a) ----------
 
 test('2: pending, blank and no record at all are one word to this screen — untested', () => {
   const h = load();
@@ -677,7 +611,7 @@ test('82: the run header extends the counts line with custom statuses, biggest f
   h.fn.paintRunProgress();
   const group = h.node.runProgress.querySelector('.substatus-counts');
   assert.equal(group.dataset.tip, 'Custom statuses set in this run');
-  // count DESC, then name ASC — `aborted` before `flaky` on the tie.
+  // Count descending, then name ascending: `aborted` before `flaky` on the tie.
   assert.deepEqual(group.querySelectorAll('.substatus-count').map((s) => s.textContent),
     ['blocked: 5', 'aborted: 2', 'flaky: 2']);
   assert.deepEqual(group.querySelectorAll('.substatus-count').map((s) => s.dataset.substatus),
@@ -691,7 +625,7 @@ test('83: a token-only panel gets no custom counters at all, and neither does an
   const empty = load({ jwt: true, substatusCounts: {} });
   empty.fn.paintRunProgress();
   assert.equal(empty.node.runProgress.querySelector('.substatus-counts'), null);
-  // The same map WITH a session draws them, so the two rows above are a gate and not a stub.
+  // The same map with a session draws them, so the two rows above are a gate and not a stub.
   const on = load({ jwt: true, substatusCounts: { flaky: 2 } });
   on.fn.paintRunProgress();
   // A NBSP after the middot, so a wrap takes the separator down with its counter.
@@ -736,9 +670,6 @@ test('88a: the test view reuses the same counts line, into its own band', () => 
   assert.equal(h.node.testProgress.querySelector('.counts-done').textContent, '1/2');
   assert.deepEqual(h.node.testProgress.querySelectorAll('.counts-part').map((p) => p.textContent), ['1 passed']);
 });
-
-
-// ---------- selection, search and suites (rows 29-36, 97-106) ----------
 
 test('29: a numeric row id finds its string-keyed example values, and the query is trimmed and folded', () => {
   const h = load({ runExamples: { 5: { values: ['ru', 'UA'] } }, runSearch: ' UA ' });
@@ -837,7 +768,7 @@ test('36: choosing the chip that is already on is an early return — nothing re
   h.fn.setRunFilter('failed');
   assert.deepEqual(h.calls.order, []);
   assert.equal(h.calls.fitChips, 0);
-  // A different key from the same state DOES repaint, so the silence above is the guard talking.
+  // A different key from the same state does repaint, so the silence above is the guard talking.
   h.fn.setRunFilter('passed');
   assert.equal(h.state.runFilter, 'passed');
   assert.equal(h.calls.order.filter((s) => s === 'sections').length, 1);
@@ -998,15 +929,13 @@ test('106: a repaint that changes nothing leaves the icon node alone', () => {
   assert.equal(before.dataset.emoji, '🛒');
   h.fn.paintSuiteEmoji();
   assert.equal(h.node.runTests.querySelector('.suite-head .file-icon'), before, 'same node');
-  // A mark that MOVED swaps the node, so the identity above is a decision and not a dead call.
+  // A mark that moved swaps the node, so the identity above is a decision and not a dead call.
   h.state.suiteEmoji = { Checkout: '🔥' };
   h.fn.paintSuiteEmoji();
   const after = h.node.runTests.querySelector('.suite-head .file-icon');
   assert.notEqual(after, before);
   assert.equal(after.dataset.emoji, '🔥');
 });
-
-// ---------- what a row says (rows 37-39, 107-114) ----------
 
 test('37: the custom status rides the mark\'s tooltip, and a token-only panel never sees it', () => {
   const h = load({ jwt: true });
@@ -1145,8 +1074,6 @@ test('114: the suite fraction counts what is DONE in that suite, pending exclude
   assert.deepEqual(h.node.runTests.querySelectorAll('.suite-frac').map((f) => f.textContent), ['2/2', '1/1']);
 });
 
-// ---------- the inline write (rows 40-44, 115-118) ----------
-
 // A rendered checklist with one suite section, which is what writeRowStatus repaints into.
 function written(opts = {}) {
   const h = load({ runStatus: 'running', records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'A' })], ...opts });
@@ -1163,7 +1090,7 @@ test('40: clicking the status a row already carries writes nothing at all', asyn
   assert.deepEqual(h.calls.writes, []);
   assert.equal(h.state.inlineWrites, 0);
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
-  // A DIFFERENT status does write, so the silence above is the guard and not a dead fixture.
+  // A different status does write, so the silence above is the guard and not a dead fixture.
   await h.fn.writeRowStatus(record, 'failed', li);
   assert.deepEqual(h.calls.writes, [{ id: 1, status: 'failed', comment: '' }]);
 });
@@ -1224,7 +1151,7 @@ test('44: a write that failed puts the record back and reports itself inline', a
   assert.equal(btn('passed').classList.contains('busy'), false);
   assert.deepEqual(li.querySelectorAll('.row-st').map((b) => b.disabled), [false, false, false]);
   assert.equal(h.state.inlineWrites, 0);
-  // Object.assign is a MERGE: a key the write added is restored to nothing, it is not removed.
+  // Object.assign merges: a key the write added is restored to nothing, it is not removed.
   assert.equal(record.message, '');
 });
 
@@ -1306,8 +1233,6 @@ test('117b: a probe that REJECTED is swallowed — the write goes on rather than
   assert.deepEqual(h.calls.writes, [{ id: 1, status: 'passed', comment: '' }]);
 });
 
-// ---------- opening a run (rows 54-60, 119-125) ----------
-
 test('54: a failed meta read still paints the checklist, and says so above it', async () => {
   const h = load({ runTitle: '', records: [] });
   h.on.getRun = async () => { throw new Error('meta down'); };
@@ -1378,8 +1303,7 @@ test('136 (#194): opening a run fills the card through the real module, and empt
   // renderRunView -> RunInfo.render(): a stubbed module could not have produced these labels.
   assert.deepEqual(h.infoLabels(), ['Status', 'Tests', 'Description']);
   assert.equal(h.node.runInfo.hidden, false);
-  // …and the next run says nothing and holds nothing, so the card empties rather than keeping the
-  // last one's rows (a Tests row counts the checklist too, whatever the payload said).
+  // The next run holds nothing, so the card empties rather than keeping the last one's rows.
   h.on.getRun = async () => ({});
   h.on.listTestruns = async () => [];
   await h.fn.openRunView('r3');
@@ -1401,7 +1325,7 @@ test('59: a payload that says nothing about the custom counters must not blank t
   const h = load({ substatusCounts: { flaky: 2 } });
   h.fn.applyRunInfo({});
   assert.deepEqual(h.state.substatusCounts, { flaky: 2 });
-  // One that DOES carry them replaces them, so the survival above is the guard talking.
+  // One that does carry them replaces them, so the survival above is the guard talking.
   h.fn.applyRunInfo({ substatusCounts: { blocked: 1 } });
   assert.deepEqual(plain(h.state.substatusCounts), { blocked: 1 });
 });
@@ -1561,8 +1485,6 @@ test('125: a failed example read leaves the rows bare rather than blanking the r
   assert.equal(h.node.runTests.querySelector('.example'), null);
 });
 
-// ---------- sections and the two empty states (rows 61-63, 126-129) ----------
-
 const twoSuites = () => [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'B', status: 'failed' })];
 
 test('61: a filter overrides an explicit collapse — a matching suite may not hide its match', () => {
@@ -1570,7 +1492,7 @@ test('61: a filter overrides an explicit collapse — a matching suite may not h
   h.fn.renderRunSections();
   const b = h.node.runTests.querySelector('[data-suite="B"]');
   assert.equal(b.classList.contains('collapsed'), false);
-  // The identical preference with no filter on DOES collapse it.
+  // The identical preference with no filter on does collapse it.
   const quiet = load({ records: twoSuites(), runFilter: 'all', expandedSuites: { B: false } });
   quiet.fn.renderRunSections();
   assert.equal(quiet.node.runTests.querySelector('[data-suite="B"]').classList.contains('collapsed'), true);
@@ -1681,7 +1603,7 @@ test('128: a suite section names itself, counts itself and carries only the rows
   h.fn.renderRunSections();
   assert.deepEqual(h.sectionKeys(), ['A'], 'a section with no matching row is not drawn at all');
   assert.deepEqual(h.rowIds(), ['1']);
-  // The fraction is over the WHOLE suite, not over what the filter left.
+  // The fraction is over the whole suite, not over what the filter left.
   assert.equal(h.node.runTests.querySelector('.suite-frac').textContent, '1/2');
   const head = h.node.runTests.querySelector('.suite-head');
   assert.deepEqual(head.querySelectorAll('.tree-icon').map((i) => i.className),
@@ -1695,8 +1617,6 @@ test('129: the status line is cleared on every rebuild — the plaque takes over
   assert.deepEqual(h.calls.lines, [{ id: 'run-status', text: '', tone: undefined }]);
 });
 
-// ---------- two more greens the todos below lean on (130-131) ----------
-
 test('130: every chip counts what its rows DISPLAY, and All is the whole run', () => {
   const h = load({
     records: [rec(1, { status: 'passed' }), rec(2, { status: 'failed' }),
@@ -1707,11 +1627,6 @@ test('130: every chip counts what its rows DISPLAY, and All is the whole run', (
   assert.equal(counts.passed + counts.failed + counts.skipped + counts.untested, counts.all);
 });
 
-// ---------- the bugs these tests found (rows 4, 45, 46, 47, 53, 64, 65) ----------
-// Five of them are fixed and read as rules; the two still deferred name their issue.
-
-// 4 (#273): a running row used to be counted by nothing but All, so the chips summed to less than
-// the total and no chip could show that row. It counts as Pending now — it has no result yet.
 test('4 (#273): the status chips add up to the All chip, running rows included', () => {
   const h = load({
     records: [rec(1, { status: 'passed' }), rec(2, { status: 'failed' }),
@@ -1720,34 +1635,28 @@ test('4 (#273): the status chips add up to the All chip, running rows included',
   const c = plain(h.fn.runStatusCounts());
   assert.equal(c.passed + c.failed + c.skipped + c.untested, c.all);
   assert.equal(c.untested, 2); // the pending one and the running one
-  // …and the chip that counts it can also SHOW it, which is the half a count alone would not prove.
+  // The chip that counts it can also show it, the half a count alone would not prove.
   h.state.runFilter = 'untested';
   assert.deepEqual(h.state.records.filter(h.lex.matchesRunFilter).map((r) => String(r.id)), ['3', '4']);
 });
 
-// 45 (#274): the flash looked for a `.badge`, which a run row never carries — the only one that ever
-// appears is the queue's «queued» marker, and that is the case the caller skips. It lands on the
-// row's own status mark now, so every saved row is confirmed.
 test('45 (#274): a row the tester just marked flashes to say it saved', async () => {
   const { h, li, record } = written();
   await h.fn.writeRowStatus(record, 'passed', li);
   assert.ok(li.querySelector('.saved-flash'), 'nothing on the row was flashed');
 
-  // A write that only QUEUED is still not a save, so it is still not flashed.
+  // A write that only queued is still not a save, so it is still not flashed.
   const queued = written();
   queued.h.on.write = async () => ({ queued: true });
   await queued.h.fn.writeRowStatus(queued.record, 'passed', queued.li);
   assert.equal(queued.li.querySelector('.saved-flash'), null);
 });
 
-// 46a: the panel draws statuses in two languages and the fix has to respect both. The big verdict
-// buttons wear the same filled marks as the list, so they move together; the compact row buttons and
-// the step marks wear bare ones and stay put — exactly as `failed` already does (close vs the disc).
+// Verdict buttons wear the list's filled marks; row buttons and step marks wear bare ones.
 test('46a (#115): the verdict button follows the list mark, and the bare marks stay where they are', () => {
   const h = load();
   const mark = h.lex.StatusIcons.statusIcon('skipped').dataset.icon;
 
-  // The test view's own big Skipped button is drawn from the same set, at its own 18px.
   // index.html is read raw: no fixture stands in for it, so nothing else would catch a drift.
   const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
   const btn = (id) => /data-icon="([^"]+)"[^>]*data-icon-size="([^"]+)"/
@@ -1757,15 +1666,12 @@ test('46a (#115): the verdict button follows the list mark, and the bare marks s
   assert.deepEqual(btn('btn-passed').slice(1, 3), ['status_passed', '18']);
   assert.deepEqual(btn('btn-failed').slice(1, 3), ['status_failed', '18']);
 
-  // The compact row button keeps the bare minus on purpose: `failed` reads `close` there while its
-  // list mark is a filled disc, so an action and a state are allowed to look different.
+  // The row button keeps the bare minus on purpose: an action and a state may look different.
   const rowBtn = h.fn.testRow(rec(1)).querySelector('.row-st[data-status="skipped"]');
   assert.equal(rowBtn.querySelector('.md-icon').dataset.icon, 'remove');
   assert.notEqual(rowBtn.querySelector('.md-icon').dataset.icon, mark);
 });
 
-// 47 (#275): updateRunActions compared state.runStatus to 'running' literally while the rest of the
-// file folds launching into running, so the pill named the state and Finish was simply absent.
 test('47 (#275): a launching run is a running run, and can be finished', () => {
   const h = load({ runStatus: 'launching', jwtAvailable: true });
   h.fn.paintRunState();
@@ -1779,8 +1685,6 @@ test('47 (#275): a launching run is a running run, and can be finished', () => {
   assert.equal(done.node.btnFinishRun.hidden, true);
 });
 
-// 53 (#258): three copies of `(a, b) => a.id > b.id ? 1 : -1` compared ids as TEXT, so a run past
-// its ninth record listed 10 before 9. This file owns two of them — open and finish.
 test("53 (#258): record ids sort numerically whatever their type — '9' before '10'", async () => {
   const h = load({ runId: 'r0' });
   h.on.listTestruns = async () => [rec('9'), rec('10')];
@@ -1802,10 +1706,6 @@ test('53a (#258): finishing the run re-sorts the re-read the same way, not as te
   assert.deepEqual(h.rowIds(), ['99', '100']);
 });
 
-// 64: testRow and the suiteSection head carried a click listener and nothing else — no tabindex, no
-// role, no keydown — so the checklist was unreachable by keyboard while each row's three status
-// buttons WERE reachable: a tester could mark a test they were never able to read. One roving tab
-// stop for the whole list now; the helper's own contract is tests/roving.test.mjs.
 test('64 (#109): a test row and a suite head can be reached and opened from the keyboard', () => {
   const h = load({ records: twoSuites(), expandedSuites: { A: true } });
   h.fn.renderRunSections();
@@ -1814,8 +1714,7 @@ test('64 (#109): a test row and a suite head can be reached and opened from the 
   assert.equal(head.getAttribute('role'), 'button', 'a reader is told the head is actionable');
   assert.equal(head.getAttribute('tabindex'), '0');
   assert.equal(head.getAttribute('aria-expanded'), 'true', 'and whether it is open — the chevron is a picture');
-  // Every row is BORN a stop and the first focus to land demotes the rest, which is how a
-  // re-render needs no call of its own.
+  // Every row is born a stop and the first focus demotes the rest, so a re-render needs no call.
   assert.equal(h.rowFor(1).getAttribute('role'), 'button', 'and so is every test row');
   assert.equal(h.rowFor(1).getAttribute('tabindex'), '0');
 
@@ -1830,17 +1729,16 @@ test('64 (#109): a test row and a suite head can be reached and opened from the 
   assert.equal(h.doc.activeElement, h.rowFor(1));
   assert.deepEqual(h.rowTabs(), ['-1', '0', '-1', '-1'], 'exactly one stop in the whole checklist');
 
-  // …then STRAIGHT over folded B's row onto B's head — an invisible row is not a stop.
+  // …then straight over folded B's row onto B's head: an invisible row is not a stop.
   press(h.rowFor(1), 'ArrowDown');
   assert.equal(h.doc.activeElement, h.headFor('B'));
 
-  // Enter on a row opens the test, which is the same act as clicking it. Space too, and it is
-  // swallowed or the checklist scrolls out from under the row it just opened.
+  // Space is swallowed too, or the checklist scrolls out from under the row it just opened.
   assert.equal(press(h.rowFor(1), 'Enter').defaultPrevented, true);
   assert.equal(press(h.rowFor(1), ' ').defaultPrevented, true);
   assert.deepEqual(h.calls.opened, [1, 1]);
 
-  // Enter on the head folds — and the head SAYS so, rather than leaving it to the chevron.
+  // Enter on the head folds, and the head says so rather than leaving it to the chevron.
   assert.equal(press(head, 'Enter').defaultPrevented, true);
   assert.equal(h.state.expandedSuites.A, false);
   assert.equal(head.getAttribute('aria-expanded'), 'false');
@@ -1848,8 +1746,6 @@ test('64 (#109): a test row and a suite head can be reached and opened from the 
   assert.equal(h.doc.activeElement, h.headFor('B'), 'a folded suite offers the arrows no row at all');
 });
 
-// 64a (#109): the three status buttons were three tab stops PER ROW, so a 200-test run was 600 of
-// them and not one said which test was being marked. They are cells of their row now.
 test("64a (#109): ←→ walk a row's status buttons, clamped at both ends", () => {
   const h = load({ records: [rec(1, { suite_title: 'A' })] });
   h.fn.renderRunSections();
@@ -1858,7 +1754,7 @@ test("64a (#109): ←→ walk a row's status buttons, clamped at both ends", () 
   assert.deepEqual(cells.map((b) => b.getAttribute('tabindex')), ['-1', '-1', '-1'],
     'not one of them is a tab stop of its own any more');
 
-  // Right off the row lands on the FIRST button, and walks to the last.
+  // Right off the row lands on the first button, and walks to the last.
   assert.equal(press(li, 'ArrowRight').defaultPrevented, true);
   assert.equal(h.doc.activeElement, cells[0]);
   press(cells[0], 'ArrowRight');
@@ -1901,8 +1797,7 @@ test('64b (#109): a locked row has no button to step into, so → is left alone'
   assert.equal(h.doc.activeElement, li);
 });
 
-// 64c: `.suite-section.collapsed .suite-rows { display: none }` is CSS only, and the arrows read
-// the DOM — so a fold the stylesheet alone knows about is a fold they walk straight through.
+// The collapse is CSS only and the arrows read the DOM, so the fold must be stated in the DOM.
 test('64c (#109): a folded suite states its fold in the DOM, however it was folded', () => {
   const h = load({ records: twoSuites() }); // two suites, so both are born collapsed
   h.fn.renderRunSections();
@@ -1915,7 +1810,7 @@ test('64c (#109): a folded suite states its fold in the DOM, however it was fold
   assert.equal(heads[0].getAttribute('aria-expanded'), 'true');
   assert.equal(h.node.runTests.querySelector('[data-suite="A"] .suite-rows').hidden, false);
 
-  // Home and End are the ends of what is SHOWN — B's row is still folded away.
+  // Home and End are the ends of what is shown: B's row is still folded away.
   press(heads[0], 'End');
   assert.equal(h.doc.activeElement, heads[1]);
   press(heads[1], 'Home');
@@ -1938,9 +1833,6 @@ test('64d (#109): a re-render leaves the checklist keyboard-ready, with nothing 
   assert.equal(h.doc.activeElement, h.cellsOf(h.rowFor(2))[0]);
 });
 
-// 65 (#277): onRunSearch rebuilt every section on every keystroke — five characters typed into a
-// 400-row run was five full rebuilds. The redraw waits for the typing to stop; the clear button,
-// which is cheap, does not.
 test('65 (#277): typing into the search does not rebuild the whole list per keystroke', async () => {
   const h = load({ records: Array.from({ length: 400 }, (_, i) => rec(i + 1, { suite_title: 'A' })) });
   h.calls.order.length = 0;
@@ -1952,7 +1844,7 @@ test('65 (#277): typing into the search does not rebuild the whole list per keys
   }
   assert.equal(rebuilds(), 0, 'nothing is redrawn while the tester is still typing');
 
-  await h.clock.tick(); // …and once they stop, the list is rebuilt ONCE for all five keystrokes
+  await h.clock.tick(); // …and once they stop, the list is rebuilt once for all five keystrokes
   assert.equal(rebuilds(), 1);
   assert.deepEqual(h.clock.arms(), [250, 250, 250, 250, 250], 'each keystroke re-armed the one timer');
 });

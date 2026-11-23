@@ -1,31 +1,26 @@
-// Env info collected client-side at status-write time, written as testrun META keys.
-// They are UPLOADED on every write: a new or renamed key changes what leaves the browser.
+// Uploaded as testrun meta on every write: a new or renamed key changes what leaves the browser.
 
-// Toggle: absent/undefined -> ON; explicit `false` -> OFF.
+// Toggle: absent/undefined -> on; explicit `false` -> off.
 function envInfoEnabled(settings) {
   return !(settings && settings.envInfoOnFail === false);
 }
 
-// Full-URL toggle (#177): absent/undefined -> OFF, deliberately the INVERSE of the
-// rule above — a query string can carry a session id, and project members see it.
+// Full URL is off unless set, the inverse of the above: a query can carry a session id.
 function envFullUrlEnabled(settings) {
   return !!(settings && settings.envFullUrl === true);
 }
 
-// Always REBUILT from `origin + pathname`, never the raw string: `origin` also drops
-// `user:pass@` userinfo, the same class of secret as a query token.
+// Rebuilt from `origin + pathname`: `origin` also drops `user:pass@`, a secret like a query token.
 function envTrimUrl(raw) {
   let u;
   try { u = new URL(raw); } catch { return raw; }
-  // A scheme with no real origin (chrome://, about:, file:) reads back as the string "null":
-  // there is nothing to rebuild from, so the address is handed over as it is.
+  // A scheme with no real origin (chrome://, about:, file:) reads "null": hand the address over as is.
   if (!u.origin || u.origin === 'null') return raw;
   const trimmed = `${u.origin}${u.pathname}`;
   return trimmed === u.href ? trimmed : `${trimmed} (query trimmed)`;
 }
 
-// UA-string fallbacks — used only when UA-Client-Hints is unavailable. Edge/Opera
-// are checked before Chrome (their UA strings also carry a `Chrome/` token).
+// UA-string fallback when Client Hints are missing; Edge/Opera first, their UAs carry `Chrome/` too.
 function uaBrowser(ua) {
   for (const [re, name] of [
     [/\bEdg\/(\d+)/, 'Edge'], [/\bOPR\/(\d+)/, 'Opera'],
@@ -47,8 +42,7 @@ function uaOs(ua) {
   return 'Unknown';
 }
 
-// Prefers UA-Client-Hints (low-entropy brands expose only the major version);
-// the panel's own UA equals the tested tab's UA.
+// Prefers UA-Client-Hints; the panel's own UA equals the tested tab's UA.
 function envBrowser() {
   const brands = navigator.userAgentData?.brands;
   if (Array.isArray(brands) && brands.length) {
@@ -63,9 +57,7 @@ function envBrowser() {
   return uaBrowser(navigator.userAgent);
 }
 
-// OS name: UA-CH platform ("macOS"/"Windows"/"Linux"/…), else a UA-string parse.
-// A mobile platform hint the UA string does not confirm is the #12 lie — extensions
-// run on desktop only — so the UA parse wins; those builds are Linux when it is Unknown.
+// A mobile platform hint the UA does not confirm is a lie (extensions are desktop-only): UA wins.
 function envOs() {
   const hinted = navigator.userAgentData?.platform;
   if (!hinted) return uaOs(navigator.userAgent);
@@ -76,8 +68,7 @@ function envOs() {
   return hinted;
 }
 
-// The site tab via resolveSiteTab. null for anything but a readable http(s) tab, so the
-// keys read off it are omitted rather than failing the write.
+// null for anything but a readable http(s) tab, so its keys are omitted, not failing the write.
 async function envSiteTab() {
   try {
     if (typeof resolveSiteTab !== 'function') return null;
@@ -86,9 +77,7 @@ async function envSiteTab() {
   } catch { return null; }
 }
 
-// Measured INSIDE the tab: the panel's own `screen` is the monitor, not the window a
-// layout bug reproduced in. '' whenever the read cannot be trusted — a missing value
-// beats a wrong one.
+// Measured inside the tab: the panel's `screen` is the monitor; '' beats a wrong value.
 async function envTabViewport(tab) {
   const tabId = tab && tab.id != null ? tab.id : null;
   if (tabId == null) return '';
@@ -104,15 +93,14 @@ async function envTabViewport(tab) {
   } catch { return ''; }
 }
 
-// The env facts as `[key, value]` meta pairs — the shape the testrun-meta write
-// takes. Empty when the toggle is off, so the caller skips the write entirely.
+// Empty when the toggle is off, so the caller skips the write entirely.
 async function collectEnvMeta(settings) {
   if (!envInfoEnabled(settings)) return [];
   const entries = [
     ['Browser', envBrowser()],
     ['OS', envOs()],
   ];
-  // Resolved ONCE: two keys off one tab can never describe two different tabs.
+  // Resolved once: two keys off one tab can never describe two different tabs.
   const tab = await envSiteTab();
   const viewport = tab ? await envTabViewport(tab) : '';
   if (viewport) entries.push(['Viewport', viewport]);

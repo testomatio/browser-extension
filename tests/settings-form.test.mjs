@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/settings-form.js on its own (#203): the Settings form split out of the
-// screen that saves it. These rows are the ones the module makes CHEAP — the two pure readers Save
-// depends on, and the defaults a form with nothing stored comes up wearing. Everything else the form
-// does (the dropdown, the theme switch, the folds, the whole save gauntlet) stays in
-// tests/settings.test.mjs, which drives it through the screen and is unchanged by the split.
-// Two of them are refusals, and a refusal is the expensive half: `evidenceWindowFromField` answers
-// `null` for a number outside 10-600 so Save can show the tester the sentence and keep what they
-// typed — a module that quietly clamped to 600 instead would look identical from the outside until
-// somebody's 900-second log window silently became something else. And `neverValuesEnabled` answers
-// `false` to the STRING 'true', because a truthy read of a stored string is how a privacy toggle
-// turns itself on for a tester who never asked.
-// Run: node --test tests/settings-form.test.mjs
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -20,9 +8,7 @@ import { loadScreen, makeDocument, el, SCREENS_SRC, CORE_SRC } from './helpers/p
 
 const DEFAULT = 'https://app.testomat.io';
 
-// The REAL toggle readers, not look-alikes: "absent -> ON" for three of them and "absent -> OFF" for
-// the other two IS the defaults row, and a hand-written stub would let the form pass against a rule
-// the panel does not have. Only `$`, `Dropdown` and `Theme` below are stubs.
+// The real toggle readers: "absent -> on" for three and "absent -> off" for two is the defaults row.
 const fromSource = (path, names) => runInNewContext(
   `${readFileSync(path, 'utf8')}\n({ ${names.join(', ')} });`, { URL },
 );
@@ -34,8 +20,7 @@ const {
 } = fromSource(join(SCREENS_SRC, 'evidence.js'),
   ['evidenceAutoStartEnabled', 'evidenceAutoAttachEnabled', 'evidenceCaptureBodiesEnabled']);
 
-// Only the fields setFields writes, and only as index.html types them. mini-dom keeps `value` and
-// `checked` as PROPERTIES, so a checkbox seeded here is what the module reads back.
+// mini-dom keeps `value` and `checked` as properties, so a seeded checkbox is what the module reads.
 const TEXTS = ['set-baseurl', 'set-token', 'set-evidence-window'];
 const CHECKS = ['set-env-info', 'set-env-full-url', 'set-evidence-autostart',
   'set-evidence-autoattach', 'set-evidence-bodies', 'set-rec-never-values'];
@@ -50,8 +35,7 @@ function load(seed = {}) {
     document: doc,
     globals: {
       $: (id) => doc.getElementById(id),
-      // Nothing below calls into either; they stand where the module's `/* global */` says they do,
-      // so a member that started reaching for one at LOAD time would fail here rather than silently.
+      // Nothing calls these, so a member reaching for one at load time fails here rather than silently.
       Dropdown: { of: () => null, create: () => { throw new Error('no dropdown in this fixture'); } },
       Theme: { get: () => 'system', set: () => {}, onChange: () => {} },
       envInfoEnabled,
@@ -89,7 +73,7 @@ test('#203 the evidence window: out of range or not a number is refused with nul
   for (const raw of ['9', '601', '0', '-30', 'abc', '12abc', '1e9']) {
     assert.equal(windowOf(raw), null, `${raw} must be refused`);
   }
-  // 9.6 rounds INTO range: rounding happens first, and 10 is what gets saved.
+  // 9.6 rounds into range: rounding happens first, and 10 is what gets saved.
   assert.equal(windowOf('9.6'), 10);
   // The refusal leaves the field alone — Save shows a sentence, the tester keeps what they typed.
   const h = load({ 'set-evidence-window': '900' });
@@ -119,7 +103,7 @@ test('#203 never-values reads the boolean and nothing else: the string "true" is
 });
 
 test('#203 setFields({}) paints all seven defaults over whatever the form was showing', () => {
-  // Every field seeded the WRONG way round, so a default that is merely left alone cannot pass.
+  // Every field seeded the wrong way round, so a default that is merely left alone cannot pass.
   const h = load({
     'set-baseurl': 'https://self.host',
     'set-token': 'tok-1',

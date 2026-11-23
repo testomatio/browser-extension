@@ -1,5 +1,4 @@
-// The presence marker's match pattern (IIFE global `PresenceMatch`): which configured base URL earns
-// a registered content script, and which earns none. Depends on URL and nothing else.
+// Which configured base URL earns a registered presence-marker content script, and which earns none.
 
 const PresenceMatch = (() => {
   const PRESENCE_STATIC_ORIGIN = 'https://app.testomat.io'; // static already — a second one marks twice

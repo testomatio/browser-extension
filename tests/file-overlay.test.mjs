@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// #170: the file viewer drawn OVER the page under test. extension/content/file-overlay.js is
-// injected on demand, mounts one shadow host, and hands the page back untouched on the way out.
-// Two questions decide whether a tester ever sees a mess: is there exactly ONE of me on this page
-// (a re-inject must swap the file, not stack a second window), and may a script belonging to the
-// page under test close me by shouting the right message (it may not).
-// Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInContext } from 'node:vm';
@@ -20,12 +14,10 @@ const VIEWER = `${EXT}/viewer/viewer.html`;
 const FILE = { url: 'https://x.test/take.webm', name: 'a b.webm', type: 'video/webm', at: 1 };
 const OTHER = { url: 'https://x.test/two.png', name: 'two.png', type: 'image/png', at: 2 };
 
-// URLSearchParams is NOT a per-realm built-in: a vm context has none, and without this the boot
-// throws inside showFile() and every row passes for the wrong reason.
+// URLSearchParams is not a vm built-in: without it showFile() throws and rows pass for a wrong reason.
 const REALM = { URLSearchParams, console };
 
-// window is a plain object here, so the listeners the file registers are the only way in. A
-// registration is kept after removal (`live: false`) so a row can still call a torn-down handler.
+// Registrations stay after removal (live: false) so a row can still call a torn-down handler.
 function makeWindow() {
   const on = [];
   const cap = (o) => o === true || !!(o && o.capture);
@@ -103,8 +95,6 @@ function load(opts = {}) {
   };
 }
 
-// ---- one overlay per page ---------------------------------------------------
-
 test('1: the panel opens the same file twice and the tester still sees one window, not two', async () => {
   const h = load();
   await settle();
@@ -139,8 +129,6 @@ test('2b: a page with no storage.session gets no overlay at all', async () => {
   assert.equal(h.hosts().length, 0);
   assert.equal(h.win.__testomatFileOverlayInited, undefined, 'the flag is not claimed on a bail-out');
 });
-
-// ---- the viewer URL ---------------------------------------------------------
 
 test('3: a take with a space in its name reaches the viewer with the name intact', async () => {
   const h = load();
@@ -181,8 +169,6 @@ test('5: the session store is unreachable and the overlay clears itself away', a
   assert.equal(h.changed.length, 0);
 });
 
-// ---- clicking another file in the panel --------------------------------------
-
 test('6: clicking another file in the panel swaps this window instead of stacking a second', async () => {
   const h = load();
   await settle();
@@ -209,8 +195,6 @@ test('7b: some other session key changing leaves the shown file alone', async ()
   h.swap({ screenRecFile: { newValue: OTHER } }, 'session');
   assert.equal(h.iframe().src, src);
 });
-
-// ---- who may close it -------------------------------------------------------
 
 test('8: a script on the page under test cannot close the overlay by shouting the right message', async () => {
   const h = load();
@@ -272,8 +256,6 @@ test('11b: the ✕ closes it', async () => {
   assert.equal(h.hosts().length, 0);
 });
 
-// ---- handing the page back --------------------------------------------------
-
 test('12: closing hands the page back exactly as it was found', async () => {
   const h = load({ overflow: 'scroll' });
   await settle();
@@ -315,6 +297,5 @@ test('14: a browser with no storage.onChanged still opens and still closes', asy
   assert.equal(h.overflow(), 'scroll');
 });
 
-// viewer/viewer.html is web_accessible to <all_urls> under a pinned "key" (manifest.json:38-43, 53)
-// and with no use_dynamic_url, so any site can frame it and read whatever url it is handed.
+// viewer.html is web-accessible under a pinned key with no use_dynamic_url, so any site can frame it.
 test.todo('15 (#105): a page under test cannot frame viewer.html on its own');

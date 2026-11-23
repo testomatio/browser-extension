@@ -1,42 +1,22 @@
 #!/usr/bin/env node
-// extension/offscreen/recorder.js: the hidden page that HOLDS the tester's screen recording while it
-// is being made. They never see it — they only feel its three rules. A take stops itself at five
-// minutes and at fifty megabytes, a pause spends neither budget, and when the take ends the file is
-// handed over ONCE. The last rule is the load-bearing one: a second hand-over makes the worker treat
-// the take it already parked as a stale duplicate and revoke its blob URL, and the review then opens
-// on a video that will not play (#206). The worker's own half of that handoff is
-// tests/screenrec-session.test.mjs; this file is the other end of SCREENREC_FILE.
-//
-// Every name in the module is a module variable or a top-level function, and the only doors are the
-// SCREENREC_OFF message listener and the frame port it opens itself — so the rows drive those two,
-// and reach the state through a completion-value pick over the lexical bindings.
-//
-// Cases numbered as in issue 174. Run: node --test tests/offscreen-recorder.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
 
-// loadInto() resolves this through sharedPath(), so SHARED_MODULES=recorder.js=<copy> runs the whole
-// suite against a mutated copy without the shipped file ever being edited.
+// loadInto() resolves this via sharedPath(), so SHARED_MODULES can swap in a mutated copy.
 const RECORDER = 'offscreen/recorder.js';
 const WEBM = 'shared/webm-duration.js';
 
-// The two caps, written out rather than read off the module: a mutation that moves a cap has to make
-// a row fail, and a row that read the constant back would follow it.
+// Written out, not read off the module: a mutation that moves a cap must make a row fail.
 const TIME_CAP = 300000;
 const SIZE_CAP = 50 * 1024 * 1024;
 
 const NOW = 1_700_000_000_000;
 
-// Four macrotasks: castFrame's chain, the decode await, rec.stop()'s two callbacks and settle's own
-// arrayBuffer await all land behind one another.
+// castFrame's chain, the decode, rec.stop()'s callbacks and the arrayBuffer await land in turn.
 const flush = () => settle(6);
 
-// ---- the pieces a vm realm has none of --------------------------------------
-
-// No Blob in a vm context, and without one every finished take lands in a silent catch and the whole
-// suite passes for the wrong reason. This one really concatenates; the bytes are materialised only
-// when something reads them, because the size cap is fifty real megabytes.
+// No Blob in a vm context: without this every finished take lands in a silent catch.
 class FakeBlob {
   constructor(parts = [], opts = {}) {
     this.parts = parts
@@ -60,12 +40,10 @@ class FakeBlob {
   async arrayBuffer() { return this.bytes.slice().buffer; }
 }
 
-// A recorded chunk: distinct first byte per tag, so a row can prove the parts were concatenated in
-// the order MediaRecorder handed them over and not sorted, reversed or deduplicated.
+// A distinct first byte per tag proves the parts were concatenated in MediaRecorder's order.
 const chunk = (n, tag = 0) => { const u = new Uint8Array(n); u[0] = tag; return u; };
 
-// A screencast frame, as the worker sends it: base64 of bytes whose first four carry the picture's
-// size, so the bitmap stub below really reads the frame it was handed.
+// Base64 whose first four bytes carry the picture's size, so the bitmap stub reads the real frame.
 function frame(w, h) {
   const u = new Uint8Array(8);
   const dv = new DataView(u.buffer);
@@ -73,8 +51,7 @@ function frame(w, h) {
   return Buffer.from(u).toString('base64');
 }
 
-// What the default createImageBitmap hands back: it really reads the frame's first four bytes, so a
-// row that deferred the decode by hand can still answer with the picture that was sent.
+// Reads the frame's first four bytes, so a row that defers the decode still answers the real size.
 function readBitmap(blob) {
   const b = blob.bytes;
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -82,7 +59,7 @@ function readBitmap(blob) {
   return img;
 }
 
-// Chrome's atob throws on anything that is not base64 — row 9 needs that, not a silent empty string.
+// Chrome's atob throws on non-base64; a row needs that, not a silent empty string.
 function atob(s) {
   const str = String(s);
   if (!/^[A-Za-z0-9+/]*={0,2}$/.test(str) || str.length % 4 !== 0) {
@@ -91,8 +68,7 @@ function atob(s) {
   return Buffer.from(str, 'base64').toString('binary');
 }
 
-// setInterval is not in a vm realm either, and the five-minute cap is only assertable against a clock
-// a row turns by hand.
+// No setInterval in a vm realm, and the five-minute cap needs a clock a row turns by hand.
 function makeTimers() {
   const live = new Map();
   const cleared = [];
@@ -107,8 +83,6 @@ function makeTimers() {
     tick: (times = 1) => { for (let i = 0; i < times; i += 1) for (const fn of [...live.values()]) fn(); },
   };
 }
-
-// ---- the harness -------------------------------------------------------------
 
 function load(opts = {}) {
   const { now = NOW, mimes = ['video/webm;codecs=vp9'], webm = 'spy' } = opts;
@@ -128,7 +102,7 @@ function load(opts = {}) {
   let lastErrorReads = 0;
   let urlSeq = 0;
 
-  // The knobs a row turns. A row overrides one AFTER load(); the stubs read them live.
+  // The knobs a row turns: a row overrides one after load(), and the stubs read them live.
   const hooks = {
     getUserMedia: null,             // set to throw, or to hand back a stream of your own
     stopThrows: false,              // Chrome refusing a stop on an already-dead recorder
@@ -136,7 +110,7 @@ function load(opts = {}) {
     negotiated: null,               // what rec.mimeType reports back after the constructor
     disconnectThrows: false,        // a port whose other end is already gone
     sendFails: false,               // the worker asleep: sendMessage rejects
-    bitmap: null,                   // set to take createImageBitmap over (row 7 defers it)
+    bitmap: null,                   // set to take createImageBitmap over
     revokeThrows: () => false,      // a URL that was never ours
   };
 
@@ -164,8 +138,7 @@ function load(opts = {}) {
     };
   };
 
-  // Chrome's order on stop(): the final chunk first, then onstop, both in tasks of their own. Firing
-  // them synchronously would close the window #206 lives in and hide the bug.
+  // Chrome fires the final chunk, then onstop, each in its own task; firing them sync hides the race.
   class FakeRecorder {
     static isTypeSupported(m) { return mimes.includes(m); }
 
@@ -192,8 +165,7 @@ function load(opts = {}) {
       setImmediate(() => { if (this.onstop) this.onstop(); });
     }
 
-    // One dataavailable, as the timeslice fires it. A 0-byte one is what Chrome flushes when there
-    // is nothing buffered, and the module has to drop it.
+    // A 0-byte dataavailable is what Chrome flushes with nothing buffered; the module must drop it.
     emit(size, tag = 0) {
       if (this.ondataavailable) this.ondataavailable({ data: new FakeBlob(size ? [chunk(size, tag)] : []) });
     }
@@ -264,7 +236,7 @@ function load(opts = {}) {
   const growPatch = (buf, ms) => {
     const src = new Uint8Array(buf);
     patches.push({ ms, size: src.length });
-    // A marker byte, so a row can prove the PATCHED bytes are what the take is wrapped around.
+    // A marker byte, so a row can prove the patched bytes are what the take is wrapped around.
     const out = new Uint8Array(src.length + 1);
     out.set(src, 0);
     out[src.length] = 0xd9;
@@ -316,8 +288,7 @@ function load(opts = {}) {
   }
   sandbox.Date = FakeDate;
 
-  // recorder.html loads webm-duration.js FIRST and recorder.js second; the real one is a top-level
-  // `const`, lexical, so it shadows the sandbox spy in exactly the same way the page does.
+  // webm-duration.js loads first, and its lexical const shadows the sandbox spy as in the page.
   const specs = webm === 'real' ? [WEBM, [RECORDER, PICK]] : [[RECORDER, PICK]];
   const { values } = loadInto(sandbox, specs);
   const st = values[values.length - 1];
@@ -351,8 +322,7 @@ function load(opts = {}) {
     port: (i = 0) => ports[i],
     files: () => sent.filter((m) => m && m.type === 'SCREENREC_FILE').map((m) => m.file),
 
-    // One trip through the module's onMessage listener. `answer` resolves undefined for a cmd the
-    // listener never answers, so a row can await it either way.
+    // `answer` resolves undefined for a cmd the listener never answers, so a row can always await it.
     call(msg, sender = {}) {
       let resolve;
       const answer = new Promise((r) => { resolve = r; });
@@ -369,11 +339,7 @@ function load(opts = {}) {
   };
 }
 
-// Every lexical binding the rows reach for. The eleven top-level functions land on the sandbox
-// anyway; the state, the caps and pushFile are `const`/`let` and exist only in the completion value.
-// The three setters are what makes elapsedMs testable as the pure function it is. Read through
-// `typeof`, so a mutated copy — or an older revision — that lacks a name still LOADS, and only the
-// rows that need it fail.
+// State, caps and pushFile are lexical and exist only here; `typeof` lets a copy lacking one load.
 const FNS = ['pickMime', 'elapsedMs', 'reset', 'armRecorder', 'castConnect', 'castFrame',
   'castFrameNow', 'finish', 'start', 'pause', 'trimSwap', 'pushFile'];
 const CAPS = ['REC_TIME_CAP_MS', 'REC_SIZE_CAP', 'REC_CHUNK_MS'];
@@ -405,8 +371,6 @@ async function casting(opts = {}) {
   assert.equal(h.recorders.length, 1, 'the fixture should have armed on its first frame');
   return h;
 }
-
-// ---- the codec, and the clock a pause does not spend -------------------------
 
 test('34: a Chrome that supports none of the three codecs leaves the choice to it', () => {
   const h = load({ mimes: [] });
@@ -463,8 +427,6 @@ test('4b: a clock that was paused longer than it ran reads zero, never a negativ
   assert.equal(h.st.fns.elapsedMs(), 0);
 });
 
-// ---- arming: the caps, and the interval it must not leak ---------------------
-
 test('5: arming a second recorder clears the interval still ticking on the first', () => {
   const h = load();
   h.st.fns.armRecorder(h.makeStream('a'));
@@ -489,8 +451,6 @@ test('5c: the mime Chrome negotiated outranks the one we asked for', () => {
   h.hooks.negotiated = 'video/webm;codecs=vp8';
   assert.equal(h.st.fns.armRecorder(h.makeStream('a')), 'video/webm;codecs=vp8');
 });
-
-// ---- the frame pipe ----------------------------------------------------------
 
 test('26b: the frame pipe is opened once, under the name the worker looks for', () => {
   const h = load();
@@ -523,11 +483,7 @@ test('26d: a pipe the worker dropped is forgotten, and Chrome’s lastError read
   assert.ok(h.lastErrorReads() > before, 'an unread lastError leaks into the next call');
 });
 
-// ---- frames: one at a time, fitted, and never after the end ------------------
-
-// The serialization, asserted where it is actually visible. A frame's decode is the only await in
-// the pipeline, so ONE decode at a time is the whole of what the chain buys — and the rows below say
-// what a tester loses without it.
+// A frame's decode is the pipeline's only await, so one decode at a time is all the chain buys.
 test('6: frames arrive faster than they decode, and only one of them is ever decoding', async () => {
   const h = load();
   const gate = [];
@@ -557,8 +513,7 @@ test('6c: the canvas is fixed by the frame that ARRIVED first, not the one that 
   h.frameIn(frame(1280, 720));
   h.frameIn(frame(320, 240));
   await h.flush();
-  // Answer whatever is in flight in the reverse of the order it was asked for: a slow first decode
-  // must still be the one whose size the recording is built on.
+  // Answered in reverse: a slow first decode must still be the one the recording's size is built on.
   for (let i = 0; i < 2; i += 1) { [...gate].reverse().forEach((g) => g()); gate.length = 0; await h.flush(); }
   assert.equal(h.canvases.length, 1);
   assert.equal(h.canvases[0].width, 1280, 'a canvas sized by the wrong frame letterboxes the whole take');
@@ -679,8 +634,6 @@ test('20b: the broadcast fallback feeds the same chain as the pipe', async () =>
   assert.equal(h.canvases[0].width, 320);
 });
 
-// ---- the caps ----------------------------------------------------------------
-
 test('11: a take that crosses fifty megabytes ends itself and pushes the file over', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
@@ -749,8 +702,6 @@ test('19c: the cap interval dies with the recording it was watching', async () =
   assert.equal(h.timers.live.size, 0, 'an interval outliving its take keeps calling finish forever');
 });
 
-// ---- finish: one promise, one file -------------------------------------------
-
 test('17: the finished file carries the URL, the size, the length at entry and the reason', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
@@ -768,8 +719,7 @@ test('17b: the reason the worker stopped for reaches the file, and a bare stop i
   const h = await recording();
   h.hooks.finalChunk = 0;
   h.rec().emit(4096, 1);
-  // The worker parks the take under the file's own reason (screenrec/session.js), so a stop that
-  // dropped it would label every closed tab and every cap as something the tester pressed.
+  // The worker parks the take under the file's reason, so dropping it would mislabel every stop.
   assert.equal((await h.send('stop', { reason: 'tab-gone' })).file.reason, 'tab-gone');
 
   const g = await recording();
@@ -834,8 +784,7 @@ test('16: a take the duration patcher chokes on is handed over raw', async () =>
 test('16b: the real duration patcher writes into the take, and its length is the one measured', async () => {
   const h = await recording({ webm: 'real' });
   h.hooks.finalChunk = 0;
-  // An unknown-size Segment holding an Info with a TimecodeScale and no Duration — what a streamed
-  // MediaRecorder take actually looks like, so the real patcher has somewhere to write.
+  // An unknown-size Segment with TimecodeScale and no Duration — what a streamed take looks like.
   const take = new Uint8Array([
     0x18, 0x53, 0x80, 0x67, 0xff,
     0x15, 0x49, 0xa9, 0x66, 0x87, 0x2a, 0xd7, 0xb1, 0x83, 0x0f, 0x42, 0x40,
@@ -869,10 +818,7 @@ test('12b: the memo is dropped once the take is handed over, so nothing later is
   assert.equal(h.urls.length, 1);
 });
 
-// The final dataavailable that rec.stop() flushes lands while `finishing` still stands: bytes is
-// still over the cap, finish() hands back the memoised promise, and a SECOND pushFile is chained
-// onto it. Downstream the worker parks the first copy and revokes the second's URL — which is the
-// same URL — so the review opens on a dead blob. The guard belongs on the CAP, not on the handler.
+// The flushed chunk lands while `finishing` stands: guard the cap, not the dataavailable handler.
 test('12 (#206): a take that ends on the size cap reaches the worker exactly once', async () => {
   const h = await recording();
   h.hooks.finalChunk = 2048;
@@ -882,8 +828,7 @@ test('12 (#206): a take that ends on the size cap reaches the worker exactly onc
   assert.equal(h.urls.length, 1, 'one URL, and no second delivery for the worker to revoke it over');
 });
 
-// The trap the guard walks past: that last dataavailable carries the tail of the take. A handler
-// that returns early while `finishing` is set would truncate every capped recording instead.
+// That last dataavailable carries the take's tail: returning early on `finishing` would truncate it.
 test('12f (#206): the chunk rec.stop() flushes is still part of the take handed over', async () => {
   const h = await recording();
   h.hooks.finalChunk = 2048;
@@ -904,8 +849,6 @@ test('12e (#206): the five-minute cap reaches the worker exactly once', async ()
   assert.equal(h.files().length, 1);
 });
 
-// The tester's own Stop, on a take the flushed tail carries over the cap: the answer is the take,
-// and the cap must not push a stray copy of it behind the answer's back.
 test('12g (#206): a Stop whose flushed tail crosses the cap is answered, never also pushed', async () => {
   const h = await recording();
   h.hooks.finalChunk = 2048;
@@ -916,9 +859,7 @@ test('12g (#206): a Stop whose flushed tail crosses the cap is answered, never a
   assert.deepEqual(h.files(), [], 'one door per stop; the cap does not open a second one');
 });
 
-// The second door: the tab closes, the track ends and the file is PUSHED, and the worker — which saw
-// the tab go too — asks for a stop and is ANSWERED with the same file. One take, two srecFinish
-// calls, and the second revokes the URL the first parked.
+// One take, two srecFinish calls: the second would revoke the URL the first parked.
 test('13: a stop the worker asked for is ANSWERED, never also pushed', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
@@ -938,8 +879,6 @@ test('32: a tab that closes under the recording keeps what was recorded and push
   assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: 4096, ms: 0, reason: 'tab-gone' }]);
 });
 
-// The other door the ticket names: the tab is closed while the take is nearly at the cap, and the
-// tail rec.stop() flushes carries it over — the cap used to push the very same file behind it.
 test('32b (#206): a closed tab whose flushed tail crosses the cap still pushes once', async () => {
   const h = await recording();
   h.hooks.finalChunk = 2048;
@@ -949,13 +888,7 @@ test('32b (#206): a closed tab whose flushed tail crosses the cap still pushes o
   assert.deepEqual(h.files(), [{ url: 'blob:take-1', size: SIZE_CAP - 1024 + 2048, ms: 0, reason: 'tab-gone' }]);
 });
 
-// A tab closing while the worker also asks to stop opens both doors at once. finish() is ONE
-// memoised promise, so the push and the answer carry the very same file object — that is the
-// contract, not a fault, and this page has no way to know which door the worker is listening at.
-// Handing the second caller nothing instead would send srecStop down its empty-take branch, which
-// closes this document while it is still holding the bytes the review is playing. The worker is
-// where the two are told apart: screenrec/session.js compares the url against what it already
-// parked, so its own take is already home rather than a stranger to revoke.
+// Both doors get the same take by contract; the worker tells them apart by comparing the url.
 test('13b: one memoised finish, so both doors are handed the SAME take and one url', async () => {
   const h = await recording();
   h.hooks.finalChunk = 0;
@@ -986,8 +919,6 @@ test('11d: an empty chunk is not a chunk — it neither counts nor ends the take
   assert.equal(h.st.chunks.length, 0);
   assert.deepEqual(h.rec().log, [['start', 1000]]);
 });
-
-// ---- reset --------------------------------------------------------------------
 
 test('20: reset drops every field, stops every track and hangs the frame pipe up', async () => {
   const h = load();
@@ -1030,8 +961,6 @@ test('20d: reset on a page that never recorded anything is harmless', () => {
   assert.equal(h.st.rec, null);
   assert.deepEqual(h.timers.cleared, []);
 });
-
-// ---- pause --------------------------------------------------------------------
 
 test('21: pausing a running recording stops the recorder and stops the clock', async () => {
   const h = await recording();
@@ -1088,8 +1017,6 @@ test('23b: a cast resumed before its first frame does not call resume on a recor
   assert.equal(h.recorders.length, 0);
 });
 
-// ---- the state answer ----------------------------------------------------------
-
 test('25: a cast that has not seen a frame yet still answers "recording"', async () => {
   const h = load();
   await h.send('cast-start');
@@ -1116,8 +1043,6 @@ test('25c: a page with nothing recording says so', async () => {
     ok: true, recording: false, paused: false, ms: 0, bytes: 0, frames: 0, err: '',
   });
 });
-
-// ---- the protocol ---------------------------------------------------------------
 
 test('26: cast-start wipes what was there, opens the pipe, and only then calls itself recording', async () => {
   const h = await recording();
@@ -1200,8 +1125,6 @@ test('33c: every synchronous cmd answers before it returns, and only start and s
   await h.flush();
 });
 
-// ---- the trimmed take ------------------------------------------------------------
-
 test('27: three streamed parts come back as one take, patched, with the old URL revoked', async () => {
   const h = load({ webm: 'grow' });
   const parts = ['AAECAwQF', 'BgcICQoL', 'DA0ODxAR'];   // 6 bytes each, in order
@@ -1241,8 +1164,7 @@ test('27d: a swap whose patch throws still hands the raw cut back', async () => 
     { ok: true, url: 'blob:take-1', size: 6 });
 });
 
-// The review guards this before it ever streams — but nothing here does, so a swap with no chunks
-// mints a real URL over an empty file. Pinned as it is today.
+// Only the review guards a swap with no chunks, so here it mints a real URL over an empty file.
 test('28: a swap with nothing streamed to it answers with a valid URL over a 0-byte take', async () => {
   const h = load();
   assert.deepEqual(await h.send('trim-swap', { oldUrl: 'blob:original', ms: 1000 }),

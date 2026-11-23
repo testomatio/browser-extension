@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// extension/shared/view-mode.js (#182): which surface the panel is on, and which browser window a
-// screenshot or a screen recording is aimed at. Getting the second one wrong is silent — the tester
-// presses Capture and photographs the wrong screen, or stops a recording that was never theirs.
-// This file is loaded TWICE per browser: once as a panel script and once into the service worker
-// (background.js:8 importScripts), so every sandbox here is worker-shaped — no `document`, no
-// `window`, nothing but `chrome`. A reference to either would throw in the worker and take the
-// panel surface down with it.
-// Run: node --test tests/view-mode.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, chromeFake, plain } from './helpers/shared-harness.mjs';
@@ -14,8 +6,7 @@ import { loadInto, chromeFake, plain } from './helpers/shared-harness.mjs';
 const NORMAL_KEY = 'viewNormalWindowId';
 const PANEL_KEY = 'viewPanelWindowId';
 
-// One load per case: `ViewMode` is an IIFE and its `chrome` is captured by the context, not passed.
-// The sandbox holds `chrome` ALONE — that absence is the worker contract, asserted by every row.
+// The sandbox holds `chrome` alone: the worker offers nothing else, and every row asserts that.
 function loadViewMode(opts = {}) {
   const {
     local = {}, session = {}, localFail = {}, sessionFail = {},
@@ -51,8 +42,6 @@ function loadViewMode(opts = {}) {
   const { value } = loadInto(sandbox, [['shared/view-mode.js', 'ViewMode']]);
   return { vm: value, h, calls, sandbox };
 }
-
-// ---------- the remembered choice ----------
 
 test('the tester who chose the free-floating window is still in it next time', async () => {
   const { vm } = loadViewMode({ local: { viewMode: 'window' } });
@@ -95,8 +84,6 @@ test('a write that fails is swallowed — the switch already happened on screen'
   await vm.setMode('window'); // must resolve, not reject
   assert.deepEqual(plain(h.local.sets), [{ viewMode: 'window' }]);
 });
-
-// ---------- window ids, which mean nothing after a restart ----------
 
 test('only a real integer window id is remembered — 3.5, "3" and null are dropped', async () => {
   const { vm, h } = loadViewMode();
@@ -143,8 +130,6 @@ test('a remove that throws is swallowed — the fallbacks still answer', async (
   const { vm } = loadViewMode({ session: { [PANEL_KEY]: 9 }, sessionFail: { remove: true } });
   await vm.forgetPanelWindow(9);
 });
-
-// ---------- which window the SITE is in ----------
 
 test('the tracked window is handed straight back, and no window list is walked', async () => {
   const { vm, calls } = loadViewMode({
@@ -212,8 +197,6 @@ test('a window list that throws answers null instead of aiming at nothing', asyn
   assert.equal(await vm.normalWindowId(), null);
 });
 
-// ---------- telling our own panel window apart from the tester's ----------
-
 test('a normal window is never mistaken for the panel', async () => {
   const { vm } = loadViewMode({ session: { [PANEL_KEY]: 8 } });
   assert.equal(await vm.isPanelWindow({ type: 'normal', id: 8 }), false);
@@ -248,8 +231,6 @@ test('this document knows it is in the panel window by its own popup frame', asy
     false,
   );
 });
-
-// ---------- the contract the rest of the extension leans on ----------
 
 test('the panel window opens tall and narrow, because the layout is the side panel’s', () => {
   const { vm } = loadViewMode();

@@ -1,7 +1,5 @@
-/* Shared control components: buttons, fields, badges, lists, popups.
-   Loaded after shared/tokens.css and BEFORE a page's own stylesheet, so a page can override one. */
+/* Loaded after tokens.css and before a page's own stylesheet, so a page can override one. */
 
-/* ---- RESET ---- */
 /* The components below set an explicit display, which would otherwise beat the UA [hidden] rule. */
 [hidden] { display: none !important; }
 
@@ -23,8 +21,7 @@ button {
 button:disabled { cursor: not-allowed; }
 input, select, textarea { font: inherit; }
 
-/* ---- SIZE — one scale, shared by every control ----
-   Each component's own default is written with :where() (zero specificity), so a .size-* class always wins. */
+/* Each component's default uses :where() (zero specificity), so a .size-* class always wins. */
 .size-xs {
   --ctl-h: var(--control-h-xs);
   --ctl-px: var(--control-px-xs);
@@ -50,9 +47,7 @@ input, select, textarea { font: inherit; }
   --ctl-radius: var(--control-radius-md);
 }
 
-/* ---- BUTTON ---- */
-
-/* The base IS the secondary button; an <a> can wear it too, hence the text-decoration and the colour. */
+/* The base is the secondary button; an <a> can wear it too, hence the text-decoration and colour. */
 :where(.btn) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -96,19 +91,17 @@ input, select, textarea { font: inherit; }
 }
 .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
-/* The icon takes the CONTROL's icon size, overriding whatever width/height the markup asked for. */
+/* The icon takes the control's icon size, overriding whatever width/height the markup asked for. */
 .btn .md-icon, .btn svg {
   display: block;
   flex: none;
   width: var(--control-icon);
   height: var(--control-icon);
 }
-/* Smaller side padding when an icon LEADS the label. A TRAILING icon needs its label in a <span>:
-   :first-child counts elements, so a bare text node before the icon is invisible to the selector. */
+/* A trailing icon needs its label in a <span>: :first-child ignores a bare text node before it. */
 .btn:not(.icon):has(> :is(.md-icon, svg):first-child) { padding-left: var(--ctl-px-lead); }
 
-/* Long and short label forms; which one a row wears is measured by fitActionLabels (sidepanel/core/views.js).
-   display:none, never a zero-width box, so the measurement reads the width the button really asked for. */
+/* display:none, not a zero-width box, so fitActionLabels measures the width the button asked for. */
 .fit-label > .label-short { display: none; }
 .fit-label.is-short > .label-long { display: none; }
 .fit-label.is-short > .label-short { display: block; }
@@ -143,8 +136,7 @@ input, select, textarea { font: inherit; }
 .btn.danger:hover:not(:disabled) { border-color: var(--failed); }
 .btn.primary.danger { background: var(--failed); border-color: var(--failed); color: var(--on-status); }
 
-/* .selected MODIFIES the intent it lands on rather than replacing it. The matching aria-pressed /
-   aria-selected is the caller's: only the caller knows which question the control is answering. */
+/* .selected modifies the intent it lands on; the matching aria-pressed/aria-selected is the caller's. */
 .btn.selected {
   background: var(--row-active);
   border-color: var(--row-active-border);
@@ -186,7 +178,6 @@ input, select, textarea { font: inherit; }
 .btn.skipped.outline { border-color: var(--skipped); color: var(--skipped-fg); }
 .btn.neutral.outline { border-color: var(--border-control); color: var(--fg); }
 
-/* Shapes. */
 .btn.icon { width: var(--ctl-h); padding: 0; }
 .btn.block { display: flex; width: 100%; }
 .btn.pill { border-radius: var(--radius-pill); }
@@ -248,8 +239,7 @@ a.icon-btn { text-decoration: none; }
 .link-btn:hover:not(:disabled) { text-decoration: underline; }
 .link-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
 
-/* ---- SWATCH — a control whose LABEL is a colour ----
-   The colour arrives as an inline --swatch, not a token: it is the caller's data. Name via aria-label. */
+/* The colour comes as an inline --swatch, not a token: it is the caller's data; name via aria-label. */
 .swatch-row {
   display: inline-flex;
   align-items: center;
@@ -268,14 +258,13 @@ a.icon-btn { text-decoration: none; }
 .swatch:hover:not(:disabled) { box-shadow: inset 0 0 0 999px var(--hover-overlay); }
 .swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .swatch:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
-/* Chosen: the ring is drawn INSIDE the box, so picking one cannot resize it and nudge the row. */
+/* Chosen: the ring is drawn inside the box, so picking one cannot resize it and nudge the row. */
 .swatch.active,
 .swatch[aria-pressed="true"] {
   border-color: var(--fg);
   box-shadow: inset 0 0 0 2px var(--bg);
 }
 
-/* ---- SEGMENTED — one control, N answers, exactly one chosen ---- */
 :where(.segmented) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -306,7 +295,7 @@ a.icon-btn { text-decoration: none; }
   color: var(--muted);
   font-family: inherit;
   font-size: var(--ctl-fs);
-  /* Medium at rest AND when chosen: a weight that changed would re-measure the label and shift its neighbours. */
+  /* Medium at rest and when chosen: a weight change would re-measure the label and shift neighbours. */
   font-weight: var(--weight-medium);
   line-height: var(--leading-none);
   white-space: nowrap;
@@ -354,8 +343,7 @@ a.icon-btn { text-decoration: none; }
 .segmented.block { display: flex; width: 100%; }
 .segmented.block .segment { flex: 1; min-width: 0; }
 .segment.icon { width: var(--ctl-h); padding: 0; }
-/* The ring: on light the counter's fill and the TRACK's are the same step of the ramp, so without
-   an edge the number floats with no pill around it. */
+/* On light the counter's fill and the track's share a ramp step; without an edge the number floats. */
 .segment .counter {
   --cnt-h: var(--counter-h-sm);
   --cnt-px: var(--counter-px-sm);
@@ -363,11 +351,7 @@ a.icon-btn { text-decoration: none; }
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
-/* ---- FILTERS — the row of counts that narrows the list under it ---- */
-/* Plain .btn.secondary.size-sm chips; .filter-chip/.filter-label are only query hooks for fitFilterChips
-   (sidepanel/core/views.js), which measures what fits and moves the rest into the ⋯ menu. */
-/* The 16 above the row collapses against a .toolbar's own 12, so a screen that wraps its field in a
-   toolbar and one that leaves it alone still put the chips on the same vertical. */
+/* The 16 above collapses against a .toolbar's 12, so the chips sit at the same height either way. */
 .filters {
   display: flex;
   align-items: stretch;
@@ -376,14 +360,13 @@ a.icon-btn { text-decoration: none; }
   margin-block: var(--space-4) var(--space-3);
 }
 
-/* .filter-more is only the popup's positioning root, and a flex box of its own so the row's
-   align-items: stretch reaches the button inside it. */
+/* .filter-more is the popup's positioning root, and flex so the row's stretch reaches its button. */
 .filter-more {
   position: relative;
   display: flex;
   flex: 0 0 auto;
 }
-/* Right-anchored: the trigger is always the row's last chip, so a left-hung menu would run off the panel. */
+/* Right-anchored: the trigger is always the row's last chip, so a left-hung menu runs off the panel. */
 .filter-more-menu {
   right: 0;
   left: auto;
@@ -391,8 +374,7 @@ a.icon-btn { text-decoration: none; }
 }
 .filter-more-menu .menu-option { justify-content: space-between; }
 
-/* ---- BADGE — the read-only pill ----
-   A badge is a WORD; a NUMBER is .counter (below), which is a box with two sizes rather than a pill. */
+/* A badge is a word; a number is .counter (below), a box with two sizes rather than a pill. */
 .badge {
   display: inline-block;
   padding: 1px var(--space-2);
@@ -406,14 +388,13 @@ a.icon-btn { text-decoration: none; }
   box-shadow: inset 0 0 0 1px var(--neutral-ring);
 }
 .badge.passed { background: var(--passed-bg); color: var(--passed-fg); box-shadow: inset 0 0 0 1px var(--passed-ring); }
-/* FAILED is the library's own exception: the solid status colour under white, not a tint. */
+/* Failed is the library's own exception: the solid status colour under white, not a tint. */
 .badge.failed { background: var(--failed); color: var(--on-status); box-shadow: none; }
 .badge.skipped { background: var(--skipped-bg); color: var(--skipped-fg); box-shadow: inset 0 0 0 1px var(--skipped-ring); }
 .badge.neutral { background: var(--neutral-bg); color: var(--neutral-fg); }
 .badge.outline { background: transparent; }
 
-/* ---- ENV — a run's environments, drawn as a list of pills ----
-   The .list .meta variant is restated because that rule is two classes deep and would win the gap back. */
+/* The .list .meta variant is restated: that rule is two classes deep and would win the gap back. */
 .env-tags {
   display: inline-flex;
   align-items: center;
@@ -431,9 +412,7 @@ a.icon-btn { text-decoration: none; }
   text-overflow: ellipsis;
 }
 
-/* ---- COUNTER — the pill a NUMBER wears ---- */
-/* Tabular figures: polling rewrites these numbers under the pointer, and proportional digits would
-   resize the control around them mid-hover. A number ending a list ROW is .row-count instead. */
+/* Tabular figures: polled numbers change under the pointer; proportional digits would resize it. */
 :where(.counter) {
   --cnt-h: var(--counter-h-md);
   --cnt-px: var(--counter-px-md);
@@ -457,18 +436,16 @@ a.icon-btn { text-decoration: none; }
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   vertical-align: middle;
-  /* Room for TWO figures, always: a box that grows with its digits re-wraps the row around it. */
+  /* Room for two figures, always: a box that grows with its digits re-wraps the row around it. */
   min-width: calc(2ch + var(--cnt-px) * 2);
 }
-/* An animation, not a transition, because it is restarted from JS (paintCounter, core/views.js) —
-   so only a value that actually changed replays it. */
+/* An animation, not a transition: JS restarts it (paintCounter), so only a changed value replays. */
 @keyframes counter-in { from { opacity: 0; transform: translateY(-2px); } }
 .counter.settled { animation: counter-in var(--dur) var(--ease); }
 @media (prefers-reduced-motion: reduce) {
   .counter.settled { animation: none; }
 }
-/* Declared AFTER the host rules above (.btn .counter, .segment .counter), which score the same 0-2-0:
-   a size named in the markup wins the tie against the one its host would have set. */
+/* After the host rules (.btn .counter, .segment .counter) at equal specificity, so markup size wins. */
 .counter.size-sm { --cnt-h: var(--counter-h-sm); --cnt-px: var(--counter-px-sm); --cnt-fs: var(--counter-fs-sm); }
 .counter.size-md { --cnt-h: var(--counter-h-md); --cnt-px: var(--counter-px-md); --cnt-fs: var(--counter-fs-md); }
 
@@ -485,7 +462,6 @@ a.icon-btn { text-decoration: none; }
   box-shadow: none;
 }
 
-/* ---- TABS ---- */
 .tabs { display: flex; background: var(--bg); }
 .tab {
   display: flex;
@@ -502,8 +478,7 @@ a.icon-btn { text-decoration: none; }
   cursor: pointer;
   transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
-/* :not(:where(…)), not a plain :not(): :where() weighs nothing, so this selector keeps the specificity
-   it had before the exclusion and the boxed look below still wins its deliberate tie. */
+/* :not(:where(…)) adds no specificity, so the boxed look below still wins its deliberate tie. */
 .tab:hover:not(:disabled):not(:where(.active, [aria-selected="true"])) { color: var(--tab-hover-fg); }
 .tab:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .tab:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
@@ -516,8 +491,7 @@ a.icon-btn { text-decoration: none; }
   height: var(--control-icon);
 }
 .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* '1 1 auto', NOT '1': flat thirds clip a tab carrying an icon and a 3-digit count while a bare one
-   sits on slack it cannot use. */
+/* '1 1 auto', not '1': flat thirds clip a tab carrying an icon and a 3-digit count. */
 .tabs.fill { flex: 1; min-width: 0; }
 .tabs.fill .tab { flex: 1 1 auto; min-width: 0; }
 
@@ -541,9 +515,7 @@ a.icon-btn { text-decoration: none; }
   background: var(--card-bg);
 }
 
-/* ---- MARKS — priority · type of test · run status ---- */
-/* The library draws 'normal' at 12px and the other four priorities at 19 (glyphs: shared/priority-icons.js),
-   so the fixed 20px square is what stops a column of them stepping in and out down the left edge. */
+/* 'normal' is drawn at 12px and the rest at 19, so a fixed 20px square keeps a column aligned. */
 .prio {
   display: inline-flex;
   align-items: center;
@@ -561,8 +533,7 @@ a.icon-btn { text-decoration: none; }
 .prio[data-priority="high"],
 .prio[data-priority="important"],
 .prio[data-priority="critical"] { color: var(--priority-high); }
-/* The same box while the value is still on the wire: a mark that arrives late would push the title
-   beside it sideways (core/views.js → testPriorityMark). */
+/* The same box while the value loads: a late mark would push the title beside it sideways. */
 .prio > .skeleton.circle { --sk-size: 12px; }
 
 /* Type of test: nine kinds, drawn by shared/test-type.js from the type_* glyphs in icons.js. */
@@ -595,7 +566,6 @@ a.icon-btn { text-decoration: none; }
 .type-mark.alert { background: var(--kind-alert-bg); color: var(--kind-alert-fg); }
 .type-mark.note { background: var(--kind-note-bg); color: var(--kind-note-fg); }
 
-/* ---- RUN STATUS — dot · icon · label · text · spinner ---- */
 .status-dot {
   display: inline-block;
   flex: none;
@@ -667,11 +637,7 @@ a.icon-btn { text-decoration: none; }
 .status-text .status-icon { width: 14px; height: 14px; }
 .status-text .spinner { width: 14px; height: 14px; }
 
-/* Two colours, so it cannot be a one-path icon: an SVG of two circles — the track, and a quarter of it
-   in the head colour (spinnerEl, screens/run-view.js) — spun whole. Vector, so the ring stays round and
-   the quarter's ends stay sharp at 1x as at 2x; the gradient ring it replaces drew hard colour stops
-   that rotated as staircases. 'linear', not 'steps(4)' — the library's four frames are keyframes of
-   ONE rotation, not four states. */
+/* 'linear', not 'steps(4)': the library's four frames are one rotation, not four states. */
 .spinner {
   flex: none;
   box-sizing: content-box;
@@ -688,8 +654,7 @@ a.icon-btn { text-decoration: none; }
   .spinner { animation: none; }
 }
 
-/* ---- DISCLOSURE — a head that folds its body ----
-   The head is a <button> carrying aria-expanded and the caret rotates off it, so the state has one source. */
+/* The head is a <button> with aria-expanded and the caret rotates off it, so state has one source. */
 .disclosure { margin: var(--space-2) 0 var(--space-1); }
 .disclosure-head {
   display: flex;
@@ -710,8 +675,7 @@ a.icon-btn { text-decoration: none; }
 .disclosure-head > .head-icon { flex: none; }
 .disclosure-body { padding: var(--space-1) 0 0; }
 
-/* ---- ACCORDION — the fold, boxed ----
-   Markup is .disclosure + .accordion-item on the SAME node: DISCLOSURE still owns the open/closed state. */
+/* Markup is .disclosure + .accordion-item on the same node: the disclosure owns open/closed state. */
 .accordion { display: flex; flex-direction: column; gap: var(--space-2); }
 .accordion > .accordion-item { margin: 0; }
 .accordion-item {
@@ -723,12 +687,10 @@ a.icon-btn { text-decoration: none; }
 .accordion-item > :is(h2, h3, h4) > .disclosure-head { padding: var(--space-2) var(--space-3); transition: background var(--dur-fast) var(--ease); }
 .accordion-item > .disclosure-head:hover:not(:disabled),
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:hover:not(:disabled) { background: var(--hover-overlay); color: var(--fg); }
-/* 'overflow: hidden' above clips a 2px OUTSET ring at the item's own corners. */
+/* 'overflow: hidden' above clips a 2px outset ring at the item's own corners. */
 .accordion-item > .disclosure-head:focus-visible,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head:focus-visible { outline-offset: -2px; }
-/* The count belongs to the WORD it counts, not to the far edge of the item: it sits straight after the
-   label and takes the small counter size, so a head reads as one line — "Steps 25" — instead of a label
-   and a figure at opposite ends of a wide row. */
+/* The count sits right after the label in the small size, so a head reads as one line: "Steps 25". */
 .accordion-item > .disclosure-head > .counter,
 .accordion-item > :is(h2, h3, h4) > .disclosure-head > .counter {
   --cnt-h: var(--counter-h-sm);
@@ -741,8 +703,7 @@ a.icon-btn { text-decoration: none; }
 .accordion-item.nested { border: none; border-radius: var(--radius-sm); background: var(--surface-2); padding: var(--space-1) var(--space-2); }
 .accordion-item.nested > .disclosure-head { padding: var(--space-1) 0; }
 
-/* ---- MENU — the popup opened from a control ----
-   It carries the popup depth, so the page holding it must NOT trap it in a stacking context of its own. */
+/* It carries the popup depth, so the page holding it must not trap it in its own stacking context. */
 .menu {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -772,8 +733,7 @@ a.icon-btn { text-decoration: none; }
 .menu-option[aria-selected="true"] { background: var(--row-active); color: var(--row-active-fg); font-weight: var(--weight-semibold); }
 .menu > .empty.compact { padding: var(--space-1) var(--space-2); }
 
-/* ---- TOOLTIP — the label the pointer asks for ----
-   shared/tooltip.js owns left/top and the arrow's offset along the edge; the side is CSS's (data-side). */
+/* shared/tooltip.js owns left/top and the arrow's offset; the side is CSS's (data-side). */
 .tooltip {
   position: fixed;
   top: 0;
@@ -821,8 +781,7 @@ a.icon-btn { text-decoration: none; }
   .tooltip[data-open="true"] { transform: none; }
 }
 
-/* ---- HOVERCARD — the label that is a LIST ----
-   shared/hovercard.js owns left/top and the side. Unlike a tooltip it can be entered and clicked. */
+/* shared/hovercard.js owns left/top and the side; unlike a tooltip it can be entered and clicked. */
 .hovercard {
   position: fixed;
   top: 0;
@@ -911,7 +870,6 @@ a.icon-btn { text-decoration: none; }
   .hovercard[data-open="true"] { transform: none; }
 }
 
-/* ---- PROGRESS — the stacked status bar ---- */
 .progress {
   display: flex;
   height: 5px;
@@ -924,7 +882,6 @@ a.icon-btn { text-decoration: none; }
 .progress > .failed, .progress > .f { background: var(--failed); }
 .progress > .skipped, .progress > .s { background: var(--skipped); }
 
-/* ---- KV — the key/value list ---- */
 .kv {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr);
@@ -936,8 +893,7 @@ a.icon-btn { text-decoration: none; }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .kv.mono dd { font-family: var(--font-mono); }
 
-/* .kv.rows — the same two columns read as a LIST. The cells are flex, not blocks, so a value that is
-   an inline-flex box on the text baseline cannot make its row taller by its descender space. */
+/* Cells are flex, not blocks, so an inline-flex value cannot make its row taller by descender space. */
 .kv.rows { gap: 0; }
 .kv.rows dt,
 .kv.rows dd {
@@ -953,7 +909,6 @@ a.icon-btn { text-decoration: none; }
 /* The last pair (dt + dd) closes the list. */
 .kv.rows > :nth-last-child(-n + 2) { border-bottom: 0; }
 
-/* ---- THUMB — a staged picture that can still be dropped ---- */
 .thumb-row {
   display: flex;
   flex-wrap: wrap;
@@ -985,9 +940,7 @@ a.icon-btn { text-decoration: none; }
 /* No offset: 2px outside a control sitting 4px inside the picture would draw across the picture. */
 .thumb-remove:focus-visible { outline-offset: 0; }
 
-/* ---- USER CELL — who did it ---- */
-/* Initials, not the web's photo URL: the CSP allows img-src 'self' data: blob: only, so a remote avatar
-   would render as a broken box (shared/user-cell.js fetches it and hands over a blob: URL). */
+/* Initials, not a photo URL: the CSP allows img-src 'self' data: blob: only, so a remote one breaks. */
 .user-cell {
   position: relative; /* the name is taken out of flow when the list stacks */
   display: inline-flex;
@@ -1023,8 +976,7 @@ a.icon-btn { text-decoration: none; }
   gap: var(--space-1) var(--space-4);
   min-width: 0;
 }
-/* Stacked, set by the screen once the named form wraps: the ring is the card's own FILL, not a border —
-   it is what cuts one circle out of the one behind it, so it must be the colour behind the stack. */
+/* Stacked: the ring is the card's fill, not a border, so it must match the colour behind the stack. */
 .user-cells.is-stacked { gap: 0; }
 .user-cells.is-stacked .user-cell + .user-cell { margin-left: calc(-1 * var(--space-2)); }
 .user-cells.is-stacked .avatar { box-shadow: 0 0 0 2px var(--card-bg); }
@@ -1038,7 +990,6 @@ a.icon-btn { text-decoration: none; }
   white-space: nowrap;
 }
 
-/* ---- NOTICE, HINT, LOCK NOTE, STATUS LINE — the ways a screen speaks ---- */
 .notice {
   display: flex;
   flex-direction: column;
@@ -1056,8 +1007,7 @@ a.icon-btn { text-decoration: none; }
 
 .hint { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--leading-snug); }
 
-/* The lock glyph is a mask (--icon-lock), so it is painted in the note's own colour and stays out
-   of textContent. */
+/* The lock glyph is a mask (--icon-lock): painted in the note's colour and kept out of textContent. */
 .lock-note {
   display: flex;
   align-items: center;
@@ -1079,13 +1029,12 @@ a.icon-btn { text-decoration: none; }
   mask: var(--icon-lock) center / contain no-repeat;
 }
 
-/* It RESERVES its row (min-height), so a message landing does not shift the page under the pointer. */
+/* It reserves its row (min-height), so a message landing does not shift the page under the pointer. */
 .status-line { min-height: 16px; margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .status-line.error { color: var(--failed); }
 .status-line.ok { color: var(--passed); }
 
-/* ---- PAGER — where you are in a sequence, and the two steps out of it ----
-   Each end goes disabled rather than hidden: a control that vanished would move the two beside it. */
+/* Each end goes disabled rather than hidden: a control that vanished would move the two beside it. */
 .pager { display: inline-flex; align-items: center; gap: var(--space-1); }
 .pager-pos {
   /* Tabular figures and a floor under the width: paging 9 → 10 must not push the arrows sideways. */
@@ -1107,9 +1056,7 @@ a.icon-btn { text-decoration: none; }
   white-space: nowrap;
 }
 
-/* ---- FRAME — the 1px edge of the extension itself ---- */
-/* A FIXED pseudo-element, not a border on <html>/<body>: a border scrolls with the document, so the
-   bottom line would only appear once the page was scrolled to its end. Above every layer, no pointer events. */
+/* A fixed pseudo-element, not a border on <html>/<body>: a border scrolls with the document. */
 body::after {
   content: "";
   position: fixed;
@@ -1119,8 +1066,7 @@ body::after {
   pointer-events: none;
 }
 
-/* ---- BAR — a page-chrome row ----
-   The DEPTH is the page's business: each bar sits in a different stacking story, so a page sets z-index itself. */
+/* Depth is the page's business: each bar sits in a different stacking story, so pages set z-index. */
 .bar {
   display: flex;
   align-items: center;
@@ -1133,9 +1079,7 @@ body::after {
 .bar.footer { position: sticky; bottom: 0; border-top: 1px solid var(--border); }
 .bar-spacer { flex: 1 1 auto; min-width: 0; }
 
-/* ---- CRUMBS — the path down to what is open ---- */
-/* Ancestors only; the open page is the title beside the trail. What a truncated crumb loses comes back
-   as data-tip + aria-label, which the caller sets — only it knows the untruncated string. */
+/* Ancestors only; a truncated crumb's full text comes back as data-tip + aria-label from the caller. */
 .crumbs {
   display: flex;
   align-items: center;
@@ -1176,7 +1120,6 @@ body::after {
   vertical-align: middle;
 }
 
-/* ---- SPIN — the one rotation in the extension ---- */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.8s linear infinite; }
 .spin.slow { animation-duration: 1.4s; }
@@ -1184,7 +1127,6 @@ body::after {
   .spin { animation: none; }
 }
 
-/* ---- TOOLBAR — a row of controls above the thing they act on ---- */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1198,7 +1140,6 @@ body::after {
   border-bottom: 1px solid var(--border);
 }
 
-/* ---- CARD — the grouped surface ---- */
 .card {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
@@ -1207,17 +1148,14 @@ body::after {
 }
 .card.accent { border-left: var(--border-w-accent) solid var(--accent); }
 
-/* The negative margins ARE the card's padding, so the hairline runs the card's full width: change one
-   and change the other. The floor reads --card-pad-b, so a card that moved its own padding says so once. */
+/* The negative margins are the card's padding, so the hairline runs full width: change both together. */
 .card-foot {
   margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--card-pad-b, var(--space-2)));
   padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border);
 }
 
-/* ---- TOAST — the transient message ---- */
-/* One inset on all three sides: at 12 the plaque sat closer to the panel's bottom edge than to its
-   sides, which reads as a row that slipped rather than one that is floating over the screen. */
+/* One inset on all three sides, so the plaque reads as floating, not as a row that slipped. */
 .toast {
   position: fixed;
   bottom: var(--gutter);
@@ -1252,15 +1190,12 @@ body::after {
 .toast .toast-action:hover { background: var(--toast-action-bg-hover); box-shadow: none; }
 .toast.error .toast-action { background: transparent; border-color: var(--failed-ring); }
 .toast.error .toast-action:hover { background: var(--toast-action-bg-error-hover); box-shadow: none; }
-/* The running-job plaque: the mark is the text's own colour (the error red belongs to an error), and
-   the row keeps standing until the job answers. */
+/* Running-job plaque: the mark wears the text colour, since red belongs to an error. */
 .toast.progress .toast-icon { color: inherit; opacity: 0.85; }
 .toast .toast-dismiss { color: inherit; }
 .toast .toast-dismiss:hover { background: var(--toast-action-bg); color: inherit; }
 
-/* ---- DIALOG — the small modal box ---- */
-/* .dialog-actions reads least → most committed: Cancel first, the PRIMARY action LAST (shadcn's convention).
-   Leading with primary moves Cancel out of its expected spot and traps a hasty click. */
+/* .dialog-actions: Cancel first, the primary action last; leading with primary traps a hasty click. */
 .dialog {
   width: 100%;
   max-width: 320px;
@@ -1276,7 +1211,6 @@ body::after {
 .dialog > p { margin: 0 0 var(--space-3); }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 
-/* ---- BANNER — the slim strip under the header ---- */
 .banner {
   display: flex;
   align-items: center;
@@ -1301,7 +1235,6 @@ body::after {
 .banner.accent .btn { border-color: var(--accent-border); background: var(--bg); }
 .banner .icon-btn { color: inherit; }
 
-/* ---- CODE — a preformatted block ---- */
 .code {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
@@ -1321,9 +1254,7 @@ body::after {
   font-size: var(--prose-code);
 }
 
-/* ---- MARKDOWN — rendered user prose ---- */
-/* '.sections' is the blob embedded in a screen's own chrome: its headings are small labels in the body
-   face, so the only heading on the screen stays the one the screen printed itself. */
+/* '.sections' headings are small body-face labels, so the screen's own heading stays the only one. */
 .markdown {
   line-height: var(--leading-relaxed);
   --md-step-size: var(--space-5);
@@ -1358,9 +1289,7 @@ body::after {
 .markdown li { margin: var(--space-1) 0; }
 .markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 
-/* ---- STEPS — the list under a '### Steps' heading ---- */
-/* .md-steps is stamped by shared/markdown.js 'stepLists' (the fact that decides it is the TEXT of a heading
-   two elements back); :not(:has(> .step-row)) keeps this off the panel's own interactive step rows. */
+/* .md-steps is stamped by shared/markdown.js; :not(:has()) keeps this off interactive step rows. */
 .markdown .md-steps:not(:has(> .step-row)) {
   counter-reset: md-step;
   list-style: none;
@@ -1373,7 +1302,7 @@ body::after {
   padding: 0 0 var(--space-3) calc(var(--md-step-size) + var(--md-step-gap));
 }
 .markdown .md-steps:not(:has(> .step-row)) > li:last-child { padding-bottom: 0; }
-/* The coin is centred on the step's FIRST line (1lh), not on the top of its box. */
+/* The coin is centred on the step's first line (1lh), not on the top of its box. */
 .markdown .md-steps:not(:has(> .step-row)) > li::before {
   content: counter(md-step);
   position: absolute;
@@ -1419,7 +1348,7 @@ body::after {
   content: "";
   position: absolute;
   left: var(--space-1);
-  /* 6px is a MARK, not a step of spacing — the grid's neighbours (4 and 8) both read wrong beside 13px text. */
+  /* 6px is a mark, not a spacing step: the grid's neighbours (4 and 8) both read wrong beside 13px text. */
   top: calc((1lh - 6px) / 2);
   width: 6px;
   height: 6px;
@@ -1427,8 +1356,7 @@ body::after {
   border-radius: var(--radius-pill);
 }
 .markdown img { max-width: 100%; }
-/* The CSP allows no remote <img> (#205, shared/img-hydrate.js), so between the render and the bytes the
-   element has no src at all: the box is the waiting state, and the attribute is gone once the blob lands. */
+/* The CSP allows no remote <img> (shared/img-hydrate.js): until the blob lands, this box is the wait. */
 .markdown img[data-img="loading"] {
   display: block;
   min-width: 96px;
@@ -1470,9 +1398,7 @@ span.img-fallback { color: var(--muted); }
   border-left: var(--border-w-accent) solid var(--border-control);
 }
 
-/* ---- LIST — the product's row list ---- */
-/* A WRAPPER: .list/.list-row own the frame, the rule, the padding and the three states; what is INSIDE a
-   row belongs to the screen that renders it. Any <li> in a .list, or .list-row on anything, gets the row. */
+/* .list/.list-row own frame, rule, padding and states; what is inside a row belongs to its screen. */
 .list { list-style: none; margin: 0; padding: 0; }
 :where(.list, .list-row) {
   --row-px: var(--space-2);
@@ -1487,8 +1413,7 @@ span.img-fallback { color: var(--muted); }
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-/* The rule is a pseudo, not a border, so it can START somewhere other than the row's left edge:
-   --row-rule-inset is where — 0 for a flat list, the row's glyph column in a tree (see TREE below). */
+/* The rule is a pseudo, not a border, so it can start at --row-rule-inset (a tree's glyph column). */
 .list li::after,
 .list-row::after {
   content: "";
@@ -1500,8 +1425,7 @@ span.img-fallback { color: var(--muted); }
   background: var(--row-border);
   pointer-events: none;
 }
-/* Direct children only: a tree row is wrapped in an <li> that also holds its children, so every leaf is
-   :last-child of its own wrapper and an unscoped rule would leave all of them without a rule. */
+/* Direct children only: in a tree every leaf is :last-child of its own <li> and would lose its rule. */
 .list > li:last-child::after,
 .list > .list-row:last-child::after { content: none; }
 
@@ -1535,7 +1459,6 @@ span.img-fallback { color: var(--muted); }
   overflow: hidden auto;
 }
 
-/* ---- LIST HEAD — a row's own content line ---- */
 .list-head {
   display: flex;
   align-items: center;
@@ -1544,8 +1467,7 @@ span.img-fallback { color: var(--muted); }
   min-height: var(--space-8); /* 32 — matches the plain row's own floor */
 }
 .list-head .title { min-width: 0; }
-/* .list-lines is a title with its meta line as one block. :has() scopes the top-alignment to the rows
-   that actually GREW a second line; a block holding only a title keeps the head's own centring. */
+/* :has() top-aligns only rows that grew a second line; a title-only block keeps the head's centring. */
 .list-head > .list-lines {
   display: flex;
   flex-direction: column;
@@ -1553,8 +1475,7 @@ span.img-fallback { color: var(--muted); }
   min-width: 0;
 }
 .list-head:has(> .list-lines > .meta) { align-items: flex-start; }
-/* A row has exactly ONE floor. A head NESTED inside a row owns only its LINE: 20 when a meta line sits
-   under it, 24 when the head is the row's whole content (the 32 floor less its 4+4 of padding). */
+/* A row has one floor: a nested head owns only its line, 20 with a meta line under it, else 24. */
 .list li > .list-head:not(.list-row),
 .list-row > .list-head:not(.list-row) { min-height: var(--space-5); }
 .list li > .list-head:not(.list-row):only-child,
@@ -1584,9 +1505,7 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
 }
 
-/* ---- ROW TAIL — the count a row ends with, and the actions that replace it ---- */
-/* ONE slot: .row-actions.on-hover is lifted out of the flow over the count, so nothing reflows as the
-   pointer crosses a row. A number riding in a CONTROL is .counter instead. */
+/* One slot: .row-actions.on-hover lies over the count, so nothing reflows as the pointer crosses. */
 .row-count {
   flex: none;
   margin-inline-start: auto;
@@ -1619,8 +1538,7 @@ span.img-fallback { color: var(--muted); }
   padding-inline-start: var(--space-6);
   background: linear-gradient(to right, transparent, var(--row-wash) var(--space-6));
   opacity: 0;
-  /* Hidden by opacity, not by display, so the buttons stay in the tab order — which is also why focus
-     inside the row reveals them exactly as the pointer does. */
+  /* Hidden by opacity, not display, so the buttons stay tabbable and focus reveals them like hover. */
   pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
 }
@@ -1633,9 +1551,7 @@ span.img-fallback { color: var(--muted); }
 }
 :is(.list li, .list-row):has(> .row-actions.on-hover):focus-within { background: var(--row-wash); }
 
-/* ---- TREE — the tree mark, and the guide an open row drops ---- */
-/* ONE number holds the columns together: --tree-indent = a 20px slot + the row's own 8px gap = 28. Any
-   screen that indents by depth uses it and derives --tree-guide from it (sidepanel/style.css). */
+/* --tree-indent = 20px slot + the row's 8px gap = 28; depth indents and --tree-guide derive from it. */
 .tree-icon {
   display: inline-flex;
   align-items: center;
@@ -1646,8 +1562,7 @@ span.img-fallback { color: var(--muted); }
   color: var(--muted);
 }
 .tree-icon svg { display: block; }
-/* The lighter body of a folder/suite glyph is a second path at --opacity-muted (shared/icons.js), so
-   one colour here paints both tones and a theme flip carries them together. */
+/* A folder/suite glyph's lighter body is a second path at --opacity-muted, so one colour paints both. */
 .tree-icon:is(.folder-icon, .file-icon) { color: var(--fg); }
 
 /* A custom emoji is text with its own colour, so the slot drops the type mark's coloured plate. */
@@ -1666,8 +1581,7 @@ span.img-fallback { color: var(--muted); }
   --row-rule-inset: var(--row-px, var(--space-2));
 }
 
-/* The <li> of a tree node is a CONTAINER, not a row: it hands the padding, the floor, the hover and the
-   rule back to the row inside it and stays invisible. */
+/* A tree node's <li> is a container, not a row: it hands padding, floor, hover and rule to its row. */
 .list li.tree-node {
   padding: 0;
   min-height: 0;
@@ -1693,13 +1607,12 @@ span.img-fallback { color: var(--muted); }
   pointer-events: none;
 }
 
-/* A tree row being TYPED rather than read. The buttons are .size-xs (24) so the pair rides inside the
-   dense row's own 24px of content instead of setting its height. */
+/* Its .size-xs (24) buttons ride inside the dense row's 24px of content instead of setting its height. */
 .tree-input-row { cursor: default; }
 .tree-input-row:hover { background: none; }
 .tree-input-row .chevron { opacity: var(--opacity-disabled); pointer-events: none; }
 
-/* The field IS the title cell: no box of its own — a ring here would draw a second frame inside the row. */
+/* The field is the title cell: no box of its own, or a ring would draw a second frame in the row. */
 .tree-input {
   flex: 1;
   min-width: 0;
@@ -1723,7 +1636,6 @@ span.img-fallback { color: var(--muted); }
 }
 .tree-input::placeholder { color: var(--muted); font-weight: var(--weight-normal); }
 
-/* ---- LIST CAPTION — the line that names a list ---- */
 .list-caption {
   display: flex;
   align-items: center;
@@ -1735,7 +1647,7 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
   font-weight: var(--weight-semibold);
 }
-/* The label may be a real heading: reset only the UA size, weight and margins, never the FACE. */
+/* The label may be a real heading: reset only the UA size, weight and margins, never the face. */
 .list-caption > :where(h1, h2, h3, h4) {
   margin: 0;
   font-size: inherit;
@@ -1745,9 +1657,7 @@ span.img-fallback { color: var(--muted); }
 }
 .list-caption > .caption-action { margin-inline-start: auto; }
 
-/* ---- SKELETON — the shape of content that has not arrived yet ---- */
-/* Built out of the real components, so nothing has to be kept in step. The pulse is opacity (composited);
-   a travelling gradient repaints background-position on every frame. */
+/* The pulse is opacity (composited); a travelling gradient would repaint on every frame. */
 @keyframes skeleton-pulse { 50% { opacity: 0.45; } }
 .skeleton {
   display: block;
@@ -1763,8 +1673,7 @@ span.img-fallback { color: var(--muted); }
   border-radius: var(--radius-pill);
 }
 .skeleton.line.sm { --sk-h: var(--fs-sm); }
-/* A bar standing in for text INSIDE a real line of it: the LINE BOX then stays the component's own
-   (`.counts` is 18 tall where the bar is 12), so nothing below moves when the words arrive. */
+/* A bar inside a real line keeps the component's line box, so nothing moves when the words arrive. */
 .skeleton.inline { display: inline-block; vertical-align: middle; }
 .skeleton.circle {
   width: var(--sk-size, var(--control-icon));
@@ -1782,8 +1691,7 @@ span.img-fallback { color: var(--muted); }
 .sk-lines { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-1) 0; }
 .sk-lines + .sk-lines { margin-top: var(--space-2); }
 
-/* Drawn AT ONCE by a navigation (sidepanel/core/skeleton.js): a screen that sits empty and fills a
-   moment later reads as a flash of nothing. Only the boot waits out a clock first (DELAY_MS). */
+/* Drawn at once on navigation: empty-then-filled reads as a flash; only the boot waits (DELAY_MS). */
 @keyframes skeleton-in { from { opacity: 0; } }
 .skeleton-enter { animation: skeleton-in var(--dur) var(--ease); }
 
@@ -1797,9 +1705,7 @@ span.img-fallback { color: var(--muted); }
   .skeleton { animation: none; }
 }
 
-/* ---- EMPTY — the shape of content that is NOT there ---- */
-/* Two shapes: the BLOCK by default (a whole view with no rows) and '.compact', one line inside a screen
-   that is otherwise full. The mark is always neutral; the accent belongs to the way out. */
+/* Block by default, '.compact' inline; the mark stays neutral, the accent belongs to the way out. */
 .empty {
   display: flex;
   flex-direction: column;
@@ -1868,7 +1774,7 @@ span.img-fallback { color: var(--muted); }
 .empty.compact .empty-text { max-width: none; }
 .empty.compact .empty-actions { margin-left: auto; }
 
-/* An empty state is often the ONE child of a list and written as an <li>: this takes the row skin off it. */
+/* An empty state is often a list's one <li> child: this takes the row skin off it. */
 .list li.empty,
 .list-row.empty {
   padding: var(--space-8) var(--space-4);
@@ -1881,9 +1787,7 @@ span.img-fallback { color: var(--muted); }
 .list li.empty:hover,
 .list-row.empty:hover { background: none; }
 
-/* ---- FIELDS — input, select, textarea ---- */
-/* Two selectors per rule: the CLASS, plus a zero-specificity :where() fallback so a plain field already
-   looks right and any per-screen rule still wins. Checkbox/radio/file/range would be deformed by it. */
+/* Class plus a zero-specificity :where() fallback: plain fields look right, screen rules still win. */
 :where(.input, .select, .textarea, .dropdown-trigger, input, select, textarea) {
   --ctl-h: var(--control-h-md);
   --ctl-px: var(--control-px-md);
@@ -1908,9 +1812,7 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--ctl-fs);
   transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-/* .select is a FALLBACK, not a component this product builds with: Chrome draws a native select's popup */
-/* at OS level, in the OS's font. The caret is drawn here because the UA glyph sits at an inset the engine
-   owns — padding-right never moved it — and currentColor keeps it themed without a second asset. */
+/* .select is a fallback; the caret is drawn here as the UA glyph's inset ignores padding-right. */
 .select,
 :where(select) {
   appearance: none;
@@ -1930,8 +1832,7 @@ span.img-fallback { color: var(--muted); }
   resize: vertical;
 }
 
-/* .textarea.autogrow — one line until it isn't. 'field-sizing: content' measures it, so there is no
-   observer and no JS; where it is unsupported the field stays at its floor and scrolls. */
+/* .textarea.autogrow grows by 'field-sizing: content', no JS; unsupported, it scrolls at its floor. */
 .textarea.autogrow {
   field-sizing: content;
   height: auto;
@@ -1947,8 +1848,7 @@ span.img-fallback { color: var(--muted); }
 .dropdown-trigger:hover:not(:focus):not(:disabled),
 :where(input:not([type="checkbox"], [type="radio"], [type="file"], [type="range"])):hover:not(:focus),
 :where(select):hover:not(:focus),
-/* 'background-color', not the shorthand: a select carries its caret as a background-image, which the
-   shorthand would rub out for as long as the pointer is on the control. */
+/* 'background-color', not the shorthand, which would erase a select's caret background-image on hover. */
 :where(textarea):hover:not(:focus) { border-color: var(--input-border-hover); background-color: var(--input-bg-hover); }
 
 .input:focus,
@@ -1964,7 +1864,7 @@ span.img-fallback { color: var(--muted); }
   box-shadow: 0 0 0 1px var(--focus);
 }
 
-/* Driven by aria-invalid alone, and it must survive :focus — validation moves focus into the field it rejected. */
+/* Driven by aria-invalid alone, surviving :focus: validation moves focus into the rejected field. */
 .input[aria-invalid="true"], .input[aria-invalid="true"]:focus,
 .select[aria-invalid="true"], .select[aria-invalid="true"]:focus,
 .textarea[aria-invalid="true"], .textarea[aria-invalid="true"]:focus,
@@ -1983,9 +1883,7 @@ span.img-fallback { color: var(--muted); }
 :where(select):disabled,
 :where(textarea):disabled { opacity: 0.6; cursor: default; }
 
-/* .field — the input with things INSIDE it. Both slots are detected with :has(), so the field pays the */
-/* padding for the ornament it carries whether or not the × is currently hidden. The 36px inset is a
-   constant, not a calc: the size class sits on the INPUT, so the wrapper cannot read the height. */
+/* .field: slots found via :has(); the 36px inset is constant as the size class sits on the input. */
 .field { position: relative; display: block; }
 .field > :where(.input, input, .select, select) { width: 100%; }
 .field:has(> .field-icon) > :where(.input, input, .select, select) { padding-left: var(--space-8); }
@@ -2000,7 +1898,7 @@ span.img-fallback { color: var(--muted); }
   pointer-events: none;
 }
 
-/* inset-block + aspect-ratio is what keeps it square at BOTH rungs without naming a height. */
+/* inset-block + aspect-ratio is what keeps it square at both rungs without naming a height. */
 .field-clear {
   position: absolute;
   top: var(--space-1);
@@ -2012,9 +1910,7 @@ span.img-fallback { color: var(--muted); }
 }
 .field-clear:focus-visible { outline-offset: 0; }
 
-/* ---- DROPDOWN — the select this product actually ships ---- */
-/* Built by shared/dropdown.js; the trigger is in the FIELDS selector lists above, so only what a button
-   does not already do is here. The popup is the shared .menu, with .menu's stacking-context rule. */
+/* Built by shared/dropdown.js; the trigger is in the fields selectors, the popup is the shared .menu. */
 .dropdown { position: relative; display: block; }
 /* This 'display' outranks the UA's [hidden] rule, so hiding one has to be said in the component. */
 .dropdown[hidden] { display: none; }
@@ -2060,13 +1956,11 @@ span.img-fallback { color: var(--muted); }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* The tick holds its column in EVERY row (hidden, not absent), so nothing shifts as the choice moves. */
+/* The tick holds its column in every row (hidden, not absent), so nothing shifts as the choice moves. */
 .dropdown-option-check { flex: none; visibility: hidden; }
 .dropdown-option[aria-selected="true"] .dropdown-option-check { visibility: visible; }
 
-/* ---- CHOICE — checkbox, radio, switch ---- */
-/* The native box is switched off (appearance: none) and drawn here: a Chrome checkbox is the OS's shape,
-   corner and blue, and on the dark scheme it is drawn in the OS's idea of dark, not this file's. */
+/* Drawn here (appearance: none): Chrome's native box uses the OS's shape, blue and idea of dark. */
 
 .checkbox,
 .radio,
@@ -2146,8 +2040,7 @@ span.img-fallback { color: var(--muted); }
   mask: none;
 }
 
-/* One element, two parts: the input IS the track, its ::before is the knob. Padding positions the knob,
-   so the travel follows the size tokens and nothing has to be recomputed if they move. */
+/* The input is the track, its ::before the knob; padding positions it, so travel follows size tokens. */
 .switch {
   appearance: none;
   -webkit-appearance: none;
@@ -2198,8 +2091,7 @@ span.img-fallback { color: var(--muted); }
   cursor: not-allowed;
 }
 
-/* The control sits on the FIRST line of a label that wraps: top-aligned, then nudged down by half of
-   what the line box has over it — computed from the tokens, so a font size or leading change carries. */
+/* The control sits on a wrapping label's first line, nudged down by the line box's excess. */
 .choice {
   display: flex;
   align-items: flex-start;
@@ -2217,12 +2109,10 @@ span.img-fallback { color: var(--muted); }
   font-size: var(--fs-sm);
   color: var(--muted);
 }
-/* .choice-text makes the words ONE flex item, so something after them (.info-tip) wraps with them
-   instead of being pushed to the end of the row. */
+/* .choice-text makes the words one flex item, so a following .info-tip wraps with them. */
 .choice-text { min-width: 0; }
 
-/* .info-tip — a real <button>, not a <span>: interactive content inside a <label> does not forward its
-   click to the control, and it is a tab stop, which is the only way a keyboard user reaches a tooltip. */
+/* .info-tip is a <button>: its click stays off the label's control, and it gives keyboards a tab stop. */
 .info-tip {
   display: inline-flex;
   align-items: center;

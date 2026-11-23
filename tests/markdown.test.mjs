@@ -1,17 +1,10 @@
 #!/usr/bin/env node
-// #150: extension/shared/markdown.js turns the markdown a tester wrote into what they read in the
-// panel, and marks the list under a "Steps" heading so the step rows know which list they are.
-// Anything tag-shaped in a description is shown as text and never rendered — half the reason a
-// description written by someone else cannot run code in the tester's panel.
-// Run: node --test tests/markdown.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, pageGlobals, EXT_BASE } from './helpers/shared-harness.mjs';
 import { makeDocument, el } from './helpers/mini-dom.mjs';
 
-// ---- stage one: what reaches showdown ----
-// A converter that echoes, so the string the escape stage produced is readable as itself; the real
-// one would then turn it into HTML and the exact escaping would be lost.
+// A converter that echoes, so the string the escape stage produced reads as itself.
 function escapeStage() {
   const seen = [];        // every string handed to makeHtml, in order
   const exts = new Map(); // every extension registered at load
@@ -28,7 +21,6 @@ function escapeStage() {
 const stage = escapeStage();
 const escaped = stage.escaped;
 
-// ---- the whole pipeline ----
 // showdown, then html-sanitize.js, then markdown.js — the order both HTML documents load them in.
 function realStage() {
   const doc = makeDocument();
@@ -162,7 +154,6 @@ test('M26: a description with no Steps heading has no steps and nothing is marke
   const box = real.Md.render('## Notes\n\n- a');
   assert.equal(real.Md.stepLists(box).length, 0);
   assert.deepEqual(box.querySelectorAll('ul').map((n) => n.className), ['']);
-  // The same call on a description that does name its steps finds the one list.
   assert.equal(real.Md.stepLists(real.Md.render('## Steps\n\n- a')).length, 1);
 });
 
@@ -171,7 +162,6 @@ test('M27: an author who types the steps class by hand cannot make their own lis
   assert.equal(box.querySelector('h2'), null);              // it never became a heading
   assert.match(box.textContent, /<h2 class="md-steps">Steps<\/h2>/); // the tester sees what they typed
   assert.deepEqual(box.querySelectorAll('ul').map((n) => n.className), ['']);
-  // A real heading, in the same renderer, does mark its list.
   assert.deepEqual(classesOf('## Steps\n\n- a', 'ul'), ['md-steps']);
 });
 

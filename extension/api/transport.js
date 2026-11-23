@@ -1,7 +1,3 @@
-// The one place the API client reaches the network (IIFE global `ApiTransport`): the timeout budget
-// every request gets, the wait a rate-limited instance asks for, and the two network failures a
-// tester can read. Depends on ApiErrors.
-
 /* global ApiErrors */
 
 const ApiTransport = (() => {
@@ -12,15 +8,12 @@ const ApiTransport = (() => {
   // Minutes, not seconds: a 50 MB recording on a slow link, or server-side model work, needs them.
   const LONG_TIMEOUT_MS = 300000;
 
-  // A 429 says the request was NOT processed, so replaying it is safe whatever the method — this is
-  // the one retry every caller inherits by going through rawFetch, and nothing above it retries a 429.
+  // A 429 was not processed, so replaying is safe for any method; nothing above rawFetch retries one.
   const RATE_LIMIT_BACKOFF_MS = [1000, 2000]; // two retries, then the refusal reaches the tester
-  // A server may ask for an hour. Waiting that long is indistinguishable from a hung panel, so the
-  // ask is honoured only up to a wait a tester can sit through; past it, the sentence is the answer.
+  // A server may ask for an hour; honour it only up to a wait a tester can sit through.
   const RETRY_AFTER_MAX_MS = 30000;
 
-  // When the instance last refused us for rate. Read by the panel's live sync, which slows its own
-  // polling while it is set; a 2xx clears it, that being the proof the instance is answering again.
+  // Read by live sync to slow its polling; a 2xx clears it, proof the instance answers again.
   let rateLimitedAt = 0;
 
   // `Retry-After` is either a count of seconds or an HTTP-date. Anything else is no ask at all.
@@ -32,7 +25,6 @@ const ApiTransport = (() => {
     return Number.isFinite(at) ? at - Date.now() : null;
   }
 
-  // The server's ask, clamped; failing that, our own back-off for this attempt.
   function rateLimitWait(res, attempt) {
     const asked = retryAfterMs(res.headers?.get?.('Retry-After'));
     if (asked === null) return RATE_LIMIT_BACKOFF_MS[attempt];
@@ -49,7 +41,7 @@ const ApiTransport = (() => {
     try {
       return await fetch(url, { ...opts, signal: combined });
     } catch {
-      // A timeout wears the SAME network error a dead link does, so the offline queue still takes the click.
+      // A timeout wears the same network error as a dead link, so the offline queue still takes the click.
       if (budget.aborted) {
         throw new ApiError('network', 0, `No answer in ${Math.round(timeout / 1000)}s — the request timed out`);
       }

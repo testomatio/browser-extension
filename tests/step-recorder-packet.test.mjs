@@ -1,12 +1,8 @@
 #!/usr/bin/env node
-// The action packet: what a reader — a tester, or the AI polish in the editor — is given besides
-// the sentence. The control's own facts and its surroundings are read at event time; `after` is
-// what the page made of the action, read 400ms later. Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, el, text } from './helpers/recorder-harness.mjs';
 
-// Every packet case is one click on one control, so the fixture is always the same two lines.
 async function clickOn(h, node, before) {
   h.doc.body.append(node);
   if (before) before();
@@ -15,7 +11,6 @@ async function clickOn(h, node, before) {
   return node;
 }
 
-// Fire, let the page do whatever the case says it does, then close the 400ms window.
 async function closeWindow(h, during) {
   if (during) await during();
   h.flush();
@@ -52,8 +47,7 @@ test('I2: the page URL drops the query, the fragment and any user:pass@ it carri
   assert.equal(ctxOf(h).page.url, 'https://example.com/pay');
 });
 
-// A hash-routed app moves the tester to a new screen without touching the origin or the path,
-// so the before/after comparison keeps a route-like fragment that `page.url` still drops.
+// A hash route keeps origin and path, so the comparison keeps a route-like fragment `page.url` drops.
 test('I3: a hash-only route change is reported as one arrow', async () => {
   const h = load({ href: 'https://example.com/app#/cart' });
   await clickOn(h, el('button', null, 'Next'));
@@ -61,8 +55,7 @@ test('I3: a hash-only route change is reported as one arrow', async () => {
   assert.equal(ctxOf(h).after.url, 'https://example.com/app#/cart → https://example.com/app#/checkout');
 });
 
-// A fragment is not always a route: an OAuth implicit flow parks the access token in one, and
-// the packet is text that leaves the page. `=` or `&` in it means credentials, not a screen.
+// An OAuth implicit flow parks the token in the fragment: `=` or `&` means credentials, not a screen.
 test('I3b: a fragment that reads as credentials is never carried into the packet', async () => {
   const h = load({ href: 'https://example.com/app#access_token=ya29.abc&scope=email' });
   await clickOn(h, el('button', null, 'Next'));
@@ -178,8 +171,6 @@ test('I13: a state attribute that moved is reported as an arrow', async () => {
   assert.equal(ctxOf(h).after.state, 'aria-checked: false → true');
 });
 
-// A control that loses `aria-expanded` changed as much as one that flipped it: the diff walks
-// both sides, so a key that disappeared arrives with the far side of the arrow empty.
 test('I14: a state key that disappears is reported with an empty new value', async () => {
   const h = load();
   const box = el('div', { role: 'checkbox' }, 'Bulk');
@@ -210,14 +201,12 @@ test('I16: a badge near the control that changed is reported as an arrow', async
 });
 
 test('I17: over the cap, fields go in the documented order and never out of it', async () => {
-  // The order fitPacket promises: siblings and class are dropped outright, then the long
-  // strings are trimmed to 24, left to right.
+  // fitPacket's order: siblings and class drop outright, then long strings trim to 24, left to right.
   const TRIMS = [
     ['element', 'text'], ['after', 'toast'], ['after', 'dialog'], ['element', 'ariaLabel'],
     ['element', 'title'], ['near', 'heading'], ['near', 'section'], ['near', 'row'], ['page', 'title'],
   ];
-  // 900 lands the packet at 1496 bytes — inside the cap, and well over half of it, so a cap
-  // quietly halved would show here. Past that the overflow grows and fitPacket reaches deeper.
+  // 900 puts the packet at 1496 bytes, well over half the cap, so a quietly halved cap would show.
   for (const width of [0, 900, 1600, 3000, 6000]) {
     const h = load();
     const btn = el('button', {
@@ -239,10 +228,9 @@ test('I17: over the cap, fields go in the documented order and never out of it',
       assert.equal(ctx.element.title.length, 100);
       continue;
     }
-    // Both outright drops happen before any trim, every time.
     assert.equal(ctx.near.siblings, '', `siblings survived at width ${width}`);
     assert.equal(ctx.element.class, '', `class survived at width ${width}`);
-    // And the trims form a PREFIX of the list: field n trimmed means every earlier one is too.
+    // The trims form a prefix of the list: field n trimmed means every earlier one is too.
     const trimmed = TRIMS.map(([g, k]) => {
       const v = ctx[g][k];
       return typeof v === 'string' && v.length > 0 && v.length <= 24;
@@ -258,9 +246,7 @@ test('I17: over the cap, fields go in the documented order and never out of it',
   }
 });
 
-// The prefix check above proves nothing was trimmed out of turn; these two prove the turns
-// themselves, by sizing the overflow so that exactly one more field has to give way. The two
-// name lengths were measured against the real source — a fixture change moves them.
+// The name lengths were measured against the real source; a fixture change moves them.
 test('I17b: the trims happen left to right — text, then aria-label, then title', async () => {
   const build = (nameLen) => {
     const h = load();

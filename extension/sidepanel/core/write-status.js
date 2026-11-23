@@ -1,33 +1,19 @@
-// The status-write core (IIFE global `WriteCore`). One place turns "the tester marked this test"
-// into a request, and three surfaces reach it: the test view's verdict buttons, the run list's
-// inline rows (screens/run-view.js) and the offline queue's replay (screens/offline-queue.js).
-// It lived in the test view, so a change to how the queue replays meant editing that screen.
-//
-// It needs no JWT — the v2 token path — so it keeps working under a login-blocked session. The
-// CALLER rolls back: this returns what the server said, or `{queued, reason}` when the failure
-// was one the queue takes, and throws anything else.
-//
-// `EvidenceUpload.log` lives in screens/evidence-upload.js, so this core does reach into a screen.
-// That edge is smaller than the one it replaces and is left alone deliberately.
+// Status-write core shared by the test view, run-list rows and the offline queue's replay.
 
 /* global TestomatAPI, OfflineQueue, CommentDrafts, state, recordFor, RunLock,
    collectEnvMeta, EvidenceUpload, syncBeginWrite, syncEndWrite */
 
 const WriteCore = (() => {
-  // Runs AFTER the status write (#116): the meta keys hang off an id a not-yet-graded
-  // row only gets in that response, and nothing here may endanger a saved status.
+  // Runs after the status write: a not-yet-graded row only gets its id in that response.
   async function writeEnvMeta(record, status, opts = {}) {
     if (!record?.id) return;
-    // #152/#154: a locked result skips both. Scoped to the OPEN run (recordFor) — an
-    // offline-queue replay into another, still-live run must keep writing its meta.
+    // Lock check scoped to the open run: a queue replay into another, still-live run keeps its meta.
     const open = recordFor(record.id);
     if (open && typeof RunLock !== 'undefined' && RunLock.recordWriteLock(open)) return;
     if (TestomatAPI.jwtAvailable() === false) return;
-    // A replay writes the environment SNAPSHOTTED at enqueue: collecting now describes the tab open
-    // now. An entry from an older build carries none, and says nothing rather than something wrong.
+    // A replay writes the environment snapshotted at enqueue, not the tab open now.
     const entries = opts.replay ? [...(opts.envMeta || [])] : await collectEnvMeta(state.settings);
-    // The two toggles are independent: env-info OFF still lets the log key through. The recorder's
-    // window is not parked with the entry, so a replay attaches no log.
+    // The recorder's window is not parked with a queued entry, so a replay attaches no log.
     if (status === 'failed' && !opts.replay) {
       const url = await EvidenceUpload.log(record);
       if (url) entries.push(['Console & network log', url]);
@@ -38,8 +24,7 @@ const WriteCore = (() => {
     } catch { /* best effort — the status is already saved */ }
   }
 
-  // Shared status-write core (test view + run-view rows). Needs no JWT — the v2
-  // token path — so it keeps working under login-blocked. Caller rolls back.
+  // Needs no JWT (v2 token path), so it works under a login-blocked session; the caller rolls back.
   async function writeStatus(record, status, comment, onOptimistic, opts = {}) {
     syncBeginWrite(); // pause livesync ticks; force an immediate refetch when this settles
     try {
@@ -60,14 +45,12 @@ const WriteCore = (() => {
           message,
         });
       } catch (e) {
-        // A queueable failure keeps the optimistic status and queues it — no rollback,
-        // no toast. `noQueue` replays bypass this so a retry throws and stays queued.
+        // `noQueue` replays bypass the queue so a failed retry throws and stays queued.
         if (!opts.noQueue && record && record.id != null
             && typeof OfflineQueue !== 'undefined' && OfflineQueue.qualifies(e)) {
-          // `reason` is the queued entry's WORDING, nothing else: what queues is unchanged (#106).
+          // `reason` only picks the queued entry's wording; it does not change what queues.
           const reason = e.kind === 'auth' ? 'auth' : 'network';
-          // The environment as it is NOW, so a replay hours from here describes the test and not
-          // the drain. Local (tab + navigator) and caught: nothing may cost the tester the result.
+          // Snapshot the environment now, so a replay hours later describes the test, not the drain.
           let envMeta = [];
           try { envMeta = await collectEnvMeta(state.settings); } catch { /* park it without */ }
           await OfflineQueue.enqueue({
@@ -77,19 +60,15 @@ const WriteCore = (() => {
         }
         throw e;
       }
-      // The row always exists (opened by record id) and keeps its test_id.
       if (saved && record) Object.assign(record, saved, { test_id: record.test_id });
-      // The comment reached the server, so the draft it came from is spent — a queued
-      // write does NOT pass here, and its text is held by the queue entry instead.
+      // The comment reached the server, so its draft is spent; a queued entry holds its own copy.
       if (record && record.id != null) CommentDrafts.drop(record.id);
-      // This status supersedes anything queued for the row, or the next replay writes
-      // the older one back over it. Before writeEnvMeta and caught: never fatal.
+      // Drop anything queued for the row, or the next replay writes the older status back over it.
       if (!opts.noQueue && record && record.id != null && typeof OfflineQueue !== 'undefined') {
-        // The replay path removes its own entry comparing `queuedAt` — a second removal
-        // here would drop a newer click that landed mid-drain.
+        // Replays remove their own entry by `queuedAt`; removing here would drop a newer mid-drain click.
         try { if (await OfflineQueue.remove(record.id)) OfflineQueue.refreshUI(); } catch { /* the status is saved */ }
       }
-      await writeEnvMeta(record, status, opts); // #116 — after the id exists, never fatal
+      await writeEnvMeta(record, status, opts);
       return saved;
     } finally {
       syncEndWrite();

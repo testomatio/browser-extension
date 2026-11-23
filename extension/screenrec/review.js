@@ -1,10 +1,4 @@
-// Review + trim (#68): preview the parked recording, cut any number of ranges, and nothing
-// leaves the machine until Attach. The trim is a NATIVE re-record — the kept ranges replay
-// once into a fresh MediaRecorder, which is PAUSED across every cut and every seek, so a cut
-// frame is never painted into the stream. The worker drops the original the moment a trim lands.
-//
-// Runs framed over the page (content/review-overlay.js) or as a tab of its own. Framed, it acts
-// only for whoever carries this take's key: any page can frame this one, and none can be handed it.
+// Framed, the review acts only for whoever carries this take's key: any page can frame it.
 
 /* global chrome */
 (() => {
@@ -25,8 +19,7 @@
   let cuts = [];       // [{ start, end }] seconds — kept sorted and non-overlapping
   let dragging = null; // { kind: 'new'|'handle', cut, side?, anchor?, moved }
   let exporting = false;
-  // Framed by the page rather than by us — nothing here may act. True until the boot below has
-  // established who framed us, or a click harvested in that window would still land.
+  // True until the boot learns who framed us, or a click harvested in that window would land.
   let refused = true;
 
   // The key rides in the hash, where a URLSearchParams over the query string would never see it.
@@ -36,8 +29,7 @@
     try { return decodeURIComponent(m[1]); } catch { return m[1]; }
   };
 
-  // A hostile page frames us invisibly and harvests a click on Discard. Its origin and our overlay's
-  // are the same one, so only the worker's per-take key tells them apart. A tab of our own is seen.
+  // A hostile frame and our overlay share an origin; only the worker's per-take key tells them apart.
   async function framedByThePage() {
     if (window.parent === window) return false;
     let want = '';
@@ -56,8 +48,6 @@
   }
 
   const status = (msg) => { $('review-status').textContent = msg || ''; };
-
-  // ---- cut arithmetic --------------------------------------------------------
 
   const clamp = (t) => Math.min(Math.max(t, 0), duration);
 
@@ -89,8 +79,6 @@
   }
 
   const keptSec = () => keptRanges().reduce((n, r) => n + (r.end - r.start), 0);
-
-  // ---- painting --------------------------------------------------------------
 
   function render() {
     for (const el of timeline.querySelectorAll('.cut')) el.remove();
@@ -124,8 +112,6 @@
     $('btn-attach').textContent = cuts.length
       ? `Attach ${fmt(keptSec())} to the result` : 'Attach to the result';
   }
-
-  // ---- the timeline: drag to cut, drag a handle to adjust, click to seek -----
 
   const timeAt = (clientX) => {
     const r = timeline.getBoundingClientRect();
@@ -170,8 +156,6 @@
     render();
   });
 
-  // ---- playback that skips the cuts -----------------------------------------
-
   video.addEventListener('timeupdate', () => {
     playhead.style.left = duration ? `${(video.currentTime / duration) * 100}%` : '0';
     $('t-cur').textContent = fmt(video.currentTime);
@@ -190,8 +174,6 @@
       video.play().catch(() => {});
     } else video.pause();
   });
-
-  // ---- the export: replay the kept ranges once ------------------------------
 
   const seekTo = (t) => new Promise((resolve) => {
     const done = () => { video.removeEventListener('seeked', done); resolve(); };
@@ -237,8 +219,7 @@
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     const stopped = new Promise((resolve) => { rec.onstop = resolve; });
     try {
-      // Seek FIRST, start the recorder on the landed frame — nothing before the first kept
-      // range can reach the stream. Across every later seek the recorder is paused.
+      // Seek first, start on the landed frame, pause across later seeks: no cut frame reaches the stream.
       await seekTo(ranges[0].start);
       rec.start(250);
       for (let i = 0; i < ranges.length; i += 1) {
@@ -269,8 +250,6 @@
     }
   }
 
-  // ---- attach / discard ------------------------------------------------------
-
   $('btn-attach').addEventListener('click', async () => {
     if (exporting || refused) return;
     if (!cuts.length) {
@@ -281,9 +260,7 @@
     }
     const blob = await exportTrimmed();
     if (!blob || !blob.size) { if (blob) status('The trim came out empty — try again'); return; }
-    // The bytes must outlive this document, and the offscreen page is already the byte holder —
-    // streamed over in chunks (messages carry JSON, not blobs), then swapped in for the
-    // original, whose URL is revoked right there: the untrimmed take dies with the swap.
+    // Chunked to the offscreen holder (messages carry JSON, not blobs); the swap revokes the original.
     try {
       const CHUNK = 2 * 1024 * 1024;
       const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -319,8 +296,6 @@
     if (msg && msg.type === 'SCREENREC_EVENT' && msg.event === 'ended' && msg.reason === 'wiped') closeReview();
   });
 
-  // ---- boot ------------------------------------------------------------------
-
   async function init() {
     try { file = (await chrome.storage.session.get('screenRecFile')).screenRecFile || null; } catch { file = null; }
     if (!file || !file.url) {
@@ -330,8 +305,7 @@
       $('btn-play').disabled = true;
       return;
     }
-    // Before a word of the take is on screen: the page that framed us learns neither its URL nor
-    // its size, and the click it was hoping to harvest reaches nothing.
+    // Before anything of the take is shown: a framing page learns neither its URL nor its size.
     if (await framedByThePage()) {
       status('This review window was opened by the page you are on, not by the extension. '
         + 'Nothing can be attached or discarded here — open the review from the Testomat.io panel.');
@@ -348,8 +322,7 @@
       video.addEventListener('error', resolve, { once: true }); // stop waiting early; the state below decides
       setTimeout(resolve, 3000);
     });
-    // Ask the element, not the event: a dead take parks at readyState 0 with `error` set, a healthy
-    // webm is past HAVE_NOTHING even at duration Infinity. Below, file.ms would dress it up as fine.
+    // Ask the element: a dead take sits at readyState 0, a healthy webm is past it even at Infinity.
     if (video.error || !(video.readyState > 0)) {
       status('This recording will not play — nothing has been attached. '
         + 'The take is still parked: reopen the review from the panel to try again, or discard it.');
@@ -357,8 +330,7 @@
       $('btn-play').disabled = true;
       return;
     }
-    // MediaRecorder's webm carries no duration header — seeking far past the end makes
-    // Chrome compute the real one (the standard workaround).
+    // MediaRecorder webm has no duration header; seeking far past the end makes Chrome compute it.
     if (!Number.isFinite(video.duration)) {
       await new Promise((resolve) => {
         video.addEventListener('durationchange', resolve, { once: true });

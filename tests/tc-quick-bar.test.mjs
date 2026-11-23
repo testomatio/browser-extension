@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/tc-quick-bar.js — the "Add new test" bar pinned under the TC list, as
-// the tester meets it: one title typed and Enter, or the Bulk switch and a whole pasted list going
-// out in a single request. Rows 40-63b of #163, moved here unchanged when they left
-// tests/tc-studio.test.mjs (#196).
-// Two things here are easy to get quietly wrong, so most of this file is about them. The bar's text
-// follows the switch: the quick field is the FIRST line of the list, and the lines under it wait in
-// memory for Bulk to come back. And a create in flight leaves the fields READ-ONLY rather than
-// disabled, because a title on the wire is still the tester's to read.
-// The module is loaded the way index.html loads it — before screens/tc-studio.js — so the screen's
-// own `loadTcList` and `resetTcSearch` are late-bound names here, recorded rather than run. That
-// back-edge is the seam this file pins: rows 54, 55 and 59 assert what the bar ASKS the screen for
-// and in what order, and tests/tc-studio.test.mjs's row 59b drives the real module through the real
-// list to assert what the screen then draws.
-// Rows 45b, 62b, 63c, 63d and 63e are new: the falsification run behind the move found five things
-// pinned nowhere at all — a quick field of nothing but spaces carried into Bulk as a blank first
-// line, a reset that never unticks the switch, the two guards a half-built bar leans on, the load
-// order, and every call site.
-// Run: node --test tests/tc-quick-bar.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,14 +8,12 @@ import { loadScreen, SCREENS_SRC, makeDocument, el, fire, plain, settle } from '
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// SCREENS_SRC so a falsification run reads whatever it points at; index.html belongs to no
-// switchable directory and is read where it ships, as tests/run-info.test.mjs:567 reads it.
+// SCREENS_SRC lets a falsification run redirect the read; index.html is read where it ships.
 function raw(f) {
   return readFileSync(join(SCREENS_SRC, f), 'utf8');
 }
 
-// A promise this file resolves by hand: the busy guard is only about what a second press does while
-// the first is still on the wire.
+// Resolved by hand: the busy guard is about a second press while the first is still on the wire.
 function deferred() {
   let resolve;
   let reject;
@@ -41,9 +21,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// The panel globals tc-quick-bar.js reads, all of them real enough to be driven. `loadTcList` and
-// `resetTcSearch` are screens/tc-studio.js's own and are recorders here — the screen's file is not
-// loaded, which is the point of the split.
+// `loadTcList` and `resetTcSearch` belong to tc-studio.js, which is not loaded, so they record.
 function load(opts = {}) {
   const o = {
     suiteId: null,
@@ -53,7 +31,7 @@ function load(opts = {}) {
     ...opts,
   };
 
-  // index.html's shape (:509-513), cut to the four nodes this module touches.
+  // index.html's shape, cut to the four nodes this module touches.
   const doc = makeDocument([]);
   const node = {};
   if (o.quickBar) {
@@ -63,7 +41,7 @@ function load(opts = {}) {
       create: el('button', { id: 'tc-quick-create', disabled: true, textContent: 'Create' }),
       bulk: el('input', { id: 'tc-quick-bulk', type: 'checkbox', checked: false, disabled: false }),
     });
-    // index.html's shape: the tip lives on the LABEL, because a disabled input answers no pointer.
+    // index.html's shape: the tip lives on the label, because a disabled input answers no pointer.
     node.bulkLabel = el('label', { className: 'choice tc-quick-bulk', dataset: { tip: 'Add more' } }, node.bulk);
     doc.body.append(node.title, node.titles, node.create, node.bulkLabel);
   }
@@ -81,8 +59,7 @@ function load(opts = {}) {
     listLoads: [],      // { suiteId, opts, queryAtRead } — the screen's re-read, as the bar asks it
   };
 
-  // Reassignable after load(), so a test can answer differently later, or change the world from
-  // inside a call the bar is awaiting.
+  // Reassignable after load(), so a test can answer differently later or mid-call.
   const on = {
     createTest: async () => ({ id: 'made-1' }),
     bulk: async () => ({}),
@@ -96,8 +73,7 @@ function load(opts = {}) {
     $: (id) => doc.getElementById(id),
     toast: (msg) => { calls.toasts.push(msg); calls.order.push('toast'); },
     baseUrlHost: () => 'app.testomat.io', // core/views.js's own — the lock names where to sign in
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         calls.tips.push(tip);
@@ -105,13 +81,13 @@ function load(opts = {}) {
         return n;
       },
     },
-    // screens/tc-studio.js:512-516 — everything of it the bar can observe is the query going away.
+    // All the bar can observe of the real resetTcSearch is the query going away.
     resetTcSearch: () => {
       calls.searchResets += 1;
       calls.order.push('resetSearch');
       state.tcSearch = '';
     },
-    // screens/tc-studio.js:525 — the query it finds is the whole point of the reset above.
+    // The query this read finds is what the reset above is for.
     loadTcList: async (suiteId, listOpts = {}) => {
       calls.listLoads.push({ suiteId, opts: plain(listOpts), queryAtRead: state.tcSearch });
       calls.order.push('read');
@@ -138,15 +114,12 @@ function load(opts = {}) {
     removeEventListener: () => {},
   };
 
-  // `TcQuickBar` is a top-level `const`: lexical, so only the completion value reaches us. The two
-  // module `let`s are deliberately NOT named — the fields and the button are all the tester can see.
+  // `TcQuickBar` is a top-level const, so only the completion value reaches it; its `let`s stay private.
   const h = loadScreen('tc-quick-bar', {
     globals, document: doc, window: win, exported: 'TcQuickBar',
   });
 
-  // app.js:65-70's own wiring; the module registers nothing at load, so the fixture stands in for
-  // index.html and every row below drives real listeners. Unbound methods, exactly as app.js hands
-  // them over — which row 63d is about.
+  // Mirrors app.js's wiring, with unbound methods exactly as app.js hands them over.
   if (o.quickBar) {
     node.title.addEventListener('input', h.screen.onInput);
     node.title.addEventListener('keydown', h.screen.onKeydown);
@@ -165,15 +138,12 @@ function load(opts = {}) {
     node,
     doc,
     win,
-    // The tester's own two acts on the bar.
     type: (fieldNode, value) => { fieldNode.value = value; fire(fieldNode, 'input'); },
     switchBulk: (on2) => { node.bulk.checked = on2; fire(node.bulk, 'change'); },
     // The web session answering differently later — it can lapse while the bar is open.
     setJwt: (v) => { o.jwt = v; },
   };
 }
-
-// ---------- the quick / bulk create bar (rows 40-63) ----------
 
 test('40: a title is trimmed at the ends and collapsed in the middle, the way the web trims one', () => {
   const h = load();
@@ -240,8 +210,7 @@ test('45b (#196): a quick field holding nothing but spaces carries no blank firs
   h.type(h.node.title, '   ');
   h.switchBulk(true);
   assert.equal(h.node.titles.value, '', 'a line of spaces is not a title anybody typed');
-  // A padded one IS carried, and arrives trimmed — so the row above is about the emptiness, not
-  // about the switch refusing to carry anything.
+  // A padded one is carried and arrives trimmed, so the row above is about the emptiness.
   h.switchBulk(false);
   h.type(h.node.title, '  first  ');
   h.switchBulk(true);
@@ -358,7 +327,7 @@ test('54: one title creates one test in the open suite, then the bar clears and 
   assert.deepEqual(h.calls.createTests, [{ title: 'Log in', suite_id: 's1' }]);
   assert.deepEqual(h.calls.bulks, []);
   assert.equal(h.node.title.value, '');
-  // The screen's re-read, asked QUIETLY: the rows are still up, so no placeholder goes over them.
+  // The screen's re-read is quiet: the rows are still up, so no placeholder goes over them.
   assert.deepEqual(h.calls.listLoads.map((c) => [c.suiteId, c.opts]), [['s1', { quiet: true }]]);
   assert.deepEqual(h.calls.scrolls, [{ top: 4321 }]);
   assert.equal(h.doc.activeElement, h.node.title, 'the caret goes back for the next title');
@@ -449,7 +418,6 @@ test('59: a live search would hide the very row just made, so it is dropped befo
   assert.equal(h.calls.searchResets, 1);
   assert.equal(h.calls.listLoads[0].queryAtRead, '', 'the query was dropped BEFORE the rows came back');
   assert.ok(h.calls.order.indexOf('resetSearch') < h.calls.order.indexOf('read'));
-  // What the screen then draws over that cleared query is tests/tc-studio.test.mjs's row 59b.
 });
 
 test('60: a suite opened while the create was in flight is not scrolled and does not lose its caret', async () => {
@@ -459,7 +427,7 @@ test('60: a suite opened while the create was in flight is not scrolled and does
   await h.bar.submit();
   assert.deepEqual(h.calls.scrolls, []);
   assert.equal(h.doc.activeElement, null);
-  // The re-read still goes out, and names the suite the create was FOR — the screen drops it.
+  // The re-read still goes out and names the suite the create was for; the screen drops it.
   assert.deepEqual(h.calls.listLoads.map((c) => c.suiteId), ['s1']);
   // The same create with the tester still on that suite scrolls to the end and takes the caret back.
   const stayed = load({ suiteId: 's1' });
@@ -546,8 +514,6 @@ test('63e (#196): a bar missing its button or its switch is read, not crashed in
   assert.deepEqual([...h.bar.titles()], ['Login'], 'so the quick field is still what it would send');
 });
 
-// ---------- the switch nobody gates (#263) ----------
-
 test('63b: Bulk is not offered on a token-only connection, and the session is re-asked at submit (#263)', async () => {
   // bulkCreateTests goes through jwtRequest and needs an active web session; createTest does not.
   const none = load({ suiteId: 's1', jwt: false });
@@ -555,8 +521,7 @@ test('63b: Bulk is not offered on a token-only connection, and the session is re
   assert.equal(none.node.bulk.disabled, true);
   assert.match(none.node.bulkLabel.dataset.tip, /web login/);
 
-  // The same bar WITH a session offers it, and keeps its ordinary tip — so the row above is not
-  // asserting a switch that is disabled whatever happens.
+  // With a session the switch is offered with its ordinary tip, so the row above is not a dead switch.
   const h = load({ suiteId: 's1', jwt: true });
   h.bar.reset();
   assert.equal(h.node.bulk.disabled, false);
@@ -582,8 +547,6 @@ test('63b: Bulk is not offered on a token-only connection, and the session is re
   assert.deepEqual(h.calls.createTests, [{ title: 'Login', suite_id: 's1' }]);
 });
 
-// ---------- the seam itself (rows 63c-63d, #196) ----------
-
 test('63c (#196): the page carries the bar and loads it ahead of both callers', () => {
   const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
   for (const id of ['tc-quick-title', 'tc-quick-titles', 'tc-quick-create', 'tc-quick-bulk']) {
@@ -594,9 +557,7 @@ test('63c (#196): the page carries the bar and loads it ahead of both callers', 
   for (const s of ['screens/tc-studio.js', 'app.js']) {
     assert.ok(at('screens/tc-quick-bar.js') < at(s), `screens/tc-quick-bar.js stands before ${s}`);
   }
-  // Every name it reads is late-bound, so nothing has to stand before IT — including the screen it
-  // calls back into for the re-read. That inversion is deliberate: the tree render owns the screen,
-  // this file owns one widget on it, and `loadTcList` resolves under a tester's finger, not at load.
+  // Every name it reads is late-bound, so `loadTcList` resolves under a tester's finger, not at load.
   assert.ok(at('screens/tc-studio.js') > at('screens/tc-quick-bar.js'));
   const globals = /\/\* global ([\s\S]*?)\*\//.exec(raw('tc-quick-bar.js'))[1];
   for (const name of ['loadTcList', 'resetTcSearch']) assert.ok(globals.includes(name), name);
@@ -607,7 +568,7 @@ test('63d (#196): every call site asks TcQuickBar by name, and nothing answers t
     [join(SCREENS_SRC, 'tc-studio.js')]: 1,
     [join(repoRoot, 'extension/sidepanel/app.js')]: 6, // neither directory — read where it ships
   };
-  // Every name the module took, as a CALL: a bare one here throws only under a tester's finger.
+  // Every name the module took, as a call: a bare one here throws only under a tester's finger.
   const OLD = /(^|[^.\w])(tcQuickBulkOn|tcQuickTitle|tcQuickLines|tcQuickTitles|tcBulkLock|syncTcQuickCreate|setTcQuickBusy|resetTcQuickBar|onTcQuickBulkToggle|onTcQuickInput|onTcQuickKeydown|submitTcQuick)\s*[(,)]/;
   for (const [f, n] of Object.entries(callers)) {
     const src = readFileSync(f, 'utf8');
@@ -620,8 +581,7 @@ test('63d (#196): every call site asks TcQuickBar by name, and nothing answers t
   for (const f of Object.keys(callers)) {
     assert.doesNotMatch(readFileSync(f, 'utf8'), /(^|[^.\w])(tcQuickParked|tcQuickBusy)\s*=[^=]/, f);
   }
-  // app.js hands the fields the methods themselves, unbound — which is only safe because nothing in
-  // the module says `this`. One `this.` in there and every keystroke in the bar would throw.
+  // app.js hands over unbound methods, which is safe only while the module never says `this`.
   assert.match(readFileSync(join(repoRoot, 'extension/sidepanel/app.js'), 'utf8'),
     /addEventListener\('click', TcQuickBar\.submit\)/);
   assert.doesNotMatch(raw('tc-quick-bar.js').replace(/\/\/.*$/gm, ''), /\bthis\b/);

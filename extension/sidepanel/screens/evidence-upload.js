@@ -1,13 +1,9 @@
-// The .txt that goes onto a failed result — the recorder's whole window, uploaded and handed back as
-// the URL its META key carries. It leaves the browser on every FAIL, so it is worth reading alone.
+// The recorder's window leaves the browser on every failed result, so this upload lives alone.
 
-// `evSend` and `evidenceAutoAttachEnabled` stay in screens/evidence.js and `EvidenceFormat` is the
-// escaping layer beside it — all three late-bound globals, reached only when a test is marked failed.
 /* global evSend, evidenceAutoAttachEnabled, EvidenceFormat, TestomatAPI, state, $, toast */
 
 const EvidenceUpload = {
-  // Uploads the window as .txt and returns its URL for the `Console & network log`
-  // META key (#116); '' writes no key. Runs AFTER the status save, so record.id exists.
+  // Returns the URL for the `Console & network log` META key; '' writes no key.
   async log(record) {
     if (!record || !record.id) return '';
     if (!evidenceAutoAttachEnabled(state.settings)) return '';

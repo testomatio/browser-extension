@@ -1,12 +1,4 @@
-// The evidence ring buffer (IIFE global `EvBuffer`): the hundred lines that decide what the tester
-// gets when they press "attach the log" — how long an entry is kept, what counts as an error, and
-// whether a request chrome.webRequest saw and the same request the page hook saw come back as one
-// row or two.
-//
-// Pure over its own state plus `Date.now`: nothing here touches `chrome`, so the worker's listeners,
-// the settings read and the storage.session mirror stay in evidence/recorder.js. The requestId map
-// and the mirror callback are handed IN rather than wrapped around push(), because the map's leak
-// guard fires inside push — after the hard cap, before the mirror is scheduled.
+// The map and mirror callback are passed in: the map's leak guard must fire inside push(), pre-mirror.
 
 const EvBuffer = (() => {
   const HARD_CAP = 1000;      // memory guard: absolute entry ceiling
@@ -37,8 +29,7 @@ const EvBuffer = (() => {
 
     function push(entry) {
       buffer.push(entry);
-      // Prune to 2x the window (retroactive margin) then hard-cap the length. The scan is
-      // unconditional: append order is not time order, so a stale row is rarely the one at index 0.
+      // Prune to 2x the window (retroactive margin); scan all, as append order is not time order.
       const cutoff = Date.now() - 2 * windowSec * 1000;
       buffer = buffer.filter((e) => e.ts >= cutoff);
       if (buffer.length > hardCap) buffer = buffer.slice(buffer.length - hardCap);
@@ -47,15 +38,13 @@ const EvBuffer = (() => {
       return entry;
     }
 
-    // Sorted by ts: the sources arrive on different latencies (webRequest is immediate, the
-    // page hook batches ~200 ms), so append order is not time order.
+    // Sorted by ts: webRequest is immediate, the page hook batches ~200 ms.
     function windowEntries(now = Date.now()) {
       const cutoff = now - windowSec * 1000;
       return buffer.filter((e) => e.ts >= cutoff).sort((a, b) => a.ts - b.ts);
     }
 
-    // The one place the sources can collide: the hook is installed but its `ready` had not
-    // reached us when webRequest saw the same xhr. The richer page row overwrites in place.
+    // webRequest saw the xhr before the hook's `ready` reached us: the richer page row wins in place.
     function adoptTwin(ev, ts) {
       for (let i = buffer.length - 1; i >= 0; i--) {
         const e = buffer[i];

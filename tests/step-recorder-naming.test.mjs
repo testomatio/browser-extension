@@ -1,25 +1,18 @@
 #!/usr/bin/env node
-// The words of a step: what a click reads like, how the control gets its name, and the one clause
-// the sentence carries about where it sits. Every row is one fixture and one action, read back as
-// the sentence the tester will see in the test. Run: node --test tests/step-recorder-naming.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, el, text, HOST_ID } from './helpers/recorder-harness.mjs';
 
-// Mount the fixture, act on the control, hand back the whole entry. `isConnected` and not
-// `body.contains`: a control inside a component is already in the page, and moving it out is
-// exactly the fixture the shadow-root rows are made of.
+// `isConnected`, not `body.contains`: a control inside a component is already in the page.
 async function step(h, node, type = 'click', props = {}) {
   if (!node.isConnected) h.doc.body.append(node);
   await h.act(node, type, props);
   return h.entries()[0];
 }
 
-// The sentence alone, which is all most rows are about.
 const say = async (h, node, type = 'click', props = {}) => (await step(h, node, type, props))?.text;
 
-// A row that records nothing. An empty outbox proves nothing on its own, so the same page then
-// records an ordinary click: the silence is the fixture's, not the harness's.
+// An empty outbox proves nothing alone, so the same page then records an ordinary click.
 async function assertSilent(h, node, props = {}) {
   if (!h.doc.body.contains(node)) h.doc.body.append(node);
   await h.act(node, 'click', props);
@@ -29,8 +22,6 @@ async function assertSilent(h, node, props = {}) {
   await h.act(control, 'click');
   assert.deepEqual(h.entries().map((e) => e.text), ['Click the "Pay now" button']);
 }
-
-// ---- A: what a click sentence reads like -----------------------------------
 
 test('A1: a button is clicked by the name it shows', async () => {
   const h = load();
@@ -118,8 +109,6 @@ test('A13: a double click supersedes the exact single-click text it follows', as
   assert.equal(entries[2].replaces, entries[0].text);
 });
 
-// The noun a role is double-clicked by is not the verb it is clicked by: "tab" both times, but
-// `Open the …` is what has to be popped.
 test('A14: a double-clicked tab keeps the tab noun and replaces the Open sentence', async () => {
   const h = load();
   const entry = await step(h, el('div', { role: 'tab', 'aria-label': 'Details' }), 'dblclick');
@@ -171,8 +160,7 @@ test('A21: a role wrapper around a real checkbox leaves the step to the change',
   await assertSilent(h, el('div', { role: 'checkbox' }, el('input', { type: 'checkbox' })));
 });
 
-// The plain-<label> half of this is dead code: LABEL is not in CLICK_SEL, so `closest` never
-// returns one and the LABEL guard is only ever reached through a role.
+// The plain-<label> path is dead: LABEL is not in CLICK_SEL, so only a role reaches the LABEL guard.
 test('A22: a label wrapping a checkbox forwards its click and records nothing', async () => {
   const h = load();
   await assertSilent(h, el('label', { role: 'button' }, text('Bulk'), el('input', { type: 'checkbox' })));
@@ -202,8 +190,6 @@ test('A25: a target carrying the pill id is ignored whatever the path says', asy
   await assertSilent(h, el('button', { id: HOST_ID }, 'Impostor'));
 });
 
-// The class of ARIA widgets a SPA builds out of <div>s. Without them in CLICK_SEL a tester
-// clicking a combobox or a tree item got a recording with a hole in it.
 test('A26: a combobox, link, slider or treeitem role records a step', async () => {
   for (const role of ['combobox', 'link', 'slider', 'treeitem']) {
     const h = load();
@@ -211,8 +197,6 @@ test('A26: a combobox, link, slider or treeitem role records a step', async () =
   }
 });
 
-// Each of the seven has the verb a tester would write by hand, and the bare-noun form when
-// there is nothing to name it by.
 test('A27: every custom-control role reads as the widget it is, named or not', async () => {
   const rows = [
     ['link', 'Click the "Country" link', 'Click the link'],
@@ -229,8 +213,6 @@ test('A27: every custom-control role reads as the widget it is, named or not', a
   }
 });
 
-// ---- B: the naming ladder --------------------------------------------------
-
 test('B1: an aria-label beats the text the control shows', async () => {
   const h = load();
   assert.equal(await say(h, el('button', { 'aria-label': 'Close' }, '×')),
@@ -245,7 +227,7 @@ test('B2: aria-labelledby names the field from the element it points at', async 
   assert.equal(entry.name, 'Billing');
 });
 
-// The spec-legal multi-id form is looked up as ONE id, finds nothing, and the ladder walks past it.
+// The spec-legal multi-id form is looked up as one id, finds nothing, and the ladder walks past it.
 test('B3: aria-labelledby with two ids names nothing', async () => {
   const h = load();
   h.doc.body.append(el('span', { id: 'a' }, 'Billing'), el('span', { id: 'b' }, 'address'));
@@ -253,8 +235,7 @@ test('B3: aria-labelledby with two ids names nothing', async () => {
   assert.equal(entry.text, 'Type "Acme Ltd" into the Billing address field');
 });
 
-// getElementById only ever searches the light DOM, so an id reused inside a component is answered
-// by whatever unrelated node happens to hold it in the page.
+// getElementById searches only the light DOM, so an id reused inside a component hits a page node.
 test('B4: a labelled control in a shadow root borrows a light-DOM id', async () => {
   const h = load();
   h.doc.body.append(el('h1', { id: 'lbl' }, 'Recent orders'));
@@ -312,8 +293,7 @@ test('B10: a wrapping label drops the control it wraps before naming it', async 
   assert.equal(await say(h, sel, 'change'), 'Select "US" in the Country dropdown');
 });
 
-// The label[for] lookup runs against `document`, so a component's field is named by a page-level
-// label that was never meant for it.
+// The label[for] lookup runs against `document`, so a page-level label names a component's field.
 test('B11: label[for] crosses out of a shadow root', async () => {
   const h = load();
   const stray = el('label', null, 'Recent orders');
@@ -333,8 +313,7 @@ test('B12: a placeholder names a field that has nothing else', async () => {
     'Type "shoes" into the Search products field');
 });
 
-// An icon-only button a human reads by its tooltip records as nameless: `title` rides along in the
-// packet and is never consulted by the ladder.
+// `title` rides along in the packet, but the ladder never consults it.
 test('B13: a title attribute never names the control', async () => {
   const h = load();
   assert.equal(await say(h, el('button', { title: 'Delete row' })), 'Click the "Delete row" button');
@@ -375,8 +354,6 @@ test('B18: nothing at all leaves the bare noun', async () => {
   assert.equal(await say(h, el('button')), 'Click the button');
 });
 
-// The cut used to keep the space it landed on and add nothing, so a truncated value read as a
-// complete one and a tester comparing it to the field saw a mismatch they could not explain.
 test('B19: a truncated value says it was cut', async () => {
   const h = load();
   const long = 'The quick brown fox jumps over the lazy dog';
@@ -390,8 +367,7 @@ test('B20: a name broken over lines is collapsed to one', async () => {
     'Click the "Pay now" button');
 });
 
-// trim40 slices UTF-16 code units, so a 40-boundary that lands inside a surrogate pair ships half
-// a character into the step text.
+// trim40 slices UTF-16 code units, so a cut inside a surrogate pair ships half a character.
 test('B21: a name cut at an astral emoji ships half a character', async () => {
   const h = load();
   const stem = 'Send the receipt to the billing contact'; // 39 units: the emoji straddles the cut
@@ -416,8 +392,6 @@ test('B23: "countdown" is a word, not a badge class', async () => {
   const dropped = el('button', null, el('span', { className: 'count' }, '3'), text(' days left'));
   assert.equal(await say(h2, dropped), 'Click the "days left" button');
 });
-
-// ---- C: the clause the sentence carries ------------------------------------
 
 test('C1: a control in a table row says which row', async () => {
   const h = load();
@@ -468,8 +442,7 @@ test('C5: with no row, the section speaks', async () => {
   assert.deepEqual(entry.context, { section: 'Payment' });
 });
 
-// The section walk takes the nearest heading BEFORE the element, wherever it belongs: in a flat
-// grid that is the previous card's heading, and the step claims a section it is not in.
+// The section walk takes the nearest heading before the element, wherever that heading belongs.
 test('C6: a flat card grid borrows the previous card heading', async () => {
   const h = load();
   const btn = el('button', null, 'Subscribe to updates');
@@ -482,8 +455,6 @@ test('C6: a flat card grid borrows the previous card heading', async () => {
   assert.equal(entry.context, null);
 });
 
-// Five order rows keyed only by their number produce five identical steps, and nothing in the
-// recording says which row was clicked.
 test('C7: a row keyed by a number alone names nothing', async () => {
   const h = load();
   const btn = el('button', null, 'Delete');
@@ -494,7 +465,6 @@ test('C7: a row keyed by a number alone names nothing', async () => {
   assert.deepEqual(entry.context, { row: '1042' });
 });
 
-// An unclassed counter rides into the row name, so the step goes stale the moment the count moves.
 test('C8: an unclassed counter is kept in the row title', async () => {
   const h = load();
   const btn = el('button', null, 'Open');
@@ -504,8 +474,7 @@ test('C8: an unclassed counter is kept in the row title', async () => {
   assert.deepEqual(entry.context, { row: 'Products' });
 });
 
-// cellIndex is the cell's index in its own row, so one colspan in the header shifts every mapping
-// after it — and the wrong header then NAMES the control.
+// cellIndex counts cells in its own row, so one colspan in the header shifts every mapping after it.
 test('C9: a colspan header names the control after the wrong column', async () => {
   const h = load();
   const box = el('input', { type: 'checkbox', checked: true });
@@ -595,9 +564,7 @@ test('C15: a row of running text is a title only while it is short enough to be 
   assert.deepEqual(entry2.context, { row: 'Wrench and spanner set' });
 });
 
-// Added in review: raising the 40-character cut broke no test, so the cut itself was never
-// pinned. A step is a sentence a person reads, and a control whose label is a paragraph would
-// otherwise carry the paragraph into the test. The ellipsis is part of the forty.
+// A label that is a paragraph would ride into the step whole; the ellipsis counts in the forty.
 test('B24: a long name is cut to forty characters, and says so', async () => {
   const h = load();
   const btn = el('button', null, 'Confirm and place the order for all seventeen items');

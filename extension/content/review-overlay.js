@@ -1,6 +1,4 @@
-// Recording review drawn OVER the page (#68 preview+trim), injected on demand by the worker
-// when a recording stops. Frames screenrec/review.html; the page reads the parked file itself.
-// Closing WITHOUT attaching keeps the file parked — the panel's button offers the review again.
+// Closing without attaching keeps the file parked; the panel's button offers the review again.
 
 /* global chrome */
 (() => {
@@ -74,8 +72,7 @@
   let waitId = null;
   let keyed = false; // the frame is pointed at the review only once the worker hands the key over
 
-  // review.html is web-accessible to every page, so it acts framed only for whoever carries the key
-  // the worker minted with this take. The hash keeps it out of the request and out of a referrer.
+  // Web-accessible review.html acts only for the key holder; a hash keeps the key out of any referrer.
   function armFrame(key) {
     if (torn) return;
     keyed = true;
@@ -83,8 +80,7 @@
       + (key ? `#k=${encodeURIComponent(key)}` : '');
   }
 
-  // A page whose CSP refuses our frame leaves a dark rectangle and no word of explanation, so a
-  // tester cannot tell a refused review from a ruined take. Say it, and hand over the standalone tab.
+  // A CSP-refused frame is a silent dark box, so say so and hand over the standalone tab.
   function showStall() {
     if (stalled || loaded || torn) return;
     stalled = true;
@@ -121,8 +117,7 @@
     teardown();
   }
 
-  // Esc or a finished review inside the frame reaches us as a message — that document has its
-  // own keyboard. Only our own iframe may ask: any script on the page can post here.
+  // Only our own iframe may ask: any script on the page can post here.
   function onMessage(e) {
     if (e.source !== iframe.contentWindow || !e.data) return;
     if (e.data.type === 'TESTOMAT_REVIEW_BUSY') busy = !!e.data.busy;
@@ -131,9 +126,7 @@
 
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) teardown(); });
   closeBtn.addEventListener('click', teardown);
-  // Chrome fires `load` for a frame its CSP refused, leaving it on the initial about:blank — which
-  // is same-origin and so still readable. A review that really opened is an extension page, another
-  // origin, and reading into it is refused. That is the only honest tell the two apart.
+  // Chrome fires `load` for a CSP-refused frame on readable about:blank; a real review is cross-origin.
   const frameOpened = () => {
     try { return !iframe.contentDocument; } catch { return true; }
   };
@@ -150,8 +143,7 @@
   root.style.overflow = 'hidden';
   (document.body || root).append(host);
   waitId = setTimeout(showStall, FRAME_WAIT_MS);
-  // A content script cannot read chrome.storage.session, and raising its access level would hand
-  // the parked take to every content script on every page. The worker answers instead.
+  // Content scripts can't read storage.session, and widening access would expose the take to every page.
   chrome.runtime.sendMessage({ type: 'SCREENREC_REVIEW_KEY' })
     .then((r) => armFrame(r && r.key), () => armFrame(''));
 })();

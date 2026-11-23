@@ -1,32 +1,20 @@
-// Testomat API client: Public API v2 (raw token as Bearer, flat snake_case) plus the Web-UI JSON:API
-// (JWT from POST /api/login) for what v2 lacks — the v2 attachments route 404s on prod.
-//
-// One credential covers both: an account session (a JWT from `/app-auth`, or one exchanged from a
-// General token) opens the JSON:API directly AND can read any project's own v2 key on demand. So
-// the tester signs in once and v2 keys are minted, never typed. A handed-off config
-// (shared/handoff.js) is the same session arriving from a host app instead of a paste box.
-
 /* global ApiErrors, ApiTransport, ApiPaging, ApiPeople, ApiNormalize, ApiAssets */
 
 const TestomatAPI = (() => {
   let cfg = null; // { baseUrl, apiToken, projectId } (+ a handoff's projectToken/projectTokenFor)
-  // v2 keys read off the projects endpoint, one per project. Memory-only and per boot: they are
-  // the project's own credential, and nothing here needs them to outlive the panel.
+  // Memory-only: a v2 key is the project's own credential and need not outlive the panel.
   const v2Keys = new Map();
   const { signedAssets } = ApiAssets;
-  // The live session. Memory-only: it is either adopted from the tester's stored credential or
-  // exchanged from their General token, and neither is worth a second copy on disk.
+  // Memory-only: adopted or exchanged from the stored credential, neither worth a second copy on disk.
   let jwt = null;
-  // A host app's session token. Memory-only like `jwt`, but it outlives configure(): it belongs to
-  // the host that launched this browser, not to whichever project the panel is pointed at.
+  // Memory-only, but outlives configure(): it belongs to the host app, not to the current project.
   let handedJwt = null;
   let jwtUid = null; // the JWT's own `user_id` claim — memory-only like the JWT
   // 'unknown' until the first login attempt, then true (session) | false (degraded).
   let jwtAvailable = 'unknown';
-  // #155: v2 answers 403 to EVERY request — GET included — for read-only access (reader role,
-  // company-readonly account, archived project), while a rejected token is a 401 instead.
+  // v2 answers 403 to every request (GET too) for read-only access, while a rejected token is a 401.
   let readonly = 'unknown'; // 'unknown' until a v2 call answers | true | false
-  // The host, so a tester reading either verdict below knows WHICH server refused them.
+  // The host, so the tester knows which server refused them.
   const instanceHost = () => ApiErrors.instanceHost(cfg?.baseUrl);
   const READONLY_MESSAGE = (status) => ApiErrors.readonlyMessage(instanceHost(), status);
   const ROUTE_REFUSED = (status) => ApiErrors.routeRefused(instanceHost(), status);
@@ -35,8 +23,7 @@ const TestomatAPI = (() => {
 
   function configure(c) {
     const next = c ? { ...c, baseUrl: c.baseUrl?.replace(/\/+$/, '') } : null;
-    // A minted key belongs to the account that minted it, so another instance or another
-    // credential invalidates the lot. A project switch does not — this runs on every tab change.
+    // Another instance or credential invalidates minted keys; a project switch (any tab change) doesn't.
     if (!next || next.baseUrl !== cfg?.baseUrl || next.apiToken !== cfg?.apiToken) {
       v2Keys.clear();
       signedAssets.clear(); // another instance signed nothing of ours
@@ -48,8 +35,7 @@ const TestomatAPI = (() => {
     readonly = 'unknown'; // re-probed against the new instance/project
   }
 
-  // The host's session token, adopted by login() instead of POST /api/login. Kept apart from
-  // configure() so a project switch does not drop it.
+  // Kept apart from configure() so a project switch does not drop the host's session.
   function useHandoffSession(token) {
     if (token !== handedJwt) { v2Keys.clear(); signedAssets.clear(); }
     handedJwt = token || null;
@@ -64,11 +50,8 @@ const TestomatAPI = (() => {
   const NO_PROJECT_KEY = 'This project has no API key for your role — ask an owner, or pick '
     + 'another project';
 
-  /** Whether there is anything at all to authenticate with. */
   const hasCredential = () => !!(cfg?.apiToken || cfg?.projectToken || handedJwt);
 
-  // A v2 credential already in hand: the handoff's project token while the panel is on the project
-  // it was issued for, one minted earlier, or a General token, which reaches every project.
   function v2TokenInHand() {
     if (cfg?.projectToken && cfg.projectTokenFor === cfg.projectId) return cfg.projectToken;
     const minted = v2Keys.get(cfg?.projectId);
@@ -77,8 +60,7 @@ const TestomatAPI = (() => {
     return null;
   }
 
-  // …and if there is none, the session reads the project's own key. That is what lets a tester who
-  // has only signed in — no General token anywhere — use v2 at all.
+  // Else the session reads the project's own key: that is what lets a sign-in-only tester use v2.
   async function v2Token() {
     const inHand = v2TokenInHand();
     if (inHand) return inHand;
@@ -89,7 +71,7 @@ const TestomatAPI = (() => {
     return key;
   }
 
-  // GET /api/tokens/<slug> since 2026-11-09; its 404 is "no token" — or a server without the route.
+  // A 404 from /api/tokens/<slug> means no token, or a server without the route.
   async function keyFromTokens() {
     try {
       const doc = await jwtRequestRoot(`/tokens/${encodeURIComponent(cfg.projectId)}`);
@@ -108,8 +90,7 @@ const TestomatAPI = (() => {
   }
 
   const { rawFetch, LONG_TIMEOUT_MS } = ApiTransport;
-  // When the instance last answered 429, after ApiTransport had already waited out its retries.
-  // The panel's live sync reads it to slow its own polling instead of adding to the flood.
+  // Live sync reads it to slow its polling instead of adding to the flood.
   const rateLimitedAt = () => ApiTransport.rateLimitedAt();
 
   function guardConfigured() {
@@ -118,23 +99,20 @@ const TestomatAPI = (() => {
     }
   }
 
-  // login + api-root routes carry no slug, so they need only the base URL and something to open a
-  // session with — the tester's own credential (a session token, or a General token to exchange),
-  // or the one a host handed us (the project picker runs before any slug is known).
+  // Login and api-root routes carry no slug: the project picker runs before any slug is known.
   function guardSession() {
     if (!cfg?.baseUrl || !(cfg?.apiToken || handedJwt)) {
       throw new ApiError('unconfigured', 0, 'Not configured');
     }
   }
 
-  // The cheapest read v2 has — validate()'s own call, shared so the corroboration cannot drift from it.
+  // The cheapest v2 read, shared with validate() so the corroboration cannot drift from it.
   const RUNS_PING = { query: { per_page: 1 } };
-  // ONE in flight: racing 403s must not fire two probes, nor the probe's own 403 a third.
+  // One in flight: racing 403s must not fire two probes, nor the probe's own 403 a third.
   let readonlyCheck = null;
   function projectIsReadonly() {
     if (!readonlyCheck) {
-      // `remint: false` too: this probe runs AFTER the rotation retry already had its go, and a
-      // read-only project 403s on every key there is — re-minting per probe would churn forever.
+      // `remint: false`: a read-only project 403s on every key, so re-minting per probe would churn forever.
       readonlyCheck = request('/runs', { ...RUNS_PING, corroborate403: false, remint: false })
         .then(() => false, (e) => e?.status === 403) // any other failure proves nothing — stay unlocked
         .finally(() => { readonlyCheck = null; });
@@ -152,11 +130,9 @@ const TestomatAPI = (() => {
       }
     }
     const token = await v2Token();
-    // A key WE minted, not the tester's own General token or a handoff's: only a minted one can be
-    // replaced without asking anybody, so only a minted one is worth retrying behind their back.
+    // Only a key we minted can be replaced without asking anybody, so only it is retried silently.
     const minted = v2Keys.get(cfg.projectId) === token;
-    // #106: an owner rotating the project key leaves every open panel holding a dead one. Drop it,
-    // mint a fresh one and replay ONCE — `remint: false` on the replay is what stops a loop.
+    // A rotated project key leaves open panels with a dead one; replay once, `remint: false` stops a loop.
     const rotateKey = () => {
       // Only if nobody re-minted underneath us: a sibling request's fresh key is not ours to discard.
       if (v2Keys.get(cfg.projectId) === token) v2Keys.delete(cfg.projectId);
@@ -170,10 +146,9 @@ const TestomatAPI = (() => {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-    // A REJECTED key is a 401 here — read-only access is the 403 below (#155) — so this is the
-    // unambiguous rotation signal, and it is taken before anything else looks at the answer.
+    // A rejected key is a 401 here (read-only is the 403 below): the unambiguous rotation signal.
     if (res.status === 401 && remint && minted) return rotateKey();
-    // Only a plain read answering 403 too proves read-only: a proxy, WAF or SSO gateway refuses ONE route.
+    // Only a plain read answering 403 too proves read-only: a proxy, WAF or SSO gateway refuses one route.
     if (res.status === 403) {
       // Already proven: what clears the flag is a 2xx below, so re-probing it buys nothing.
       if (readonly === true) throw new ApiError('readonly', 403, READONLY_MESSAGE(403));
@@ -181,9 +156,7 @@ const TestomatAPI = (() => {
         readonly = true;
         throw new ApiError('readonly', 403, READONLY_MESSAGE(403));
       }
-      // Not read-only, so ONE route refused us — and a rotated key can read that way too. The same
-      // one retry as a 401 gets, but AFTER the corroboration: before it, a read-only project would
-      // drop and re-mint its key on every single call and never learn anything.
+      // One route refused us: retry like a 401, after corroboration, or read-only projects re-mint forever.
       if (remint && minted) return rotateKey();
       throw new ApiError('auth', 403, ROUTE_REFUSED(403)); // the kind toError() gives a 403 anywhere else
     }
@@ -197,35 +170,31 @@ const TestomatAPI = (() => {
   const pagedData = (path, query) => drain(request, path, query);
 
   const validate = () => request('/runs', RUNS_PING);
-  // #110: `render_index` caps per_page at 100 (default 30) and answers meta {total, page, per_page}.
-  // Both lists below are the DEGRADED (no-JWT) runs list source.
+  // `render_index` caps per_page at 100 (default 30) and answers meta {total, page, per_page}.
   const V2_RUNS_PER_PAGE = 50;
   const V2_GROUPS_PER_PAGE = 100;
   const listRuns = (page = 1, perPage = V2_RUNS_PER_PAGE) =>
     request('/runs', { query: { page, per_page: perPage, 'filter[archived]': false } });
-  // Rungroups (folders), roots only — folded client-side by rungroup_id on the runs list (verified live).
+  // Rungroups (folders), roots only, folded client-side by rungroup_id on the runs list.
   const listRunGroups = (page = 1, perPage = V2_GROUPS_PER_PAGE) =>
     request('/rungroups', { query: { page, per_page: perPage } });
-  // One row fetched purely for `meta.total`: the v2 index counts runs only (no folders among the
-  // rows, unlike /runs/dashboard) and honours the archived filter. null when the server has no total.
+  // One row for `meta.total`: the v2 index counts runs only and honours the archived filter.
   const countRuns = () =>
     request('/runs', { query: { page: 1, per_page: 1, 'filter[archived]': false } })
       .then((r) => (r?.meta?.total != null ? Number(r.meta.total) : null));
   const getRun = (id) => request(`/runs/${encodeURIComponent(id)}`).then((r) => r?.data);
-  // A run's test list IS its testrun records — web-created manual runs pre-create them.
+  // A run's test list is its testrun records; web-created manual runs pre-create them.
   const listTestruns = (runId) => pagedData('/testruns', { run_id: runId });
   const getTestrun = (id) => request(`/testruns/${encodeURIComponent(id)}`).then((r) => r?.data);
   const getTest = (id) => request(`/tests/${encodeURIComponent(id)}`).then((r) => r?.data);
 
-  // ---- TC Studio (M3) — suites + per-suite tests + create/update ----
   const { normSuiteNode, orderSuiteTree, normDashRun, normDashGroup, testrunExampleOf } = ApiNormalize;
 
   async function getSuiteTree() {
     const roots = await jwtRequest('/suites/tree');
     return Array.isArray(roots) ? roots.map(normSuiteNode) : [];
   }
-  // Drains the JSON:API suites index — the ONE read carrying `position`, `data[].id` being the same public
-  // uid as a tree node's. A FIXED 50 rows a page, `per_page` ignored (verified live), so none is sent.
+  // The only read carrying `position`; a fixed 50 rows a page, `per_page` ignored, so none is sent.
   async function getSuitePositions() {
     const positions = new Map();
     const take = (doc) => {
@@ -235,8 +204,6 @@ const TestomatAPI = (() => {
     };
     const first = await jwtRequest('/suites?page=1');
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
-    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
     const rest = await mapLimit(
       Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
@@ -246,41 +213,34 @@ const TestomatAPI = (() => {
     rest.forEach(take);
     return positions;
   }
-  // The tree as the Tests tab and the pickers draw it. /suites/tree orders by `abs_position`, which the
-  // web's drag-reorder leaves stale on the shifted siblings, so the rows are re-sorted by `position` —
-  // the web's own key (#26). Both reads go out together, and positions failing leaves the server's order.
+  // /suites/tree orders by `abs_position`, which drag-reorder leaves stale, so re-sort by `position`.
   async function getSuiteTreeOrdered() {
     const [roots, positions] = await Promise.all([getSuiteTree(), getSuitePositions().catch(() => null)]);
     return positions ? orderSuiteTree(roots, positions) : roots;
   }
-  // Flat v2 POST; absent fields are omitted — title-only creates a root `file` suite.
-  // `fileType` is 'folder' (grouping node) or 'file' (TC container).
+  // Absent fields are omitted: title-only creates a root `file` suite.
   const createSuite = ({ title, parentId, fileType } = {}) => {
     const body = { title };
     if (parentId) body.parent_id = parentId;
     if (fileType) body.file_type = fileType;
     return request('/suites', { method: 'POST', body }).then((r) => r?.data);
   };
-  // Subtree-wide. MUST send `suites[]=` — a bare `suites=<id>` yields a 500. Ordered created_at DESC.
+  // Must send `suites[]=`: a bare `suites=<id>` yields a 500. Ordered created_at desc.
   const getTestsBySuite = (suiteId) => pagedData('/tests', { 'suites[]': suiteId });
-  // Flat payload; `suite_id` is REQUIRED — missing or unknown answers 404 "Suite is required".
+  // `suite_id` is required: missing or unknown answers 404 "Suite is required".
   const createTest = (attrs) =>
     request('/tests', { method: 'POST', body: attrs }).then((r) => r?.data);
-  // One web /bulk request creates the whole list in order, appended at the suite's end (verified live).
   // Titles go out as JSON-quoted YAML scalars, so ':' '#' '@' and quotes survive.
   const bulkCreateTests = (suiteId, titles) => jwtRequest('/bulk', {
     method: 'POST',
     body: { append: true, suite: suiteId, yaml: titles.map((t) => `- ${JSON.stringify(t)}`).join('\n') + '\n' },
   });
-  // PATCH takes any SUBSET of the create payload; sending `suite_id` would MOVE the test, so the
-  // editor never does. 404 for an unknown/deleted uid.
+  // PATCH takes any subset of the create payload; sending `suite_id` would move the test.
   const updateTest = (id, attrs) =>
     request(`/tests/${encodeURIComponent(id)}`, { method: 'PATCH', body: attrs })
       .then((r) => r?.data);
 
-  // ---- test parameters + examples (#5) — JSON:API only, v2 serves neither ----
-  // A test's `params` are the COLUMN NAMES; each example is one row, `data` positional to them.
-  // The rows ride the test document as `included` resources (verified live on beta).
+  // `params` are the column names; each example is a row, `data` positional, riding as `included`.
   async function getTestParams(uid) {
     const doc = await jwtRequest(`/tests/${encodeURIComponent(uid)}`);
     const attrs = doc?.data?.attributes || {};
@@ -289,15 +249,13 @@ const TestomatAPI = (() => {
       .map((n) => ({ id: String(n.id), data: (n.attributes && n.attributes.data) || [] }));
     return { params: Array.isArray(attrs.params) ? attrs.params : [], examples };
   }
-  // ONLY `params` travels: title and description stay as they are (verified). `[]` clears them.
+  // Only `params` travels: title and description stay as they are. `[]` clears them.
   const setTestParams = (uid, params) =>
     jwtRequest(`/tests/${encodeURIComponent(uid)}`, {
       method: 'PATCH',
       body: { data: { id: String(uid), type: 'test', attributes: { params } } },
     });
-  // One row. Empty cells are KEPT server-side, so a half-filled row cannot slide its values under
-  // the wrong column; an EMPTY `data` array is refused (400 "Data can't be empty"), and each cell
-  // is truncated to 250 chars.
+  // Empty cells are kept so values can't slide columns; an empty `data` is refused, cells cut at 250.
   async function createExample(uid, data) {
     const doc = await jwtRequest('/examples', {
       method: 'POST',
@@ -319,7 +277,7 @@ const TestomatAPI = (() => {
   const deleteExample = (id) =>
     jwtRequest(`/examples/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
-  // POST-create on first result, PUT afterwards (confirmed in T004 smoke).
+  // POST creates on the first result, PUT afterwards.
   function setStatus({ testrunId, runId, testId, status, message }) {
     const payload = { status, message: message || undefined };
     if (testrunId) {
@@ -332,9 +290,7 @@ const TestomatAPI = (() => {
     }).then((r) => r?.data);
   }
 
-  // A session token is adopted, never exchanged — there is nothing to exchange it for. Once,
-  // though: jwtSend re-enters login() on a 401/403, and handing back the same dead token would
-  // both fail again and re-arm `jwtAvailable`, so nothing would ever degrade.
+  // Adopted once: jwtSend re-enters login() on 401/403, and the same dead token would never degrade.
   const HANDED_EXPIRED = 'The session handed to this panel has expired — reconnect from the app '
     + 'that opened it';
   const OWN_EXPIRED = 'Your session has expired — authorize again in Settings';
@@ -342,7 +298,7 @@ const TestomatAPI = (() => {
   // Lazy token→session upgrade; any failure marks the session unavailable so callers can degrade.
   async function login() {
     guardSession();
-    // A host's session outranks a stored one: it is what THIS browser was opened for.
+    // A host's session outranks a stored one: it is what this browser was opened for.
     const session = handedJwt || (isSessionToken(cfg.apiToken) ? cfg.apiToken : null);
     if (session) {
       if (jwt === session) {
@@ -370,8 +326,7 @@ const TestomatAPI = (() => {
     return jwt;
   }
 
-  // The JWT's own `user_id` claim (base64url). null rather than throwing: this identity is
-  // cosmetic (the viewer's profile timezone, #200), never an authorization decision.
+  // null rather than throwing: this identity is cosmetic (profile timezone), never an authorization.
   function decodeJwtUserId(token) {
     try {
       const payload = String(token).split('.')[1];
@@ -381,8 +336,7 @@ const TestomatAPI = (() => {
     } catch { return null; }
   }
 
-  // Lazy login, then ONE re-login + retry on 401 or 403 — an expired JWT answers 403 here (unlike
-  // v2, where 403 means read-only). `url` is prebuilt: the project base or the api root.
+  // One re-login + retry on 401 or 403: an expired JWT answers 403 here, unlike v2 (read-only).
   async function jwtSend(url, { method = 'GET', body, timeout } = {}) {
     const doReq = () => rawFetch(url, {
       method,
@@ -404,13 +358,13 @@ const TestomatAPI = (() => {
     try { return await res.json(); } catch { return null; }
   }
 
-  // JSON:API (web) request on the PROJECT base {baseUrl}/api/{project}.
+  // JSON:API request on the project base {baseUrl}/api/{project}.
   function jwtRequest(path, opts) {
     guardConfigured();
     return jwtSend(`${cfg.baseUrl}/api/${cfg.projectId}${path}`, opts);
   }
 
-  // JSON:API on the API ROOT {baseUrl}/api — routes like /projects/{slug} sit OUTSIDE the project namespace.
+  // JSON:API on the api root {baseUrl}/api: routes like /projects/{slug} sit outside the project.
   function jwtRequestRoot(path, opts) {
     guardSession();
     return jwtSend(`${cfg.baseUrl}/api${path}`, opts);
@@ -422,7 +376,7 @@ const TestomatAPI = (() => {
     return jwtRequestRoot(`/projects/${encodeURIComponent(cfg.projectId)}`);
   }
 
-  // Pending testruns auto-transition to skipped server-side; v2 counts lag, so callers re-read /testruns.
+  // Pending testruns auto-skip server-side; v2 counts lag, so callers re-read /testruns.
   function finishRun(runId) {
     return jwtRequest(`/runs/${encodeURIComponent(runId)}`, {
       method: 'PUT',
@@ -430,22 +384,19 @@ const TestomatAPI = (() => {
     });
   }
 
-  // ---- paged list results (#110) ------------------------------------------
   async function fetchDashboardPage(page = 1) {
     const doc = await jwtRequest(`/runs/dashboard?page=${encodeURIComponent(page)}`);
     const items = (doc?.data || []).map((n) => (n.type === 'rungroup' ? normDashGroup(n) : normDashRun(n)));
     return pageResult(items, page, doc?.meta, DASH_KEYS);
   }
-  // A group's child runs, one page. Omitted, `perPage` is 50 server-side — a caller that paged with
-  // an explicit size MUST keep passing it so page 2 lines up.
+  // Omitted, `perPage` is 50 server-side: a caller that paged with a size must keep passing it.
   async function fetchGroupChildren(groupId, page = 1, perPage = null) {
     const per = perPage ? `&per_page=${encodeURIComponent(perPage)}` : '';
     const doc = await jwtRequest(`/runs?group_id=${encodeURIComponent(groupId)}&page=${encodeURIComponent(page)}${per}`);
     return pageResult((doc?.data || []).map(normDashRun), page, doc?.meta, GROUP_KEYS);
   }
 
-  // ALL descendant runs at ANY depth via `nested=true` — feeds the filter-chip counts before any
-  // group is expanded. Snake_case meta, default per_page 50.
+  // All descendant runs at any depth via `nested=true`, for filter-chip counts before any group opens.
   async function fetchGroupRunsNested(groupId) {
     const all = [];
     for (let page = 1; page <= 100; page++) {
@@ -460,9 +411,7 @@ const TestomatAPI = (() => {
     return all;
   }
 
-  // ---- nested rungroups (JWT, project base) — Phase 4 ----
-  // The list serializer under-reports subgroup counts (runs-count reads 0 even with nested runs),
-  // so counts are nulled here and the renderer hides the badge instead of showing a wrong number.
+  // The list serializer under-reports subgroup counts, so they are nulled and the badge hidden.
   async function fetchGroupSubgroups(groupId, page = 1) {
     const doc = await jwtRequest(`/rungroups?groupId=${encodeURIComponent(groupId)}&page=${encodeURIComponent(page)}`);
     const items = (doc?.data || []).map((n) => {
@@ -474,8 +423,7 @@ const TestomatAPI = (() => {
     return pageResult(items, page, doc?.meta, GROUP_KEYS); // per_page absent here
   }
 
-  // `path` is the ancestor chain root-first, excluding self — one request resolves a nested group's
-  // whole chain for URL paste (verified live). [] when absent.
+  // `path` is the ancestor chain root-first, excluding self; one request resolves it for URL paste.
   async function getRunGroup(groupId) {
     const doc = await jwtRequest(`/rungroups/${encodeURIComponent(groupId)}`);
     const node = doc?.data;
@@ -486,8 +434,7 @@ const TestomatAPI = (() => {
     return g;
   }
 
-  // Resolves the v2 `assigned_to` email to a name. `timezone` is the member's profile zone, already
-  // IANA-mapped server-side — the panel stamps everything in the VIEWER's one (#200).
+  // `timezone` is the member's IANA profile zone; the panel stamps everything in the viewer's own.
   async function listProjectUsers() {
     const doc = await jwtRequest('/users');
     const rows = Array.isArray(doc?.data) ? doc.data : [];
@@ -500,8 +447,7 @@ const TestomatAPI = (() => {
     });
   }
 
-  // The JWT JSON:API PUT is the ONLY path that broadcasts the change to other web clients. Body MUST
-  // be dasherized (flat → 400); the write value is the user id, while the read side echoes an email.
+  // Only this PUT broadcasts to web clients; dasherized body (flat → 400), user id in, email out.
   function assignTestrun(testrunId, userId) {
     return jwtRequest(`/testruns/${encodeURIComponent(testrunId)}`, {
       method: 'PUT',
@@ -515,8 +461,7 @@ const TestomatAPI = (() => {
     });
   }
 
-  // `id` is the project SLUG (the v2 base path), `attributes.title` the display name. per_page caps
-  // at 200 — verified live, a bigger ask is clamped, not honoured — so every page is drained.
+  // per_page caps at 200 (a bigger ask is clamped), so every page is drained; `id` is the slug.
   const PROJECTS_PER_PAGE = 200;
   async function listProjects() {
     const all = [];
@@ -527,15 +472,14 @@ const TestomatAPI = (() => {
       try {
         doc = await jwtRequestRoot(`/projects?page=${page}&per_page=${PROJECTS_PER_PAGE}`);
       } catch (e) {
-        // The FIRST page carries the verdict Settings validates the token on, so it must surface;
-        // a tail dying mid-drain must not — the projects in hand beat an empty picker.
+        // Page 1 carries the verdict Settings validates on; a tail failing mid-drain keeps the ones in hand.
         if (page === 1) throw e;
         break;
       }
       const rows = Array.isArray(doc?.data) ? doc.data : [];
       all.push(...rows.map((n) => {
         const a = n.attributes || {};
-        // `tests-count` rides along on the index (#10); null when the server sent none.
+        // `tests-count` rides along on the index; null when the server sent none.
         return { id: String(n.id), title: a.title || '', testsCount: a['tests-count'] ?? null };
       }));
       const meta = doc?.meta || {};
@@ -550,9 +494,7 @@ const TestomatAPI = (() => {
 
   const getRunInfo = (runId) => jwtRequest(`/runs/${encodeURIComponent(runId)}`).then(runInfoOf);
 
-  // ---- parametrized run rows (#52) — JSON:API only ----
-  // The example values of a run's rows, keyed by testrun id — what tells N same-titled rows of a
-  // parametrized test apart. v2 `/testruns` serializes neither, so this is the only source.
+  // Example values tell same-titled parametrized rows apart; v2 `/testruns` serializes neither.
   async function listTestrunExamples(runId) {
     const map = {};
     const take = (doc) => {
@@ -564,8 +506,6 @@ const TestomatAPI = (() => {
     const path = `/testruns?run_id=${encodeURIComponent(runId)}`;
     const first = await jwtRequest(`${path}&page=1`);
     take(first);
-    // Page 1's `meta.total_pages` counts the rest; they go out FANOUT_LIMIT at a time (#106), with
-    // PAGE_GUARD still the runaway stop on how many there can be at all.
     const pages = Math.min(Number(first?.meta?.total_pages) || 1, PAGE_GUARD);
     const rest = await mapLimit(
       Array.from({ length: Math.max(pages - 1, 0) }, (_, i) => i + 2),
@@ -586,8 +526,7 @@ const TestomatAPI = (() => {
     return jwtRequest(`/testruns/${encodeURIComponent(testrunId)}/testrun_extras/substatus`, { method: 'DELETE' });
   }
 
-  // #116: `bulk_update`, not create — only it inserts `source: :user`, and the web Meta section hides
-  // `system` rows. `oldKey` === `key` makes the write a REPLACE instead of stacking a duplicate row.
+  // `bulk_update` inserts `source: :user` (web hides `system` rows); `oldKey` === `key` replaces.
   function setTestrunMeta(testrunId, entries) {
     return jwtRequest(`/testruns/${encodeURIComponent(testrunId)}/testrun_extras/bulk_update`, {
       method: 'POST',
@@ -595,8 +534,7 @@ const TestomatAPI = (() => {
     });
   }
 
-  // Matching is by `pos` only — re-POSTing the same pos replaces the entry. The server does NOT
-  // validate the status enum, so the caller must restrict it to passed|failed|skipped.
+  // The server does not validate the status enum, so the caller restricts it; the same `pos` replaces.
   function setStep(testrunId, { title, status, pos }) {
     return jwtRequest(`/testruns/${encodeURIComponent(testrunId)}/steps`, {
       method: 'POST',
@@ -604,9 +542,7 @@ const TestomatAPI = (() => {
     });
   }
 
-  // ---- project templates (#104) — JSON:API (JWT, project base) -----------
-  // `?kind=` FALLS BACK to every standard kind when nothing matches, hence the re-check below.
-  // `attributes.document` stays null here (recombination needs a linking record) — `body` is the seed.
+  // `?kind=` falls back to every standard kind when nothing matches, hence the re-check below.
   async function listTemplates(kind = 'test') {
     const doc = await jwtRequest(`/templates?kind=${encodeURIComponent(kind)}`);
     const rows = Array.isArray(doc?.data) ? doc.data : [];
@@ -622,9 +558,7 @@ const TestomatAPI = (() => {
     }).filter((t) => t.kind === kind);
   }
 
-  // ---- AI prompts (#23) — the instance's own endpoint, JSON:API (JWT, project base) ----
-  // The prompt lives SERVER-side: `message` is the recorded actions, the answer carries the
-  // rewritten section in `data.polished_steps` (and the same text between markers in `text`).
+  // The prompt lives server-side; the answer carries the rewritten section in `data.polished_steps`.
   async function polishRecordedSteps(message, testId) {
     const doc = await jwtRequest('/prompts', {
       method: 'POST',
@@ -634,8 +568,7 @@ const TestomatAPI = (() => {
     return { text: (doc && doc.text) || '', steps: doc?.data?.polished_steps || '' };
   }
 
-  // Multipart upload, one retry on a fresh JWT. The endpoint accepts any file (image OR text/plain —
-  // verified live); `scope` is the owning collection, 'testruns' or 'tests'.
+  // The endpoint accepts any file, image or text/plain; `scope` is 'testruns' or 'tests'.
   async function uploadTo(scope, id, blob, filename) {
     guardConfigured();
     const doUpload = async () => {
@@ -663,20 +596,12 @@ const TestomatAPI = (() => {
   const uploadAttachment = (testrunId, blob, filename) => uploadTo('testruns', testrunId, blob, filename);
   const uploadTestAttachment = (testId, blob, filename) => uploadTo('tests', testId, blob, filename);
 
-  // Removing one attachment from a result. TWO routes, because the two halves of this API
-  // disagree about where attachments live: v2 documents
-  // `DELETE /api/v2/{project}/attachments/{id}?testrun_id=…` (it is what the Testomat MCP server
-  // calls), while the UPLOAD above had to fall back to the Web-UI route because v2's POST 404s on
-  // prod. So v2 is asked first and a "route is not here" answer — 403 (a read-only v2 token answers
-  // that to everything, #155), 404, 405 — hands over to the JSON:API the panel already writes with.
-  // Only the SECOND failure reaches the caller: a delete that no route accepts must not read as done.
-  // The 403 being EXPECTED here, it opts out of the read-only corroboration instead of provoking a probe.
+  // v2 first; a 403/404/405 hands over to the JSON:API route, and only that failure reaches the caller.
   async function deleteAttachment(testrunId, attachmentId) {
     guardConfigured();
     const id = encodeURIComponent(String(attachmentId));
     try {
-      // `remint: false` for the same reason as `corroborate403: false`: the 403 here is the ROUTE
-      // answering, not the key, so rotating it would buy a wasted round trip on every delete.
+      // `remint: false`: the 403 here is the route answering, not the key; rotating wastes a trip.
       return await request(`/attachments/${id}`, {
         method: 'DELETE', query: { testrun_id: testrunId }, corroborate403: false, remint: false,
       });
@@ -687,7 +612,6 @@ const TestomatAPI = (() => {
     return jwtRequest(`/attachments/${id}`, { method: 'DELETE' });
   }
 
-  // The live session these three read: cfg's base URL, the JWT in hand and the login that mints it.
   const { assetUrl, fetchAsset, presignArtifact } = ApiAssets.create({
     baseUrl: () => cfg?.baseUrl,
     jwt: () => jwt,
@@ -710,8 +634,7 @@ const TestomatAPI = (() => {
     listProjectUsers, listProjects, assignTestrun,
     listTemplates, polishRecordedSteps,
     jwtAvailable: () => jwtAvailable, jwtUserId: () => jwtUid,
-    // recheckAccess is the corroboration read on its own: the panel's read-only watch shares its
-    // coalescing, and reads the VERDICT off readonlyAccess() — only a 2xx in there clears the flag.
+    // recheckAccess shares the corroboration's coalescing; only a 2xx clears readonlyAccess().
     readonlyAccess: () => readonly, recheckAccess: projectIsReadonly, rateLimitedAt, ApiError,
   };
 })();

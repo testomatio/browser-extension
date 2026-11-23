@@ -1,17 +1,10 @@
 #!/usr/bin/env node
-// What the recorder writes when the tester ENTERS something: a typed value, an IME commit, a
-// dropdown pick, a tick. This is the file that keeps a password, a card number or a security code
-// out of a recorded test — every masked row here is a value that must never reach the editor.
-//
-// THE TRAP: flushType() and flushSelect() return early while the never-values flag is unread and
-// re-enter through `flagRead.then(...)`, so a blur fired and flushed synchronously records NOTHING.
-// Every typing and select row therefore goes through `await h.act(...)` and asserts the entry it
-// expects, never an empty outbox on its own. Run: node --test tests/step-recorder-mask.test.mjs
+
+// Flushes wait for the never-values flag, so a synchronous blur records nothing: rows await h.act.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, el, text } from './helpers/recorder-harness.mjs';
 
-// The control almost every row types into: one input in the body, named by whatever it carries.
 function field(h, props, value) {
   const node = el('input', { ...props, value });
   h.doc.body.append(node);
@@ -34,8 +27,6 @@ function ticked(h, type, props, checked) {
   return node;
 }
 
-// ---- D: typing, and the masking that decides whether the value is written at all ----
-
 test('D1: an ordinary value is written into the step verbatim', async () => {
   const h = load();
   const input = field(h, { 'aria-label': 'Search' }, 'shoes');
@@ -54,7 +45,6 @@ test('D2: a password field is recorded as a noun, never as the password', async 
   assert.deepEqual(entry.ctx.value, { text: 'the password', masked: true });
 });
 
-// Nothing in this field's name says "card": 16 digits that pass Luhn are the whole signal.
 test('D3: a Luhn-valid 16-digit run is masked even in a plainly named field', async () => {
   const h = load();
   const input = field(h, { 'aria-label': 'Number' }, '4242 4242 4242 4242');
@@ -139,8 +129,6 @@ test('D11: a value that grew between two blurs is two steps', async () => {
   ]);
 });
 
-// A wrong password then the right one used to record once, so a negative-path login read as if
-// the first attempt had worked: every flush matched the one sentinel a masked field remembered.
 test('D12: a masked field records both attempts, not just the first', async () => {
   const h = load();
   const input = field(h, { type: 'password', 'aria-label': 'Password' }, 'wrong');
@@ -153,8 +141,6 @@ test('D12: a masked field records both attempts, not just the first', async () =
   ]);
 });
 
-// The other half of the same rule, and what the sentinel was there for: one attempt is one step
-// however many events end it — the field is left untouched between the blur and the Enter.
 test('D12b: blur then Enter on an unchanged masked value is one step, not two', async () => {
   const h = load();
   const input = field(h, { type: 'password', 'aria-label': 'Password' }, 'hunter2');
@@ -170,7 +156,6 @@ test('D13: a field with nothing to name it is still "the field"', async () => {
   assert.deepEqual(texts(h), ['Type "x" into the field']);
 });
 
-// A step that beats the storage read waits for it rather than being recorded under a guess.
 test('D14: a blur before the flag is read is deferred, not dropped', async () => {
   const h = load();
   const input = field(h, { 'aria-label': 'Search' }, 'shoes');
@@ -223,7 +208,6 @@ test('D17: the same change in the sync area is not this flag', async () => {
   ]);
 });
 
-// A slider, a colour and a file picker are entered values a tester would expect back.
 test('D18: range, color and file inputs record a step', async () => {
   const h = load();
   for (const type of ['range', 'color', 'file']) {
@@ -233,8 +217,7 @@ test('D18: range, color and file inputs record a step', async () => {
   assert.equal(h.entries().length, 3);
 });
 
-// The filename comes from `files` when the page has one; a browser reports the value itself
-// as `C:\fakepath\photo.png`, and only the last segment is a name a tester reads.
+// A browser reports the value as `C:\fakepath\photo.png`; only the last segment is a name.
 test('D18b: each of the three says what it was set to, and a nameless one keeps the noun', async () => {
   const h = load();
   await h.act(field(h, { type: 'range', 'aria-label': 'Volume' }, '7'), 'change');
@@ -270,8 +253,7 @@ test('D18c: under the never-values toggle the three record no value at all', asy
   assert.deepEqual(h.entries().map((e) => e.ctx.value.text), ['a value', 'a value', 'a file']);
 });
 
-// Clearing a file input is a `change` like any other, and a page does it on its own Remove
-// button — an empty one has no filename to attach and no step to write.
+// A page clears a file input on its own Remove button, and that fires change too.
 test('D18d: a file input with nothing chosen records nothing', async () => {
   const h = load();
   const cleared = el('input', { type: 'file', 'aria-label': 'Avatar' });
@@ -291,7 +273,6 @@ test('D19: typing into a contenteditable records a step', async () => {
   assert.equal(h.entries().length, 1);
 });
 
-// The composer's text is its value, and it reaches the masking rules like any other.
 test('D19b: a contenteditable records its text, and a card number in one is still masked', async () => {
   const h = load();
   const box = el('div', { contenteditable: 'true', 'aria-label': 'Notes' }, 'call me back');
@@ -315,8 +296,6 @@ test('D20: a textarea is recorded exactly like an input', async () => {
   assert.equal(entry.text, 'Type "call me back" into the Notes field');
   assert.deepEqual(entry.ctx.value, { text: 'call me back', masked: false });
 });
-
-// ---- E: IME composition — the field holds the reading until the commit lands ----
 
 test('E1: a composed word records once, as the committed text', async () => {
   const h = load();
@@ -363,8 +342,6 @@ test('E5: a compositionend with no start behind it records the field as usual', 
   assert.deepEqual(texts(h), ['Type "shoes" into the Search field']);
 });
 
-// ---- F: <select> — a picked option is an entered value, and masks like one ----
-
 test('F1: a picked option is written into the step', async () => {
   const h = load();
   const sel = dropdown(h, { 'aria-label': 'Size' }, 'Large');
@@ -393,7 +370,6 @@ test('F3: a cc-exp-month dropdown masks as "the value"', async () => {
   assert.deepEqual(entry.ctx.value, { text: 'the value', masked: true });
 });
 
-// The Luhn backstop reads the OPTION text: a card number a page offers in a list is still one.
 test('F4: a Luhn-valid option text is masked as the card number', async () => {
   const h = load();
   h.doc.body.append(el('span', { id: 'cardLbl' }, 'Card'));
@@ -431,8 +407,6 @@ test('F7: with no selectedOptions the element value names the pick', async () =>
   await h.act(sel, 'change');
   assert.deepEqual(texts(h), ['Select "Large" in the Size dropdown']);
 });
-
-// ---- G: checkbox and radio — the change event, not the click, is the step ----
 
 test('G1: a checkbox that went on is a Check step', async () => {
   const h = load();
@@ -515,8 +489,6 @@ test('G8: the pill\'s own Expected input never records itself as a step', async 
   assert.deepEqual(texts(h), ['Check the Bulk checkbox']);
 });
 
-// Added in review: every other password row names the field "password" too, so the field TYPE
-// on its own was never pinned — the branch could be deleted and the suite would not notice.
 // A bank's "memorable answer" is a real field of type password with no telling name.
 test('D21: a password field masks on its type alone, whatever it is called', async () => {
   const h = load();
@@ -526,8 +498,6 @@ test('D21: a password field masks on its type alone, whatever it is called', asy
   await h.act(field, 'blur');
   assert.deepEqual(h.entries().map((e) => e.text), ['Type the password into the Memorable answer field']);
 });
-
-// ---- H: a field's text is its value, and no name, clause or packet fact reads it ----
 
 const NEVER = { storage: { stepRecNeverValues: true } };
 
@@ -726,7 +696,6 @@ test('H9: an image typed into a composer is not its icon', async () => {
   nowhere(h, 'party-parrot');
 });
 
-// The control, green before the fix and after it: the page's own words still name and place a composer.
 test('H10: a heading, a row and a label around a composer still say where it is', async () => {
   const h = load(NEVER);
   const box = el('div', { contenteditable: 'true', 'aria-label': 'Qty' }, 'call me back');
@@ -739,9 +708,6 @@ test('H10: a heading, a row and a label around a composer still say where it is'
   assert.equal(entry.ctx.near.heading, 'Billing');
 });
 
-// ---- I: a field is named by its label, never by what it holds, whatever role the page gives it ----
-
-// The field inside its own <label>, which is how most forms name one.
 function labelled(h, label, field) {
   h.doc.body.append(el('label', null, text(`${label} `), field));
   return field;
@@ -818,7 +784,6 @@ test('I7: a switch is named by its label, not by its value', async () => {
   assert.deepEqual(texts(h), ['Check the Dark mode checkbox']);
 });
 
-// The control, green before the fix and after it: a button input's value IS its label.
 test('I8: a submit and a button input are still named by their value', async () => {
   const h = load();
   const pay = el('input', { type: 'submit', value: 'Pay now' });

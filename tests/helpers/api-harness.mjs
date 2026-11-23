@@ -1,39 +1,11 @@
-// The shared load() for extension/api.js, the one file in the product that talks to the network —
-// the way tests/helpers/worker-harness.mjs is the worker's.
-
-// LOADING. api.js is one IIFE assigned to a top-level `const`, so the module object is the script's
-// completion value: `${source}\nTestomatAPI;`.
-
-// api.js's OWN modules (extension/api/*.js) are evaluated in the same sandbox, before it, so the rows
-// exercise the moved code itself and not a stale copy left behind.
-
-// THE INTERNALS SEAM. Half the file never reaches that object — `request`, `toError`, `personOf`,
-// `pageResult`… are closure-private. One assignment is spliced in just above the export literal so
-// a row can name them the way the ticket does; the module's own returned object is untouched, and
-// each name is read as `typeof x === 'undefined' ? undefined : x` so an older copy still loads. A
-// name that has moved out of the closure is picked off its module global instead; the closure's own
-// still wins, so a half-done extract shows up as a leftover rather than hiding behind the module.
-
-// STUBS. api.js reaches for exactly seven globals: fetch, URL, AbortSignal (.timeout/.any), atob,
-// FormData, setTimeout — and Blob through the caller's payload. Node supplies all but `fetch`, which
-// is the scripted recorder below. No chrome, no document, no storage, no top-level side effects.
-// `setTimeout` is the rate-limit back-off's only wait: the stub records the ms and fires at once, so
-// a row reads the wait it ASKED for (h.waits()) instead of sitting through it.
-
-// TRAPS. Module state is a singleton per load (cfg, jwt, v2Keys, readonly, readonlyCheck,
-// signedAssets, handedJwt) — call load() per test. `readonlyCheck` is a shared in-flight promise: a
-// row that leaves it pending poisons the next one, so always await the rejection.
-
-// Every scripted answer resolves a macrotask later, so a Promise.all fan-out really does overlap and
-// maxInFlight() can measure it; `delay` makes one answer land out of order on purpose.
+// Module state is per load(): a pending readonlyCheck promise poisons the next row, so load per test.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-// API_SRC drives the whole suite against a mutated copy, so a falsification run never has to edit
-// the shipped file and risk leaving it edited.
+// API_SRC points the suite at a mutated copy, so a mutation run never edits the shipped file.
 export const API = process.env.API_SRC || join(repoRoot, 'extension/api.js');
 
 // The files api.js loads before itself in all three HTML documents, in that order.
@@ -58,8 +30,7 @@ export const settle = async (turns = 2) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-// NEVER a real credential: the repository is public. 'TOKEN' is a General token by shape (no `eyJ`),
-// and jwtWith() mints a session token with a header that is real base64 and a signature that is not.
+// Never a real credential: the repository is public.
 export const TOKEN = 'TOKEN';
 export const BASE = 'https://app.testomat.io';
 export const PROJECT = 'p1';
@@ -73,8 +44,7 @@ export const page = (rows, meta) => ok(meta === undefined ? { data: rows } : { d
 export const fail = (status, over = {}) => ({ status, ...over }); // no `json` key: unparseable body
 export const netFail = () => ({ fail: true });
 
-// A rejection as a value — every error row reads `.kind`/`.status`/`.message` off it, never
-// `instanceof`, which does not cross the vm realm.
+// A rejection as a value — `instanceof` does not cross the vm realm.
 export const rejection = async (p) => {
   try { await p; } catch (e) { return e; }
   throw new Error('expected a rejection, got a resolution');
@@ -172,7 +142,7 @@ export function load(opts = {}) {
     } finally { inFlight -= 1; }
   };
 
-  // A live object, not the real constructor: row 23 deletes `.any` off it.
+  // A live object, not the real constructor: a row deletes `.any` off it.
   const AbortStub = {
     timeout: (ms) => {
       lastTimeout = ms;
@@ -208,9 +178,8 @@ export function load(opts = {}) {
     hooks,
     calls,
 
-    // Scripted answers, in order — what a row that does not care about routing uses.
     reply: (...specs) => { queue.push(...specs); return h; },
-    // …and by URL, for the fan-outs and for the login that rides along with them.
+    // By URL, for the fan-outs and the login that rides along with them.
     route: (match, spec) => { routes.push({ match, spec }); return h; },
 
     configure: (over = {}) => {
@@ -220,12 +189,10 @@ export function load(opts = {}) {
 
     urls: () => calls.map((c) => c.url),
     methods: () => calls.map((c) => c.method),
-    // Every request whose URL carries `part`.
     matching: (part) => calls.filter((c) => c.url.includes(part)),
     body: (i) => (typeof calls[i]?.body === 'string' ? JSON.parse(calls[i].body) : calls[i]?.body),
     clear: () => { calls.length = 0; maxInFlight = 0; waits.length = 0; return h; },
     maxInFlight: () => maxInFlight,
-    // Every back-off the code asked for, in ms and in order.
     waits: () => waits.slice(),
     settle,
   };

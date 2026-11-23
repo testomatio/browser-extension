@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// The pill the tester sees in the corner: what it says in its three states, the `+ Expected` input
-// it opens, where a dragged pill lands and is remembered, and how the whole recorder starts, polls
-// and takes itself down. Run: node --test tests/step-recorder-pill.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -22,7 +19,6 @@ const css = (h) => h.host().style.cssText;
 const types = (h) => h.sent().map((m) => m.type);
 const CORNER = 'position:fixed;z-index:2147483647;right:16px;bottom:16px;';
 
-// Open + Expected and hand back the input it put in the pill.
 function openExpected(h) {
   h.fireOn(buttonNamed(h, 'Expected'), 'click');
   return h.box().children[1];
@@ -34,8 +30,6 @@ function drag(h, from, to, id = 1) {
   h.fireWin('pointermove', { pointerId: id, clientX: to[0], clientY: to[1] });
   h.fireWin('pointerup', { pointerId: id });
 }
-
-// ---- K: pause / resume / stop / render -------------------------------------
 
 test('K1: a fresh recording counts nothing yet', async () => {
   const h = rec();
@@ -77,7 +71,6 @@ test('K5: recording draws + Expected with the panel\'s own add glyph, then Pause
   assert.deepEqual(h.iconCalls(), [{ name: 'add', size: 14 }]);
 });
 
-// A page stylesheet must not bleed into the pill; the reset is the one rule worth pinning.
 test('K5b: the shadow stylesheet resets everything the page could inherit', async () => {
   const h = rec();
   await h.settle();
@@ -136,8 +129,7 @@ test('K9: Continue asks the worker first, then clears the cap', async () => {
   assert.deepEqual(pillButtons(h), ['Expected', 'Pause', 'Stop']);
 });
 
-// The order is the whole row: the entry has to REACH the worker before the stop message, because
-// the editor's follow-up stop clears the state the moment it lands.
+// The entry must reach the worker before the stop: the editor's follow-up stop clears the state.
 test('K10: Stop sends the last typed field and only then asks to stop', async () => {
   let release;
   const held = new Promise((r) => { release = r; });
@@ -175,8 +167,6 @@ test('K10b: Stop takes the click at once — the pill never waits for the flush'
   assert.deepEqual(h.entries().map((e) => e.action), ['type']); // recording is off
 });
 
-// Stopped, from the pill or from the panel: Pause and + Expected have nothing left to act on,
-// so the toolbar comes back down to the one button that still does.
 test('K11: a stopped recorder offers Stop alone', async () => {
   const h = rec({ reply: (m) => (m.type === 'STEPREC_ADD' ? status() : status()) });
   await h.settle();
@@ -206,8 +196,7 @@ test('K13: the pill is a polite live region', async () => {
   assert.equal(h.box().getAttribute('aria-live'), 'polite');
 });
 
-// With "Never record entered values" on, every typed value is replaced by a noun — the pill is
-// the only place a tester finds that out before reading the finished steps.
+// The pill is the only place a tester learns values are masked before reading the steps.
 test('K14: with values being recorded the pill carries no chip', async () => {
   const h = rec();
   await h.settle();
@@ -243,8 +232,6 @@ test('K17: the Expected input owns the pill, chip included', async () => {
   h.fireOn(h.shadow(), 'keydown', { target: input, key: 'Escape' });
   assert.equal(chip(h).textContent, 'Values off'); // the pill comes back with it
 });
-
-// ---- L: + Expected ---------------------------------------------------------
 
 test('L1: + Expected replaces the toolbar with a focused input', async () => {
   const h = rec();
@@ -357,8 +344,6 @@ test('L9: the pill\'s own input is never a step, the page\'s field beside it sti
   await h.act(field, 'blur');
   assert.deepEqual(h.entries().map((e) => e.text), ['Type "shoes" into the Search field']);
 });
-
-// ---- M: position and drag --------------------------------------------------
 
 test('M1: with nothing stored the pill sits in the bottom-right corner', async () => {
   const h = rec();
@@ -512,8 +497,6 @@ test('M17: a synthetic pointer that cannot be captured still drags the pill', as
   assert.equal(css(h), 'position:fixed;z-index:2147483647;left:30px;top:8px;');
   assert.deepEqual(JSON.parse(JSON.stringify(h.writes())), [{ stepRecIndicatorPos: { left: 30, top: 8 } }]);
 });
-
-// ---- N: lifecycle and teardown ---------------------------------------------
 
 test('N1: a second injection into the same document changes nothing', async () => {
   const h = rec();

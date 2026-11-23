@@ -1,5 +1,4 @@
-// Dropdown (IIFE global `Dropdown`) — this extension's <select>: a `<button>` face plus the
-// shared `.menu`, so the host must not trap the popup in a stacking context of its own.
+// The extension's <select>; the host must not trap its popup in a stacking context of its own.
 
 (() => {
   const registry = new Map(); // trigger id → controller
@@ -13,13 +12,13 @@
     id,                       // the trigger's id — also the registry key
     className = '',           // extra classes on the root (the positioning anchor)
     triggerClass = '',        // extra classes on the closed face (e.g. `size-sm`)
-    label = '',               // accessible name for the trigger AND the listbox
+    label = '',               // accessible name for the trigger and the listbox
     labelledBy = '',          // …or point at an existing label element instead
     placeholder = '',         // the closed face when no option is chosen
     options = [],
     value = '',
     fallbackFirst = false,    // no value → the first row; a select has no empty state
-    icon = '',                // optional mark INSIDE the field, `.field-icon`
+    icon = '',                // optional mark inside the field, `.field-icon`
     align = 'start',          // which edge the popup is anchored to
     filter = false,           // type-to-filter box above the rows
     filterPlaceholder = 'Search…',
@@ -33,7 +32,6 @@
     const root = document.createElement('div');
     root.className = `dropdown${className ? ` ${className}` : ''}`;
 
-    // `.field-icon` (components.css → FIELDS): the mark sits inside the field's border.
     if (icon && window.Icons) {
       const mark = Icons.el(icon, 16, 'field-icon');
       if (mark) root.append(mark);
@@ -81,16 +79,14 @@
     list.className = 'menu-list dropdown-list';
     list.setAttribute('role', 'listbox');
     if (label) list.setAttribute('aria-label', label);
-    // With no filter box the open list takes the caret — focusable, never a tab stop — so there
-    // is a focused element with a role that can name an option. With one, the input already is.
+    // With no filter box the list takes focus, so a focused element with a role can name an option.
     if (!filter) list.setAttribute('tabindex', '-1');
     menu.append(list);
 
-    // `aria-activedescendant` is read only off the element that HOLDS focus, and only when it
-    // names a row that element owns: the filter box, else the listbox itself. Never the trigger.
+    // aria-activedescendant is read only off the focused element, and only for a row it owns.
     const activeOwner = filterInput || list;
 
-    // A popup filtered down to nothing must SAY so — an empty box reads as broken.
+    // A popup filtered down to nothing must say so: an empty box reads as broken.
     const empty = window.EmptyState
       ? EmptyState.build({ compact: true, icon: 'search_off', text: emptyText, className: 'dropdown-empty' })
       : document.createElement('div');
@@ -99,7 +95,6 @@
 
     root.append(trigger, menu);
 
-    // ---- state -------------------------------------------------------------
     // `active` is the keyboard cursor, alive only while the popup is open.
     let rows = [];
     let current = '';
@@ -115,8 +110,7 @@
     const rowFor = (v) => rows.find((o) => String(o.value) === String(v)) || null;
     const optId = (i) => `${id}-opt-${i}`;
 
-    // ---- the closed face ---------------------------------------------------
-    // Always WRAPPED, never a bare text node: only an element child ellipsizes in a flex row.
+    // Always wrapped, never a bare text node: only an element child ellipsizes in a flex row.
     function faceText(s) {
       const span = document.createElement('span');
       span.className = 'dropdown-value-text';
@@ -138,7 +132,6 @@
       }
     }
 
-    // ---- the rows ----------------------------------------------------------
     function paintRows() {
       const shown = visibleRows();
       if (!shown.some((o) => String(o.value) === String(active))) {
@@ -161,7 +154,7 @@
           text.textContent = labelOf(opt);
           li.append(text);
         }
-        // Shown by CSS on `aria-selected`, and built into EVERY row so the column never shifts.
+        // Shown by CSS on `aria-selected`, and built into every row so the column never shifts.
         if (window.Icons) {
           const tick = Icons.el(CHECK, 14, 'dropdown-option-check');
           if (tick) li.append(tick);
@@ -175,15 +168,14 @@
     }
 
     function syncActive() {
-      // Read the row out of the LIST, not the document: a torn-down editor screen leaves
-      // a detached copy of these ids behind, and getElementById would hand one back.
+      // Read from the list, not the document: a torn-down screen leaves detached copies of these ids.
       const i = visibleRows().findIndex((o) => String(o.value) === String(active));
       const li = i === -1 ? null : list.children[i];
       if (li) { activeOwner.setAttribute('aria-activedescendant', li.id); li.scrollIntoView({ block: 'nearest' }); }
       else activeOwner.removeAttribute('aria-activedescendant');
     }
 
-    // ±1 through the VISIBLE rows, clamped at the edges (no wrap).
+    // Through the visible rows only, clamped at the edges (no wrap).
     function move(delta) {
       const shown = visibleRows();
       if (!shown.length) return;
@@ -194,7 +186,6 @@
       syncActive();
     }
 
-    // ---- open / close ------------------------------------------------------
     function open() {
       if (!menu.hidden || trigger.disabled) return;
       query = '';
@@ -220,13 +211,11 @@
 
     function onDocClick(e) { if (!root.contains(e.target)) close(); }
 
-    // Document-level capture: works wherever focus sits, and the screen's own
-    // arrow/Enter handlers never see the keys that belong to the popup.
+    // Document-level capture, so the screen's own arrow/Enter handlers never see the popup's keys.
     function onDocKey(e) {
       if (menu.hidden) return;
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ focus: true }); return; }
-      // Focus is leaving — let it, but from the trigger it started on: the browser reads the next
-      // stop off the focused element, and the list it sits on is about to be hidden.
+      // Leave from the trigger: the next stop is read off the focused list, which is about to hide.
       if (e.key === 'Tab') { close({ focus: !filterInput }); return; }
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -249,8 +238,7 @@
       }
     }
 
-    // Close first (a change often repaints the screen under it), then report — and
-    // only when the value actually moved, like a native `change`.
+    // Close first (a change often repaints the screen), then report a real change only, like `change`.
     function pick(v) {
       const opt = rowFor(v);
       if (!opt) return;
@@ -266,8 +254,7 @@
       if (menu.hidden) open(); else close({ focus: true });
     });
 
-    // preventDefault also stops Enter/Space firing the button's own click, which would
-    // close the popup again.
+    // preventDefault also stops Enter/Space firing the button's click, which would close it again.
     trigger.addEventListener('keydown', (e) => {
       if (!menu.hidden) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
@@ -293,8 +280,7 @@
       get selected() { return rowFor(current); },
       get options() { return rows.slice(); },
 
-      /** Keeps the current value when it survives the swap, else `value`, else the
-       *  first row when `fallbackFirst` (a native select has no empty state). */
+      /** Keeps the current value if it survives, else `value`, else row one when `fallbackFirst`. */
       setOptions(next, { value: want, fallbackFirst: first = fallbackFirst } = {}) {
         rows = (next || []).map((o) => (
           o && typeof o === 'object' ? { ...o, value: String(o.value) } : { value: String(o), label: String(o) }
@@ -315,7 +301,7 @@
         return api;
       },
 
-      /** Sets the value AND reports the change, unlike setValue. */
+      /** Sets the value and reports the change, unlike setValue. */
       pick,
 
       close,
@@ -326,8 +312,7 @@
         if (v) close();
       },
 
-      // The id is on the TRIGGER and the layout on the root, so hiding must move both —
-      // else `getElementById(id).hidden` answers false for a control that is off screen.
+      // The id is on the trigger and the layout on the root, so hiding must move both.
       get hidden() { return root.hidden; },
       set hidden(v) {
         root.hidden = !!v;

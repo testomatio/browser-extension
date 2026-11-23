@@ -1,28 +1,16 @@
-// Keyboard navigation for a list of rows (IIFE global `Roving`). One roving tab stop, not one per
-// row: a run's test rows already carry three status buttons each, so a tab stop per row would turn a
-// 200-test run into 800 of them. Tab enters the list once, the arrows walk it, Enter and Space open
-// the focused row. Pure DOM in, DOM out — no panel state, so `node --test` covers it
-// (tests/roving.test.mjs).
-//
-// The listeners live on the CONTAINER, never on the rows. Every list here is a stable <ul> whose
-// children are replaced wholesale by replaceChildren(), so delegation is what makes a re-render
-// free: nothing to re-attach, and no render path that can forget to.
+// One roving tab stop per list: a stop per row would turn a 200-test run into 800 of them.
 
 const Roving = (() => {
-  // container -> { selector, orientation }. A WeakMap so a container that goes away takes its
-  // wiring with it, and so a second attach() can update the options without a second listener.
+  // A WeakMap, so a container that goes away takes its wiring with it.
   const wired = new WeakMap();
 
-  // Vertical for lists, horizontal for a tab bar. Home/End are the ends in both, and neither
-  // wraps: the arrows stop at the last row, and the way back to the top is Home.
+  // Neither orientation wraps: the arrows stop at the last row, and the way back is Home.
   const ARROWS = {
     vertical: { prev: 'ArrowUp', next: 'ArrowDown' },
     horizontal: { prev: 'ArrowLeft', next: 'ArrowRight' },
   };
 
-  // A collapsed group's rows are still in the DOM — the runs list and the suite tree both put
-  // `hidden` on the container that holds them — so the walk stops at the list itself.
-  // A disabled item is out for the same reason: it cannot take focus, so the caret would stick.
+  // Collapsed rows stay in the DOM under a `hidden` container, and disabled items cannot take focus.
   function reachable(container, node) {
     for (let n = node; n && n !== container; n = n.parentElement) if (n.hidden || n.disabled) return false;
     return true;
@@ -32,7 +20,6 @@ const Roving = (() => {
   const itemsOf = (container, selector) =>
     [...container.querySelectorAll(selector)].filter((n) => reachable(container, n));
 
-  // The one act that moves the tab stop: exactly one item at 0, the rest at -1, focus on it.
   function select(container, selector, item) {
     for (const n of container.querySelectorAll(selector)) {
       n.setAttribute('tabindex', n === item ? '0' : '-1');
@@ -43,8 +30,7 @@ const Roving = (() => {
   function onKeydown(container, ev) {
     const opts = wired.get(container);
     const item = ev.target;
-    // Only a row itself answers these keys — a search field or a row's own button inside the
-    // list keeps everything it is typed.
+    // Only a row itself answers these keys; a search field or button inside keeps what is typed.
     if (!opts || !item || typeof item.matches !== 'function' || !item.matches(opts.selector)) return;
     if (ev.key === 'Enter' || ev.key === ' ') {
       ev.preventDefault(); // Space would scroll the panel under the row it just opened
@@ -65,8 +51,7 @@ const Roving = (() => {
     select(container, opts.selector, items[to]);
   }
 
-  // Every row is born a tab stop (see item()), so the first focus to land in a freshly rendered
-  // list is what demotes the rest — which is how a re-render needs no call of its own.
+  // Rows are born tab stops, so the first focus in a fresh list demotes the rest: no re-render call.
   function onFocusin(container, ev) {
     const opts = wired.get(container);
     if (!opts || !ev.target || typeof ev.target.closest !== 'function') return;
@@ -78,10 +63,7 @@ const Roving = (() => {
     item.setAttribute('tabindex', '0');
   }
 
-  /**
-   * Mark a row the arrows may land on. `role="button"` is what tells a reader the row is
-   * actionable; the tab stop is handed to the first focus the list gets, not to a render.
-   */
+  /** `role="button"` tells a reader the row is actionable; the first focus gets the tab stop. */
   function item(node) {
     if (!node) return node;
     node.setAttribute('role', 'button');
@@ -89,10 +71,7 @@ const Roving = (() => {
     return node;
   }
 
-  /**
-   * Wire `container` for `selector`'s rows. Safe to call from a render — the listeners are added
-   * once per container and later calls only refresh the options.
-   */
+  /** Safe to call from a render: listeners are added once, later calls only refresh the options. */
   function attach(container, { selector, orientation = 'vertical' } = {}) {
     if (!container || !selector) return container;
     const first = !wired.has(container);

@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// #175: the on-page host of the annotator. extension/overlay/annotate-overlay.js is injected into
-// the tab the tester was looking at, draws the annotator over everything, and is the only thing
-// that tells the side panel what happened. Two contracts here have each already shipped a bug:
-// EVERY exit must write the handoff key (the panel's watchdog has nothing else to listen to, so a
-// silent return leaves it on "Annotating…" for good), and leaving the page must write "cancelled",
-// never the un-redacted original. The engine it wraps is covered in tests/annotate-core.test.mjs.
-// Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument } from './helpers/mini-dom.mjs';
@@ -64,9 +57,7 @@ function load(opts = {}) {
   const sets = ch.session.sets;
   const flags = { throwSync, setFails: false };
   const realSet = ch.chrome.storage.session.set;
-  // NOT an async function: the two ways a real MV3 store refuses are a SYNCHRONOUS throw when the
-  // context is gone and a rejected promise on quota, and an async wrapper turns the first into the
-  // second — which is the one shape a bare try/catch already survives.
+  // Not async: a real MV3 store throws synchronously when the context is gone, and async would hide it.
   ch.chrome.storage.session.set = (patch) => {
     if (flags.throwSync) throw new Error('Extension context invalidated');
     return (async () => {
@@ -91,7 +82,7 @@ function load(opts = {}) {
     create(o) {
       created.push({
         opts: o,
-        // The panel's watchdog ends at {ready:true}; it has to be written BEFORE the slow half.
+        // The panel's watchdog ends at {ready:true}, so it must be written before the slow half.
         setsAtCreate: sets.slice(),
         hostAtCreate: !!doc.getElementById(HOST_ID),
         overflowAtCreate: doc.documentElement.style.overflow,
@@ -130,8 +121,6 @@ function load(opts = {}) {
     wrote: () => plain(sets),
   };
 }
-
-// ---- every exit writes the key ----------------------------------------------
 
 test('1: the tester navigates away mid-blur and the panel is told “cancelled”, never the raw shot', async () => {
   const h = load();
@@ -176,8 +165,6 @@ test('3b: a store that refuses the exit write still hands the page back', async 
   assert.equal(h.overflow(), 'scroll');
 });
 
-// ---- the bail-outs, which the panel hears as an error rather than silence ----
-
 test('4: no handoff key means no channel, so nothing is written and nothing is drawn', async () => {
   const h = load({ key: ABSENT });
   await settle();
@@ -200,8 +187,7 @@ test('6: the engine half of the injection failed, and the same message goes back
 });
 
 test('6b: a bail-out whose write throws outright is swallowed, not left as a page error', async () => {
-  // Armed at load: the bail-out signals synchronously while the file is still running, so a flag
-  // set afterwards arrives too late and the row asks nothing.
+  // Armed at load: the bail-out signals synchronously while the file runs, so a later flag is too late.
   const h = load({ css: '', throwSync: true });
   await settle();
   assert.equal(h.hosts().length, 0);
@@ -226,8 +212,6 @@ test('8b: a payload that arrived without a dataUrl reads the same way', async ()
   await settle();
   assert.deepEqual(h.wrote(), [{ [KEY]: { error: 'The shot did not reach the annotator' } }]);
 });
-
-// ---- the happy path ---------------------------------------------------------
 
 test('9: the frame is up and the panel hears “ready” before the picture is decoded', async () => {
   const h = load();
@@ -275,8 +259,7 @@ test('10: the engine throws on this page and the overlay leaves rather than stan
   assert.deepEqual(h.tips.map((r) => r[0]), ['mount', 'unmount'], 'the tooltip goes with it');
 });
 
-// signal() is fire-and-forget on purpose, so a store that REJECTS (quota, a context torn down
-// mid-write) has no owner: the rejection surfaces in the console of the site being tested.
+// signal() is fire-and-forget, so an unhandled store rejection lands in the tested site's console.
 test('10b (#333): a store that refuses the exit signal leaves no error in the page under test', async () => {
   const seen = [];
   const onUnhandled = (e) => seen.push(String(e));
@@ -292,9 +275,7 @@ test('10b (#333): a store that refuses the exit signal leaves no error in the pa
   }
 });
 
-// The likeliest exit of all: the tester navigates away with the overlay up. It writes the same
-// cancellation, and it does NOT go through signal() — so guarding signal() alone leaves the common
-// path throwing into the very page whose console the tester is about to read.
+// Navigating away does not go through signal(), so guarding signal() alone would not cover it.
 test('10c (#333): navigating away with the overlay up leaves no error in the page either', async () => {
   const seen = [];
   const onUnhandled = (e) => seen.push(String(e));
@@ -302,8 +283,7 @@ test('10c (#333): navigating away with the overlay up leaves no error in the pag
   try {
     const h = load();
     await settle(4);
-    // Both refusals, because a page being torn down is when either can happen: a quota reject, and
-    // a context already gone, which throws before there is a promise to catch on.
+    // Both refusals: a quota reject, and a gone context that throws before there is a promise.
     h.flags.setFails = true;
     for (const r of h.win.live('pagehide')) r.fn();
     await settle(4);
@@ -322,8 +302,6 @@ test('11: annotating the same tab twice leaves one overlay behind, not two', asy
   assert.equal(h.hosts().length, 1, 'the stale host is taken out before the new one goes in');
   assert.equal(h.mount() !== null, true, 'and the survivor is the live one');
 });
-
-// ---- the handoff, the scheme and the scroll lock -----------------------------
 
 test('12: the panel’s Appearance setting decides the annotator’s scheme', async () => {
   const dark = load({ scheme: 'dark' });

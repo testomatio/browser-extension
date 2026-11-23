@@ -1,24 +1,19 @@
-// The chrome.debugger and capture refusals worth naming (IIFE global `DbgErrors`): which message is
-// which failure, and the copy the tester reads instead of Chrome's. Depends on nothing.
+// Names Chrome's debugger and capture refusals and the copy the tester reads instead of Chrome's.
 
 const DbgErrors = (() => {
-  // #101: Chrome refuses the debugger on an http(s) tab while another extension has a frame in it
-  // (attaching by targetId too, and an open session starts failing) — and allows it once the frame is gone.
+  // Chrome refuses the debugger while another extension has a frame in the tab, until the frame is gone.
   const DBG_FOREIGN_FRAME = 'Another extension has a frame on this page, so Chrome blocks the debugger this needs — turn that extension off for this page (or use a clean profile) and try again.';
-  // captureVisibleTab is allowed under `activeTab` (what a toolbar click leaves) or <all_urls>,
-  // never under a per-origin grant — so this wording asks for the click that actually works.
+  // captureVisibleTab needs activeTab (a toolbar click) or <all_urls>, so this asks for the click.
   const DBG_FOREIGN_FRAME_CLICK = 'Another extension has a frame on this page, so Chrome blocks the debugger a full screenshot needs — click the Testomat icon in the toolbar and try again, and the panel will shoot the visible page instead.';
   const dbgIsForeignFrame = (msg) => /chrome-extension:\/\/ URL of different extension/.test(String(msg || ''));
-  // Chrome refuses a second debugger on a tab DevTools already holds — its wording names a tab id
-  // nobody can find, so ours names the remedy instead.
+  // Chrome's wording names a tab id nobody can find, so ours names the remedy instead.
   const DBG_BUSY = 'Another tool is already debugging this tab — close DevTools on this page and try again.';
   // Matched without the id (and without "tab"/"target", which vary by how the attach was aimed).
   const dbgIsBusy = (msg) => /another debugger is already attached/i.test(String(msg || ''));
-  // Chrome's own wording for "captureVisibleTab needs activeTab or <all_urls>" — the one failure a click fixes.
+  // Chrome's wording for "captureVisibleTab needs activeTab or <all_urls>", the one a click fixes.
   const capNeedsGrant = (msg) => /all_urls|activeTab/.test(String(msg || ''));
 
-  // The one place a chrome.debugger refusal becomes an Error; `foreignFrame` unlocks the viewport
-  // rescue, and `debuggerBusy` lets the panel tell the one refusal closing DevTools fixes apart.
+  // `foreignFrame` unlocks the viewport rescue; `debuggerBusy` marks the refusal closing DevTools fixes.
   function dbgError(msg) {
     const foreign = dbgIsForeignFrame(msg);
     const busy = !foreign && dbgIsBusy(msg);

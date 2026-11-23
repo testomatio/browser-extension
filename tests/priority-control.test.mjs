@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// The contract of extension/editor/priority-control.js (#192): what an unknown priority falls back
-// to, which of the two ways in marks the editor dirty, and the document-level keys the open menu
-// answers. Cases numbered as in #192. Run: node --test tests/priority-control.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,16 +8,13 @@ import assert from 'node:assert/strict';
 import { makeDocument, fire } from './helpers/mini-dom.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// PRIO_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// PRIO_SRC points the file at a mutated copy, so a mutation run never edits the shipped module.
 const SRC = process.env.PRIO_SRC || join(repoRoot, 'extension/editor/priority-control.js');
 const source = readFileSync(SRC, 'utf8');
-// The real glyph table, evaluated into the same context editor.html loads it into: ORDER is what
-// cases 149 and 151 are about, and a stub of it would let the two drift without a test noticing.
+// The real glyph table, loaded as editor.html loads it: a stub of ORDER would let the two drift.
 const prioIconsSource = readFileSync(join(repoRoot, 'extension/shared/priority-icons.js'), 'utf8');
 
-// One sandbox per test: the control keeps module state (the current priority, the open menu) and
-// hangs two listeners on the document, so a shared document would let one case decide the next.
+// One sandbox per test: the control keeps module state and hangs two listeners on the document.
 function load() {
   const tips = [];
   const document = makeDocument();
@@ -38,8 +32,7 @@ function load() {
   return { PriorityControl, PriorityIcons: ctx.PriorityIcons, document, tips };
 }
 
-// The control mounted into the document — focus() only records on an attached tree, and case 151
-// is about where the caret lands after Escape.
+// Mounted, because focus() only records on an attached tree.
 function mount(initial = 'normal') {
   const env = load();
   const changes = [];
@@ -64,12 +57,11 @@ const ORDER = ['low', 'normal', 'high', 'important', 'critical'];
 
 test('the module publishes exactly the surface editor.js destructures', () => {
   assert.deepEqual(Object.keys(load().PriorityControl).sort(), ['buildPriorityControl']);
-  // The control's own surface: `wrap` is what the bar appends, the two others are the save path
-  // and the e2e hook.
+  // `wrap` is what the bar appends; the other two are the save path and the e2e hook.
   const m = mount();
   assert.deepEqual(Object.keys(m.ctl).sort(), ['getPriority', 'setPriority', 'wrap']);
   assert.equal(m.ctl.wrap.className, 'tc-priority-wrap');
-  // One option per priority, in the web's own order (#28: `high` before `important`).
+  // One option per priority, in the web's own order: `high` before `important`.
   assert.deepEqual(m.menu.querySelectorAll('li').map((li) => li.dataset.priority), ORDER);
   assert.deepEqual(m.tips, [['tc-priority', 'Priority']]);
 });
@@ -103,8 +95,7 @@ test('150: setPriority ignores a value that is not a priority', () => {
   assert.deepEqual(m.changes, []);
 });
 
-// The two halves of case 150, asserted as they ship. They disagree on purpose-built dirt: the
-// programmatic setter always marks, the picked option only marks on a real change.
+// The programmatic setter always marks dirty; a picked option marks only on a real change.
 test('150: setPriority marks the editor dirty even when the value did not change', () => {
   const m = mount('high');
   m.ctl.setPriority('high');
@@ -140,7 +131,7 @@ test('151: the button opens and closes the menu, and the open menu takes the doc
   fire(m.btn, 'click');
   assert.equal(m.open(), true);
   assert.equal(m.btn.getAttribute('aria-expanded'), 'true');
-  // Both go on at CAPTURE: Esc and the arrows have to work whichever element holds focus.
+  // Both go on at capture: Esc and the arrows have to work whichever element holds focus.
   assert.deepEqual(m.docListeners('keydown'), [true]);
   assert.deepEqual(m.docListeners('click'), [true]);
   fire(m.btn, 'click');
@@ -169,7 +160,7 @@ test('151: Escape closes the menu and puts the caret back on the button', () => 
   const ev = fire(m.document, 'keydown', { key: 'Escape' });
   assert.equal(m.open(), false);
   assert.equal(m.btn.getAttribute('aria-expanded'), 'false');
-  // Cleared with the list, not left naming an option inside a hidden one (#109).
+  // Cleared with the list, not left naming an option inside a hidden one.
   assert.equal(m.menu.getAttribute('aria-activedescendant'), null);
   assert.equal(m.btn.getAttribute('aria-activedescendant'), null);
   assert.equal(m.document.activeElement, m.btn);
@@ -212,7 +203,7 @@ test('151: the highlight is the aria state too, on exactly one option', () => {
   fire(m.document, 'keydown', { key: 'ArrowDown' });
   const on = m.menu.querySelectorAll('li').filter((li) => li.getAttribute('aria-selected') === 'true');
   assert.deepEqual(on.map((li) => li.dataset.priority), ['high']);
-  // The name follows the highlight, on the listbox that holds focus (#109).
+  // The name follows the highlight, on the listbox that holds focus.
   assert.equal(m.menu.getAttribute('aria-activedescendant'), 'tc-priority-opt-high');
   fire(m.document, 'keydown', { key: 'ArrowUp' });
   assert.equal(m.menu.getAttribute('aria-activedescendant'), 'tc-priority-opt-normal');
@@ -233,8 +224,7 @@ test('151: Enter and Space commit whatever the arrows highlighted', () => {
   }
 });
 
-// Case 148 — the widget's ARIA, D P2-14. `aria-activedescendant` only says anything on the element
-// that HOLDS focus and owns the option it names, so opening hands the caret to the listbox itself:
+// aria-activedescendant only works on the focused element that owns the option it names.
 test('148: opening hands the caret to the listbox, which names the highlighted option', () => {
   const m = mount();
   assert.equal(m.btn.tagName, 'BUTTON');
@@ -242,7 +232,7 @@ test('148: opening hands the caret to the listbox, which names the highlighted o
   assert.equal(m.menu.getAttribute('role'), 'listbox');
   // Focusable, but never a Tab stop of its own — the button is the control in the tab order.
   assert.equal(m.menu.getAttribute('tabindex'), '-1');
-  // Its own name: the button's is its current VALUE, so the list would otherwise be an unnamed one.
+  // Its own name: the button's is its current value, so the list would otherwise be unnamed.
   assert.equal(m.menu.getAttribute('aria-label'), 'Priority');
   fire(m.btn, 'click');
   assert.equal(m.document.activeElement, m.menu);
@@ -253,8 +243,7 @@ test('148: opening hands the caret to the listbox, which names the highlighted o
 
 test('148 (#109): the highlighted option is announced — the listbox is owned and focusable', () => {
   const m = mount();
-  // aria-controls (or aria-owns) is what ties the button to #tc-priority-menu, and
-  // aria-activedescendant belongs on whatever then holds focus — not on a plain button.
+  // aria-controls ties the button to the menu; aria-activedescendant belongs on what holds focus.
   assert.equal(m.btn.getAttribute('aria-controls'), 'tc-priority-menu'); // stated closed as well
   fire(m.btn, 'click');
   assert.equal(m.btn.getAttribute('aria-controls'), 'tc-priority-menu');

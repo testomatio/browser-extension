@@ -1,5 +1,4 @@
-// File viewer (#21): the ONE artifact or attachment the panel handed over, framed over the page
-// by content/file-overlay.js (or alone in a tab) — a ~400px side panel is no size for a screencast.
+// Shows one panel file over the page or in a tab: a ~400px side panel is too small for a video.
 
 /* global TestomatAPI, Handoff */
 (() => {
@@ -11,16 +10,14 @@
   const fileName = q.get('name') || '';
   const fileType = q.get('type') || '';
 
-  // This page is web-accessible under a pinned id, so any site can open it with a ?url= of its
-  // own. The worker parks the ONE file it is about to show here first; no page can write there.
+  // Any site can open this page with its own ?url=, so only the url the worker parked here is shown.
   const PARKED_KEY = 'fileOverlay';
 
   const VIDEO_EXT = /\.(webm|mp4|mov|m4v|ogv)(?:$|[?#])/i;
   const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|avif)(?:$|[?#])/i;
   const TEXT_EXT = /\.(md|log|txt|json|csv|xml|ya?ml)(?:$|[?#])/i;
 
-  // EITHER tell, like the panel's tiles: a bucket serves a screencast as
-  // `application/octet-stream` often enough that the name has to be able to answer alone.
+  // Type or name, either decides: buckets often serve a screencast as application/octet-stream.
   function kindOf() {
     const t = String(fileType);
     const n = fileName || fileUrl;
@@ -30,8 +27,7 @@
     return 'file';
   }
 
-  // ---- the session the panel already has -----------------------------------
-  // Only the configured instance needs one; a presigned bucket link carries its own signature.
+  // Only the configured instance needs a session; a presigned bucket link carries its own signature.
   let base = '';
 
   async function boot() {
@@ -46,8 +42,6 @@
 
   const onInstance = () => !!base && (fileUrl === base || fileUrl.startsWith(`${base}/`));
 
-  // ---- the allowlist of exactly one ----------------------------------------
-
   async function parkedUrl() {
     if (typeof chrome === 'undefined' || !chrome.storage?.session) return '';
     try {
@@ -57,13 +51,11 @@
     } catch { return ''; }
   }
 
-  // No url reaches nothing, so it keeps its own note below. Anything else has to be https AND the
-  // very url the worker parked — a query the page made up matches neither.
+  // An empty url keeps its own note; anything else must be https and the exact url the worker parked.
   const allowed = async () => !fileUrl
     || (/^https:\/\//i.test(fileUrl) && fileUrl === await parkedUrl());
 
-  // fetchAsset carries the session ONLY for the configured instance; a presigned or public
-  // link goes out bare. Both come back as bytes, which is what the CSP leaves room for.
+  // The session goes only to the configured instance; a blob is what the CSP leaves room for.
   async function fileBlob() {
     // Permissive on purpose: this document presigned nothing, so its signed set can vouch for nothing.
     const res = await TestomatAPI.fetchAsset(fileUrl, { instanceOnly: false });
@@ -73,19 +65,15 @@
 
   const blobSrc = async () => URL.createObjectURL(await fileBlob());
 
-  // `img-src` carries no `https:` by design (#175), so EVERY image is fetched and shown from a
-  // blob — an instance-hosted one also because an <img> sends no Authorization header.
+  // img-src has no https: on purpose, so every image is shown from a blob; an <img> sends no auth.
   const imageSrc = blobSrc;
 
-  // `media-src` does allow https:, so an off-instance video streams from its own URL rather
-  // than being buffered into memory whole; the instance's own still needs the authorized fetch.
+  // media-src allows https:, so an off-instance video streams; the instance's own needs the auth fetch.
   async function videoSrc() {
     return onInstance() ? blobSrc() : fileUrl;
   }
 
   const fileText = async () => (await fileBlob()).text();
-
-  // ---- render --------------------------------------------------------------
 
   const stage = () => $('viewer-stage');
 
@@ -136,8 +124,6 @@
     } catch { fail(); }
   }
 
-  // ---- chrome --------------------------------------------------------------
-
   function paintChrome() {
     const name = fileName || 'File';
     document.title = name;
@@ -152,8 +138,7 @@
     out.hidden = !ok || !fileUrl;
   }
 
-  // Framed by the on-page overlay, or standing alone in a tab of its own (the overlay's
-  // fallback). Framed, Esc is the overlay's to act on — the site's origin is unknown, hence '*'.
+  // Framed, Esc belongs to the overlay; the site's origin is unknown, hence '*'.
   const framed = window.parent !== window;
 
   function closeSelf() {

@@ -1,41 +1,21 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/runs-list.js is for the tester (#162): the Runs tab — every run in
-// the project with its folders, the six status chips above it, and a Load more row that admits only
-// part of the list was fetched and says how much. The same search box does two jobs: it narrows the
-// loaded rows by title, and it takes a run URL or a bare id copied out of the web app or a CI log and
-// opens that run.
-// Three things here are easy to get quietly wrong. The chip counts rest on nested fetches that settle
-// LATE, so a re-read holds the last settled numbers rather than flashing to zero. A pasted link is
-// resolved against the configured host AND project — a foreign host is never opened. And the id probe
-// is a debounced read with a token, an epoch and a re-check of the query, so an answer that arrives
-// after the tester typed on is dropped instead of painted.
-// Rows 1-65 are the ticket's; 66+ are code the ticket left unspoken for. A lettered suffix is the
-// companion case that drives the same path the other way, so a row asserting "nothing happened"
-// cannot pass against a stub that never worked.
-// Rows 1-6 and 92 are gone to tests/runs-paging.test.mjs and rows 21-28, 72-73 and 84 to
-// tests/runs-url.test.mjs (#195): the arithmetic and the parsers they drive are their own files now,
-// and this one loads both for real, so the rows below still assert against real cursors and the real
-// parser — including the line-versus-toast split of row 33.
-// Run: node --test tests/runs-list.test.mjs
+// The Runs tab: chips, folders, Load more, and a search box that also opens a pasted run link or id.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
 import { loadInto } from './helpers/shared-harness.mjs';
 
-// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
-// keyboard row below is worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+// The real roving.js, one per load(): its container map is a singleton and a stub proves nothing.
 const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
-// A keypress from the row that has focus, which bubbles to the <ul> the helper is delegated on —
-// the same trip a real one makes.
+// Fired on the focused row so it bubbles to the <ul> the helper is delegated on, like a real key.
 const key = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
 const BASE = 'https://app.testomat.io';
 const HOST = 'app.testomat.io';
 const PROJECT = 'my-project';
 
-// A promise this file resolves by hand: the probe and the strand rows are only about which answer
-// lands second.
+// Resolved by hand: the probe and strand rows are only about which answer lands second.
 function deferred() {
   let resolve;
   let reject;
@@ -48,12 +28,10 @@ const group = (id, over = {}) => ({ id, type: 'rungroup', title: `Group ${id}`, 
 // api.js's own shape for a paged folder read: items plus the three cursor numbers.
 const page = (items, over = {}) => ({ items, page: 1, total: items.length, totalPages: 1, ...over });
 
-// A list the screen BUILT (every "Load more" spread happens inside the vm) carries that realm's
-// Array prototype, which deepEqual refuses; read it back through this realm's own spread.
+// A list built in the vm carries that realm's Array prototype, which deepEqual refuses.
 const idsOf = (list) => [...(list || [])].map((it) => it.id);
 
-// The panel globals runs-list.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the screens beside this one land in parallel.
+// These panel globals live here, not in the harness: every screen has its own set.
 function load(opts = {}) {
   const o = {
     view: 'runs',
@@ -119,7 +97,7 @@ function load(opts = {}) {
     projectInfo: 0,
     projectUsers: 0,
     scrolls: [],     // whatever scrollIntoView was handed, per row
-    icons: [],       // { name, size, cls } — svgIcon's ARITY is the contract, so cls stays a list
+    icons: [],       // { name, size, cls } — svgIcon's arity is the contract, so cls stays a list
     empties: [],     // { tag, icon, title, text, live, compact, className }
     api: [],         // one ordered trace of every TestomatAPI call: [name, ...args]
     renders: 0,      // only counted once stubRenderList() is on
@@ -162,8 +140,7 @@ function load(opts = {}) {
     highlightedGroup: null,
   };
 
-  // Reassignable after load(), so a test can answer the second read differently from the first, or
-  // change the world from inside a call the screen is awaiting.
+  // Reassignable after load(), so a test can answer a second read differently or act mid-await.
   const on = {
     dashboard: async () => ({ items: [], page: 1, total: 0, totalPages: 1 }),
     listRuns: async () => ({ data: [] }),
@@ -183,8 +160,7 @@ function load(opts = {}) {
     return fn(...args);
   };
 
-  // shared/empty-state.js's own shape, cut to what this screen reads back: the `.md-icon` inside the
-  // mark (groupEmptyRow adds `spin` to it) and the actions, which carry real listeners.
+  // empty-state.js's shape, cut to what the screen reads back: the mark's .md-icon and real actions.
   const buildEmpty = (spec = {}) => {
     calls.empties.push({
       tag: spec.tag, icon: spec.icon, title: spec.title, text: spec.text,
@@ -221,14 +197,13 @@ function load(opts = {}) {
     capabilities: { jwt: null, readonly: false },
     $: (id) => doc.getElementById(id),
     show: (view) => { calls.shows.push(view); calls.order.push(`show:${view}`); },
-    // `opts` crosses the vm realm, so it is stored as plain JSON — and stays `undefined` when the
-    // caller passed none, which is what the two "no {error:true}" rows read.
+    // opts crosses the vm realm, so it is stored as JSON and stays undefined when none was passed.
     toast: (msg, toastOpts) => { calls.toasts.push({ msg, opts: plain(toastOpts) }); calls.order.push('toast'); },
     setStatusLine: (id, text, cls = '') => {
       calls.lines.push({ id, text, cls });
       calls.order.push(`line:${id}`);
       const n = doc.getElementById(id);
-      // The real one writes both, and loadDescendantRuns READS the class back to re-assert an error.
+      // The real one writes both, and loadDescendantRuns reads the class back to re-assert an error.
       if (n) { n.textContent = text; n.classList.toggle('error', cls === 'error'); }
     },
     setTabCount: (tab, n) => { calls.tabCounts.push([tab, n]); },
@@ -253,8 +228,7 @@ function load(opts = {}) {
       show: (view) => { calls.skeleton.push(['show', view]); return { view }; },
       hide: (handle) => { calls.skeleton.push(['hide', handle ? handle.view : handle]); },
     },
-    // The real one writes data-tip on the node it is given (shared/tooltip.js:257); a counter alone
-    // could not tell a tip that landed on the right element from one that went nowhere.
+    // Writes data-tip like the real one, so a tip landing on the wrong node is caught.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -272,16 +246,14 @@ function load(opts = {}) {
     },
     TestType: { mark: (kind) => (kind ? el('span', { className: `type-mark ${kind}`, dataset: { kind } }) : null) },
 
-    // ---- core/status-icons.js's vocabulary, STUBBED. Loading the real module here would couple
-    // the two test files: its own rows live in tests/status-icons.test.mjs.
+    // Stubbed: loading the real status-icons.js would couple this file to tests/status-icons.test.mjs.
     StatusIcons: {
       normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown'),
       statusIcon: (status) => el('span', {
         className: 'status-icon',
         dataset: { status: status === 'launching' ? 'running' : status || 'unknown' },
       }),
-      // Icons.el does `svg.classList.add('md-icon', ...cls)` (shared/icons.js:209) and classList.add
-      // THROWS on a token holding a space — so the arity is the contract, and this stub enforces it.
+      // Icons.el passes cls to classList.add, which throws on a token with a space; so does this stub.
       svgIcon: (name, size = 16, ...cls) => {
         calls.icons.push({ name, size, cls: [...cls] });
         const icon = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
@@ -298,7 +270,7 @@ function load(opts = {}) {
       CHEVRON: 'chevron_right',
       FOLDER: 'tree_folder',
     },
-    // run-view.js's own, and still a late-bound global: runs-list.js loads BEFORE that screen.
+    // run-view.js's own, and still a late-bound global: runs-list.js loads before that screen.
     openRunView: async (id, title) => { calls.opened.push([id, title]); calls.order.push('openRun'); },
 
     TestomatAPI: {
@@ -316,15 +288,12 @@ function load(opts = {}) {
   };
 
   const clock = fakeClock();
-  // The screen's own `const` arrows are lexical, not sandbox properties: named here or unreachable.
-  // Its three `let`s are not: the probe is read through runIdProbeFor(), the timers through the clock.
+  // The screen's const arrows are lexical, so they are named here or unreachable.
   const h = loadScreen('runs-list', {
     globals,
     document: doc,
     clock,
-    // The REAL screens/runs-paging.js and screens/runs-url.js, in index.html's own order: every row
-    // below is about what this screen DOES with a cursor or a pasted link, so a stub for either
-    // would be the thing under assertion (#195).
+    // The real runs-paging.js and runs-url.js: a stub for either would be the thing under assertion.
     before: ['runs-paging', 'runs-url'],
     exported: `({ RUN_FILTERS, FILTER_KEYS, RUNS_FILTER_TINT, LOADING_ICON, filterLabel, matchesFilter,
       runsSearchActive, runsFilterActive, anyRunsConstraint, titleOf, searchNeedle, runMatchesSearch,
@@ -342,8 +311,7 @@ function load(opts = {}) {
     node,
     doc,
     clock,
-    // renderList is reached from a dozen places; a load-path row that leaves it real drags the whole
-    // renderer (and every DOM stub behind it) into an assertion about a cursor.
+    // Left real, renderList drags the whole renderer and its DOM stubs into a row about a cursor.
     stubRenderList: () => { h.fn.renderList = () => { calls.renders += 1; calls.order.push('render'); }; return calls; },
     // What the tester can actually see in the list, top level only.
     rowIds: () => node.list.children.map((li) => li.dataset.runId ?? li.dataset.groupId ?? null),
@@ -365,15 +333,12 @@ function load(opts = {}) {
   };
 }
 
-// ---------- the chips, the counts and the empty messages (rows 13-18) ----------
-
 test('13: the first paint of the chips while the nested counts are still coming rests at 0', () => {
   const h = load({ descendantsSettled: false, lastRuns: [run('a'), run('b', { status: 'failed' })] });
   h.fn.renderFilterChips();
   assert.deepEqual(h.calls.counters, [0, 0, 0, 0, 0, 0]);
   assert.equal(h.state.runsChipCounts, null); // nothing has settled, so nothing is remembered
-  // The identical render with the counts settled paints the real numbers — the zeros are a policy,
-  // not a chip that never gets a value.
+  // The same render with settled counts paints real numbers, so the zeros are a policy.
   h.state.descendantsSettled = true;
   h.calls.counters.length = 0;
   h.fn.renderFilterChips();
@@ -438,8 +403,6 @@ test('18: a filter key with no label of its own is printed as itself rather than
   assert.equal(h.lex.filterLabel('terminated'), 'Terminated');
 });
 
-// ---------- what the search matches (rows 19-20) ----------
-
 test('19: a run answers to its id as well as its title, case-folded — the id pasted from a CI log', () => {
   const h = load({ search: '9F8E' });
   h.state.runsSearch = '9F8E';
@@ -460,14 +423,11 @@ test('20: a folder answers to its title only — an id belongs to a run, not to 
   assert.equal(h.lex.groupTitleMatchesSearch({ id: '9f8e7d6c', title: 'Sprint 9' }), true);
 });
 
-// ---------- what the renderers decide (rows 44-50, 66-71) ----------
-
 test('44: a run whose folder is not in the loaded list renders top-level instead of vanishing', () => {
   const h = load({ listMode: 'v2' });
   h.fn.renderRuns([run('r1', { rungroup_id: 'nested-somewhere' })], []);
   assert.deepEqual(h.rowIds(), ['r1']);
-  // The same run WITH its folder loaded nests inside it, so the row above is a fallback and not
-  // a renderer that ignores rungroup_id.
+  // With its folder loaded the same run nests inside it, so the row above is a fallback.
   h.fn.renderRuns([run('r1', { rungroup_id: 'g1' })], [group('g1')]);
   assert.deepEqual(h.rowIds(), ['g1']);
   assert.deepEqual(h.kidsOf(h.groupRowFor('g1')).children.map((li) => li.dataset.runId), ['r1']);
@@ -492,7 +452,7 @@ test('46: a run held in three caches at once is counted once, and the folder’s
   h.fn.renderDashboard();
   assert.equal(h.state.lastRuns.length, 1);
   assert.equal(h.state.lastRuns[0].title, 'from the folder');
-  // Without the folder cache the descendant copy wins — so the line above is an ORDER, not a tie.
+  // Without the folder cache the descendant copy wins — so the line above is an order, not a tie.
   h.state.childrenCache = {};
   h.fn.renderDashboard();
   assert.equal(h.state.lastRuns[0].title, 'from the nested count');
@@ -514,7 +474,6 @@ test('48: with no chip and no search every folder passes at once, without walkin
   const h = load({ subgroupsCache: { g1: [group('g2')] } });
   assert.equal(h.fn.groupPasses(group('g1')), true);
   assert.equal(h.fn.groupPasses(group('empty')), true);
-  // Turn one constraint on and the same empty folder is dropped.
   h.state.runsFilter = 'failed';
   assert.equal(h.fn.groupPasses(group('empty')), false);
 });
@@ -527,7 +486,7 @@ test('49: a folder found BY ITS NAME shows all its runs — but the status chip 
   h.state.runsFilter = 'failed';
   const li = h.fn.dashGroupRow(group('g1', { title: 'Sprint 9', status: 'failed' }));
   assert.deepEqual(h.kidsOf(li).children.map((n) => n.dataset.runId), ['r1']);
-  // Same folder, chip off: BOTH runs come back, neither of which matches "sprint" itself.
+  // Same folder, chip off: both runs come back, neither of which matches "sprint" itself.
   h.state.runsFilter = 'all';
   const both = h.fn.dashGroupRow(group('g1', { title: 'Sprint 9' }));
   assert.deepEqual(h.kidsOf(both).children.map((n) => n.dataset.runId), ['r1', 'r2']);
@@ -538,7 +497,7 @@ test('50: a folder the tester just opened says "Loading runs…", not that it ha
   const li = h.fn.dashGroupRow(group('g1'));
   assert.equal(h.calls.empties.at(-1).text, 'Loading runs…');
   assert.equal(h.kidsOf(li).querySelector('.md-icon').classList.contains('spin'), true);
-  // A folder that IS loaded and really is empty says so — and its glyph does not spin.
+  // A folder that is loaded and really is empty says so — and its glyph does not spin.
   h.state.subgroupsCache.g1 = [];
   h.state.childrenCache.g1 = [];
   const done = h.fn.dashGroupRow(group('g1'));
@@ -551,7 +510,7 @@ test('66: the env pills split api.js’s one joined string, and a run with no en
   assert.deepEqual([...h.lex.envTags('chrome, firefox ,, safari')], ['chrome', 'firefox', 'safari']);
   assert.deepEqual([...h.lex.envTags('')], []);
   assert.deepEqual([...h.lex.envTags(null)], []);
-  // Only a CHILD row wears them — a top-level run row draws none.
+  // Only a child row wears them — a top-level run row draws none.
   const child = h.fn.runRow(run('r1', { env: 'chrome,firefox' }), { child: true });
   assert.deepEqual(child.querySelectorAll('.badge.env').map((n) => n.textContent), ['chrome', 'firefox']);
   assert.deepEqual(child.querySelectorAll('.badge.env').map((n) => n.dataset.tip), ['chrome', 'firefox']);
@@ -600,7 +559,7 @@ test('70: opening a folder remembers it and reads its contents; closing it forge
   const li = el('li', { className: 'group' });
   h.fn.toggleGroup('g1', li);
   assert.deepEqual([...h.state.expandedGroups], ['g1']);   // mutated in place…
-  assert.equal(h.calls.persists, 1);                       // …AND persisted
+  assert.equal(h.calls.persists, 1);                       // …and persisted
   assert.equal(li.classList.contains('expanded'), true);
   await settle();
   assert.deepEqual(h.apiNames(), ['fetchGroupSubgroups', 'fetchGroupChildren']);
@@ -628,8 +587,6 @@ test('71: a folder already read is not read again when the tester opens it a sec
   await settle();
   assert.deepEqual(h.apiNames(), []);
 });
-
-// ---------- the two jobs of the search field (rows 29-32, 74-77) ----------
 
 test('29: paste and drop arrive carrying an inputType; a typed character does not', () => {
   const h = load();
@@ -727,8 +684,6 @@ test('77: the field is re-read FROM state, because a project switch clears the q
   assert.equal(h.node.searchClear.hidden, false);
 });
 
-// ---------- opening what was pasted (rows 33-37, 78-82) ----------
-
 const notFound = (h) => new h.ApiError('notfound', 404, 'Not Found');
 const offline = (h) => new h.ApiError('network', 0, 'Failed to fetch');
 
@@ -739,8 +694,7 @@ test('33: an id that names no run leaves the tester on the list, told so on the 
   assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
   assert.deepEqual(h.calls.toasts, []);   // a toast is wiped by the next one; the line is not
   assert.deepEqual(h.calls.opened, []);
-  // The same miss while the tester is NOT on the runs list can only be a toast — a line on a
-  // hidden view would be invisible.
+  // Off the runs list the same miss can only be a toast: a line on a hidden view is invisible.
   h.state.view = 'test';
   h.calls.lines.length = 0;
   assert.equal(await h.fn.openParsedRunTarget({ kind: 'run', id: 'deadbeef' }), false);
@@ -802,7 +756,7 @@ test('79: a pasted value the panel cannot resolve is reported without a single r
   await h.fn.openRunsSearchUrl();
   assert.deepEqual(h.lastLine('runs-status'), { id: 'runs-status', text: 'Run not found', cls: 'error' });
   assert.deepEqual(h.apiNames(), []);
-  // The same field holding a link this panel DOES own reads the run, so the silence above is a guard.
+  // The same field holding a link this panel does own reads the run, so the silence above is a guard.
   h.node.search.value = `${BASE}/projects/${PROJECT}/runs/9f8e7d6c`;
   await h.fn.openRunsSearchUrl();
   assert.deepEqual(h.apiNames(), ['getRun']);
@@ -839,9 +793,7 @@ test('82: an empty project list on boot means "not read yet", so the projects ar
   assert.equal(h2.calls.projectRefreshes, 0);
 });
 
-// ---------- finding a run by its id (rows 38-43, 83, 85) ----------
-// fakeClock.tick() AWAITS each callback, so a probe whose read is deliberately left hanging is
-// ticked WITHOUT awaiting and joined once the answer has landed.
+// fakeClock.tick() awaits each callback, so a hanging probe is ticked unawaited and joined later.
 
 test('38: typing on restarts the wait, and once the read is out a repeat of the same id is a no-op', async () => {
   const h = load();
@@ -880,7 +832,7 @@ test('39: deleting the id back out of the field drops the wait, and the read alr
   h.fn.syncRunIdProbe('9f8e7d');
   const fired = h.clock.tick();
   h.state.runsSearch = '9f8e7d';
-  assert.ok(h.lex.runIdProbeFor('9f8e7d'));    // it IS on the wire
+  assert.ok(h.lex.runIdProbeFor('9f8e7d'));    // it is on the wire
   h.fn.syncRunIdProbe(null);
   assert.equal(h.lex.runIdProbeFor('9f8e7d'), null);
   gate.resolve({ id: '9f8e7d', title: 'Nightly' });
@@ -933,7 +885,7 @@ test('40: an answer that lands after the tester moved on is discarded — query,
   assert.equal(d.lex.runIdProbeFor('aaaaaa'), null);
   assert.equal(d.calls.renders, 0);
 
-  // (d) nothing moved: the same drive DOES remember and repaint, so the three drops above are re-checks.
+  // (d) nothing moved: the same drive does remember and repaint, so the drops above are re-checks.
   const c = load();
   c.stubRenderList();
   c.state.runsSearch = '9f8e7d';
@@ -989,7 +941,7 @@ test('43: a run found by its id is shown under a "Found by id" label even when t
   assert.equal(rows[1].dataset.runId, '9f8e7d6c');
   // The id line is the only thing on the row naming what was asked for.
   assert.ok(rows[1].querySelectorAll('.meta').some((n) => n.textContent === '9f8e7d6c'));
-  // A row NOT found by id carries no such line, so the assertion above is about `showId`.
+  // A row not found by id carries no such line, so the assertion above is about `showId`.
   assert.deepEqual(h.fn.runRow(run('r1')).querySelectorAll('.meta'), []);
 });
 
@@ -1026,8 +978,6 @@ test('85: the no-match plaque offers exactly the constraints that are on, and it
   assert.equal(h.calls.empties.at(-1).text, 'Nothing loaded so far carries this status.');
   assert.equal(h.calls.empties.at(-1).icon, 'filter_alt_off');
 });
-
-// ---------- loading the list and the descendant counts (rows 7-12, 94-96) ----------
 
 test('7: no web session behind the panel degrades to the two v2 reads, and says the counts are complete', async () => {
   const h = load({ jwt: false, listMode: 'v2' });
@@ -1072,7 +1022,7 @@ test('9: a project switched mid-read throws the answer away — the other projec
   await v.fn.loadRuns();
   assert.equal(v.state.listMode, 'dashboard');
   assert.deepEqual(v.state.lastRuns.map((r) => r.id), ['old']);
-  // …and with the project standing still the identical drive DOES write, so both are real guards.
+  // …and with the project standing still the identical drive does write, so both are real guards.
   const ok = load({ listMode: 'v2' });
   ok.stubRenderList();
   ok.on.dashboard = async () => ({ items: [run('r1')], page: 1, total: 1, totalPages: 1 });
@@ -1093,8 +1043,7 @@ test('10: a nested-count batch a fresh load supersedes leaves no in-flight count
   const stranded = h.fn.loadDescendantRuns();
   assert.equal(h.state.descInFlight, 1);
   assert.equal(h.state.descendantsSettled, false);
-  // A fresh load supersedes it: the token bump and the counter reset are the same statement pair,
-  // so the strand's skipped decrement cannot take the NEW load's count down with it.
+  // Token bump and counter reset go together, so the strand cannot decrement the new load's count.
   h.on.dashboard = async () => ({ items: [group('g1')], page: 1, total: 1, totalPages: 1 });
   h.on.nested = async () => [run('r1')];
   await h.fn.loadRuns();
@@ -1193,8 +1142,6 @@ test('96: the New run link follows the connected host and project, and hides whe
   assert.equal(h.node.newRun.hidden, true);
 });
 
-// ---------- Load more, folder contents and Refresh (rows 51-57, 86-91, 93) ----------
-
 test('51: under a search the Load more row admits how much of the list was actually searched', () => {
   const h = load({ search: 'nightly' });
   h.state.runsSearch = 'nightly';
@@ -1214,7 +1161,7 @@ test('52: with nothing filtered there is nothing to admit — and an unknown tot
   const plainRow = h.fn.loadMoreRow({ remaining: 5, total: 80, loaded: 30, onClick: () => {} });
   assert.equal(plainRow.querySelector('.load-more-note'), null);
   assert.equal(plainRow.querySelector('.load-more-text').textContent, 'Load more (5 more)');
-  // A constraint IS on but the server never said how many there are.
+  // A constraint is on but the server never said how many there are.
   h.state.runsFilter = 'failed';
   assert.equal(h.fn.loadMoreRow({ remaining: 5, total: null, loaded: 30, onClick: () => {} })
     .querySelector('.load-more-note'), null);
@@ -1254,7 +1201,7 @@ test('53: when only the runs have another page the folders endpoint is left alon
   assert.deepEqual(plain(h.state.v2GroupsPaging), { page: 1, perPage: 1, total: 1, totalPages: 1 });
   assert.deepEqual(idsOf(h.state.lastRuns), ['r1', 'r2']);
   assert.deepEqual(plain(h.state.v2RunsPaging), { page: 2, perPage: 1, total: 3, totalPages: 3 });
-  // With BOTH sources holding a tail both are read, so the single name above is a decision.
+  // With both sources holding a tail both are read, so the single name above is a decision.
   h.state.v2GroupsPaging = { page: 1, perPage: 1, total: 4, totalPages: 4 };
   h.on.listRunGroups = async () => ({ data: [group('g2')], meta: { page: 2, per_page: 1, total: 4 } });
   await h.fn.loadMoreRuns();
@@ -1294,7 +1241,7 @@ test('88: a second press while a page is on the wire, or one with no page left, 
   h.state.listPaging = { page: 3, total: 80, totalPages: 3, loading: false };
   await h.fn.loadMoreRuns();
   assert.deepEqual(h.apiNames(), []);
-  // …and with a page left and nothing in flight the same call DOES read.
+  // …and with a page left and nothing in flight the same call does read.
   h.state.listPaging = { page: 1, total: 80, totalPages: 3, loading: false };
   await h.fn.loadMoreRuns();
   assert.deepEqual(h.apiNames(), ['fetchDashboardPage']);
@@ -1309,7 +1256,6 @@ test('55: a folder whose contents could not be read caches empty and complains e
   assert.deepEqual(plain(h.state.subgroupsCache.g1), []);
   assert.deepEqual(plain(h.state.childrenCache.g1), []);
   assert.equal('g1' in h.state.loadingGroup, false);
-  // ONE toast for two failed legs, marked as the failure it is (#272).
   assert.deepEqual(h.calls.toasts, [{ msg: 'Could not load some group contents', opts: { error: true } }]);
   assert.deepEqual(plain(h.state.groupPaging.g1), {
     subsPage: 1, subsTotal: null, subsTotalPages: null,
@@ -1351,7 +1297,6 @@ test('57: any other failed refresh leaves the previous list up and says so on th
   assert.equal(h.calls.capabilities, 0);
   assert.deepEqual(h.lastLine('runs-status'),
     { id: 'runs-status', text: 'Refresh failed: Failed to fetch', cls: 'error' });
-  // The line and the plaque beside it now agree that this is a failure (#272).
   assert.deepEqual(h.calls.toasts, [{ msg: 'Refresh failed: Failed to fetch', opts: { error: true } }]);
   assert.deepEqual(h.state.dashItems.map((it) => it.id), ['r1']);
   // A refresh that succeeds says nothing at all, so the two above are the failure's own marks.
@@ -1434,8 +1379,6 @@ test('93: the Load more row stays up while its own press is running, even on the
   assert.deepEqual(h.node.list.querySelectorAll('.load-more'), []);
 });
 
-// ---------- the expansion walk and the pasted folder link (rows 58-64, 101-108) ----------
-
 test('58: pulling pages to find a sub-folder gives up after 50 rather than pulling for ever', async () => {
   const paged = (over = {}) => ({
     subsPage: 1, subsTotal: 999, subsTotalPages: 999,
@@ -1447,7 +1390,7 @@ test('58: pulling pages to find a sub-folder gives up after 50 rather than pulli
   h.on.subgroups = async (id, p) => { reads += 1; return { items: [group(`x${p}`)], page: p, total: 999, totalPages: 999 }; };
   await h.fn.ensureSubgroupLoaded('g1', 'never-there');
   assert.equal(reads, 50);
-  // The same server WITH the child on page 3 stops the moment its row exists.
+  // The same server with the child on page 3 stops the moment its row exists.
   const found = load({ subgroupsCache: { g1: [group('a')] }, groupPaging: { g1: paged() } });
   found.stubRenderList();
   let hits = 0;
@@ -1478,7 +1421,7 @@ test('59: a folder the tester had open that is no longer anywhere in the tree is
   // With nothing to prune it is not persisted again — a save on every render would be a write storm.
   await h.fn.ensureExpandedChildrenLoaded();
   assert.equal(h.calls.persists, 1);
-  // A NESTED folder is reachable through its parent's cache, so it survives the same walk.
+  // A nested folder is reachable through its parent's cache, so it survives the same walk.
   h.state.subgroupsCache = { g1: [group('sub')], sub: [] };
   h.state.childrenCache = { g1: [], sub: [] };
   h.state.expandedGroups = ['g1', 'sub'];
@@ -1495,7 +1438,7 @@ test('60: a folder link for a folder that is not in the list stops looking once 
   // A folder already on screen costs nothing either.
   assert.equal(await h.fn.ensureTopLevelGroupLoaded('other'), true);
   assert.deepEqual(h.apiNames(), []);
-  // …and with a page still to come it DOES pull, which is what makes the false above a decision.
+  // …and with a page still to come it does pull, which is what makes the false above a decision.
   h.state.listPaging = { page: 1, total: 2, totalPages: 2, loading: false };
   h.on.dashboard = async () => ({ items: [group('g1')], page: 2, total: 2, totalPages: 2 });
   assert.equal(await h.fn.ensureTopLevelGroupLoaded('g1'), true);
@@ -1526,7 +1469,7 @@ test('62: a folder link for a row that did not render leaves no flash pointing a
   h.fn.highlightGroup('not-rendered');
   assert.equal(h.state.highlightedGroup, null);
   assert.equal(h.clock.count(), 0);
-  // A row that IS on screen is flashed, so the null above is a miss and not a dead function.
+  // A row that is on screen is flashed, so the null above is a miss and not a dead function.
   h.fn.highlightGroup('g1');
   assert.equal(h.state.highlightedGroup, 'g1');
   assert.equal(h.clock.count(), 1);
@@ -1552,9 +1495,7 @@ test('63: the flash is state-driven, so it survives a re-render — and it lets 
   assert.deepEqual(h.clock.arms(), [2500, 2500, 2500]);
 });
 
-// One roving tab stop for the whole list, not one per row: a run row already grows three status
-// buttons in the run view, so a stop per row would be hundreds of them. Tab enters the list once,
-// the arrows walk it, Enter opens. The helper's own contract is tests/roving.test.mjs.
+// One tab stop for the whole list, not one per row, which would mean hundreds of stops.
 test('64 (#109): a run row and a folder head can be reached and opened from the keyboard', () => {
   const h = load({
     dashItems: [group('g1'), run('r2')],
@@ -1567,12 +1508,12 @@ test('64 (#109): a run row and a folder head can be reached and opened from the 
   assert.equal(head.getAttribute('role'), 'button', 'a reader is told the folder head is actionable');
   assert.equal(head.getAttribute('tabindex'), '0');
 
-  // Down steps STRAIGHT over the folded folder's run — it is not on screen.
+  // Down steps straight over the folded folder's run — it is not on screen.
   assert.equal(key(head, 'ArrowDown').defaultPrevented, true);
   assert.equal(h.doc.activeElement, h.rowFor('r2'));
   assert.deepEqual(h.rowTabs(), ['-1', '-1', '0'], 'exactly one row is a tab stop');
 
-  // Enter on the head opens the folder — the same act as clicking it, and NOT a left/right key.
+  // Enter on the head opens the folder — the same act as clicking it, and not a left/right key.
   assert.equal(key(head, 'Enter').defaultPrevented, true);
   assert.deepEqual([...h.state.expandedGroups], ['g1']);
   assert.equal(h.kidsOf(h.groupRowFor('g1')).hidden, false);
@@ -1611,8 +1552,7 @@ test('64b: a re-render leaves the list keyboard-ready again, and Load more stays
   assert.equal(h.doc.activeElement, h.rowFor('r2'), 'the arrows stop at the last ROW');
 });
 
-// 64c: the head is a role="button" that folds a folder, and the chevron that says which way it is
-// pointing is a picture. Written where the fold is written — the render, and the toggle.
+// The chevron is a picture, so aria-expanded is written wherever the fold is: render and toggle.
 test('64c (#109): a folder head says whether it is open, and keeps saying it as the fold moves', () => {
   const h = load({ dashItems: [group('g1'), run('r2')], subgroupsCache: { g1: [] }, childrenCache: { g1: [run('r1')] } });
   h.fn.renderDashboard();
@@ -1707,7 +1647,7 @@ test('107: an archived folder is not found by id either, so a link to one is nev
   const h = load({ listMode: 'v2', lastGroups: [group('g1', { archived_at: 'x' }), group('g2')] });
   assert.equal(h.fn.findGroupById('g1'), undefined);
   assert.equal(h.fn.findGroupById('g2').id, 'g2');
-  // In dashboard mode the lookup reads dashItems, and a RUN with that id is not a folder.
+  // In dashboard mode the lookup reads dashItems, and a run with that id is not a folder.
   const d = load({ dashItems: [run('g2'), group('g3')] });
   assert.equal(d.fn.findGroupById('g2'), undefined);
   assert.equal(d.fn.findGroupById('g3').id, 'g3');
@@ -1731,7 +1671,7 @@ test('97: coming back to the Runs tab paints the rows already in memory and re-r
   assert.deepEqual(h.calls.skeleton, []);                    // nothing is blanked for a re-read
   assert.deepEqual(h.calls.shows, ['runs']);
   const at = (s) => h.calls.order.indexOf(s);
-  assert.ok(at('show:runs') < at('gate'));                   // the rows go up BEFORE the lock probe
+  assert.ok(at('show:runs') < at('gate'));                   // the rows go up before the lock probe
   assert.ok(at('gate') < at('fetchDashboardPage'));
   assert.equal(h.calls.gates, 1);
   assert.deepEqual(h.calls.tabCounts, [['runs', 0]]);
@@ -1757,7 +1697,7 @@ test('99: a locked project replaces what is up and never asks for the list at al
   assert.deepEqual(back.calls.skeleton, []);
   assert.equal(back.apiNames().includes('fetchDashboardPage'), false);
   assert.deepEqual(idsOf(back.state.dashItems), ['r1']);     // nothing blanked for the lockout
-  // On a FIRST open the placeholder comes down before the blocking panel goes up.
+  // On a first open the placeholder comes down before the blocking panel goes up.
   const first = load({ gate: true });
   first.stubRenderList();
   await first.fn.openRunsView();

@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/nav-model.js (#202, the first seam out of core/views.js): which tab a
-// screen belongs to, what the contextual row titles it, where its web link points, and which screen
-// a tab click or a Back lands on.
-// The whole value of the module is what it does NOT touch, so the sandbox below is literally `{}` —
-// no document, no `$`, no `state`, no console, not even a stub of one. Loading it there proves
-// nothing is read at load; CALLING every one of its functions there, which every row does, proves
-// nothing is read at call time either. `state` and the record lookup arrive as arguments, and the
-// two navigations hand back a DESCRIPTOR (`{show}` / `{open, args}`) rather than calling an opener,
-// which is what lets a decision be asserted without a screen behind it.
-// tests/views.test.mjs keeps its own 88 rows over the same decisions as core/views.js paints them:
-// the duplication is deliberate — these say what the model decides, those say what the panel does.
-// Run: node --test tests/nav-model.test.mjs
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -19,7 +7,7 @@ import assert from 'node:assert/strict';
 import { CORE_SRC, plain } from './helpers/panel-harness.mjs';
 
 const file = join(CORE_SRC, 'nav-model.js');
-// An EMPTY context object: whatever the module reached for would be a ReferenceError right here.
+// An empty context object: whatever the module reached for would be a ReferenceError right here.
 const load = () => runInNewContext(`${readFileSync(file, 'utf8')}\nNavModel;`, {});
 
 const nav = load(); // stateless — one load serves every row
@@ -30,10 +18,8 @@ const st = (over = {}) => ({
   runTitle: '', testTitle: '', tcSuiteTitle: '', ...over,
 });
 
-// ---------- the seam itself ----------
-
 test('N1 (#202): the model loads and answers with no document, no state and no globals at all', () => {
-  const fresh = load(); // `{}` is the whole sandbox — see the header
+  const fresh = load(); // `{}` is the whole sandbox
   assert.equal(typeof fresh, 'object');
   assert.equal(fresh.tabOfView('run'), 'runs');
   assert.equal(fresh.contextTitleFor('promote', st()), 'Choose suite');
@@ -42,8 +28,6 @@ test('N1 (#202): the model loads and answers with no document, no state and no g
   assert.deepEqual(plain(fresh.nextViewForTab('runs', st())), { open: 'runs' });
   assert.deepEqual(plain(fresh.backTargetFor('run', st())), { open: 'runs' });
 });
-
-// ---------- the tab a screen belongs to ----------
 
 test('N2 (#202): every screen the panel can show belongs to exactly one of the three tabs', () => {
   assert.deepEqual(plain(nav.TAB_OF_VIEW), {
@@ -70,8 +54,6 @@ test('N3 (#202): every one of the eight views names its tab, and one nobody know
   assert.equal(nav.tabOfView(''), 'runs');
 });
 
-// ---------- the title above the Back arrow ----------
-
 test('N4 (#202): the title names the screen from the first frame, before its data has landed', () => {
   const empty = st();
   assert.equal(nav.contextTitleFor('run', empty), 'Run');
@@ -89,8 +71,6 @@ test('N5 (#202): once the data lands the title is the thing’s own name; a tab 
     assert.equal(nav.contextTitleFor(root, s), '', root);
   }
 });
-
-// ---------- the way out to the web app ----------
 
 test('N6 (#202): the web link points at the RECORD the tester is reading, not the test case behind it', () => {
   const recordFor = (id) => ({ 55: { test_id: 't7' } })[id] || null;
@@ -121,9 +101,7 @@ test('N8 (#202): a run and a suite each point at their own route, and an id not 
   assert.equal(nav.webTarget('tclist', st()), null);
 });
 
-// The suite leg above is the only one the older rows exercised with an id that needs escaping, so
-// the run and record legs could have shipped raw. A slash is the dangerous character: unescaped it
-// invents a route segment, and the link lands on someone else's page rather than 404ing honestly.
+// A raw slash would invent a route segment and land on someone else's page instead of a 404.
 test('N8b (#202): every id in the path is escaped — a run, a record and a test case alike', () => {
   assert.deepEqual(plain(nav.webTarget('run', st({ runId: 'r/9' }))), ['run', 'runs/r%2F9']);
   assert.deepEqual(
@@ -150,8 +128,6 @@ test('N10 (#202): the link is built off the SAVED base url, trailing slashes gon
   assert.equal(nav.webHref('https://a.io/', 'p1', 'suite/s%201'), 'https://a.io/projects/p1/suite/s%201',
     'the path arrives already encoded by webTarget and is not encoded a second time');
 });
-
-// ---------- where a tab click lands ----------
 
 test('N11 (#202): coming back to a tab lands on the screen it was left on, as a re-show not a reload', () => {
   assert.deepEqual(plain(nav.nextViewForTab('tests', st({ tabViews: { tests: 'tclist' }, tcSuiteId: 's1' }))),
@@ -180,12 +156,10 @@ test('N13 (#202): a tab that has stood nowhere yet opens its root, and Settings 
 test('N14 (#202): the suite picker is a step of + New test, never a screen to come back to', () => {
   assert.deepEqual(plain(nav.nextViewForTab('tests', st({ tabViews: { tests: 'promote' }, tcSuiteId: 's1' }))),
     { open: 'tcstudio' });
-  // …and neither is the picker's own tab-root screen, or the project-pick that stands before the tabs.
+  // Nor is the picker's own tab-root screen, or the project-pick that stands before the tabs.
   assert.deepEqual(plain(nav.nextViewForTab('runs', st({ tabViews: { runs: 'runs' }, runId: '7' }))),
     { open: 'runs' });
 });
-
-// ---------- the way back ----------
 
 test('N15 (#202): Back walks one step up the same trail the crumbs draw', () => {
   const s = st({ runId: '7', runTitle: 'Nightly' });
@@ -205,7 +179,6 @@ test('N16 (#202): a tab root has nowhere above it, so Back is handed no target a
 });
 
 test('N17 (#202): Back out of a test whose run id has gone still names the run leg, ids and all', () => {
-  // Not the model's call to make: core/views.js hands whatever it holds to openRunView, exactly as
-  // the inline branch did — a target invented here would be a different screen, silently.
+  // Not the model's call: a target invented here would silently be a different screen.
   assert.deepEqual(plain(nav.backTargetFor('test', st())), { open: 'run', args: [null, ''] });
 });

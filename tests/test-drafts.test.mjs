@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/test-drafts.js — what the tester was half-way through typing.
-// Rows 1-17 of #164, moved here when the store left screens/test-view.js (#197). The comment box
-// is READ only by a status write, so everything else that leaves the test — the pager, a hotkey,
-// Back, a tab click, the panel closing — used to throw the typing away, and with it the evidence
-// the Attach buttons paste into that same box. Four surfaces reach this store and only one of
-// them is the test view, which is why it is its own file and its own suite.
-//
-// The whole stub list is below: chrome.storage.session, a {value:''} textarea, and three keys of
-// `state`. No API, no OfflineQueue, no mini-DOM document beyond the one box — the point of the
-// extraction is that this is all it ever needed.
-// Run: node --test tests/test-drafts.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeClock, plain, settle } from './helpers/panel-harness.mjs';
@@ -24,16 +13,14 @@ function load(opts = {}) {
     sessionThrows: false,
     ...opts,
   };
-  // The one element the store touches. A real textarea is more than these rows need, and a
-  // document would let a row pass because some OTHER node happened to exist.
+  // A document would let a row pass because some other node happened to exist.
   const box = { value: '' };
   const state = {
     currentRecordId: o.recordId,
     runId: o.runId,
     records: o.records === null ? [{ id: 7 }] : o.records,
   };
-  // panel-harness gives session a `get` only — no screen before this one wrote to it. The mirror
-  // does, and these rows are asserted on what it actually wrote, so the two ops are recorded here.
+  // panel-harness gives session a `get` only, so the mirror's writes are recorded here.
   const store = fakeChrome({ session: o.drafts === undefined ? {} : { commentDrafts: o.drafts } });
   const sess = store.session;
   store.chrome.storage.session.set = async (arg) => {

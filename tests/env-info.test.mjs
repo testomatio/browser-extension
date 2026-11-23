@@ -1,13 +1,7 @@
 #!/usr/bin/env node
-// What the panel writes down about the tester's machine when a result is saved (#153): the browser
-// and OS names, the tested tab's own window size, and the address with the query cut off it. This
-// file also IS the old tests/env-info-matrix.mjs — its fourteen sample rows now run in CI.
-// Run: node --test tests/env-info.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadEnvInfo, nav, plain, scripting } from './helpers/core-harness.mjs';
-
-// ---- the sample UA strings, carried over from the matrix unchanged ----------
 
 const WIN_CHROME =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36';
@@ -52,8 +46,6 @@ const OPERA_BRANDS = [
 const bare = () => loadEnvInfo({ navigator: nav(WIN_CHROME, undefined) });
 const on = (userAgent, userAgentData) => loadEnvInfo({ navigator: nav(userAgent, userAgentData) });
 
-// ---- A: the two toggles ----------------------------------------------------
-
 test('#153-1: a tester who never touched the setting gets the env info written', () => {
   const e = bare();
   assert.equal(e.envInfoEnabled(undefined), true);
@@ -83,8 +75,6 @@ test('#153-5: a tester who ticked "send the full URL" gets it', () => {
   assert.equal(bare().envFullUrlEnabled({ envFullUrl: true }), true);
 });
 
-// ---- B: the address the developer will read --------------------------------
-
 test('#153-6: an ordinary page address goes out as it is, with no note added', () => {
   assert.equal(bare().envTrimUrl('https://a.io/checkout'), 'https://a.io/checkout');
 });
@@ -96,7 +86,6 @@ test('#153-7: a bare host keeps its slash and still counts as untouched', () => 
 test('#153-8: a password-reset link loses its token and says so', () => {
   assert.equal(bare().envTrimUrl('https://a.io/reset?token=abc#f'),
     'https://a.io/reset (query trimmed)');
-  // The fragment alone is cut too, by the same rebuild.
   assert.equal(bare().envTrimUrl('https://a.io/x#step-3'), 'https://a.io/x (query trimmed)');
 });
 
@@ -110,13 +99,11 @@ test('#153-10: a scheme with no origin of its own is handed back untouched', () 
   const e = bare();
   assert.equal(e.envTrimUrl('file:///c/tmp/report.html'), 'file:///c/tmp/report.html');
   assert.equal(e.envTrimUrl('data:text/html,x'), 'data:text/html,x');
-  // …while an address that does have one is still rebuilt off it.
   assert.equal(e.envTrimUrl('https://a.io/reset?token=abc'), 'https://a.io/reset (query trimmed)');
 });
 
 test('#153-10b: an internal browser page keeps its own name and does not become "null"', () => {
-  // Unreachable from the panel today (only readable http(s) tabs get this far), and wrong on its
-  // face: `chrome://extensions` read back as "null", `about:blank` as "nullblank".
+  // Unreachable from the panel (only http(s) tabs get here) and wrong: chrome://extensions reads "null".
   const e = bare();
   assert.equal(e.envTrimUrl('chrome://extensions'), 'chrome://extensions');
   assert.equal(e.envTrimUrl('about:blank'), 'about:blank');
@@ -136,8 +123,6 @@ test('#153-12: a path written in Cyrillic survives as the browser encodes it', (
   assert.equal(bare().envTrimUrl('https://a.io/п/ш?q=1'),
     'https://a.io/%D0%BF/%D1%88 (query trimmed)');
 });
-
-// ---- C: reading the browser and the OS off the UA string -------------------
 
 test('#153-13: Edge is called Edge even though its UA also claims Chrome', () => {
   assert.equal(bare().uaBrowser(WIN_EDGE), 'Edge 138');
@@ -174,8 +159,6 @@ test('#153-18: each operating system is named from its own UA marker', () => {
   assert.equal(e.uaOs('something else entirely'), 'Unknown');
 });
 
-// ---- D: what the browser volunteers, and when it is not believed -----------
-
 test('#153-19: the browser name loses its vendor prefix', () => {
   assert.equal(on(WIN_CHROME, { platform: 'Windows', brands: CHROME_BRANDS }).envBrowser(),
     'Chrome 138');
@@ -206,8 +189,6 @@ test('#153-24: a real Android, where the UA agrees, keeps its name', () => {
   assert.equal(on(ANDROID_MOBILE, { platform: 'Android', brands: CHROME_BRANDS }).envOs(), 'Android');
 });
 
-// ---- D2: the fourteen sample rows, carried over from tests/env-info-matrix.mjs ----
-
 const MATRIX = [
   { name: 'win-chrome', uaData: { platform: 'Windows', brands: CHROME_BRANDS }, ua: WIN_CHROME, os: 'Windows', browser: 'Chrome 138' },
   { name: 'mac-chrome', uaData: { platform: 'macOS', brands: CHROME_BRANDS }, ua: MAC_CHROME, os: 'macOS', browser: 'Chrome 138' },
@@ -217,7 +198,7 @@ const MATRIX = [
   { name: 'linux-edge', uaData: { platform: 'Linux', brands: EDGE_BRANDS }, ua: LINUX_EDGE, os: 'Linux', browser: 'Edge 138' },
   { name: 'mac-opera', uaData: { platform: 'macOS', brands: OPERA_BRANDS }, ua: MAC_OPERA, os: 'macOS', browser: 'Opera 122' },
   { name: 'cros-chrome', uaData: { platform: 'Chrome OS', brands: CHROME_BRANDS }, ua: CROS_CHROME, os: 'Chrome OS', browser: 'Chrome 138' },
-  // Today's honest fallback: \bChrome\/ does not match inside HeadlessChrome/.
+  // Honest fallback: \bChrome\/ does not match inside HeadlessChrome/.
   { name: 'headless-no-hints', uaData: undefined, ua: MAC_HEADLESS, os: 'macOS', browser: 'Unknown' },
   { name: 'issue12-lying-android-linux', uaData: { platform: 'Android', brands: CHROME_BRANDS }, ua: LINUX_CHROME, os: 'Linux', browser: 'Chrome 138' },
   { name: 'lying-android-windows', uaData: { platform: 'Android', brands: CHROME_BRANDS }, ua: WIN_CHROME, os: 'Windows', browser: 'Chrome 138' },
@@ -233,8 +214,6 @@ for (const row of MATRIX) {
     assert.equal(e.envBrowser(), row.browser);
   });
 }
-
-// ---- E: the tested tab and its window size ---------------------------------
 
 const okTab = (url = 'https://a.io/x?t=1') => ({ state: 'ok', tab: { id: 7, url } });
 const viewport = (w, h) => scripting([{ result: [w, h] }]);
@@ -291,8 +270,6 @@ test('#153-E1: only a readable page counts as the tested tab', async () => {
     }).envSiteTab(), null);
   }
 });
-
-// ---- F: the meta the write actually carries --------------------------------
 
 // The panel over a live tab: browser and OS from the UA hints, the tab from resolveSiteTab.
 function panel(over = {}) {

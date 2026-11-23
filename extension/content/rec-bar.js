@@ -1,5 +1,4 @@
-// The screen recording's controls (#68), on the page rather than in the panel: the tester is
-// looking at the site under test, not at a 400px strip beside it.
+// Recording controls live on the page, not the panel: the tester is looking at the site under test.
 
 (() => {
   'use strict';
@@ -82,7 +81,7 @@
     box.replaceChildren(dot, txt, pauseBtn, stopBtn);
   }
 
-  // A cap that stopped the recording is said HERE: the tester is on the page, not in the panel.
+  // A cap that stopped the recording is said here: the tester is on the page, not in the panel.
   function paintNotice(reason) {
     box.className = 'box notice';
     txt.textContent = reason === 'size'
@@ -106,9 +105,7 @@
     else teardown();
   }
 
-  // ---- moving the bar ------------------------------------------------------
-  // The dropped position lives under its own storage key, so it survives the re-injection
-  // every navigation performs. The viewport it was saved from is rarely this one: re-clamp.
+  // The saved position survives re-injection on navigation; it came from another viewport, so re-clamp.
   let pos = null;
 
   function clamp(p) {

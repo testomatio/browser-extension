@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// extension/api.js: which sentence a refusal turns into, the read-only verdict, the credentials and
-// the one boundary that decides a host named in server data gets no request. Rows 14-59, 82-83,
-// 88-90 and 97-109 of #145. Run: node --test tests/api-errors-auth.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -12,8 +9,6 @@ const V2KEY = 'V2KEY';                       // a minted project key — a liter
 const keyDoc = (attrs) => ok({ data: { attributes: attrs } }); // an older server: the key inside the project
 const tokenDoc = (key) => ok({ api_key: key });                 // GET /api/tokens/<slug>
 const loginOk = ok({ jwt: JWT });
-
-// ---- error mapping — toError / ApiError ----
 
 test('14: 401 is the one sentence about the token, whatever the body said', async () => {
   const h = load().configure();
@@ -91,9 +86,9 @@ test('19: a 429 honours Retry-After, twice, and then says what to do about it', 
   const h = load().configure();
   h.reply(...Array.from({ length: 3 }, () => fail(429, { headers: { 'Retry-After': '5' } })));
   const e = await rejection(h.mod.validate());
-  assert.equal(h.calls.length, 3);                 // the try, then TWO retries
+  assert.equal(h.calls.length, 3);                 // the try, then two retries
   assert.deepEqual(h.waits(), [5000, 5000]);       // the header's seconds, both times
-  assert.equal(e.kind, 'http');                    // NOT a new kind: the offline queue reads this
+  assert.equal(e.kind, 'http');                    // not a new kind: the offline queue reads this
   assert.equal(e.status, 429);
   assert.equal(e.message, 'Too many requests — wait a minute, then try again');
 });
@@ -207,8 +202,6 @@ test('23: without AbortSignal.any the caller signal alone travels, and nothing t
   assert.equal(res.status, 200);
   assert.equal(h.calls[0].signal, ac.signal);
 });
-
-// ---- request() and the read-only verdict (E-P0-1 / E-P0-3, fixed in #123) ----
 
 test('24: a plain GET carries the bearer, no content type, and clears the read-only flag', async () => {
   const h = load().configure();
@@ -358,13 +351,13 @@ test('36b: a 403 the corroboration CLEARS rotates too — one route refused can 
   const h = load().configure({ apiToken: JWT });
   let minted = 0;
   h.route('/api/tokens/p1', () => { minted += 1; return tokenDoc(`KEY${minted}`); });
-  h.route('per_page=1', ok({ data: [] }));   // the plain read is fine: NOT read-only
+  h.route('per_page=1', ok({ data: [] }));   // the plain read is fine: not read-only
   h.route('/tests', (rec) => (rec.headers.Authorization === 'Bearer KEY1' ? fail(403) : ok({ data: {} })));
   await h.inner.request('/tests');
   assert.equal(minted, 2);
   assert.deepEqual(h.matching('/api/v2/p1/tests').map((c) => c.headers.Authorization),
     ['Bearer KEY1', 'Bearer KEY2']);
-  assert.equal(h.matching('per_page=1').length, 1); // the corroboration ran BEFORE the rotation
+  assert.equal(h.matching('per_page=1').length, 1); // the corroboration ran before the rotation
 });
 
 test('36b2: a read-only project keeps its verdict — the corroboration outranks the rotation', async () => {
@@ -418,7 +411,7 @@ test('36f: deleteAttachment keeps its two legs — the v2 403 is the route, not 
 test('37: a base URL with no scheme throws a RAW TypeError, with no kind on it', async () => {
   const h = load().configure({ baseUrl: 'app.testomat.io' });
   const e = await rejection(h.inner.request('/runs'));
-  assert.equal(e.name, 'TypeError'); // E-P2-2 OPEN: it reaches the panel unmapped
+  assert.equal(e.name, 'TypeError'); // known gap: it reaches the panel unmapped
   assert.equal(e.kind, undefined);
   assert.equal(h.calls.length, 0);
 });
@@ -427,15 +420,13 @@ test('38: the project slug rides into the v2 path unencoded, while the other two
   const h = load().configure({ projectId: 'a b/c' });
   h.reply(ok({ data: [] }), loginOk, ok({ data: {} }), ok({ data: {} }));
   await h.inner.request('/runs');
-  // E-P2-3 OPEN: the slash survives as a path separator here…
+  // Known gap: the slash survives as a path separator here…
   assert.equal(new URL(h.urls()[0]).pathname, '/api/v2/a%20b/c/runs');
   await h.mod.getProjectInfo();
   assert.equal(new URL(h.urls().at(-1)).pathname, '/api/projects/a%20b%2Fc'); // …and not here
   await h.mod.getRun('x/y');
   assert.equal(new URL(h.urls().at(-1)).pathname, '/api/v2/a%20b/c/runs/x%2Fy');
 });
-
-// ---- credentials, guards and token minting ----
 
 test('39: nothing configured is its own error kind, before any request', async () => {
   const h = load();
@@ -489,7 +480,7 @@ test('43: a fresh handoff session resets the session but NOT the read-only locko
   await rejection(h.mod.validate());
   assert.equal(h.mod.readonlyAccess(), true);
   h.mod.useHandoffSession(JWT);
-  assert.equal(h.mod.readonlyAccess(), true); // E-P2-5 OPEN: only configure() clears it
+  assert.equal(h.mod.readonlyAccess(), true); // known gap: only configure() clears it
   assert.equal(h.mod.jwtAvailable(), 'unknown');
   assert.equal(h.mod.jwtUserId(), null);
 });
@@ -513,7 +504,7 @@ test('45: the project own key is used as the bearer and cached for the next call
   assert.equal(h.matching('/api/v2/')[1].headers.Authorization, `Bearer ${V2KEY}`);
 });
 
-// Since 2026-11-09 the key lives at /api/tokens/<slug>; older self-hosted servers keep it in the project.
+// Current servers keep the key at /api/tokens/<slug>; older self-hosted ones keep it in the project.
 test('45a: the key comes from /api/tokens/<slug> — the project itself is not read', async () => {
   const h = load().configure({ apiToken: JWT });
   h.route('/api/tokens/p1', tokenDoc(V2KEY));
@@ -589,8 +580,6 @@ test('48: a project token issued for ANOTHER project passes the configured guard
   assert.equal(h.calls.length, 0);
 });
 
-// ---- session lifecycle — login / jwtSend (E-P1-6 still OPEN) ----
-
 test('49: a General token is exchanged for a session at /api/login', async () => {
   const h = load().configure();
   h.reply(loginOk);
@@ -632,7 +621,7 @@ test('53: one optional route refusing a handed session degrades the WHOLE client
   h.reply(fail(403));
   const e = await rejection(h.mod.polishRecordedSteps('steps', 't1'));
   assert.equal(e.message, 'The session handed to this panel has expired — reconnect from the app that opened it');
-  assert.equal(h.mod.jwtAvailable(), false); // E-P1-6 OPEN: a 403 on /prompts locks every other route out
+  assert.equal(h.mod.jwtAvailable(), false); // known gap: a 403 on /prompts locks every other route out
   assert.equal(h.calls.length, 1); // the retry never leaves: the second login() throws first
 });
 
@@ -685,8 +674,6 @@ test('59: the api-root routes carry no project slug', async () => {
   assert.equal(h.urls()[0], `${BASE}/api/projects/x`);
 });
 
-// ---- pure shapes that only a route can reach (rows 82-83, 88-90) ----
-
 test('82: /suites/tree answering a data envelope is no tree at all', async () => {
   const h = load().configure({ apiToken: JWT });
   h.reply(ok({ data: [{ id: 1, title: 'Root' }] }));
@@ -732,8 +719,6 @@ test('90: the dasherized avatar key is read as the avatar', async () => {
   const [user] = plain(await h.mod.listProjectUsers());
   assert.deepEqual(user, { id: '5', name: '', email: '', avatar: 'x', timezone: null });
 });
-
-// ---- asset egress boundary and upload (A-P1-2 fixed in #121) ----
 
 test('97: a root-relative asset resolves against the INSTANCE, never the document', () => {
   const h = load().configure();

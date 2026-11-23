@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// #171: the recording review drawn OVER the page under test. extension/content/review-overlay.js
-// frames screenrec/review.html so the tester can watch the take, trim it and attach it. Esc, the ✕
-// and the dark backdrop all close it — with one exception that cost a shipped fix: while a trim is
-// exporting, closing would throw minutes of the tester's work away, so it refuses. That refusal,
-// and "only our own frame may ask us to close", are what the rows below hold down.
-// Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInContext } from 'node:vm';
@@ -15,8 +9,7 @@ const REL = 'content/review-overlay.js';
 const HOST_ID = '__testomat_review_overlay';
 const EXT = 'chrome-extension://abcdef';
 
-// window is a plain object here, so the listeners the file registers are the only way in. A
-// registration is kept after removal (`live: false`) so a row can still call a torn-down handler.
+// Removed listeners stay registered (`live: false`) so a row can still call a torn-down handler.
 function makeWindow() {
   const on = [];
   const cap = (o) => o === true || !!(o && o.capture);
@@ -33,8 +26,7 @@ function makeWindow() {
 }
 
 function load(opts = {}) {
-  // `key` is what the worker answers with when the overlay asks for this take's framing key
-  // (issue 105); null is a worker that answers nothing at all.
+  // `key` is the worker's answer to the framing-key request; null is a worker that answers nothing.
   const { overflow = 'scroll', runtime = true, key = 'rk-1' } = opts;
 
   const doc = makeDocument();
@@ -81,8 +73,7 @@ function load(opts = {}) {
     host,
     iframe,
     asked,
-    // The frame is pointed at review.html only once the worker has answered — one turn of the
-    // macrotask queue away, so a row that reads `src` or fires `load` waits here first.
+    // review.html is set only once the worker answers, a macrotask away, so rows wait here first.
     armed: async () => { await settle(); },
     backdrop: () => part('.backdrop'),
     frame: () => part('.frame'),
@@ -101,8 +92,6 @@ function load(opts = {}) {
     waitOut: () => { for (const t of timers) if (t.live) { t.live = false; t.fn(); } },
   };
 }
-
-// ---- the trim survives every reflex way out ---------------------------------
 
 test('1: a reflex Escape during a trim export does not throw the tester’s take away', () => {
   const h = load();
@@ -154,8 +143,6 @@ test('3b: a busy message with a missing flag is read as “not busy”', () => {
   assert.equal(h.hosts().length, 0);
 });
 
-// ---- who may close it -------------------------------------------------------
-
 test('4: the review page says it is done and the overlay goes away', () => {
   const h = load();
   h.fromFrame({ type: 'TESTOMAT_REVIEW_CLOSE' });
@@ -186,8 +173,6 @@ test('6: a message carrying no data is ignored rather than thrown on', () => {
   assert.equal(h.hosts().length, 0);
 });
 
-// ---- one overlay per page ---------------------------------------------------
-
 test('7: a second recording review on the same page reuses the window already up', () => {
   const h = load();
   const first = h.host();
@@ -212,8 +197,6 @@ test('7c: a context with no chrome.runtime puts nothing on the page', () => {
   assert.equal(h.hosts().length, 0);
   assert.equal(h.win.__testomatReviewOverlayInited, undefined);
 });
-
-// ---- handing the page back --------------------------------------------------
 
 test('8: closing hands the page back exactly as it was found', async () => {
   const h = load({ overflow: 'scroll' });
@@ -268,9 +251,7 @@ test('10b: any other key is left for the page under test', () => {
   assert.equal(h.hosts().length, 1);
 });
 
-// ---- a frame the page under test refuses to load ----------------------------
-// The page's CSP can refuse an extension frame. The overlay gives it a short wait; a frame that
-// never says it loaded is a dark rectangle, so the words and the way out take its place.
+// The page's CSP can refuse an extension frame; one that never loads is just a dark rectangle.
 
 test('11 (#332): a review whose frame never loads tells the tester why, and offers a tab', () => {
   const h = load();
@@ -300,9 +281,7 @@ test('11b (#332): the frame loads in time and the tester is told nothing', async
   assert.equal(h.iframe().hidden, undefined, 'nor its frame hidden');
 });
 
-// The case the ticket is actually about. A page's CSP does not make the frame fail — Chrome reports
-// `load` and leaves it on the initial about:blank, which is same-origin and therefore still readable.
-// Trusting that `load` is what left the tester with a dark rectangle in the first place.
+// Chrome reports `load` for a CSP-blocked frame left on about:blank, which is still same-origin.
 test('11e (#332): a `load` on a frame that never left about:blank is a refusal, not a review', async () => {
   const h = load();
   await h.armed();
@@ -330,12 +309,7 @@ test('11d (#332): closing before the wait is out leaves the late wait nothing to
   assert.equal(box.querySelector('.stall'), null, 'nor paint a refusal into a review already gone');
 });
 
-// ---- the key that says WE framed this, not the page (issue 105) -------------
-// screenrec/review.html is web-accessible to <all_urls> and the manifest pins the extension id, so
-// any page can compute its URL and frame it invisibly under the cursor to harvest a click on
-// Discard. An origin check cannot help: this content script runs in the page's own origin, so a
-// hostile framing and ours look identical from inside. Only a secret can tell them apart, and a
-// content script cannot read chrome.storage.session — so the worker hands this one over.
+// Any page can frame review.html invisibly; only a worker-minted secret tells our frame from theirs.
 
 test('12 (#105): the frame is opened with the one-time key the worker minted for this take', async () => {
   const h = load();
@@ -350,9 +324,7 @@ test('12b (#105): the key rides in the hash, and whatever the worker minted surv
   assert.equal(h.iframe().src, `${EXT}/screenrec/review.html#k=a%20b%2Fc%23d`);
 });
 
-// Chrome fires `load` for the about:blank every src-less frame gets the moment it is inserted. Read
-// as the review's own load, that one spends the wait, and a page whose CSP then refuses us for real
-// is never reported — the tester is left with the dark rectangle #332 already paid for once.
+// Chrome fires `load` for the about:blank a src-less frame gets on insert; that is not the review.
 test('12c (#105): the about:blank an unarmed frame loads is not read as the review arriving', () => {
   const h = load();
   fire(h.iframe(), 'load');
@@ -361,16 +333,14 @@ test('12c (#105): the about:blank an unarmed frame loads is not read as the revi
   assert.ok(h.stallLink());
 });
 
-// A worker that answers nothing leaves us with no key. Framing anyway is the honest end: review.js
-// says who opened it and offers no buttons, which beats a blank frame with no explanation at all.
+// Framing keyless beats a blank frame: review.js says who opened it and offers no buttons.
 test('12d (#105): a worker that answers nothing still frames the review, keyless', async () => {
   const h = load({ key: null });
   await h.armed();
   assert.equal(h.iframe().src, `${EXT}/screenrec/review.html`);
 });
 
-// The top-level way out must stay keyless: a key in an <a href> the page can read is a key the page
-// has. It costs nothing — a tab is on screen, so there is no invisible click to steal there.
+// A key in an <a href> is readable by the page; a visible tab has no invisible click to steal.
 test('12e (#105): the tab a refused frame offers carries no key', async () => {
   const h = load();
   await h.armed();

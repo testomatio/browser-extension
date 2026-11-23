@@ -1,39 +1,11 @@
-// The annotator's keyboard map (IIFE global `AnnotKeys`): what a key pressed over
-// shared/annotate-core.js means, and nothing else. Nothing here touches a canvas, a document,
-// `chrome.*` or the event itself — an event and the editor's state go in, a decision comes out.
-// That is the point of the split: the Esc ladder standing between a tester and an un-redacted
-// upload is checkable without building a toolbar first.
-//
-// IT DECIDES, IT DOES NOT ACT. `keyAction` answers `null` when the key is not bound, otherwise
-// `{ action, arg, preventDefault, stopPropagation }`; the caller runs those two on the event and
-// switches on `action`. Both flags are carried explicitly because they are NOT the same set: every
-// bound key prevents the default, but only the three Esc rungs that CONSUME the key stop it
-// propagating — the Esc that falls through to Discard lets the host page see it, and that
-// asymmetry is behaviour, not an oversight. `action: null` with `preventDefault: true` is a real
-// answer: the key is claimed, there is nothing to do with it.
-//
-// THE Esc LADDER IS LOAD-BEARING — ink menu, then help card, then selection, then exit. Esc is the
-// reflex key and the exit it reaches is a discard that asks first, so a rung out of order means an
-// Esc meant to close a menu throws away a screenshot instead.
-//
-// THE ENV BAG. The state lives in the caller's editor, so `keyAction` is handed all of it:
-//   inkOpen  — the colour menu is open, and swallows the first Esc;
-//   helpOpen — the keyboard card is showing, and swallows the second;
-//   selected — the selected op's INDEX, or null. Index 0 is a real selection, hence `!= null`;
-//   textOpen — a label input owns the keyboard, so every bare-key binding stands down;
-//   weight   — the stroke weight in force: the rung `[` and `]` step away from;
-//   palette, tools, weights — the caller's three ladders, read for their length and for `.hex`,
-//              `.key`, `.id` and `.w`. Handed in rather than owned here: they also carry the
-//              toolbar's labels, icons and tips, which are none of this file's business.
-// A caller that forgets the bag gets a TypeError, not a quietly dead shortcut.
+// The Esc order (ink menu, help, selection, discard) matters: out of order, Esc throws a shot away.
 
 const AnnotKeys = (() => {
   'use strict';
 
   const decide = (action, arg, stop) => ({ action, arg, preventDefault: true, stopPropagation: !!stop });
 
-  // The rung `[` / `]` lands on, clamped so neither end of the ladder has anything beyond it; a
-  // weight that is not on the ladder counts as the middle rung.
+  // Clamped at both ends; a weight that is not on the ladder counts as the middle rung.
   function stepWeight(weights, weight, dir) {
     const i = weights.findIndex((s) => s.w === weight);
     return weights[Math.max(0, Math.min(weights.length - 1, (i < 0 ? 1 : i) + dir))];

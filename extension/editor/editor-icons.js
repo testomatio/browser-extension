@@ -1,6 +1,4 @@
-// The editor page's glyph names and the one-line wrapper every screen draws them through.
-// Its own file because editor.js, params-grid.js and the modules after them all need the same
-// names: a copy per module is how two screens quietly end up with different glyphs.
+// Shared by every editor module: a copy per module is how two screens end up with different glyphs.
 
 const EditorIcons = (() => {
   const ICON_BACK = 'arrow_back';

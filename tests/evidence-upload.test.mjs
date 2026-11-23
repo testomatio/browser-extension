@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/evidence-upload.js (#157 rows 55-59, moved out of tests/evidence.test.mjs
-// by #193): the one thing the evidence panel sends out by itself. Marking a test Failed takes the
-// recorder's window — the last minute of the tested tab's console errors and failed requests — and
-// hangs it on the result as a readable .txt, whose URL becomes the `Console & network log` meta key.
-// It runs AFTER the status write has landed, and that is what every row here is really about: the
-// verdict is already saved, so nothing this can fail at may be turned into a lost click. Every way
-// out is an empty string, which writes no meta key, and the one sentence it prints says the log did
-// not attach — flagged an error, because a tester who reads it as a confirmation stops looking.
-// Run: node --test tests/evidence-upload.test.mjs
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -15,21 +6,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, makeDocument, el, plain, SCREENS_SRC, CORE_SRC } from './helpers/panel-harness.mjs';
 
-// The REAL trim from core/env-info.js, not a look-alike: EvidenceFormat is loaded beside the module
-// the way index.html loads it, and the .txt below is asserted whole — a stub would let an address
-// through that PRIVACY.md says never leaves. CORE_SRC points the suite at a mutated COPY of core/.
+// The real trim: a stub could let through an address that PRIVACY.md says never leaves.
 const envTrimUrl = runInNewContext(`${readFileSync(join(CORE_SRC, 'env-info.js'), 'utf8')}\nenvTrimUrl;`, { URL });
 
-// The auto-attach gate and the kept window stay in screens/evidence.js and are reached from here as
-// late-bound globals. The real ones, read out of the screen the same way evidence-format.test.mjs
-// reads them, so no row can pass against a gate the panel would never open; SCREENS_SRC is honoured.
+// The real auto-attach gate and kept window from evidence.js, so no row passes on a gate never opened.
 const screenSrc = readFileSync(join(SCREENS_SRC, 'evidence.js'), 'utf8');
 const fromScreen = (state) => runInNewContext(
   `${screenSrc}\n({ evidenceAutoAttachEnabled, evWindowSeconds });`, { state },
 );
 
-// The .txt stamps its rows with getHours/getMinutes/getSeconds — LOCAL time. Pinned here so the
-// ticket's own UTC stamps are the ones asserted.
+// The .txt stamps rows in local time, so TZ is pinned to keep the UTC fixture stamps asserted.
 process.env.TZ = 'UTC';
 
 const NOW = Date.UTC(2026, 8, 3, 14, 6, 9); // what the panel's clock reads, and names the upload
@@ -37,8 +23,7 @@ const TS = Date.UTC(2026, 8, 3, 14, 5, 9);  // one minute earlier: every fixture
 const SITE = 'https://shop.example.com';
 const UPLOADED = 'https://cdn.example/evidence.txt';
 
-// new Date() stamps the .txt header and Date.now() names the file. The one-argument form stays real,
-// because that is the entry timestamp each row of the .txt is stamped from.
+// new Date() stamps the header and Date.now() names the file; the one-argument form stays real.
 class PinnedDate extends Date {
   constructor(...args) { if (!args.length) super(NOW); else super(...args); }
   static now() { return NOW; }
@@ -52,9 +37,7 @@ class FakeBlob {
 const con = (over = {}) => ({ kind: 'console', level: 'error', text: 'boom', ts: TS, ...over });
 const net = (over = {}) => ({ kind: 'network', status: 500, method: 'GET', url: `${SITE}/api/y`, ts: TS, ...over });
 
-// The module's own globals, all of them real except the messaging: `evSend` is where the worker's
-// answers come from, and those answers are the input to almost every row below. The panel's page is
-// cut to the one node this reads — the test title it borrows when the record carries none.
+// All globals real except evSend: the worker's answers are the input to almost every row.
 function load(opts = {}) {
   const o = {
     settings: {},          // state.settings — `{}` is "configured, nothing customised"
@@ -99,8 +82,7 @@ function load(opts = {}) {
   };
 
   const h = loadScreen('evidence-upload', {
-    // index.html's own order: the escaping layer is evaluated into this context first, so the .txt
-    // every row reads is the one the tester's team would open.
+    // index.html's order: the escaping layer is evaluated first, so the .txt is the one a team would open.
     before: ['evidence-format'],
     exported: '({ EvidenceUpload, EvidenceFormat })',
     document: doc, globals,
@@ -109,15 +91,12 @@ function load(opts = {}) {
   return {
     ...h,
     state, calls,
-    // Both are lexical consts: invisible as sandbox properties, reachable only off the completion
-    // value, the same seam tests/md-sections.test.mjs uses.
+    // Both are lexical consts, reachable only off the completion value, not off the sandbox.
     up: h.screen.EvidenceUpload,
     format: h.screen.EvidenceFormat,
     types: () => calls.sends.map((m) => m.type),
   };
 }
-
-// ---------- the upload on a failed test (rows 55-59) ----------
 
 const SNAP = {
   ok: true,
@@ -142,7 +121,6 @@ test('55: with no result to hang it on, or auto-attach off, the FAIL attaches no
   assert.deepEqual(off.types(), []);
   assert.deepEqual(off.calls.uploads, []);
 
-  // The same record with the gate open goes all the way to the upload.
   const on = load({ reply: recorded });
   assert.equal(await on.up.log({ id: '900' }), UPLOADED);
 });
@@ -157,7 +135,6 @@ test('56: a recorder that is not recording is asked for no snapshot at all', asy
   assert.equal(await gone.up.log({ id: '900' }), '');
   assert.deepEqual(gone.types(), ['EVIDENCE_STATUS']);
 
-  // A snapshot the worker could not build stops one step later, before any blob is made.
   const empty = load({ reply: (m) => (m.type === 'EVIDENCE_SNAPSHOT' ? { ok: false } : recorded(m)) });
   assert.equal(await empty.up.log({ id: '900' }), '');
   assert.deepEqual(empty.types(), ['EVIDENCE_STATUS', 'EVIDENCE_SNAPSHOT']);
@@ -185,16 +162,12 @@ test('57b: a record with no title of its own borrows the one on screen', async (
   const h = load({ testTitle: 'Checkout — guest', reply: recorded });
   await h.up.log({ id: '900' });
   assert.ok(h.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Checkout — guest\n'));
-  // With neither, the artifact still names itself rather than printing an empty half.
   const bare = load({ reply: recorded, without: ['test-title'] });
   await bare.up.log({ id: '900' });
   assert.ok(bare.calls.uploads[0].blob.text.startsWith('Console & network log — Run A / Test\n'));
 });
 
-// 57c: `snap.status || {}` and `snap.entries || []` are both load-bearing, and nothing pinned
-// either — dropping the `|| {}` stayed green through the whole suite, and so did dropping the `|| []`.
-// buildTxt reads status.tabTitle and filters entries before the try block, so an ok snapshot missing
-// one of them would throw straight out of the meta write whose status had already saved.
+// buildTxt reads status and entries outside the try, so a missing one would throw from the meta write.
 test('57c: a snapshot with no status and no entries still uploads, rather than throwing at the meta write', async () => {
   const bare = (m) => (m.type === 'EVIDENCE_SNAPSHOT'
     ? { ok: true }                              // ok, and neither `status` nor `entries`
@@ -202,8 +175,7 @@ test('57c: a snapshot with no status and no entries still uploads, rather than t
   const h = load({ reply: bare });
   const url = await h.up.log({ id: '900', test_title: 'Test B' });
   assert.equal(url, UPLOADED);
-  // Every field falls back the way buildTxt falls back everywhere else: the em dash for a tab it was
-  // never told about, the panel's own kept window, and `(none)` under a section with nothing in it.
+  // Each field falls back as buildTxt does elsewhere: em dash, the panel's kept window, and (none).
   const text = h.calls.uploads[0].blob.text;
   assert.ok(text.includes('\nRecorded tab: —\n'), text);
   assert.ok(text.includes('Window: last 60s · 0 entries'), text);
@@ -232,22 +204,15 @@ test('58: an upload that fails is non-fatal — the status write already landed'
 test('58 (#267): a log that could not attach is toasted as an error, not as a confirmation', async () => {
   const h = load({ reply: recorded, upload: () => { throw new Error('413 too large'); } });
   await h.up.log({ id: '900' });
-  // The status write landed and the evidence did not — the sentence saying so used to look
-  // exactly like the sentences that mean everything went fine.
   assert.deepEqual(h.calls.toasts, [
     { msg: "Test marked failed — the console & network log couldn't attach (413 too large)", error: true },
   ]);
-  // Those sentences are still unflagged: the upload that landed says nothing at all…
   const ok = load({ reply: recorded });
   await ok.up.log({ id: '900' });
   assert.deepEqual(ok.calls.toasts, []);
-  // …and the panel's own Attach still prints an unflagged confirmation — that half of the contrast
-  // stays with the screen, in rows 53-54 of tests/evidence.test.mjs, now that the two live apart.
 });
 
-// #107: the offline queue replays a parked FAIL through writeStatus -> writeEnvMeta -> here. This
-// window cannot be parked with the entry — up to 1000 entries carrying a 16KB body each, against
-// storage.local's 10MB — so the two rows below are why the replay path skips this function outright.
+// The window is too big to park with a queued fail (1000 x 16KB vs 10MB), so a replay skips this.
 test('59 (#107): the log is the recorder\'s window NOW, whatever the record it is handed carries', async () => {
   const atFailTime = [con({ text: 'the error the tester saw' })];
   const rightNow = [con({ text: 'an unrelated page open at replay time' })];

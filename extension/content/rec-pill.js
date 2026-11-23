@@ -1,18 +1,13 @@
-// The pill in the corner: the counter, its three states, the expectation input, the drag. It owns
-// no recording state — it reads it through `state()` and hands every click back to the recorder.
-
 /* global window */
 (() => {
   'use strict';
-  // Injected on demand, and a same-document re-inject runs the file again: without this the
-  // second run throws before the recorder's own latch is ever reached.
+  // A same-document re-inject runs the file again; without this the second run throws.
   if (window.RecPill) return;
   // The page objects arrive as arguments so the pill can be built without one.
   function create({ document, window, storage, icons, top = true, hostId,
     state, onStop, onPause, onContinue, onExpected }) {
     const HOST_ID = hostId;
 
-    // ---- Shadow-DOM indicator --------------------------------------------------
     let host = document.getElementById(HOST_ID);
     if (host) host.remove();
     host = document.createElement('div');
@@ -28,8 +23,7 @@
         font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         font-size: 13px; color: #fff; background: #0a0a0a;
         box-shadow: 0 6px 20px rgba(0,0,0,0.4); user-select: none;
-        /* The pill is a handle: grab it anywhere that is not a control, and let a
-           touch drag it rather than scrolling the page under it. */
+        /* The pill is a drag handle, and a touch drags it instead of scrolling the page. */
         cursor: grab; touch-action: none;
       }
       .box.dragging { cursor: grabbing; }
@@ -38,8 +32,7 @@
       .box.paused .dot { animation: none; background: #f59e0b; }
       @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
       .txt { flex: none; white-space: nowrap; }
-      /* Says the setting is on, not that anything went wrong: dimmer and smaller than the
-         counter it follows, in the same rounded shape as everything else in the pill. */
+      /* Says a setting is on, not an error, so it is dimmer and smaller than the counter. */
       .chip {
         flex: none; white-space: nowrap; font-size: 11px; padding: 2px 8px;
         border-radius: 9999px; color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.12);
@@ -52,9 +45,7 @@
       button:hover { background: rgba(255,255,255,0.15); }
       button.stop { color: #fca5a5; border-color: rgba(252,165,165,0.5); }
       button.exp { color: #bbf7d0; border-color: rgba(187,247,208,0.5); }
-      /* A pill that MAKES something carries the leading add glyph, the mark the
-         panel gives every create control — so the pill's plus is the same plus,
-         drawn from the set rather than typed in the label's font. */
+      /* A create button carries the panel's add glyph from the icon set, not a typed plus. */
       button:has(svg) { display: inline-flex; align-items: center; gap: 6px; }
       button svg { display: block; flex: none; width: 14px; height: 14px; }
       .exp-input {
@@ -68,15 +59,13 @@
     style.textContent = CSS_TEXT;
     const box = document.createElement('div');
     box.className = 'box';
-    // The label is the only place the counter, the pause and "Still recording?" are said —
-    // a reader who cannot see the pill hears it change.
+    // The only place the counter and pause are said, so a reader who cannot see the pill hears it change.
     box.setAttribute('aria-live', 'polite');
     shadow.append(style, box);
 
     const steps = (n) => `${n} step${n === 1 ? '' : 's'}`;
 
-    // `icon` is a Material Symbols name from shared/icons.js, injected right before this
-    // file (background.js srInject); with no set present the label stands alone.
+    // `icon` comes from shared/icons.js, injected just before this file; with none the label stands alone.
     function pillButton(label, cls, onClick, icon) {
       const b = document.createElement('button');
       if (cls) b.className = cls;
@@ -87,8 +76,7 @@
       return b;
     }
 
-    // The pill is rebuilt on every 500ms poll, so the dot and the label are re-APPENDED
-    // nodes, never fresh ones — the open + Expected input relies on surviving a render.
+    // Rebuilt every 500ms poll, so the dot and label are re-appended, never fresh: the input relies on it.
     const dot = document.createElement('span');
     dot.className = 'dot';
     const txt = document.createElement('span');
@@ -98,16 +86,13 @@
     chip.className = 'chip';
     chip.textContent = 'Values off';
 
-    // ---- moving the pill -------------------------------------------------------
-    // The dropped position lives in storage.local under its own top-level key (never
-    // `settings`), so it survives the re-injection every navigation performs.
+    // Its own storage.local key (never `settings`), so it survives the re-injection every navigation does.
     const POS_KEY = 'stepRecIndicatorPos';
     const EDGE = 8;          // never flush against the viewport edge
     const DRAG_SLOP = 4;     // below this a press is a press, not a drag
     let pos = null;          // {left, top} viewport px; null = the default corner
 
-    // The viewport is rarely the one the position was saved from, and the pill itself grows
-    // (+ Expected adds 220px), so every apply re-clamps rather than trusting the stored pair.
+    // Every apply re-clamps: the viewport differs from the saved one and + Expected widens the pill 220px.
     function clamp(p) {
       const w = box.offsetWidth || 0;
       const h = box.offsetHeight || 0;
@@ -136,8 +121,7 @@
       .catch(() => { /* no stored position — the default corner stands */ });
 
     function onPointerDown(e) {
-      // Never a press aimed at a control: Stop must stay one click, not a click that
-      // might have moved.
+      // Never a press aimed at a control: Stop must stay one click, not a click that might have moved.
       if (e.button !== 0 || drag) return;
       dropAt = 0; // a new press: whatever the last drop left is spent
       if (e.target.closest && e.target.closest('button, input')) return;
@@ -172,15 +156,13 @@
       }
     }
 
-    // On the WINDOW and in the CAPTURE phase: pointer capture is best-effort (a synthetic
-    // pointer has none), and the pill stops these events from bubbling out of itself.
+    // On the window, capture phase: pointer capture is best-effort and the pill stops these from bubbling.
     const winOpts = { capture: true };
     box.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointermove', onPointerMove, winOpts);
     window.addEventListener('pointerup', endDrag, winOpts);
     window.addEventListener('pointercancel', endDrag, winOpts);
-    // The click a drop produces must not press the button under it — caught on the way DOWN.
-    // The window is short: a drag that produced no click must not eat the next real one.
+    // The click a drop produces must not press the button under it; short, so it never eats a real click.
     const DROP_CLICK_MS = 100;
     box.addEventListener('click', (e) => {
       if (!dropAt || performance.now() - dropAt > DROP_CLICK_MS) return;
@@ -201,9 +183,7 @@
       window.removeEventListener('resize', onResize);
     }
 
-    // ---- + Expected (#78) ------------------------------------------------------
-    // An expectation is what the tester LOOKED at, not a DOM event, so it is typed — in the
-    // shadow root, which no page CSS and (with the stopPropagation below) no page key reaches.
+    // Typed in the shadow root, which no page CSS and (with stopPropagation) no page key reaches.
     let expOpen = false;
     let expInput = null;
 
@@ -230,8 +210,7 @@
       render();
     }
 
-    // Stopped on the way OUT of the shadow root while the tester is TYPING, so a page's "/"
-    // hotkey never sees the expectation — and still fires when the pill merely holds the focus.
+    // Stopped leaving the shadow root, so a page's "/" hotkey never sees the expectation being typed.
     shadow.addEventListener('keydown', (e) => {
       const open = expOpen; // Enter and Escape close the input; the key that closed it is still ours
       if (open && e.target === expInput) {
@@ -242,14 +221,12 @@
     });
     ['keyup', 'keypress', 'input', 'change'].forEach((t) => shadow.addEventListener(t, (e) => { if (expOpen) e.stopPropagation(); }));
 
-    // Three states, one pill: recording, the tester's own pause (Resume) and the cap's
-    // "Still recording?" (Continue) — so Continue's +cap never ends a manual pause.
+    // A manual pause (Resume) and the cap's "Still recording?" (Continue) differ: +cap never ends a pause.
     function render() {
       const { recording, paused, manualPause, count, muted } = state();
       txt.textContent = manualPause ? `Paused · ${steps(count)}`
         : paused ? 'Still recording?' : `Recording · ${steps(count)}`;
-      // An open input OWNS the pill: a poll re-render would take the caret and the
-      // half-typed text with it. A pause or a stop takes it back.
+      // An open input owns the pill: a poll re-render would take the caret and the half-typed text.
       if (expOpen) {
         if (recording && !paused && !manualPause) return;
         closeExpected();
@@ -258,8 +235,7 @@
       box.replaceChildren(dot, txt);
       if (muted) box.append(chip);
       const stop = pillButton('Stop', 'stop', onStop);
-      // A recording that is over has nothing left to pause, continue or expect: Stop is the
-      // only button that still means anything until the poll takes the pill down.
+      // A finished recording has nothing to pause, continue or expect: Stop is its only button.
       if (!recording) {
         box.append(stop);
       } else if (manualPause) {
@@ -268,13 +244,11 @@
         const cont = pillButton('Continue', '', onContinue);
         box.append(cont, stop);
       } else {
-        // + Expected only while actually recording: a paused pill has no step to attach
-        // the expectation to, and the worker would drop it anyway.
+        // + Expected only while recording: a paused pill has no step to attach it to, the worker drops it.
         box.append(pillButton('Expected', 'exp', openExpected, 'add'),
           pillButton('Pause', '', () => onPause(true)), stop);
       }
-      // The pill just changed width, and it is anchored by its LEFT edge — so re-clamp
-      // where it stands or the growth pushes it off screen.
+      // Anchored by its left edge, so re-clamp after the width change or it grows off screen.
       if (pos) applyPos();
     }
     return {

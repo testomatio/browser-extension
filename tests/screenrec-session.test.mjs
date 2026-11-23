@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// extension/screenrec/session.js: the worker's own state machine for a screen recording — the
-// parked-take guard on start, the CDP cast ladder and the one teardown that takes Chrome's
-// "…is debugging" bar down, and the single-panel claim on the finished file.
-// Cases numbered as in issue 166. Run: node --test tests/screenrec-session.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,16 +7,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// SREC_SRC runs the whole file against another copy — a mutation, or an older revision for the
-// historical check — so a falsification run never has to edit the shipped module.
+// SREC_SRC points the file at another copy, so a falsification run never edits the shipped one.
 const SRC = process.env.SREC_SRC || join(repoRoot, 'extension/screenrec/session.js');
 const source = readFileSync(SRC, 'utf8');
-// The worker's own sibling, evaluated in the SAME realm below rather than stubbed: a stub would keep
-// every parked row green while testing nothing. SREC_PARKED_SRC points it at a mutated copy.
+// The real sibling, same realm: a stub would keep every parked row green while testing nothing.
 const PARKED_SRC = process.env.SREC_PARKED_SRC || join(repoRoot, 'extension/screenrec/parked.js');
 const parkedSource = readFileSync(PARKED_SRC, 'utf8');
-// The claim's own sibling, same rule: the real module, in the same realm, so the claim rows below
-// exercise it rather than a stub. SREC_CLAIM_SRC points it at a mutated copy.
+// The real claim module, same realm, so the claim rows exercise it rather than a stub.
 const CLAIM_SRC = process.env.SREC_CLAIM_SRC || join(repoRoot, 'extension/screenrec/claim.js');
 const claimSource = readFileSync(CLAIM_SRC, 'utf8');
 const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8');
@@ -28,15 +21,12 @@ const BG_SOURCE = readFileSync(join(repoRoot, 'extension/background.js'), 'utf8'
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// One turn of the macrotask queue drains every microtask behind it; three is the cheap margin for
-// this file's own chains (srecStop → teardown → the OFF hop → srecFinish → the review inject).
+// Three macrotask turns cover this file's longest chain: stop, teardown, off hop, finish, inject.
 const settle = async (turns = 3) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-// The whole surface the rows reach for. Every top-level `function` lands on the sandbox anyway; the
-// arrows (srecGet, srecCastOwnsReady, the constants…) are lexical and come back as the completion
-// value. Read through `typeof`, so a mutated copy that deletes a name still loads.
+// Read through `typeof`, so a mutated copy that deletes a name still loads.
 const NAMES = [
   'srecCastOwns', 'srecCastOwnsReady', 'srecGet', 'srecSet', 'srecClear', 'srecParked',
   'srecOff', 'srecTell', 'srecEnsureDoc', 'srecCloseDoc', 'castSend', 'castAttach', 'castDetach',
@@ -47,7 +37,6 @@ const NAMES = [
 ];
 const PICK = `;({ ${NAMES.map((n) => `${n}: typeof ${n} === 'undefined' ? undefined : ${n}`).join(', ')} });`;
 
-// The instant every row is frozen at, so a parked record's `name` is the same string everywhere.
 // Built from local fields, never a UTC epoch: srecName reads getHours(), not getUTCHours().
 const NOW = new Date(2026, 8, 3, 12, 56, 0).getTime();
 const NAME_AT_NOW = 'screen-recording-2026-09-03-1256.webm';
@@ -77,11 +66,9 @@ function load(opts = {}) {
 
   const log = (name, ...args) => { calls.push({ name, args: args.map(plain) }); };
 
-  // The knobs a row turns. A test overrides one AFTER load(); the stubs read them live.
+  // The knobs a row turns: a test overrides one after load(), and the stubs read them live.
   const hooks = {
-    // The offscreen document's replies, keyed by SCREENREC_OFF cmd. Resolving is the default on
-    // purpose: a rejecting sendMessage makes srecOff answer null, which every caller here reads as
-    // "the document refused" — the easy way to pass a row for the wrong reason.
+    // Resolving by default: a rejecting sendMessage reads as "the document refused", a false pass.
     off: {},
     offDefault: { ok: true },
     sendMessage: null,            // set to take the whole broadcast channel over
@@ -107,8 +94,7 @@ function load(opts = {}) {
     const fns = [];
     return { fns, addListener: (fn) => { fns.push(fn); }, removeListener: () => {}, hasListener: (fn) => fns.includes(fn) };
   };
-  // Never a broadcast: in the worker these channels carry background.js's and the recorders'
-  // listeners too, so a row calls the listener THIS file registered and nothing else.
+  // Never a broadcast: the worker's channels carry other listeners too, so call only this file's.
   const only = (b) => {
     assert.equal(b.fns.length, 1, 'session.js should register exactly one listener here');
     return b.fns[0];
@@ -208,8 +194,7 @@ function load(opts = {}) {
     static now() { return clock; }
   }
 
-  // No crypto in a vm realm, and the review's framing key (issue 105) is minted with randomUUID.
-  // A counter rather than a constant, so a row can say the SECOND take got a key of its own.
+  // No crypto in a vm realm; a counter, not a constant, so a second take gets a key of its own.
   let uuidSeq = 0;
   const sandbox = {
     chrome: chromeStub,
@@ -229,8 +214,7 @@ function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
-  // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` — and
-  // the bare names this file destructures off it — resolve here.
+  // Same realm, before session.js: importScripts is what makes a sibling's top-level `const` resolve.
   runInContext(parkedSource, context, { filename: PARKED_SRC });
   runInContext(claimSource, context, { filename: CLAIM_SRC });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
@@ -255,8 +239,7 @@ function load(opts = {}) {
     session: sess,
     settle,
     context,
-    // Sibling scripts share the worker's global lexical scope; importScripts is what makes a
-    // top-level `const` here reachable from background.js.
+    // Sibling scripts share the worker's lexical scope, so a top-level `const` reaches background.js.
     evalHere: (code) => runInContext(code, context, { filename: 'probe' }),
 
     named: (name) => calls.filter((c) => c.name === name).map((c) => c.args),
@@ -272,8 +255,7 @@ function load(opts = {}) {
     parked: () => plain(sess.screenRecFile),
     live: () => plain(sess.screenRec),
 
-    // One trip through THIS file's onMessage listener. SCREENREC_FILE answers `false` — a harness
-    // that only ever waited for sendResponse would hang on it.
+    // SCREENREC_FILE answers `false`, so a harness waiting only for sendResponse would hang on it.
     message: (msg, sender = {}) => new Promise((resolve) => {
       let answered = false;
       const ret = only(runtime.onMessage)(msg, sender, (r) => {
@@ -287,17 +269,14 @@ function load(opts = {}) {
   };
 }
 
-// The `srecGet()` at the foot of the file re-seeds the castTab mirror; without this the whole cast
-// section would assert against a mirror that is still null and pass vacuously.
+// The closing `srecGet()` re-seeds the castTab mirror; skip it and the cast rows pass vacuously.
 const open = async (opts) => { const h = load(opts); await h.settle(); return h; };
 
-// A worker that restarted onto a cast already in flight — the state rows 14-22 need.
+// A worker that restarted onto a cast already in flight.
 const CASTING = (over = {}) => ({
   screenRec: { recording: true, paused: false, tabId: 7, recordId: 'r-1', mode: 'cast', framesOut: false, startedAt: NOW - 5000, ...over },
 });
 const TAKE = (over = {}) => ({ url: 'blob:parked', size: 4096, ms: 8000, reason: 'user', name: NAME_AT_NOW, recordId: 'r-1', reviewed: false, ...over });
-
-// ---- start, and the parked guard -------------------------------------------
 
 test('1: a tester who presses record twice is told the first recording is still running', async () => {
   const h = await open({ session: { screenRec: { recording: true, tabId: 7, mode: 'tab' } } });
@@ -342,8 +321,6 @@ test('5: no activeTab grant on the tab sends the recording down the debugger rou
   assert.deepEqual(h.named('debugger.attach'), [[{ tabId: 7 }, '1.3']]);
   assert.equal(h.live().mode, 'cast');
 });
-
-// ---- the cast ladder and its teardown --------------------------------------
 
 test('6: a page Chrome keeps extensions off is refused in our words, with no attach attempted', async () => {
   const h = await open();
@@ -539,8 +516,6 @@ test('22: a recording the size cap ended still lets go of the tab, bar and all',
   assert.equal(h.live(), undefined);
 });
 
-// ---- finish: park, refuse, revoke, review ----------------------------------
-
 test('23: a recording that captured nothing closes the recorder page and says so', async () => {
   const h = await open();
   await h.api.srecFinish(null, { recording: true, mode: 'tab', tabId: 7 }, 'user');
@@ -571,8 +546,7 @@ test('25: a finished take is parked whole and the review opens over the tab it w
   assert.deepEqual(h.named('scripting.executeScript'), [[{ target: { tabId: 7 }, files: ['content/review-overlay.js'] }]]);
 });
 
-// The file's own reason outranks the caller's: a cap ends the recording inside the offscreen
-// document, and only the file it pushes back knows that is what happened.
+// A cap ends the recording inside the offscreen document; only the file it pushes back knows.
 test('25b: a take that ended on its own cap says so, even when the caller calls it a stop', async () => {
   const h = await open();
   await h.api.srecFinish({ url: 'blob:take', size: 4096, ms: 8000, reason: 'cap' },
@@ -589,11 +563,7 @@ test('26: a take pushed after the worker restarted is parked with no test bound 
   assert.deepEqual(h.named('resolveSiteTab'), [[{ verb: 'reviewed' }]]);
 });
 
-// A tab that closes while the worker is also asking to stop hands the SAME take through both doors:
-// finish() is one memoised promise, so the track's `ended` pushes the file and the stop is answered
-// with that very object. The second arrival then meets the guard row 24 is about — and the URL it
-// revokes is the parked take's own, so the review opens on a dead blob. What tells the two apart is
-// the url: a stranger's take is refused as before, its own is simply already home.
+// finish() is memoised, so a tab close plus a stop delivers the same take twice.
 test('27: the take already parked is not a stranger — a second delivery of it revokes nothing', async () => {
   const h = await open({ session: { screenRecFile: TAKE() } });
   h.clearCalls();
@@ -610,8 +580,6 @@ test('53: the parked take is named for the local minute it finished in', async (
   const h = await open();
   assert.equal(h.api.srecName(), NAME_AT_NOW);
 });
-
-// ---- status, pause, the bar, the review window -----------------------------
 
 test('28: with nothing recording the status is idle and carries whatever take is waiting', async () => {
   const idle = await open();
@@ -699,8 +667,7 @@ test('37: the review goes into the recorded tab before that tab is brought to th
   assert.deepEqual(h.named('tabs.update'), [[7, { active: true }]]);
 });
 
-// The recorded tab has been navigated to a page no extension may touch, so the review lands on the
-// site tab instead. One Stop must move the tester once — to the tab that actually got the review.
+// The recorded tab went somewhere no extension may touch, so the review lands on the site tab.
 test('38 (#316): a review that falls back to the site tab brings only that tab forward', async () => {
   const h = await open();
   h.hooks.executeScript = async (arg) => {
@@ -716,9 +683,7 @@ test('38 (#316): a review that falls back to the site tab brings only that tab f
     'and the fallback must not front its tab either, before the overlay is proven to go in');
 });
 
-// The raise is the last step and the least important one: by the time it runs the review is already
-// in the tab. A tab that closed in the meantime must not turn a placement that worked into a second
-// review somewhere else — or into a rejection the Stop path never catches.
+// The review is already in the tab when the raise runs; a closed tab must not undo the placement.
 test('38b (#316): a review that lands but cannot raise its tab still counts as placed', async () => {
   const h = await open();
   h.hooks.updateTab = async () => { throw new Error('No tab with id: 7'); };
@@ -747,8 +712,7 @@ test('54: right after a worker restart the awaited owner check waits for the mir
   assert.equal(h.api.srecCastOwns(7), true);   // and the cheap mirror is honest from here on
 });
 
-// background.js guards the call with `typeof <name> === 'function'`, so a rename here would not
-// break the build — it would silently turn the shared attach off and leave the suite green.
+// background.js guards with `typeof … === 'function'`, so a rename would silently turn the attach off.
 test('54b: the owner check background.js guards on is still a reachable global of this module', async () => {
   const h = await open({ session: CASTING() });
   const guarded = [...BG_SOURCE.matchAll(/typeof\s+(srec\w+)\s*===\s*'function'/g)].map((m) => m[1]);
@@ -765,8 +729,6 @@ test('55: clearing the bound test writes null, and the next read gives null back
   assert.deepEqual(h.named('storage.session.set').at(-1), [{ screenRecTarget: null }]);
   assert.equal(await h.api.srecTarget(), null);
 });
-
-// ---- the claim, and the parked record's transitions ------------------------
 
 test('40: the first panel to ask owns the upload of the parked take', async () => {
   const h = await open({ session: { screenRecFile: TAKE() } });
@@ -807,8 +769,7 @@ test('44: two panels asking in the same tick still leave exactly one owner', asy
   assert.equal(h.parked().claim.by, 'A');
 });
 
-// Claims take turns in one queue, so a claim that throws must not take the queue down with it: the
-// panel behind it in the line is a second document waiting for an answer that would never come.
+// Claims share one queue, so a throwing claim must not strand the document waiting behind it.
 test('44b: a claim whose write fails still lets the panel behind it be answered', async () => {
   const h = await open({ session: { screenRecFile: TAKE() } });
   h.hooks.storageSet = () => { h.hooks.storageSet = null; throw new Error('quota'); };
@@ -819,8 +780,7 @@ test('44b: a claim whose write fails still lets the panel behind it be answered'
   assert.deepEqual(answer, { ok: true });
 });
 
-// 40-44 only ever read `.claim`, so a claim that rebuilt the record instead of merging would gut the
-// take and no row would notice. The bytes belong to the tester; only the owner changes.
+// A claim that rebuilt the record instead of merging would gut the take; only the owner may change.
 test('40b: claiming the take changes who holds it and nothing else about it', async () => {
   const h = await open({ session: { screenRecFile: TAKE() } });
   assert.deepEqual(await h.message({ type: 'SCREENREC_CLAIM', by: 'A' }), { ok: true });
@@ -853,8 +813,7 @@ test('48: approving the take as recorded is what finally offers it to the panel'
   assert.deepEqual(h.events(), [{ type: 'SCREENREC_EVENT', event: 'file', file: TAKE({ reviewed: true }) }]);
 });
 
-// 48 drives an unclaimed take, where a merge and a rebuild are byte-identical. This is the half
-// that tells them apart: the panel holding the upload must not lose it to its own review.
+// An unclaimed take cannot tell a merge from a rebuild; a claimed one can.
 test('48b: the panel that claimed the take still holds it after the review says yes', async () => {
   const held = { by: 'panel-A', at: NOW };
   const h = await open({ session: { screenRecFile: TAKE({ claim: held }) } });
@@ -893,11 +852,7 @@ test('52: attaching the take speaks for itself, so nothing is broadcast', async 
   assert.deepEqual(h.events(), []);
 });
 
-// ---- the key review.html is gated on when it is framed (issue 105) ----------
-// screenrec/review.html is web-accessible to <all_urls> and the manifest pins the extension id, so
-// any page can frame it invisibly and harvest a click on Discard. The page's origin and the origin
-// content/review-overlay.js runs in are the same one, so no origin check can tell the two framings
-// apart — only a secret the worker mints here and hands to nobody else.
+// Any page can frame review.html invisibly; only a worker-minted secret tells our framing apart.
 
 test('55 (#105): parking a take mints a fresh key for the review, kept out of the record itself', async () => {
   const h = await open();
@@ -934,23 +889,19 @@ test('55e (#105): with nothing parked there is no key to hand out', async () => 
   assert.deepEqual(await h.message({ type: 'SCREENREC_REVIEW_KEY' }), { key: '' });
 });
 
-// The take already parked is the one the tester is reviewing: re-keying it here would lock the
-// review window that is open right now out of its own Attach.
+// Re-keying the take already parked would lock its open review window out of its own Attach.
 test('55f (#105): a second take that is turned away does not re-key the review already standing', async () => {
   const h = await open({ session: { screenRecFile: TAKE(), screenRecReviewKey: 'rk-held' } });
   await h.api.srecFinish({ url: 'blob:newer', size: 700, ms: 3000 }, { recording: true, mode: 'tab', tabId: 7 }, 'user');
   assert.equal(h.session.screenRecReviewKey, 'rk-held');
 });
 
-// A recording that captured nothing parks nothing; a key with no take behind it is a key the next
-// take would not have minted for itself.
+// A key with no take behind it is one the next take would not have minted for itself.
 test('55g (#105): an empty take mints no key', async () => {
   const h = await open();
   await h.api.srecFinish(null, { recording: true, mode: 'tab', tabId: 7 }, 'user');
   assert.equal(h.session.screenRecReviewKey, undefined);
 });
-
-// ---- the erase: Disconnect, Forget and Sign out ----------------------------
 
 const WIPED = { type: 'SCREENREC_EVENT', event: 'ended', reason: 'wiped' };
 const SREC_KEYS = ['screenRec', 'screenRecFile', 'screenRecReviewKey', 'screenRecTarget'];

@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/fit.js (#202, the fifth and last seam out of core/views.js): the two rows
-// that measure themselves — the filter chips that hand their overflow to a "…" menu, and the create
-// buttons that drop a word when the field beside them runs out of room.
-// The module needs a document, Icons, Tooltip and a ResizeObserver, and nothing else: no state, no
-// capabilities, no screen opener. That is the seam's value — the layout simulation, which is the one
-// thing here a browser normally decides, can be driven at exact widths without a panel around it.
-// tests/views.test.mjs keeps its own rows (V40-V51) over the same behaviour as the panel performs it,
-// through the bare fitFilterChips/initActionLabelFit delegates every screen calls. The duplication is
-// deliberate: those say the panel still behaves, these say what the two fitters actually are.
-// TRAP: `ResizeObserver` is NOT a vm-realm global. Without the fake below both fitters would throw on
-// their first line, and every row would be failing for the wrong reason — so F4 and F5 pin the
-// observer being armed and its width guard, not merely that a fit ran.
-// TRAP: mini-dom measures nothing. `clientWidth` is set by hand and `scrollWidth` is a getter that
-// adds up whichever chips are still showing, which is exactly what the fit reads between its writes.
-// Run: node --test tests/fit.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, makeDocument, el, fire } from './helpers/panel-harness.mjs';
@@ -26,7 +11,7 @@ function load() {
     dir: CORE_SRC,
     document: doc,
     globals: {
-      // shared/icons.js:238 — the arity matters: `cls` reaches classList.add, which throws on a space.
+      // The arity matters: cls reaches classList.add, which throws on a space.
       Icons: {
         el: (name, size = 16, ...cls) => {
           const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
@@ -35,8 +20,7 @@ function load() {
         },
       },
       Tooltip: { set: (n, tip) => { if (n) n.dataset.tip = tip; } },
-      // Never fires itself: the real callback re-enters the fitter, and the width guard is the only
-      // thing that stops that — an eager fake would recurse instead of letting the guard be read.
+      // Not a vm global, and never fires itself: an eager fake would recurse past the width guard.
       ResizeObserver: class {
         constructor(cb) { this.cb = cb; this.node = null; observers.push(this); }
         observe(n) { this.node = n; }
@@ -49,8 +33,7 @@ function load() {
   return { ...h, doc, observers, fit: h.screen.Fit, lex: h.screen };
 }
 
-// A row that measures the way a browser measures one: what it reports is the chips it is still
-// SHOWING, plus the "…" trigger once that is up. screens/runs-list.js:457 is the chip's real shape.
+// mini-dom measures nothing: scrollWidth adds up the chips still showing, plus the "…" once it is up.
 const TRIGGER_W = 32;
 function filterBar(h, widths, clientWidth) {
   const bar = el('div', { className: 'filter-bar' });
@@ -87,8 +70,6 @@ function caretIn(h, bar) {
   return a.tagName.toLowerCase();
 }
 
-// ---------- the seam itself ----------
-
 test('F1 (#202): the fitters load on a document, Icons, Tooltip and a ResizeObserver — nothing else', () => {
   const h = load();
   assert.deepEqual(Object.keys(h.fit).sort(),
@@ -97,8 +78,6 @@ test('F1 (#202): the fitters load on a document, Icons, Tooltip and a ResizeObse
   h.fit.filterChips(bar);
   assert.deepEqual(chips.map((c) => c.hidden), [false, false], 'and a fit runs with no panel around it');
 });
-
-// ---------- the filter row that sends its overflow to a menu ----------
 
 test('F2 (#202): a row whose chips all fit keeps every one of them, and the "…" never appears', () => {
   const h = load();
@@ -152,7 +131,7 @@ test('F5 (#202): the observer re-fits for a width that really moved, and for no 
   assert.deepEqual(chips.map((c) => c.hidden), [false, true, false],
     'the width the fit itself settled on comes back through the observer; re-fitting it is a loop');
 
-  bar.clientWidth = 250; // the pane really moved — and WIDER, which a "grew" test alone would miss
+  bar.clientWidth = 250; // the pane really moved — and wider, which a "grew" test alone would miss
   h.observers[0].cb();
   assert.deepEqual(chips.map((c) => c.hidden), [false, false, false]);
 
@@ -163,9 +142,7 @@ test('F5 (#202): the observer re-fits for a width that really moved, and for no 
   assert.equal(h.observers.length, 1);
 });
 
-// F5 asks the guard's question of a row where everything fitted. A row that HID something takes the
-// other branch out of the fitter, and it has to remember its width too — otherwise the guard is
-// always true and the row re-fits on every tick the observer fires, forever.
+// A row that hid something must remember its width too, or it re-fits on every observer tick forever.
 test('F5b (#202): a row that hid something remembers the width it hid at, same as one that did not', () => {
   const h = load();
   const { bar, chips } = filterBar(h, [60, 60, 60, 60], 150);
@@ -233,15 +210,11 @@ test('F8 (#202): Escape closes the "…" and hands the caret back to the trigger
   assert.equal((h.doc.listeners.get('keydown') || []).length, 0, 'the document-level closer went too');
 });
 
-// The pick is the one exit from the menu where the caret has nowhere obvious to go: the chip's own
-// click re-renders the row, and that render throws away the <li> the caret is standing on. The three
-// rows below are the ladder it descends instead — chip, then "…", then the row.
+// The pick re-render drops the <li> holding the caret, so focus falls back: chip, then "…", then row.
 test('F8b (#335): a pick lands on the chosen chip when the re-fit brought it back into the row', () => {
   const h = load();
   const { bar, chips } = filterBar(h, [50, 50, 50, 50, 50], 150);
-  // What a screen does on a pick: re-render the row, which re-fits it (screens/runs-list.js:499).
-  // Here the chosen filter's count came back shorter, so the row has room for it again — and still
-  // not for the two behind it, which is what makes this a choice between the chip and the "…".
+  // A pick re-renders and re-fits the row; the shorter count makes room for this chip, not those behind.
   chips[2].addEventListener('click', () => { chips[2].w = 10; h.fit.filterChips(bar); });
   h.fit.filterChips(bar);
   const { wrap, trigger, menu } = h.fit.ensureFilterMore(bar);
@@ -273,9 +246,7 @@ test('F8c (#335): a pick that leaves the row still overflowing lands on the "…
 test('F8d (#335): with the chip out of the row and the "…" gone with it, the caret lands on the row', () => {
   const h = load();
   const { bar, chips } = filterBar(h, [50, 50, 50, 50], 150);
-  // A render that rebuilds the row leaves the option holding a chip that is no longer in it —
-  // still claiming to be showing, by the flags it was left with — and what is left over fits, so
-  // the "…" goes down too. Focusing either of those two is focusing nothing, which is the body.
+  // A rebuild leaves the option a detached chip and drops the "…": focusing either focuses nothing.
   chips[2].addEventListener('click', () => {
     chips[2].remove();
     chips[2].hidden = false;
@@ -329,8 +300,6 @@ test('F10 (#202): rendering the menu with nothing to hide takes the trigger and 
   assert.equal(menu.hidden, true, 'a menu left open over a hidden trigger cannot be dismissed');
   assert.equal(trigger.getAttribute('aria-expanded'), 'false');
 });
-
-// ---------- the create-button labels ----------
 
 function labelBar(h, fieldWidth) {
   const bar = el('div', { className: 'toolbar' });

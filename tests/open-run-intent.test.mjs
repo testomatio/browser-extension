@@ -1,15 +1,5 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/open-run-intent.js (#201): the "Run in Extension" button on a Testomat
-// run page. The tester presses it, Chrome opens the side panel, and the panel is meant to land on
-// THAT run — not on the runs list, and not on whatever it was showing yesterday.
-// The click survives the hop as one key in session storage, which makes both ways of getting it
-// wrong silent. Spend the key twice — once at boot, once from the live onChanged the very same
-// write fires — and the run re-opens under a tester who has already started working in it. Spend it
-// too late and a click from ten minutes ago hijacks the panel they just opened by hand. So the key
-// is removed BEFORE it is acted on, and it is removed even when it is too old to act on.
-// The opener is an argument, not the `openRunFromUrl` global: that is what lets this file load with
-// a storage fake and nothing else, instead of booting the whole panel.
-// Run: node --test tests/open-run-intent.test.mjs
+// The key is burnt before it is acted on: boot and the live onChanged both see the same write.
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,8 +11,7 @@ const KEY = 'openRunIntent';
 const RUN_URL = 'https://app.testomat.io/projects/abc/runs/9f8e7d6c';
 const NOW = 1_700_000_000_000;
 
-// The sandbox is TWO names wide, and that is the point of the extract: `chrome` and `Date`. No
-// document, no window, no panel globals — a stub that is not there cannot make a row pass wrongly.
+// Only `chrome` and `Date`: a stub that is not there cannot make a row pass wrongly.
 function load(opts = {}) {
   const {
     now = NOW, session = {}, sessionOnChanged = true, noSession = false, opens = () => true,
@@ -30,7 +19,7 @@ function load(opts = {}) {
   const store = fakeChrome({ session, sessionOnChanged });
   if (noSession) delete store.chrome.storage.session; // a surface Chrome gave no session area
 
-  // What the opener SEES when it runs, not merely that it ran: by then the key must already be gone.
+  // What the opener sees when it runs: by then the key must already be gone.
   const calls = [];
   const openRun = (url) => {
     calls.push({ url, removes: store.ops('session', 'remove').length, stored: { ...store.session } });
@@ -47,8 +36,6 @@ function load(opts = {}) {
 }
 
 const removedKeys = (h) => h.store.ops('session', 'remove').map((c) => c.arg);
-
-// ---------- consume() ----------
 
 test('OR1: a surface with no chrome.storage.session consumes nothing and asks the opener nothing', async () => {
   const h = load({ noSession: true });
@@ -72,8 +59,7 @@ test('OR3: a fresh intent is removed BEFORE the opener runs — boot and the lis
   assert.deepEqual(h.calls[0].stored, {}, '…and already landed — the store is empty, not merely called');
 });
 
-// The boolean is not decoration: app.js does `if (openedIntent) { return; }`, so an opener that
-// cannot make sense of the URL must leave boot free to land on the restored session instead.
+// app.js does `if (openedIntent) { return; }`, so a refusing opener must leave boot free to restore.
 test('OR3b: an opener that refuses the URL makes consume() false — the key is still burnt', async () => {
   const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW - 1000 } }, opens: () => false });
   assert.equal(await h.OpenRunIntent.consume(h.openRun), false);
@@ -89,17 +75,14 @@ test('OR4: a click 61 s old is refused, and burnt anyway so it cannot fire on th
   assert.deepEqual({ ...h.store.session }, {});
 });
 
-// The edge of the window itself: 60000 ms is `>` not `>=`, so the last millisecond still counts as
-// this click. A row either side of it is what stops the comparison drifting.
+// 60000 ms is `>` not `>=`, so the last millisecond still counts as this click.
 test('OR4b: a click exactly 60 s old is still this click, and opens', async () => {
   const h = load({ session: { [KEY]: { url: RUN_URL, at: NOW - 60_000 } } });
   assert.equal(await h.OpenRunIntent.consume(h.openRun), true);
   assert.equal(h.calls.length, 1);
 });
 
-// The ticket reads this row the other way round — "Number(undefined) is NaN, so it IS consumed".
-// It is not: `intent.at || 0` never lets `undefined` reach Number. 0 is the epoch, and the epoch is
-// always older than 60 s, so an intent with no timestamp is refused like any other stale one.
+// `intent.at || 0` never lets undefined reach Number; the epoch is always older than 60 s.
 test('OR5: an intent with no `at` is refused, not consumed — `|| 0` dates it to the epoch', async () => {
   const h = load({ session: { [KEY]: { url: RUN_URL } } });
   assert.equal(await h.OpenRunIntent.consume(h.openRun), false);
@@ -121,8 +104,6 @@ test('OR7: a session.get that rejects is a false, not a throw out of boot', asyn
   assert.deepEqual(removedKeys(h), []);
   assert.deepEqual(h.calls, []);
 });
-
-// ---------- init() ----------
 
 test('OR8: a panel left open answers the next click — an onChanged carrying a newValue consumes it', async () => {
   const h = load();
@@ -147,8 +128,6 @@ test('OR10: an older Chrome with no session.onChanged is a no-op, not a boot tha
   const h = load({ sessionOnChanged: false });
   assert.doesNotThrow(() => h.OpenRunIntent.init(h.openRun));
 });
-
-// ---------- drop() ----------
 
 test('OR11: drop() on a surface with no storage.session throws nothing', () => {
   const h = load({ noSession: true });

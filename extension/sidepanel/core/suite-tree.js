@@ -1,12 +1,9 @@
-// The four decisions the Tests tab's suite tree is made of: which nodes a search keeps, what a
-// folder's count badge says, which mark a node carries, and which suites ride at the top.
+// The suite tree's pure decisions: search filter, folder count, node mark, and hoisted suites.
 
-// No `/* global */` list, the way core/format.js has none: this file reads no DOM, no `chrome.*`,
-// no `state` and no `TestomatAPI` — a value goes in and a value comes out.
+// No global list: no DOM, no `chrome.*`, no `state`, no `TestomatAPI`; values in, values out.
 
 const SuiteTree = {
-  // A matching folder keeps its WHOLE subtree; one kept only for a descendant shows
-  // just the branch leading there. Returns copies — a cleared query restores tcSuites.
+  // A matching folder keeps its whole subtree; copies, so a cleared query restores tcSuites.
   filter(roots, query) {
     const q = query.trim().toLowerCase();
     if (!q) return roots;
@@ -19,8 +16,7 @@ const SuiteTree = {
     return (roots || []).map(keep).filter(Boolean);
   },
 
-  // Every test case in the project (#127). Summed over the ROOTS only — a folder's
-  // `test_count` is already its subtree total, so descending would double-count.
+  // Summed over the roots only: a folder's `test_count` is already its subtree total.
   testCount: (roots) =>
     (roots || []).reduce((n, s) => n + (Number(s.test_count) || 0), 0),
 
@@ -34,8 +30,7 @@ const SuiteTree = {
     return null;
   },
 
-  // Non-mutating — state.tcSuites keeps the server's order; only the drawing moves.
-  // `createdIds` is the caller's live array, newest first; it is read, never written.
+  // Non-mutating: state.tcSuites keeps the server's order; `createdIds` is read, never written.
   hoist(list, createdIds) {
     const nodes = list || [];
     if (!createdIds.length || !nodes.length) return nodes;

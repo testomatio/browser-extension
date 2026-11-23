@@ -1,12 +1,4 @@
-// WebM duration patch (IIFE global `WebmDuration`). MediaRecorder streams its file, so the
-// Segment carries an unknown size and Info carries NO Duration — every player then treats the
-// take as an endless stream: the scrubber sits at the end and seeking misbehaves. The recorder
-// KNOWS how long it ran, so the missing element is written in right after the take is a Blob.
-//
-// EBML in the small: an element is <id vint><size vint><body>. Only three landmarks matter —
-// Segment (0x18538067), its Info (0x1549A966), and inside it TimecodeScale (0x2AD7B1) and
-// Duration (0x4489, a float in TimecodeScale units). Anything unexpected returns the ORIGINAL
-// bytes: a take that plays without a scrubber beats one that does not play at all.
+// MediaRecorder writes no Duration, so players treat a take as endless; this writes it in.
 
 const WebmDuration = (() => {
   const ID_SEGMENT = 0x18538067;
@@ -14,7 +6,7 @@ const WebmDuration = (() => {
   const ID_TIMECODESCALE = 0x2ad7b1;
   const ID_DURATION = 0x4489;
 
-  // An EBML id is read WITH its marker bits (ids compare as written); a size vint WITHOUT them.
+  // An EBML id is read with its marker bits (ids compare as written); a size vint without them.
   function readVint(bytes, at, keepMarker) {
     const first = bytes[at];
     if (first === undefined) return null;
@@ -36,7 +28,6 @@ const WebmDuration = (() => {
     return v;
   }
 
-  // <element id><size> reader; body sits at `at + idLen + sizeLen`.
   function readElement(bytes, at) {
     const id = readVint(bytes, at, true);
     if (!id) return null;
@@ -45,8 +36,7 @@ const WebmDuration = (() => {
     return { id: id.value, bodyAt: at + id.len + size.len, bodyLen: size.value, sizeAt: at + id.len, sizeLen: size.len, unknown: size.unknown };
   }
 
-  // The Duration element, ready to append: 0x44 0x89, an 8-byte size vint is overkill — a
-  // one-byte 0x88 says "8 bytes of float64" and floats are how every muxer writes it.
+  // A one-byte 0x88 size says "8 bytes of float64", and floats are how every muxer writes it.
   function durationElement(units) {
     const out = new Uint8Array(11);
     out[0] = 0x44; out[1] = 0x89; out[2] = 0x88;
@@ -59,7 +49,6 @@ const WebmDuration = (() => {
     const bytes = new Uint8Array(buffer);
     try {
       if (!(ms > 0)) return bytes;
-      // Top level: EBML header, then the Segment.
       let at = 0;
       let segment = null;
       while (at < bytes.length) {
@@ -69,10 +58,8 @@ const WebmDuration = (() => {
         at = el.bodyAt + el.bodyLen;
       }
       if (!segment) return bytes;
-      // A DEFINITE Segment size would need re-encoding too — MediaRecorder never writes one,
-      // and guessing on a file some other muxer made is how a take gets corrupted.
+      // A definite Segment size would need re-encoding too; MediaRecorder never writes one, so bail.
       if (!segment.unknown) return bytes;
-      // Inside the Segment: the Info element.
       at = segment.bodyAt;
       let info = null;
       while (at < bytes.length) {
@@ -98,8 +85,7 @@ const WebmDuration = (() => {
         if (el.id === ID_DURATION) return bytes; // an odd width — leave the file alone
         at = el.bodyAt + el.bodyLen;
       }
-      // No Duration: Info grows by 11 bytes, and its size is re-encoded as an 8-byte vint so
-      // the new length always fits without touching anything after the (unknown-size) Segment.
+      // Info's size becomes an 8-byte vint, so the new length fits without touching the Segment.
       const dur = durationElement((ms * 1000000) / scale);
       const newLen = info.bodyLen + dur.length;
       const sizeVint = new Uint8Array(8);

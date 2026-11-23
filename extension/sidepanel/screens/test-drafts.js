@@ -1,15 +1,4 @@
-// Unsent comment drafts (IIFE global `CommentDrafts`). The comment box is READ only by a status
-// write, so everything else that leaves the test used to throw the typing away — the pager, the
-// hotkeys, Back, a tab click, the panel closing — and with it the evidence the Attach buttons
-// paste into that same box. Kept per RESULT in chrome.storage.session: it outlives navigation and
-// a closed panel, and dies with the browser session rather than reaching disk.
-//
-// One row per result: `{ text, runId }` — the run is what makes the prune below able to tell
-// "this run dropped the result" from "the tester is simply in another run".
-//
-// It is its own file because four surfaces reach it and only one of them is the test view: the
-// run open prunes, the project switch drops everything, app init wires the box, and the status
-// write spends the draft it sent.
+// Unsent comment drafts per result, in session storage: they survive navigation but never reach disk.
 
 /* global hasChrome, state, $ */
 
@@ -17,9 +6,7 @@ const CommentDrafts = (() => {
   const DRAFTS_KEY = 'commentDrafts';
   const DRAFT_SAVE_MS = 400; // long enough that a burst of typing is one write
 
-  // The panel document is the only writer, so the map is held in memory and MIRRORED to
-  // storage (like the offline queue) — seeded once, or a reopened panel would write its
-  // fresh map over the drafts already there.
+  // Held in memory and mirrored to storage; seeded first, or a reopened panel would overwrite drafts.
   let cache = null;
   let loading = null;
 
@@ -42,16 +29,13 @@ const CommentDrafts = (() => {
     try { await chrome.storage.session.set({ [DRAFTS_KEY]: cache }); } catch { /* best effort */ }
   }
 
-  // Tolerant of the shape that came before the run tag: a bare string still restores, and
-  // answers NO run — so the prune below never claims it.
+  // A bare string (an untagged legacy draft) still restores and answers no run, so prune skips it.
   const textOf = (entry) => (typeof entry === 'string' ? entry
     : (entry && typeof entry.text === 'string' ? entry.text : null));
   const runIdOf = (entry) => (entry && typeof entry === 'object' && entry.runId != null
     ? String(entry.runId) : null);
 
-  // '' is a REMOVAL, not a draft: an empty box restores as an empty box either way, and
-  // storing it would keep a row for every test the tester merely passed through. Anything
-  // else is kept VERBATIM — whitespace included, since only the write trims.
+  // '' removes the row: storing it would keep one for every test passed through. Text stays verbatim.
   async function save(recordId, text, runId) {
     if (recordId == null) return;
     const all = await load();
@@ -60,7 +44,6 @@ const CommentDrafts = (() => {
     await persist();
   }
 
-  // Saving '' IS the removal, so a landed status needs no path of its own.
   const drop = (recordId) => save(recordId, '');
 
   // Every draft at once: a testrun id from the project being left means nothing in the next.
@@ -71,9 +54,7 @@ const CommentDrafts = (() => {
     try { await chrome.storage.session.remove(DRAFTS_KEY); } catch { /* best effort */ }
   }
 
-  // Run open is the one moment the panel knows which results a run still has — so an entry
-  // tagged with THIS run whose result is gone goes, and nothing else does: a draft typed in
-  // another run is not this run's to judge, and an untagged one belongs to no run at all.
+  // Drops only entries tagged with the given run whose result is gone; other runs' and untagged stay.
   async function prune(runId) {
     const all = await load();
     const keys = Object.keys(all);
@@ -86,8 +67,7 @@ const CommentDrafts = (() => {
     await persist();
   }
 
-  // The open already painted `record.message`; the draft only replaces it on a result
-  // that carries none of its own — a written comment is what that test says now.
+  // The draft never replaces a written comment: that is what the test says now.
   async function restore(record) {
     if (!record || record.message) return;
     const all = await load();
@@ -97,8 +77,7 @@ const CommentDrafts = (() => {
     $('test-comment').value = draft;
   }
 
-  // Debounced, and the id, the run and the text are ALL captured on the keystroke: a save
-  // that lands after the tester paged on still belongs to the test it was typed in.
+  // Id, run and text are captured on the keystroke: a late save still belongs to its own test.
   let pending = null;
   let saveTimer = null;
 
@@ -114,14 +93,13 @@ const CommentDrafts = (() => {
   // Also the evidence Attach path: it dispatches `input` on the box after pasting a snippet.
   function onInput() {
     const recordId = state.currentRecordId;
-    // A pending save for ANOTHER test is committed, not cancelled, by this keystroke.
+    // A pending save for another test is committed, not cancelled, by a keystroke here.
     if (pending && String(pending.recordId) !== String(recordId)) flush();
     pending = { recordId, text: $('test-comment').value, runId: state.runId };
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flush, DRAFT_SAVE_MS);
   }
 
-  // `load` is public because the prune and the restore are not the only legitimate readers:
-  // anything asking "is there unsent typing here" needs the same seeded map, not a second read.
+  // `load` is public: anything asking "is there unsent typing here" needs the same seeded map.
   return { load, save, drop, dropAll, prune, restore, flush, onInput };
 })();

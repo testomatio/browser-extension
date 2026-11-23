@@ -1,24 +1,8 @@
 #!/usr/bin/env node
-// The annotator engine a tester draws on after a screenshot: arrows, boxes, a marker, numbered
-// badges, text labels, a blur that hides a token, a crop — and the three ways out (Save, Keep
-// original, Discard). Everything a tester blurred has to be gone from whatever leaves this file,
-// so the redaction and the export rows are the ones that matter most.
-// Run: node --test tests/annotate-core.test.mjs
 
-// THE CANVAS IS REAL PIXELS. The 2d context here keeps an actual Uint8ClampedArray, and the base
-// capture is a function of its ORIGINAL coordinates, so no two pixels agree. That buys three
-// things a no-op stub cannot: a block average is a real computation (the blur rows), `toDataURL`
-// is a digest of what is actually on the canvas (so a baked-in marquee CHANGES the export), and a
-// crop genuinely moves the picture under the ops.
+// The fake 2d context keeps real pixels, so blur, the export digest and a crop are real computations.
 
-// TRAPS, each already paid for:
-// - `create()` builds the toolbar synchronously but `hooks.ready` waits for `img.onload`; the fake
-//   Image fires it from the `src` setter, and ignores the `src = ''` that `dropImg()` writes.
-// - `snapshot()` spreads a null `crop` into `{}`, so a pushHistory before ready poisons the stack.
-// - `Icons.elIn` is UNGUARDED — without the stub `buildChrome()` throws before anything is assertable.
-// - `hooks.apply/keep/discard` bypass confirmDiscard/confirmKeep, so the exit rows go through the
-//   buttons and the keydown listener instead.
-// - Values built inside the vm realm carry that realm's prototypes: compare them with plain().
+// hooks.apply/keep/discard skip the confirm steps, so exit rows press the buttons and keys instead.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -30,7 +14,7 @@ import { sharedPath, sourceOf, plain, settle } from './helpers/shared-harness.mj
 const IMG = (w, h) => `data:image/png;base64,IMG:${w}x${h}`;
 const BROKEN = 'data:image/png;base64,BROKEN';
 
-// The base capture: every pixel differs from its neighbours, in ORIGINAL image coords.
+// Every pixel differs from its neighbours, in original image coords.
 const basePixel = (x, y) => [(x * 3) & 255, (y * 5) & 255, (x * 7 + y * 13) & 255, 255];
 
 const digest = (buf, w, h) => createHash('sha1')
@@ -54,7 +38,7 @@ function ink(v) {
 
 const NOOP = () => {};
 
-// A style object the real one's two shapes both reach: plain properties AND setProperty('--swatch').
+// Both style shapes the code uses: plain properties and setProperty('--swatch').
 function styleObj() {
   const props = new Map();
   return {
@@ -63,8 +47,6 @@ function styleObj() {
     setProperty: (k, v) => props.set(k, String(v)),
   };
 }
-
-// ---- the painting canvas ----------------------------------------------------
 
 function attachCanvas(el, cfg, log) {
   let buf = new Uint8ClampedArray(0);
@@ -195,8 +177,6 @@ function attachCanvas(el, cfg, log) {
   return el;
 }
 
-// ---- the sandbox ------------------------------------------------------------
-
 function load(over = {}) {
   const cfg = { w: 800, h: 600, ...over };
   const doc = makeDocument(['div#root']);
@@ -265,9 +245,7 @@ function load(over = {}) {
     console,
   };
   const context = createContext(sandbox);
-  // annot-geometry.js, annot-history.js and annot-keys.js first, exactly as both hosts load them:
-  // the core reads something off each while it evaluates, and every box, grab, grip, undo and
-  // keystroke below comes out of them.
+  // Load order matches both hosts: the core reads from each helper while it evaluates.
   for (const rel of ['shared/annot-geometry.js', 'shared/annot-history.js', 'shared/annot-keys.js', 'shared/annotate-core.js']) {
     const path = sharedPath(rel);
     runInContext(sourceOf(path), context, { filename: path });
@@ -308,8 +286,6 @@ function load(over = {}) {
     fire,
   };
 }
-
-// ================= 1. Export and the three exits (AC1-AC11) =================
 
 test('AC1: Save with a shape still selected hands back the picture without the selection marquee', () => {
   const h = load();
@@ -392,8 +368,6 @@ test('AC7: Esc on an untouched screenshot leaves at once, with nothing to ask ab
   assert.deepEqual(h.calls.applied, []);
 });
 
-// AC4-AC6 each open exactly one thing, so no row ever crosses two rungs of the ladder. These do:
-// one Esc must take the topmost rung only, and the rung below it must still be standing.
 test('AC6b: with two things open, one Esc closes the top one and leaves the rest alone', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 100, y1: 100, x2: 200, y2: 200 });
@@ -411,8 +385,7 @@ test('AC6b: with two things open, one Esc closes the top one and leaves the rest
   assert.equal(h.calls.discardAsked, 0, 'and nothing has been thrown away');
 });
 
-// The other three rungs consume the Esc; this one must not. The annotator sits over the page under
-// test, and a tester pressing Esc to leave should not be silently swallowing the page's own handler.
+// The annotator sits over the page under test, so the exit Esc must still reach the page's handler.
 test('AC7b: the Esc that reaches the exit is the one Esc the page is still allowed to see', () => {
   const h = load();
   const ev = h.key({ key: 'Escape' });
@@ -461,8 +434,6 @@ test('AC11: pressing Save twice hands the image back once', async () => {
   await settle();
   assert.equal(h.calls.applied.length, 1);
 });
-
-// ============ 2. Geometry, handles and hit-testing (AC22-AC29) ============
 
 test('AC22: the bend grip lands where the tester dropped it, not twice as far away', () => {
   const h = load();
@@ -572,8 +543,6 @@ test('AC29: the marker owns the width it is painted at, not the width of its pat
   assert.equal(pen.hooks.select(150, 115), null, 'the same click misses a pen line');
 });
 
-// ================= 3. Crop and the undo stack (AC13-AC19) =================
-
 test('AC13: a crop drag too short to mean anything is a mis-click, not a crop', () => {
   const h = load();
   const before = h.bytes();
@@ -628,8 +597,6 @@ test('AC17: a crop drag off the edge of the picture is clamped to the picture in
     'clamped to the CURRENT canvas, and composed onto the crop already in force');
 });
 
-// Drawing after an undo forks the history: what the tester undid is gone for good, and the Redo
-// arrow must say so. Without this the redone mark comes back on top of the one drawn instead of it.
 test('AC16b: drawing after an undo throws away what was undone, and greys out Redo', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 20, y2: 20 });
@@ -642,7 +609,6 @@ test('AC16b: drawing after an undo throws away what was undone, and greys out Re
   assert.deepEqual(h.ops().map((o) => o.tool), ['rect', 'ellipse'], 'the undone mark does not come back');
 });
 
-// Redo on a fresh editor is the reflex press of a tester who has drawn nothing yet.
 test('AC16c: Redo is greyed out and does nothing until something has been undone', () => {
   const h = load();
   assert.equal(h.btn('annot-redo').disabled, true);
@@ -656,8 +622,7 @@ test('AC16c: Redo is greyed out and does nothing until something has been undone
   assert.equal(h.btn('annot-redo').disabled, true, 'and it is spent once it has been pressed');
 });
 
-// A snapshot has to own its points, not borrow them: moving the stroke afterwards would otherwise
-// drag the snapshot along, and Undo would put the stroke back exactly where it already is.
+// A snapshot must copy its points: a shared array moves with the stroke and Undo changes nothing.
 test('AC18b: undoing a dragged pen stroke puts every one of its points back', () => {
   const h = load();
   h.hooks.add({ tool: 'pen', pts: [{ x: 10, y: 10 }, { x: 20, y: 20 }, { x: 30, y: 30 }] });
@@ -698,8 +663,6 @@ test('AC19 (#317): ten taps picking a weight are one step back, and the box is s
   assert.deepEqual(h.ops(), [], 'and the very next one still reaches the box itself');
 });
 
-// The collapse must not swallow a second shape's restyle, nor a restyle made after an undo:
-// either would lose work silently, which is worse than the flood it replaces.
 test('AC19b (#317): each shape keeps its own step back, and a restyle after an undo is recorded', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 60, y2: 60 });
@@ -716,8 +679,6 @@ test('AC19b (#317): each shape keeps its own step back, and a restyle after an u
   h.hooks.undo();
   assert.deepEqual(h.ops().map((o) => o.width), [6, 3], 'the restyle after the undo has its own step');
 });
-
-// ========== 4. Labels, badges and the ink they carry (AC12, AC20-AC21, AC33-AC43) ==========
 
 // Pick the Text tool and click the picture: that is the only way the input opens.
 function openLabel(h, x, y, value) {
@@ -846,8 +807,7 @@ test('AC38: a letter typed into a label input is typing, not a tool shortcut', (
   assert.equal(h.hooks.tool(), 'text', 'the shortcut map stands down while the input is open');
 });
 
-// Retyping a label selects it AND opens the input, so Delete arrives with something selected. It
-// must reach the text, not the shape — otherwise a tester correcting a typo loses the whole label.
+// Retyping selects the label and opens the input, so Delete arrives with a shape selected.
 test('AC38b: Delete while retyping a label edits the text, it does not delete the label', () => {
   const h = load();
   h.hooks.add({ tool: 'text', x: 100, y: 100, text: 'staging' });
@@ -859,7 +819,6 @@ test('AC38b: Delete while retyping a label edits the text, it does not delete th
   assert.equal(h.ops().length, 1, 'the label the tester is correcting is still there');
 });
 
-// Save and Undo from the keyboard are printed on the help card, and nothing covered them.
 test('AC51: the modifier shortcuts on the help card do what the card says', () => {
   const h = load();
   h.hooks.add({ tool: 'rect', x1: 10, y1: 10, x2: 20, y2: 20 });
@@ -878,7 +837,6 @@ test('AC51: the modifier shortcuts on the help card do what the card says', () =
   assert.equal(h.calls.discardAsked, 0);
 });
 
-// A shortcut of the browser's or the page's must not be eaten by the tool letters underneath it.
 test('AC52: a browser shortcut passes through instead of switching tool', () => {
   const h = load();
   assert.equal(h.hooks.tool(), 'arrow');
@@ -957,8 +915,6 @@ test('AC43: a badge that reaches 10 and 100 shrinks its numeral instead of growi
   assert.deepEqual(h.log.sets('font').map((f) => /(\d+)px/.exec(f)[1]), ['11', '9', '8']);
   assert.deepEqual(h.ops().map((o) => o.r), [9, 9, 9], 'a run of steps stays one size');
 });
-
-// ====== 5. Redaction, the clipboard, boot and teardown (AC30-AC32, AC39, AC44-AC50) ======
 
 test('AC30: a blur dragged off the edge still hides the part of it that is on the picture', () => {
   const h = load({ w: 200, h: 200 });

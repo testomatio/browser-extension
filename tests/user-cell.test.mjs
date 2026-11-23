@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// #181: a PERSON, printed — extension/shared/user-cell.js. Wherever a run or a test names who ran it
-// or who it is assigned to, the tester sees a circle of initials and a name. The server sends that
-// person in half a dozen shapes (a bare string, an address, a record with `username`, one with
-// `avatar-url`), and this file is what turns every one of them into the same cell.
-// Three things here are worth reading twice. The INITIALS are split on non-letters, so `j.doe` is
-// two initials and not "j."; they come back lower-case, because it is CSS that shouts them. The
-// PHOTO never goes out on a bare fetch: it goes through TestomatAPI.fetchAsset with `instanceOnly`,
-// which is what keeps an avatar host named in server data from getting a request at all — an avatar
-// that cannot be fetched simply leaves the monogram standing. And the cell NEVER re-reads the
-// document: a repaint that threw the cell away leaves the swap landing on a detached node.
-// Run: node --test tests/user-cell.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
@@ -29,8 +18,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-// `photos` is a module-level cache keyed by URL, so every row gets its OWN load — otherwise the
-// second test reads the first one's stubbed avatar back out of it.
+// `photos` is a module-level cache keyed by URL, so every row gets its own load.
 function load({ api = true, tooltip = true, fetchAsset = async () => response('image/png') } = {}) {
   const doc = makeDocument();
   const calls = { fetches: [], tips: [], minted: [], revoked: [] };
@@ -70,8 +58,6 @@ const { U } = load();
 const avatarOf = (cell) => cell.querySelector('.avatar');
 const nameOf = (cell) => cell.querySelector('.user-name');
 
-// ---- the shapes a person arrives in ------------------------------------------------------------
-
 test('1: a value naming nobody is nobody — null, blank, whitespace and a number alike', () => {
   for (const nothing of [null, undefined, '', '   ', 42, true, []]) {
     assert.equal(U.normalize(nothing), null, `${JSON.stringify(nothing)} should name nobody`);
@@ -102,8 +88,6 @@ test('5: a photo with no name and no address is not a person — the row is drop
   assert.equal(U.normalize({ name: '   ', email: '  ' }), null);
 });
 
-// ---- what the tester reads beside the circle ---------------------------------------------------
-
 test('6: with no name, the address is shown by its local part', () => {
   assert.equal(U.displayName('qa@x.io'), 'qa');
 });
@@ -117,14 +101,11 @@ test('8: a person with both a name and an address is shown by the name', () => {
   assert.equal(U.displayName(null), '');
 });
 
-// ---- the circle ---------------------------------------------------------------------------------
-
 test('9: a dotted login is two initials, not a letter and a dot — and the JS leaves them lower-case', () => {
   assert.equal(U.initials('j.doe'), 'jd'); // CSS shouts them; nothing here upper-cases
 });
 
-// Two words is the common case and hides the rule. Three tells you which two letters are taken:
-// the first of the first word and the first of the SECOND, never the last.
+// Three words show which two letters are taken: the first of the first word and of the second.
 test('9b: a three-part name is read from its first two words, not its first and last', () => {
   assert.equal(U.initials('Ann Marie Lee'), 'AM');
   assert.equal(U.initials('Jean de la Fontaine'), 'Jd');
@@ -158,8 +139,6 @@ test('16: a record naming nobody still gets a circle to stand in — a question 
   assert.equal(U.initials({}), '?');
   assert.equal(U.initials(null), '?');
 });
-
-// ---- the photo, and the one road it may travel --------------------------------------------------
 
 test('17: a photo served over plain http is never fetched — the monogram stays', async () => {
   const h = load();
@@ -211,8 +190,7 @@ test('21: the sign-in PAGE a signed-out fetch gets back is not a photo — the m
   assert.equal(avatarOf(cell).classList.contains('has-photo'), false);
 });
 
-// 21b's refusal has no content-type, so the type check alone would also reject it. This one calls
-// itself an image: the STATUS has to be believed on its own, or an error page is drawn as a face.
+// This refusal calls itself an image, so the status alone must be believed or an error page is drawn.
 test('21c: a refusal that claims to be an image is still a refusal', async () => {
   const h = load({ fetchAsset: async () => ({
     ok: false,
@@ -260,8 +238,6 @@ test('24: on a page that never loaded the API this file still draws — the phot
   assert.equal(avatarOf(cell).textContent, 'An');
   assert.deepEqual(h.calls.minted, []);
 });
-
-// ---- the cell -----------------------------------------------------------------------------------
 
 test('25: a value naming nobody builds no cell — the caller drops the whole row', () => {
   const h = load();

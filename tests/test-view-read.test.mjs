@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/test-view.js SHOWS the tester (#164, half B): the steps they are
-// about to run through, and the example row substituted into them. The result summary card that used
-// to sit beside them is its own file now, with its own suite (tests/test-summary.test.mjs); half A
-// (the write path) is tests/test-view-write.test.mjs.
-// One thing here is easy to get quietly wrong. A step's `pos` is the index among ALL <li> in the
-// rendered description, nested bullets included, because that is what the web runner counts — and it
-// is snapshotted BEFORE the Expected sub-bullets are folded away, so folding one must not renumber
-// the steps after it.
-// The three section tabs are shown here too (rows 126*, #109): which section is open is something
-// the tester reads off the bar, and the bar is one tab stop with the arrows between the three — so
-// arrowing across it must move the caret and open NOTHING, or a walk to Summary loads two screens
-// on the way.
-// Rows 26-29 and 110-125 are the ticket's; a lettered suffix is the companion case that drives
-// the same path the other way, so a row asserting "nothing happened" cannot pass against a stub that
-// never worked.
-// Run: node --test tests/test-view-read.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,16 +9,11 @@ import { loadScreen, makeDocument, el, fire, plain } from './helpers/panel-harne
 import { loadInto } from './helpers/shared-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The real substitution module, not a look-alike: rows 121-124 are about the product's own non-"0"
-// rule and the double quotes it wraps a value in. PARAMS_SRC mirrors params.test.mjs's own seam.
+// The real substitution module, so the non-"0" rule and its double quotes are the product's own.
 const PARAMS_SRC = process.env.PARAMS_SRC || join(repoRoot, 'extension/params.js');
 const TestomatParams = runInNewContext(`${readFileSync(PARAMS_SRC, 'utf8')}\nTestomatParams;`, {});
 
-// ---------- what Md.render really emits ----------
-// Captured once from the real pipeline (vendor/showdown.min.js + shared/html-sanitize.js +
-// shared/markdown.js over the mini-DOM) and frozen here: markdown.js needs a `showdown` global and a
-// lexical `sanitizeHtml` from another file, so it is not reachable beside a screen. These strings are
-// what the tester's description actually becomes.
+// Frozen from the real Md.render: markdown.js needs another file's globals, so it cannot load here.
 const MD = {
   // '## Steps' + two bullets
   twoSteps: '<h2 id="steps">Steps</h2>\n<ul class="md-steps">\n<li>Open the site</li>\n<li>Click Login</li>\n</ul>',
@@ -68,8 +47,7 @@ const MD = {
   noStepsHeading: '<h2 id="notes">Notes</h2>\n<ul>\n<li>a note</li>\n<li>another</li>\n</ul>',
 };
 
-// shared/markdown.js:61-72, verbatim: which lists are the STEPS is the renderer's answer, and a body
-// with no Steps-like heading has none — the contract row 119 turns on.
+// Verbatim from shared/markdown.js: a body with no Steps-like heading has no steps lists.
 const STEPS_HEADING = /step|крок/i;
 function stepLists(container) {
   const heading = container.querySelectorAll('h1,h2,h3,h4').find((h) => STEPS_HEADING.test(h.textContent));
@@ -83,7 +61,7 @@ function stepLists(container) {
   return lists;
 }
 
-// index.html's shape (:570-572, :611, :637-656), cut to the nodes half B touches.
+// index.html's shape, cut to the nodes this half touches.
 const SECTIONS = ['desc', 'status', 'summary'];
 
 function makePage(without = []) {
@@ -96,7 +74,6 @@ function makePage(without = []) {
   };
   const steps = add('div', 'test-steps');
   const badge = add('span', 'example-badge', { hidden: true });
-  // The section bar and its three panes: one role="tablist" over three role="tab" buttons.
   const bar = add('div', 'test-sections', { role: 'tablist' });
   const panes = [];
   for (const key of SECTIONS) {
@@ -108,8 +85,7 @@ function makePage(without = []) {
   return { doc, node };
 }
 
-// The panel globals test-view.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the ones beside this land in parallel.
+// Each screen has its own globals, so they live here rather than in the shared harness.
 function load(opts = {}) {
   const o = {
     jwt: true,
@@ -137,14 +113,12 @@ function load(opts = {}) {
 
   const globals = {
     state,
-    // The real helper: the section bar's arrows are showTestSection's to wire, and a stub would be
-    // answering for them (#109).
+    // The real helper: the bar's arrows are showTestSection's to wire, and a stub would answer for them.
     Roving: loadInto({ console }, [['shared/roving.js', 'Roving']]).value,
     capabilities: { jwt: o.jwt, readonly: false },
     $: (id) => doc.getElementById(id),
     TestomatParams,
-    // shared/markdown.js's two answers: `render` off the frozen snapshots above, `stepLists` the
-    // real algorithm — a stub that always found the lists would make row 119 pass for free.
+    // `render` reads the snapshots; `stepLists` is real, since a stub finding every list passes for free.
     Md: {
       render: (md) => {
         calls.renders.push(md);
@@ -189,18 +163,14 @@ function load(opts = {}) {
   return {
     ...h,
     state, calls, node, doc,
-    // A rendered description, exactly as Md.render would hand it over.
     fixture: (markup) => { const c = doc.createElement('div'); c.innerHTML = markup; return c; },
   };
 }
 
-// A step row without its DOM node: the li holds a parent pointer, so plain() cannot see the row
-// whole — and the list itself was built inside the vm, so it needs plain() to compare at all.
+// The li's parent pointer would defeat plain(), and the vm-built list needs plain() to compare at all.
 const rowsOf = (steps) => plain([...steps].map((s) => ({
   kind: s.kind, pos: s.pos, index: s.index, title: s.title, expected: s.expected, state: s.state,
 })));
-
-// ===================== the server step overlay (rows 26-29) =====================
 
 const detail = (attributes) => ({ data: { attributes } });
 
@@ -227,8 +197,6 @@ test('29: no testrun detail, or steps that are not a list, is an empty overlay a
   assert.equal(load({ testrunDetail: detail({}) }).fn.serverStepStates().size, 0);
   assert.equal(load({ testrunDetail: detail({ steps: 'none' }) }).fn.serverStepStates().size, 0);
 });
-
-// ===================== parsing the steps out of a description (rows 110-120) =====================
 
 test('110: a Steps heading and two bullets are two step rows, numbered from zero', () => {
   const h = load();
@@ -319,8 +287,7 @@ test('118: a bullet nested under a step counts in pos — and today it is listed
   const h = load();
   const container = h.fixture(MD.nestedPlain);
   const rows = h.fn.parseSteps(container);
-  // The nested guard reads the grandparent, and wrapRow has already moved the step's sub-list under
-  // a <div> by the time it runs, so the bullet no longer looks nested to it.
+  // The nested guard reads the grandparent, but wrapRow has already moved the sub-list under a <div>.
   assert.deepEqual(rowsOf(rows).map((r) => [r.kind, r.pos, r.title]), [
     ['step', 0, 'Open the site'],
     ['step', 2, 'Click Login'],
@@ -367,11 +334,9 @@ test('120a: a description with something in it replaces the steps and draws no e
   assert.equal(h.state.currentSteps.length, 2);
   assert.deepEqual(h.calls.empties, []);
   assert.equal(h.node['test-steps'].querySelectorAll('li').length, 2);
-  // The body is hydrated BEFORE it reaches the document, and the group released first.
+  // The body is hydrated before it reaches the document, and the group released first.
   assert.deepEqual(h.calls.order.filter((c) => c !== 'Md.render'), ['release:test-description', 'hydrate']);
 });
-
-// ===================== the example row and its badge (rows 121-125) =====================
 
 const withExample = (params, example) => detail({ test: { params }, example });
 
@@ -423,8 +388,6 @@ test('125: a page with no badge element does not throw', () => {
   const h = load({ without: ['example-badge'] });
   assert.equal(h.fn.applyExample('Hi ${x}'), 'Hi ${x}');
 });
-
-// ---------- the three section tabs (#109) ----------
 
 const tabIndexes = (h) => SECTIONS.map((k) => h.node[`tab-test-${k}`].getAttribute('tabindex'));
 const selected = (h) => SECTIONS.map((k) => h.node[`tab-test-${k}`].getAttribute('aria-selected'));

@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// #152: the tester stops a screen recording and scrubs it. extension/shared/webm-duration.js writes
-// the length into the finished file so the scrubber can move — and hands the bytes back untouched
-// whenever the file is not shaped the way it expects, rather than corrupting a five-minute take.
-// Run: node --test tests/webm-duration.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
@@ -37,8 +33,7 @@ const PATCHED = [...HDR, ...SEG_U, ...INFO8(0x12), ...TCS, ...DUR8_4000, ...CLUS
 const bytes = (arr) => new Uint8Array(arr);
 const out = (arr, ms) => [...WebmDuration.patch(bytes(arr), ms)];
 
-// Never assert "unchanged" alone — a dead call returns its input too. Every such row is paired with
-// this one, which proves the same fixture family DOES get patched.
+// Never assert "unchanged" alone: a dead call returns its input too, so this row proves a patch.
 test('W0: the take a MediaRecorder streams comes back with a duration written into it', () => {
   assert.deepEqual(out(STREAMED, 4000), PATCHED);
   assert.notDeepEqual(out(STREAMED, 4000), STREAMED);
@@ -84,7 +79,7 @@ test('W7: a duration written as a four-byte float is not touched at all', () => 
   const float32 = [...HDR, ...SEG_U, ...INFO(0x8E), ...TCS, ...DUR4_ZERO, ...CLUSTER];
   assert.equal(float32.length, 38);
   assert.deepEqual(out(float32, 4000), float32);
-  // The eight-byte sibling of the same file IS filled in, so this is a width decision, not silence.
+  // The eight-byte sibling is filled in, so this is a width decision, not silence.
   const float64 = [...HDR, ...SEG_U, ...INFO(0x92), ...TCS, ...DUR8_ZERO, ...CLUSTER];
   assert.notDeepEqual(out(float64, 4000), float64);
 });
@@ -147,7 +142,7 @@ test('W18: an untouched result shares the caller\'s buffer, so writing to it wri
   const result = WebmDuration.patch(a.buffer, 4000); // unchanged: no Segment
   result[0] = 0x99;
   assert.equal(a[0], 0x99); // the return is a view over the caller's bytes, not a copy
-  // Handing over the VIEW instead copies, so the same caller is safe that way round.
+  // Handing over the view instead copies, so the same caller is safe that way round.
   const b = bytes(HDR);
   WebmDuration.patch(b, 4000)[0] = 0x99;
   assert.equal(b[0], 0x1A);

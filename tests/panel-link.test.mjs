@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-// extension/shared/panel-link.js (#178): the line an open panel keeps to the service worker, so the
-// worker knows a panel is on screen and which browser window holds it — that is how a screen
-// recording is stopped when the tester closes the last panel. Chrome tears the worker down whenever
-// it likes, so the line drops constantly and this file redials.
-// Both ways of getting the redial wrong are silent. A loop with no brake burns the tester's CPU
-// against an API that is gone; a redial that never fires leaves a panel that looks fine and has
-// quietly stopped talking, so the recording never stops. And the two ports are not
-// interchangeable — 'panel' is the toolbar-icon surface alone, 'panel-doc' is any live panel
-// document — so a document that opens the wrong one makes two surfaces claim to be the same one.
-// Run: node --test tests/panel-link.test.mjs
+// The ports differ: 'panel' is the toolbar-icon surface alone, 'panel-doc' any live panel document.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
@@ -16,8 +7,7 @@ import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
 const PANEL = '/sidepanel/index.html';
 const EDITOR = '/editor/editor.html';
 
-// A hand-rolled timer queue, never the realm's: the redial is 1000 ms away and every row about it is
-// an assertion on WHAT IS IN THE QUEUE, which a real wait could only turn into a slow, flaky guess.
+// A hand-rolled timer queue: rows assert what is queued, which a real 1000 ms wait cannot.
 function loadPanelLink(opts = {}) {
   const {
     pathname = PANEL,
@@ -29,8 +19,7 @@ function loadPanelLink(opts = {}) {
     noChrome = false,
   } = opts;
 
-  // `id` is read through `in`, not a default: `{ id: undefined }` IS the case, and a default
-  // parameter would silently hand the dead-context row a live runtime id.
+  // `id` is read through `in`: `{ id: undefined }` is the dead-context case a default would hide.
   const s = { id: 'id' in opts ? opts.id : 'abcdefghij', connectThrows, postThrows };
   const ports = [];
   const timers = [];
@@ -99,8 +88,6 @@ function loadPanelLink(opts = {}) {
   };
 }
 
-// ---------- a context that is gone, or an API that never was ----------
-
 test('an extension reloaded under an open panel does not dial a runtime that is gone', async () => {
   const h = loadPanelLink({ id: undefined });
   h.link.init();
@@ -123,8 +110,6 @@ test('a page with no chrome object at all loads and inits quietly', async () => 
   assert.deepEqual(h.names(), []);
   assert.equal(h.link.connected(), false);
 });
-
-// ---------- which surface opens which port ----------
 
 test('the side panel registers as both a live panel document and the toolbar surface', async () => {
   const h = loadPanelLink({ tabs: 'panel' });
@@ -175,8 +160,6 @@ test('a document that boots twice keeps one port per name, not two', async () =>
   assert.deepEqual(h.names(), ['panel-doc', 'panel']);
 });
 
-// ---------- the hello that tells the worker which window this is ----------
-
 test('a fresh toolbar port announces the window it sits in, because a panel sender has none', async () => {
   const h = loadPanelLink({ current: { id: 12 } });
   h.link.init();
@@ -218,8 +201,6 @@ test('every redial says hello again — a warm worker still learns the window', 
   assert.equal(h.countOf('panel'), 2);
   assert.deepEqual(plain(h.portsOf('panel')[1].posts), [{ type: 'PANEL_HELLO', windowId: 12 }]);
 });
-
-// ---------- the redial ----------
 
 test('a connect that throws leaves no port and books a retry a second out', async () => {
   const h = loadPanelLink({ connectThrows: true });
@@ -315,8 +296,6 @@ test('the panel-doc port redials on its own, so a closed panel is still noticed'
   assert.equal(h.countOf('panel-doc'), 2);
   assert.equal(h.countOf('panel'), 1); // the other dialer was not disturbed
 });
-
-// ---------- what a caller can ask ----------
 
 test('the panel reports no line to the worker until init has actually dialled one', async () => {
   const h = loadPanelLink();

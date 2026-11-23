@@ -1,20 +1,11 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/view-switch.js (#184): the one header button that moves the panel between
-// Chrome's side panel and a free-floating window, and back.
-// Two promises hold it up, and both break silently. The preference is written ONLY once the other
-// surface has really opened — write it early and a tester whose window Chrome refused is left with
-// a toolbar icon pointing at a surface that never appears. And `sidePanel.open()` must run while the
-// click is still on the stack: put one await in front of it and Chrome rejects the gesture, so the
-// dock button simply stops working with no error anyone sees.
-// Run: node --test tests/view-switch.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, makeDocument, fakeWindow, fire, plain, settle } from './helpers/panel-harness.mjs';
 
 const NORMAL_KEY = 'viewNormalWindowId';
 
-// `inPanelWindow` and `hostWindowId` are module `let`s no caller can reach, so every row about them
-// is asserted through what the button then DOES. One load per case: the two are never reset.
+// `inPanelWindow` and `hostWindowId` are unreachable `let`s, so rows assert what the button then does.
 function loadViewSwitch(opts = {}) {
   const {
     withButton = true,
@@ -25,8 +16,7 @@ function loadViewSwitch(opts = {}) {
     open = 'ok',             // 'ok' | 'throw' (synchronously) | 'reject'
     closeThrows = false,
   } = opts;
-  // Read through `in`, not a default: `undefined` IS one of the worker's answers, and a default
-  // parameter would quietly turn that row into the happy path.
+  // Read through `in`, not a default: `undefined` is one of the worker's answers.
   const answer = 'answer' in opts ? opts.answer : { ok: true };
 
   // Every side effect in the order it happened: half of what this file promises is a sequence.
@@ -41,7 +31,7 @@ function loadViewSwitch(opts = {}) {
   const doc = makeDocument(withButton ? ['button#view-switch'] : []);
   const btn = doc.getElementById('view-switch');
   if (btn) {
-    // index.html:53 ships the side-panel state statically; this file repaints it once it knows.
+    // index.html ships the side-panel state statically; this file repaints it once it knows.
     btn.setAttribute('aria-label', 'Open in window');
     btn.append(doc.createElement('span'));
   }
@@ -98,8 +88,6 @@ function loadViewSwitch(opts = {}) {
     fire: (changes, area = 'session') => listeners.forEach((cb) => cb(changes, area)),
   };
 }
-
-// ---------- boot ----------
 
 test('a browser without the windows API hides the switch rather than offering a dead one', async () => {
   const h = loadViewSwitch({ withWindows: false });
@@ -164,8 +152,6 @@ test('a change that is not an id, or not the session area, leaves the target alo
   assert.deepEqual(plain(h.opens), [{ windowId: 7 }]);
 });
 
-// ---------- the label ----------
-
 test('in the side panel the button says what pressing it does: open in window', async () => {
   const h = loadViewSwitch({ inPanelWindow: false });
   await h.fn.initViewSwitch();
@@ -183,8 +169,6 @@ test('in the floating window it says the opposite: dock to side panel', async ()
   assert.deepEqual(h.tips, ['Dock to side panel']);
   assert.deepEqual(plain(h.icons), [['dock_to_right', 20]]);
 });
-
-// ---------- side panel → window ----------
 
 test('the window really opening is what earns the preference, and then this surface closes', async () => {
   const h = loadViewSwitch({ inPanelWindow: false, answer: { ok: true } });
@@ -217,8 +201,6 @@ test('a worker that never answers gets the same refusal without a made-up reason
     assert.deepEqual(h.modes, []);
   }
 });
-
-// ---------- window → side panel ----------
 
 test('the dock opens the side panel BEFORE anything is awaited, or Chrome drops the gesture', async () => {
   const h = loadViewSwitch({ inPanelWindow: true, normalWindowId: 7 });
@@ -266,8 +248,6 @@ test('the refusal carries Chrome’s own reason, so the tester knows what happen
   ]);
 });
 
-// ---------- the click, and the teardown ----------
-
 test('pressing the button routes to the surface this document is NOT on', async () => {
   const side = loadViewSwitch({ inPanelWindow: false });
   await side.fn.initViewSwitch();
@@ -285,8 +265,7 @@ test('pressing the button routes to the surface this document is NOT on', async 
 });
 
 test('17b (#350): a click landing before boot has finished opens no second window', async () => {
-  // app.js:53 calls initViewSwitch() without awaiting it, so the press can land a whole await before
-  // the surface is known — and a surface nobody has answered for must take no branch at all.
+  // app.js does not await initViewSwitch(), so a press can land before the surface is known.
   const h = loadViewSwitch({ inPanelWindow: true, normalWindowId: 7 });
   const booting = h.fn.initViewSwitch();  // started, not awaited
   fire(h.btn, 'click');                   // the tester is fast, or the storage read is slow
@@ -302,9 +281,7 @@ test('17b (#350): a click landing before boot has finished opens no second windo
   assert.deepEqual(h.sent, []);
 });
 
-// The narrower half of the same race: the surface IS known by now, but the window to dock into is
-// not. Wiring the press anywhere before the last await trades the second window for a dock that
-// answers "Open a browser window first" — still wrong, and still only under a fast finger.
+// Wired too early, the press answers "Open a browser window first": wrong, and only for a fast finger.
 test('17c (#350): the press stays asleep until the window to dock into is known too', async () => {
   let letItFinish;
   const pending = new Promise((resolve) => { letItFinish = () => resolve(7); });

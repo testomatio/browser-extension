@@ -1,24 +1,16 @@
-// What the step recorder and the AI polish write into a test body (IIFE global `RecFormat`):
-// recorded entries → items, items → markdown, the polish answer → items back. Pure, no DOM.
+// What the step recorder and the AI polish write into a test body; pure, no DOM.
 
 /* global MdSections */
 const RecFormat = (() => {
-  // ---- recorded-step insertion (step recorder) ----------------------------
-  // An item is `{text, subs}` — the nested `- Expected: …` lines (#78). The section arithmetic
-  // itself lives in md-sections.js, which splices rather than re-emits: everything the tester
-  // wrote around the list stays as it is.
   const STEPS_OPTS = { ordered: true };
 
-  // The one place that prefix is written: a tester who typed `Expected:` themselves — bulleted,
-  // emphasised or in any case — must not be handed a second one.
+  // The one place the prefix is written: a tester's own `Expected:`, in any form, must not double it.
   const asExpected = (s) => `Expected: ${String(s).replace(/^[\s*_-]*expected[*_\s]*:?[*_\s]*/i, '').trim()}`;
 
-  // The heading the recorded steps join: whatever this body already calls its steps section, so
-  // a test written in Ukrainian keeps its own `### Кроки`, and `Steps` when it has none.
+  // The body's own steps heading (a Ukrainian test keeps `### Кроки`), else `Steps`.
   const stepsHeading = (md) => MdSections.findHeading(md, MdSections.STEPS_HEADING) || 'Steps';
 
-  // #78/#91: an expected result belongs to the step it followed, as the `- Expected: …`
-  // sub-bullet the panel renders inline (sidepanel/screens/test-view.js `extractExpected`).
+  // An expected result is its step's `- Expected:` sub-bullet, as test-view.js `extractExpected` reads.
   function splitRecorded(entries, attachToPrior) {
     const steps = [];
     const expected = [];
@@ -34,20 +26,16 @@ const RecFormat = (() => {
     return { steps, expected, leadSubs };
   }
 
-  // `heading` is resolved by the caller when it has to name the same section twice (rec-session
-  // counts the items there BEFORE this insert); on its own the body decides.
+  // Callers pass `heading` when they name the section twice (rec-session counts items before this).
   function insertRecorded(md, { steps, expected, leadSubs }, heading = stepsHeading(md)) {
     let out = md;
     if (steps.length || leadSubs.length) out = MdSections.insert(out, heading, steps, { ...STEPS_OPTS, leadSubs });
-    // `Expected` stays English on purpose: nothing in the extension reads that section back — the
-    // panel reads the `- Expected: …` sub-bullets above — and it only opens with no step before it.
+    // `Expected` stays English: nothing reads it back, and it opens only with no step before it.
     if (expected.length) out = MdSections.insert(out, 'Expected', expected.map((t) => ({ text: t, subs: [] })), { ordered: false });
     return out;
   }
 
-  // ---- AI polish (#23): the recording's own items, rewritten in place --------
-  // The server wraps the section in these markers inside `text`; `data.polished_steps` may
-  // carry them too, so the same cut runs on whichever field answered.
+  // The server wraps the section in these markers, in whichever field answered.
   const POLISH_START = '<!-- ![START polished_steps]! -->';
   const POLISH_END = '<!-- ![END polished_steps]! -->';
   function polishedSection(res) {
@@ -57,8 +45,7 @@ const RecFormat = (() => {
     return a !== -1 && b > a ? raw.slice(a + POLISH_START.length, b) : raw;
   }
 
-  // `N. sentence`, each with any number of `Expected: …` sub-lines under it, bulleted or not and
-  // emphasised or not — the prompt asks the model for `*Expected*:` (#65), a tester writes `- `.
+  // The prompt asks the model for `*Expected*:` sub-lines, a tester writes `- Expected:`; take both.
   function parsePolishedItems(section) {
     const items = [];
     for (const line of String(section || '').split('\n')) {
@@ -71,8 +58,7 @@ const RecFormat = (() => {
     return items;
   }
 
-  // A refusal the instance explains itself (a 422: "Ai is not available in your subscription
-  // plan") is worth more than our own wording — `ApiError.message` carries the JSON body.
+  // The instance's own refusal text beats our wording; `ApiError.message` carries the JSON body.
   function serverMessage(e) {
     try {
       const j = JSON.parse((e && e.message) || '');
@@ -83,7 +69,7 @@ const RecFormat = (() => {
     return said && !/^HTTP \d+$/.test(said) ? said : '';
   }
 
-  // The project's word on AI: 'none' (the instance has none), 'off' (not for this company), 'on' or 'unknown'.
+  // 'none' (the instance has no AI), 'off' (not for this company), 'on' or 'unknown'.
   function aiStatusOf(doc) {
     const a = (doc && doc.data && doc.data.attributes) || {};
     const cs = a['company-settings'] || a.company_settings;

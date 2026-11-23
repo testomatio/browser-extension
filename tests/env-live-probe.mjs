@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// Reads what the panel's env-info would report in a real branded browser on a real OS (#12).
-// A blank page is a valid stand-in: platform/brand client hints are browser-global, not
-// per-document, and branded Chrome 137+ refuses --load-extension.
-// The page must be a SECURE context though — navigator.userAgentData is undefined on
-// about:blank/http, which would silently measure the UA-string fallback instead.
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +27,7 @@ const browser = await chromium.launch({ channel, headless: false });
 
 try {
   const page = await browser.newPage();
-  // Empty https page fulfilled locally: a secure context without a server or network.
+  // Fulfilled locally over https: userAgentData needs a secure context, and no network is needed.
   await page.route('**/*', (route) => route.fulfill({ contentType: 'text/html', body: '<html></html>' }));
   await page.goto('https://env-probe.local/');
   // Plain top-level script: injecting it makes envOs/envBrowser page globals.

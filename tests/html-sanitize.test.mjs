@@ -1,20 +1,13 @@
 #!/usr/bin/env node
-// #149: a test's description is written by whoever can edit the project and can carry raw HTML.
-// extension/shared/html-sanitize.js is the one place that strips it before the tester's panel draws
-// it — so a description cannot run a script, move the tester somewhere, or reach back into the
-// extension's own pages, which is how the host's session used to leak.
-// Run: node --test tests/html-sanitize.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, pageGlobals, EXT_BASE } from './helpers/shared-harness.mjs';
 import { makeDocument, el } from './helpers/mini-dom.mjs';
 
-// html-sanitize.js declares two top-level consts, so it loads once per context; one context for the
-// whole file is enough because sanitize() keeps no state between calls.
+// Two top-level consts allow one load per context; sanitize() is stateless, so one is enough.
 const { value: HtmlSanitize } = loadInto(pageGlobals(), [['shared/html-sanitize.js', 'HtmlSanitize']]);
 const doc = makeDocument();
 
-// A container holding the description as the panel would have parsed it, already sanitized.
 function clean(html) {
   const box = doc.createElement('div');
   box.innerHTML = html;
@@ -26,7 +19,6 @@ const attrOf = (box, sel, name) => {
   const node = box.querySelector(sel);
   return node ? node.getAttribute(name) : undefined;
 };
-// The href a description keeps, or null when the sanitizer took it away.
 const hrefAfter = (value) => attrOf(clean(`<a href="${value}">click me</a>`), 'a', 'href');
 
 test('S1: a description that carries a script tag loses the whole tag', () => {
@@ -62,7 +54,7 @@ test('S3: an image that tries to run code on failure keeps the picture and loses
 
 test('S4: a handler written in capitals is removed just the same', () => {
   assert.equal(attrOf(clean('<div ONCLICK="x">hi</div>'), 'div', 'onclick'), null);
-  // …and the module lowercases the name itself, for a node some other code built by hand.
+  // The module lowercases the name itself, for a node other code built by hand.
   const node = el('div');
   node.setAttribute('ONCLICK', 'x');
   const box = doc.createElement('div');
@@ -94,7 +86,7 @@ test('S9: a vbscript link is refused', () => {
 });
 
 test('S10: a link to the extension\'s own handoff file is refused', () => {
-  // The host's session file sits next to the panel; a description that could link to it leaked it.
+  // The host's session file sits next to the panel, so a description must not link to it.
   assert.equal(hrefAfter('/handoff.json'), null);
 });
 
@@ -151,8 +143,7 @@ test('S20: a picture stored on the tester\'s own instance still loads', () => {
 });
 
 test('S21: a picture pulled from a stranger\'s server is left in place here, on purpose', () => {
-  // https is a safe scheme, so the sanitizer keeps it; the block that matters is the downstream
-  // fetch that refuses to leave the instance. Pinned so nobody patches the wrong layer.
+  // https is a safe scheme here; the block is the downstream fetch that refuses to leave the instance.
   assert.equal(attrOf(clean('<img src="https://evil.example/px.png">'), 'img', 'src'),
     'https://evil.example/px.png');
 });
@@ -195,8 +186,7 @@ test('S26: a javascript link buried six elements deep is found all the same', ()
 });
 
 test('S27: a link to a lookalike domain is kept here — the instance check is elsewhere', () => {
-  // The `а` is Cyrillic. It is a valid https URL, so this layer keeps it; only the fetch that
-  // refuses to leave the instance can tell the two apart.
+  // The `а` is Cyrillic: a valid https URL, so only the instance-bound fetch can tell them apart.
   const url = 'https://аpp.testomat.io/x';
   assert.equal(hrefAfter(url), url);
 });
@@ -212,7 +202,6 @@ test('S29: an empty description is left exactly as it is', () => {
   HtmlSanitize.sanitize(box);
   assert.equal(box.childNodes.length, 0);
   assert.equal(box.innerHTML, '');
-  // The same call on a description that does hold something still changes it.
   assert.equal(clean('<a href="javascript:x">t</a>').querySelector('a').getAttribute('href'), null);
 });
 
@@ -220,6 +209,5 @@ test('S30: a link with nowhere to go is not turned into a new-tab link', () => {
   const a = clean('<a>just words</a>').querySelector('a');
   assert.equal(a.getAttribute('target'), null);
   assert.equal(a.getAttribute('rel'), null);
-  // …while the one right beside it that does have an address gets both.
   assert.equal(clean('<a href="https://x.io/p">go</a>').querySelector('a').target, '_blank');
 });

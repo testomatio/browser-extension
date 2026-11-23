@@ -3,11 +3,6 @@
 /* global TestomatAPI, CaptureAnnotate, resolveSiteTab, Tooltip, TestGates, attRemember,
    renderAttachmentList, progressToast, hideToast, RunLock */
 
-// ---------- hotkeys (US5) ----------
-// Cmd/Ctrl+Enter/U/I mark passed/failed/skipped through the SAME clickStatus the
-// buttons call. Deliberate divergence from the web: none of them navigates (#108).
-
-// Suppress shortcuts while the tester is typing.
 function typingInField(target) {
   const el = target || document.activeElement;
   if (!el || !el.tagName) return false;
@@ -15,14 +10,12 @@ function typingInField(target) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
 }
 
-// …and while a popup is up: an open listbox/menu leaves focus on its `<button>`
-// trigger, so the typing guard alone lets bare letters through underneath it.
-// Every popup control marks its trigger the same way, so new ones come covered.
+// An open listbox or menu keeps focus on its trigger button, so the typing guard alone misses it.
 function popupOpen() {
   return !!document.querySelector('[aria-haspopup][aria-expanded="true"]');
 }
 
-// ±1 through the VISIBLE sequence (filter + search applied), clamped, no wrap.
+// Steps through the visible sequence (filter and search applied), clamped, no wrap.
 function navigateTest(delta) {
   const order = pagerRecords(); // the open test keeps its place after a status takes it out of the filter
   const from = order.findIndex((r) => String(r.id) === String(state.currentRecordId));
@@ -34,25 +27,21 @@ function navigateTest(delta) {
 
 const HOTKEY_STATUS = { Enter: 'passed', KeyU: 'failed', KeyI: 'skipped' };
 
-// ---- hotkey discoverability (tooltips + a "?" legend) --------------------
-// The handler accepts both Cmd and Ctrl everywhere; only the LABELS are platform-
-// specific (mac ⌘ vs Ctrl+).
+// The handler accepts Cmd and Ctrl everywhere; only the labels are platform-specific.
 const IS_MAC = /mac/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
 const HK_MOD = IS_MAC ? '⌘' : 'Ctrl+';
 const HK_STATUS_KEY = { passed: '⏎', failed: 'U', skipped: 'I' };
-// A bare letter on purpose (#108): Cmd/Ctrl+N opens a browser window and cannot be
-// preventDefault'ed, and the plain arrows already mean ±1 in the list.
+// A bare letter: Cmd/Ctrl+N opens a browser window and cannot be preventDefault'ed.
 const HK_NEXT_KEY = 'N';
 
 function hotkeyStatusLabel(status) { return `${HK_MOD}${HK_STATUS_KEY[status]}`; }
 
-// Built once — the labels are static per platform. Called from app init.
+// Built once: the labels are static per platform.
 function initHotkeyHints() {
   Tooltip.set($('btn-passed'), `Passed (${hotkeyStatusLabel('passed')})`);
   Tooltip.set($('btn-failed'), `Failed (${hotkeyStatusLabel('failed')})`);
   Tooltip.set($('btn-skipped'), `Skipped (${hotkeyStatusLabel('skipped')})`);
-  // N (jump to the next UNTESTED row) has no button of its own — the legend below
-  // is the only place it is written down.
+  // N has no button of its own, so the legend below is the only place it is written down.
   Tooltip.set($('btn-prev-test'), 'Previous test (↑ / ←)');
   Tooltip.set($('btn-next-test'), 'Next test (↓ / →)');
 
@@ -99,23 +88,20 @@ function onHotkey(e) {
     const status = HOTKEY_STATUS[code];
     if (!status) return;
     e.preventDefault();                      // beat browser defaults (view-source/italic/underline)
-    clickStatus(status);                     // the buttons' own path: saves and stays put (#77/#108)
+    clickStatus(status);                     // the buttons' own path; unlike the web, it never navigates
     return;
   }
   if (e.altKey || e.shiftKey) return;
-  // N — the "Next test →" button's hotkey (#108): next still-untested visible row.
+  // N jumps to the next still-untested visible row, as the "Next test →" button does.
   if (e.code === 'KeyN' || e.key === 'n') { e.preventDefault(); nextTest(); return; }
   if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); navigateTest(1); }
   else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); navigateTest(-1); }
 }
 
-// ---- the annotation an upload refusal must not throw away (#192) ----------
-// The refusal still blocks the upload, but the annotated image is KEPT in one slot
-// so the tester can take it off the panel. One slot — a newer shot wins.
+// A refused upload keeps the annotated image in one slot so the tester can save it; newer wins.
 let pendingAnnotation = null; // { dataUrl, name, recordId } — dropped once saved to disk
 
-// Shown only on the record it was drawn for; the SLOT itself survives navigation.
-// NOT gated by RunLock — this writes to the tester's disk, not the server.
+// Not gated by RunLock: this writes to the tester's disk, not the server.
 function renderPendingAnnotation() {
   const btn = $('btn-save-annotation');
   if (!btn) return;
@@ -128,8 +114,7 @@ function keepRefusedAnnotation(dataUrl, recordId) {
   renderPendingAnnotation();
 }
 
-// An anchor + object URL: the panel holds no `downloads` permission and needs
-// none. The revoke is deferred — revoking while the download is starting kills it.
+// No `downloads` permission needed; the revoke waits, since revoking mid-start kills the download.
 async function savePendingAnnotation() {
   if (!pendingAnnotation) return;
   const { dataUrl, name } = pendingAnnotation;
@@ -150,9 +135,7 @@ async function savePendingAnnotation() {
   }
 }
 
-// The worker does the shooting, and an MV3 worker can be torn down mid-job — a promise that
-// never settles would leave the panel saying "Capturing tab…" for good. Well past a full-page
-// shot, so a slow page still lands; only a dead worker hits it.
+// An MV3 worker can die mid-job; well past a full-page shot, so only a dead worker hits it.
 const CAPTURE_TIMEOUT_MS = 30000;
 
 function captureTab(fullPage) {
@@ -165,13 +148,12 @@ function captureTab(fullPage) {
   return Promise.race([asked, gaveUp]);
 }
 
-// Capture → annotate → upload. Apply uploads the merged JPEG even with zero
-// annotations, Keep original the raw shot, Discard returns null (no upload).
+// Apply uploads even with zero annotations, Keep original the raw shot, Discard nothing.
 async function attachScreenshotAnnotated() {
   const btn = $('btn-screenshot-annotate');
   if (btn?.disabled) return; // gated (no result / basic mode / finished or automated run) or a capture in flight
   const record = recordFor(state.currentRecordId);
-  if (RunLock.recordWriteLock(record)) return; // #152/#154 — re-asked at the upload (#187)
+  if (RunLock.recordWriteLock(record)) return; // re-asked at the upload
   if (!record?.id) return;
   if (!hasChrome || !chrome.runtime?.sendMessage) {
     toast('Screenshots need the extension context');
@@ -181,8 +163,7 @@ async function attachScreenshotAnnotated() {
   // Declared out here so the catch can still see it: a failed upload must not cost the drawing too.
   let annotated = null;
   try {
-    // The tab under test: the capture AND the annotator-overlay inject both need a
-    // page Chrome lets us touch. Never a prompt — host access is held from install.
+    // Capture and annotator inject both need a page Chrome lets us touch; host access is from install.
     const site = await resolveSiteTab({ verb: 'captured' });
     if (site.state !== 'ok') { toast(site.error); return; }
     const perm = await CaptureAnnotate.ensureCapturePermission();
@@ -194,32 +175,25 @@ async function attachScreenshotAnnotated() {
     const fullPage = TestGates.fullPageCaptureEnabled();
     const resp = await captureTab(fullPage);
     if (!resp?.ok) {
-      // #101: another extension's frame blocked the debugger and the viewport
-      // rescue is short of `activeTab` — the worker's sentence names the fix.
+      // A grant is missing when another extension blocks the debugger; the worker's text names the fix.
       toast(resp?.needsGrant ? resp.error : `Capture failed: ${resp?.error || 'unknown'}`, { error: true });
       return;
     }
-    // #101: the debugger was refused, so this is the viewport alone — never let a
-    // "Full page" request hand back a cropped shot silently.
-    // One plaque at a time: the warning IS the message here, so it stands in place of the
-    // "Annotating…" step — the annotator itself is on the page, where the panel says nothing.
+    // Never let a "Full page" request hand back a cropped shot silently.
     if (fullPage && resp.viewportOnly) toast('Full page needs the debugger, which this page blocks — captured the viewport.', { ms: 8000 });
     else if (fullPage && resp.heightClipped) toast('This page is taller than a screenshot can be — the shot stops at the full-page limit.', { ms: 8000 });
     else progressToast('Annotating…');
     annotated = await CaptureAnnotate.annotateImage(resp.dataUrl, resp.tabId, { toast });
     if (!annotated) { hideToast(); return; } // Discard — no upload, no state change
-    // #187: the annotator is interactive and the run can finish under it, so the
-    // lock is re-asked immediately before the write.
+    // The run can finish while the annotator is open, so the lock is re-asked right before the write.
     const lock = RunLock.recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
-    // #192: refuse the upload, keep the drawing — the Save button is the way out.
+    // Refuse the upload but keep the drawing; the Save button is the way out.
     if (lock) { keepRefusedAnnotation(annotated, record.id); setStatusLine('test-status', lock, 'error'); return; }
     const blob = await (await fetch(annotated)).blob();
     progressToast('Uploading screenshot…');
     const name = `panel-annotated-${record.id}-${Date.now()}.jpg`;
     const res = await TestomatAPI.uploadAttachment(record.id, blob, name);
-    // The server list is re-read only on reopen, so the shot would sit invisible on a
-    // screen the tester is already looking at — the same remember+repaint the file
-    // picker does (attachments.js), keyed by record id so a navigation away is safe.
+    // The server list is re-read only on reopen, so remember the shot locally, keyed by record id.
     attRemember(record.id, { name, url: (res && res.url) || '' });
     renderAttachmentList();
     setStatusLine('test-status', 'Screenshot attached ✓', 'ok');

@@ -1,15 +1,11 @@
-// The API client's error type and the sentences a refusal shows the tester (IIFE global `ApiErrors`):
-// which wording is which refusal. Depends on nothing — toError() takes a `res`-shaped object.
-
 const ApiErrors = (() => {
-  // The host, so a tester reading either verdict below knows WHICH server refused them.
+  // The host, so the tester knows which server refused them.
   const instanceHost = (baseUrl) => { try { return new URL(baseUrl).host; } catch { return 'the web app'; } };
   const readonlyMessage = (host, status) =>
     `Your access to this project is read-only — ${host} answered ${status} to a plain read too`;
   const routeRefused = (host, status) =>
     `${host} refused this request (${status}) — the project itself still reads fine`;
-  // A 429 already waited out ApiTransport's two retries by the time it gets here, so the tester is
-  // told to wait rather than to click again straight away. Never the body: a 429 body is a quota dump.
+  // A 429 already waited out ApiTransport's two retries; never the body, a 429 body is a quota dump.
   const RATE_LIMITED = 'Too many requests — wait a minute, then try again';
 
   class ApiError extends Error {
@@ -20,9 +16,7 @@ const ApiErrors = (() => {
     }
   }
 
-  // What the SERVER actually wrote, in the shapes the two halves of this API use: v2 answers
-  // `{message}` or `{error}`, the JSON:API an `errors[]` of `{detail|title|message}`. Anything else
-  // is nothing readable — never the stringified body, which is a wire dump, not a sentence.
+  // v2 answers `{message}` or `{error}`, JSON:API `errors[]`; never the stringified body, a wire dump.
   const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
   function readable(body) {
     if (typeof body === 'string') return text(body);
@@ -40,14 +34,13 @@ const ApiErrors = (() => {
       return new ApiError('auth', res.status, 'Token invalid or has no access');
     }
     if (res.status === 404) {
-      // Valid token without project membership also yields 404 (research R6).
+      // A valid token without project membership also yields 404.
       return new ApiError('notfound', 404, 'Not found — or no access to this project');
     }
     // `http` and 429 on purpose: the offline queue reads `kind` and must not start queueing these.
     if (res.status === 429) return new ApiError('http', 429, RATE_LIMITED);
     let detail = '';
     try { detail = readable(await res.json()); } catch { /* empty or unparseable body */ }
-    // Nothing readable in there — the status line is at least honest about what happened.
     return new ApiError('http', res.status, detail || `HTTP ${res.status}`);
   }
 

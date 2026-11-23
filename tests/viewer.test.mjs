@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// extension/viewer/viewer.js: the page that opens when a tester clicks an attachment on a test — a
-// screenshot, a screen recording, a log. One decision runs the whole file: WHAT KIND of file is
-// this? The content type answers when the server sends one and the NAME answers when it does not —
-// a bucket that serves a screencast as `application/octet-stream` is the whole reason the name has
-// to be able to answer alone. Guess wrong and the tester gets a video player over a text file, or a
-// download note over the screenshot they wanted to look at.
-//
-// The file is a BARE IIFE: it publishes nothing, exports nothing, has no completion value and
-// declares no top-level function, so there is no `kindOf` to reach for. Every row builds a sandbox
-// with one `?url=…&name=…&type=…`, runs the whole script, and reads the verdict off the stage —
-// each kind paints exactly one element (pre / video / img / p), and that is kindOf()'s only
-// observable from outside.
-//
-// Cases numbered as in issue 188. Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument, fire } from './helpers/mini-dom.mjs';
@@ -20,12 +6,10 @@ import {
   loadInto, chromeFake, ExtURL, plain, settle,
 } from './helpers/shared-harness.mjs';
 
-// loadInto() resolves this through sharedPath(), so SHARED_MODULES=viewer.js=… runs the whole suite
-// against a mutated copy without the shipped file ever being edited.
+// loadInto() resolves this through sharedPath(), so SHARED_MODULES can swap in a mutated copy.
 const VIEWER = 'viewer/viewer.js';
 
-// Every id viewer.html carries. paintChrome() dereferences two of them at load, before any row can
-// look, so a missing one throws and takes the whole script with it.
+// paintChrome() dereferences two of these at load, so a missing id throws and kills the whole script.
 const IDS = ['div#viewer-stage', 'h1#viewer-name', 'a#viewer-open'];
 
 const INSTANCE = 'https://app.testomat.io';
@@ -36,13 +20,10 @@ const NO_PREVIEW = 'No preview for this file type.';
 const BROKEN = 'This file could not be loaded — the link may have expired.';
 const REFUSED = 'This link did not come from the panel, so it was not opened.';
 
-// No extension and no host of the instance's: with this url the NAME and the TYPE are the only
-// things the verdict can be coming from.
+// No extension and no instance host: with this url only the name and the type can decide.
 const NEUTRAL = 'https://files.test/asset';
 
 const BODY = 'a log line\nand another';
-
-// ---- the pieces a vm realm has none of --------------------------------------
 
 const okAsset = (body = BODY) => async () => ({
   ok: true,
@@ -58,7 +39,7 @@ const missingAsset = () => async () => ({
 
 const deadAsset = () => async () => { throw new Error('the network went away'); };
 
-// An undefined key is left OUT of the query, which is not the same as an empty one.
+// An undefined key is left out of the query, which is not the same as an empty one.
 function search(parts) {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(parts)) if (v !== undefined) p.set(k, String(v));
@@ -66,16 +47,13 @@ function search(parts) {
   return s ? `?${s}` : '';
 }
 
-// ---- the harness -------------------------------------------------------------
-
 async function load(opts = {}) {
   const {
     url, name, type,          // the ?query — omit a key to leave it out of the URL entirely
     query,                    // …or state the query string verbatim, including ''
     framed = false,
     settings = SETTINGS,      // what chrome.storage.local answers for 'settings'
-    // What the WORKER parked in storage.session before it opened this page (#105). Omit and the
-    // row gets its own url parked, the way background.js leaves it; `null` parks nothing at all.
+    // What the worker parked in storage.session; omitted parks the row's own url, `null` parks nothing.
     parked,
     credentialed = true,
     hasChrome = true,
@@ -108,10 +86,9 @@ async function load(opts = {}) {
     configure(s) { handoff.configured.push(plain(s)); },
   };
 
-  // A vm realm has no URL at all, and createObjectURL is the whole difference between "shown from
-  // our own bytes" and "fetched off a host the extension never configured".
+  // A vm realm has no URL; createObjectURL separates our own bytes from a fetch off an unknown host.
   const objectUrls = [];  // every blob handed to createObjectURL
-  const revoked = [];     // every url handed back to revokeObjectURL — row 21 watches this stay empty
+  const revoked = [];     // every url handed back to revokeObjectURL; the leak row watches it stay empty
   class VMURL extends ExtURL {}
   VMURL.createObjectURL = (blob) => {
     objectUrls.push(plain(blob) || { mark: 'blob' });
@@ -129,8 +106,7 @@ async function load(opts = {}) {
   // The branch is `window.parent !== window`, so the framed page needs a genuinely other object.
   win.parent = framed ? { postMessage: (d, o) => posts.push({ data: plain(d), origin: o }) } : win;
 
-  // background.js writes {url, name, type, at} under this key before EITHER entry path opens the
-  // viewer, and no web page can write storage.session — that record is the whole allowlist.
+  // background.js parks it before the viewer opens, and no web page can write storage.session.
   const park = parked === undefined ? url : parked;
   const record = park == null ? null
     : (typeof park === 'object' ? park : { url: String(park), name: '', type: '', at: 1 });
@@ -158,8 +134,7 @@ async function load(opts = {}) {
     window: win,
     location: { search: query !== undefined ? query : search({ url, name, type }) },
     URL: VMURL,
-    // URLSearchParams is NOT a per-realm built-in: without it line 9 throws and every row here
-    // would pass on an empty page.
+    // URLSearchParams is not a per-realm built-in: without it every row would pass on an empty page.
     URLSearchParams,
     TestomatAPI,
     Handoff,
@@ -168,8 +143,7 @@ async function load(opts = {}) {
   if (hasChrome) sandbox.chrome = fake.chrome;
 
   loadInto(sandbox, [VIEWER]);
-  // paintChrome() is synchronous, but boot() and show() are a chain of promises: drive it the way a
-  // browser would before any row looks at the stage.
+  // boot() and show() are a chain of promises: settle them as a browser would before reading the stage.
   await settle(3);
 
   const $ = (id) => doc.getElementById(id);
@@ -192,8 +166,7 @@ async function load(opts = {}) {
     stage: () => $('viewer-stage'),
     text: () => $('viewer-stage').textContent,
     src: () => (child() ? child().src : null),
-    // The verdict, read off what got painted. A <p> is the download note, the refusal one (#105)
-    // or the failure one.
+    // A <p> is the download note, the refusal one or the failure one.
     kind: () => {
       const el = child();
       if (!el) return null;
@@ -208,10 +181,7 @@ async function load(opts = {}) {
   };
 }
 
-// The verdict for one ?query, over a url that answers for nothing.
 const kindOf = async (parts) => (await load({ url: NEUTRAL, ...parts })).kind();
-
-// ---- the verdict: the type, or the name ---------------------------------------
 
 test('1: a screen recording a bucket calls application/octet-stream is still a video', async () => {
   assert.equal(await kindOf({ type: 'application/octet-stream', name: 'take.webm' }), 'video');
@@ -282,8 +252,6 @@ test('7: a file named in Ukrainian is judged by its extension like any other', a
   assert.equal(await kindOf({ type: '', name: 'архів.json' }), 'text');
 });
 
-// ---- what the verdict costs ---------------------------------------------------
-
 test('8: a file with no preview says so, and nothing is fetched for it', async () => {
   const h = await load({ url: NEUTRAL, type: 'application/zip', name: 'bundle.zip' });
   assert.equal(h.text(), NO_PREVIEW);
@@ -337,8 +305,7 @@ test('12: an image that arrives but will not decode says so where the image was'
   assert.equal(h.child().tagName, 'P');
 });
 
-// The tester opens a recording to WATCH it, so the player has to be a player. Nothing else in this
-// file notices if the controls, the autoplay or the error handler quietly go away.
+// Nothing else notices if the controls, the autoplay or the error handler quietly go away.
 test('12b: a recording opens as a player the tester can actually drive', async () => {
   const h = await load({ url: NEUTRAL, name: 'take.webm' });
   assert.equal(h.kind(), 'video');
@@ -355,8 +322,7 @@ test('12c: a recording that will not play says so where the player was, the way 
   assert.equal(h.child().tagName, 'P');
 });
 
-// A log body is whatever the server sent. It is shown, never parsed — an attachment must not be able
-// to put markup, let alone a script tag, into a page that holds the tester's extension origin.
+// An attachment must not put markup into a page that holds the extension origin.
 test('12d: a log is shown as the text it is, not parsed as markup', async () => {
   const body = '<b>total</b> 3 failures <script>x</script>';
   const h = await load({ url: NEUTRAL, name: 'console.log', asset: okAsset(body) });
@@ -372,8 +338,6 @@ test('12e: a picture carries the file name as its alt text, and the note keeps i
   fire(h.child(), 'error');
   assert.equal(h.child().className, 'viewer-note');
 });
-
-// ---- where the bytes come from ------------------------------------------------
 
 test('13: the fetch is told not to refuse an off-instance host — this page presigned nothing', async () => {
   const url = 'https://files.test/run/console.log';
@@ -427,8 +391,6 @@ test('15: every image is shown from our own bytes, on-instance or not — the CS
   assert.equal(on.fetches.length, 1);
 });
 
-// ---- the session the page may or may not have ---------------------------------
-
 test('16: nothing is configured yet and a presigned link still opens', async () => {
   const url = `${INSTANCE}/artifacts/take.webm`;
   const h = await load({ url, name: 'take.webm', settings: null });
@@ -474,10 +436,7 @@ test('16f: a configured session is handed to Handoff before anything is fetched'
   assert.equal(h.text(), BODY);
 });
 
-// ---- the title bar ------------------------------------------------------------
-
-// The scheme is checked before the parked record even matters: a javascript: url in the way-out
-// link is one click from running in the extension's own origin.
+// A javascript: url in the way-out link is one click from running in the extension's own origin.
 test('17 (#105): a javascript: url is refused instead of landing in the way-out link', async () => {
   const h = await load({ url: 'javascript:alert(1)', name: 'evidence' });
   assert.equal(h.kind(), 'refused');
@@ -507,8 +466,6 @@ test('18b: a file with a name puts it in the tab title and points the way out at
   assert.equal(h.$('viewer-open').href, NEUTRAL);
   assert.equal(h.$('viewer-open').hidden, false);
 });
-
-// ---- Escape, on two different pages -------------------------------------------
 
 test('19: framed over the site, Escape asks the overlay to close and does nothing else', async () => {
   const h = await load({ url: NEUTRAL, name: 'shot.png', framed: true });
@@ -567,12 +524,7 @@ test('20e: no tabs api to ask, so the window closes itself right away', async ()
   assert.deepEqual(h.closes, [true]);
 });
 
-// ---- the one url the worker parked (#105) ---------------------------------------
-// viewer.html sits in web_accessible_resources under a pinned extension id, so ANY page can work
-// out this url and open or frame it with a ?url= of its own choosing — an authenticated GET on the
-// instance, or a request to a host of the page's picking. background.js parks the file it is about
-// to show in storage.session BEFORE either entry path opens this page, and no page can write there:
-// that one record is the whole allowlist.
+// Any page can open viewer.html with a ?url= of its own, so the parked url is the whole allowlist.
 
 test('22 (#105): a url nobody parked is refused — nothing is fetched and no link is painted', async () => {
   const h = await load({ url: `${INSTANCE}/api/v1/runs/1/secrets`, name: 'run.log', parked: null });
@@ -585,7 +537,7 @@ test('22 (#105): a url nobody parked is refused — nothing is fetched and no li
 test('22b (#105): the same refusal for a host of the page\'s own choosing', async () => {
   const h = await load({ url: 'https://evil.test/collect.webm', name: 'take.webm', parked: null });
   assert.equal(h.kind(), 'refused');
-  // An off-instance recording streams from its own url, so a painted <video src> IS the request.
+  // An off-instance recording streams from its own url, so a painted <video src> is the request.
   assert.equal(h.child().tagName, 'P');
   assert.deepEqual(h.fetches, []);
   assert.deepEqual(h.objectUrls, []);
@@ -607,8 +559,7 @@ test('22d (#105): the match is exact — the parked url with a query bolted on i
   assert.deepEqual(h.fetches, []);
 });
 
-// The other half of "exact": a url the parked one merely BEGINS with is a shorter path on the
-// same instance, and the token would go out on it. A prefix test would wave it through.
+// A shorter path on the same instance passes a prefix test, and the token would go out on it.
 test('22m (#105): a url the parked one only starts with is refused, not treated as a match', async () => {
   const h = await load({ url: `${INSTANCE}/`, name: 'shot.png', parked: `${INSTANCE}/artifacts/shot.png` });
   assert.equal(h.kind(), 'refused');
@@ -654,8 +605,6 @@ test('22j (#105): the file the panel really parked opens exactly as it did befor
   assert.equal(h.$('viewer-open').hidden, false);
 });
 
-// The panel clicks a second file while the first is on screen: background.js parks B and
-// file-overlay.js swaps the frame to B. The viewer that lands has to accept B.
 test('22k (#105): the swap to a second file is accepted — the parked record moved with it', async () => {
   const b = 'https://files.test/run/take.webm';
   const h = await load({ url: b, name: 'take.webm', parked: b });
@@ -668,8 +617,6 @@ test('22l (#105): no url at all reaches nothing, so it keeps its own expired not
   assert.equal(h.text(), BROKEN);
   assert.deepEqual(h.fetches, []);
 });
-
-// ---- what today leaks ----------------------------------------------------------
 
 test('21: the blob url the page made is never handed back — today one file leaks one url', async () => {
   const h = await load({ url: NEUTRAL, name: 'shot.png' });

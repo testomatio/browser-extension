@@ -1,6 +1,4 @@
-// Service worker: panel surface, screenshot capture, step recorder, screen recording.
-// The evidence recorder holds NO chrome.debugger session; a debugger call here is a screenshot's,
-// or the screen recording fallback's (screenrec/session.js), which holds one while it records.
+// Debugger sessions here belong to screenshots or the screenrec fallback, never the evidence recorder.
 
 /* global resolveSiteTab, ViewMode, SiteTab, evStopIfRecording, ShotStore, StepRecCore, DbgErrors,
    FullpageTrim, PresenceMatch */
@@ -10,11 +8,9 @@ importScripts('shared/view-mode.js', 'shared/site-tab.js', 'shared/shot-store.js
   'shared/presence-match.js', 'evidence/buffer.js', 'evidence/recorder.js',
   'screenrec/parked.js', 'screenrec/claim.js', 'screenrec/session.js');
 
-// ======================= Panel surface: side panel / window =================
-// `sidePanel.open()` may only run before the first await (the gesture must still be on the stack), so
-// the preference is mirrored onto `openPanelOnActionClick`; `windows.create` needs no gesture.
+// sidePanel.open() needs the gesture (before any await), so the mode is mirrored onto action clicks.
 
-// Last storage read, so a WARM worker can branch before its first await. null = not read yet.
+// Last storage read, so a warm worker can branch before its first await. null = not read yet.
 let viewModeCache = null;
 
 // Chrome persists this flag per installation, so the mirror also overrides what an older build stored.
@@ -29,28 +25,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[ViewMode.KEY]) syncPanelBehavior(changes[ViewMode.KEY].newValue);
 });
 
-// Open only where there is NO panel yet: re-opening resets the panel document to default_path.
-// The registry is read synchronously — the gesture is gone at the first await.
+// Only where no panel is yet: re-opening resets the panel document to default_path.
 function openSidePanelFor(tab) {
   if (!tab || tab.windowId == null) return;
   if (panelOpenIn(tab.windowId)) return;
   try { chrome.sidePanel.open({ windowId: tab.windowId })?.catch(() => {}); } catch { /* older Chrome */ }
 }
 
-// ---- open panels, per window ----------------------------------------------
-// A live port registry, not a stored flag: readable before the first await, and a port dies with its document.
+// A live port registry, not a stored flag: readable before any await, and it dies with its document.
 const panelPorts = new Map(); // port -> windowId (null until PANEL_HELLO lands)
 
-// ---- live panel DOCUMENTS, whatever surface hosts them ---------------------
-// Deliberately NOT `panelPorts`, which counts the toolbar-icon surface alone: this registry takes
-// every document hosting the panel — side panel, our own window, a tab — because that, and not the
-// side panel, is what holds the testrun a recording belongs to (rec scoped to its testrun).
+// Every document hosting the panel, not just the toolbar surface: that holds the recording's testrun.
 const panelDocPorts = new Set();
 const PANEL_DOC_GRACE_MS = 2000;
 let panelDocGraceTimer = null;
 
-// Switching surfaces and reloading the panel both close one document BEFORE the next one opens, so
-// an empty registry waits out a grace the replacement lands inside; only a real close runs it out.
+// Surface switches and reloads close one document before the next opens; an empty set waits a grace.
 function panelDocsChanged() {
   if (panelDocGraceTimer) { clearTimeout(panelDocGraceTimer); panelDocGraceTimer = null; }
   if (panelDocPorts.size) return;
@@ -73,8 +63,7 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   if (port.name !== 'panel') return;
-  // Panel-vs-tab is decided on the CONNECTING side (panel-link.js, chrome.tabs.getCurrent):
-  // `sender.tab` for a side panel is unmeasured here, and a wrong guess would refuse every real panel.
+  // Panel-vs-tab is decided on the connecting side: `sender.tab` for a side panel is unmeasured here.
   panelPorts.set(port, null);
   port.onMessage.addListener((msg) => {
     if (msg && msg.type === 'PANEL_HELLO') panelPorts.set(port, msg.windowId != null ? msg.windowId : null);
@@ -88,7 +77,7 @@ const panelOpenIn = (windowId) => {
   return false;
 };
 
-// Forget the bound target only when its tab is gone; one that merely lost its grant is KEPT.
+// Forget the bound target only when its tab is gone; one that merely lost its grant is kept.
 chrome.tabs.onRemoved.addListener((tabId) => {
   SiteTab.forgetTab(tabId).catch(() => { /* best effort — a stale binding self-heals */ });
 });
@@ -112,24 +101,20 @@ async function openPanelWindow() {
 // Also the e2e's entry point — a real toolbar click cannot be scripted.
 async function openPreferredSurface(tab) {
   if ((await ViewMode.mode()) === 'window') return openPanelWindow();
-  // The await above spends the gesture, so Chrome may refuse this — survivable here:
-  // in side-panel mode `openPanelOnActionClick` already had Chrome open the panel itself.
+  // The await spent the gesture; if Chrome refuses, openPanelOnActionClick already opened the panel.
   openSidePanelFor(tab);
   return null;
 }
 
 chrome.action.onClicked.addListener((tab) => {
-  // Bind the clicked tab as the target, so a later detour onto a page we may not touch
-  // (chrome://, a new tab) does not lose the site under test.
+  // Bind the clicked tab, so a later detour onto chrome:// or a new tab keeps the site under test.
   if (tab) SiteTab.rememberTab(tab).catch(() => { /* a storage hiccup must not break the click */ });
-  // A blinded step recording revives itself via tabs.onUpdated `complete` — no retry needed here.
-  // A warm worker still holds the gesture; one woken BY this click takes the awaited path.
+  // A warm worker still holds the gesture; one woken by this click takes the awaited path.
   if (viewModeCache === 'sidepanel') { openSidePanelFor(tab); return; }
   openPreferredSurface(tab);
 });
 
-// Track the last NORMAL window: a panel living in its own popup cannot work out where the
-// site under test is. Popups are ignored on purpose — ours is one.
+// Track the last normal window: a panel in a popup can't tell where the site is; ours is a popup.
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId == null || windowId === chrome.windows.WINDOW_ID_NONE) return;
   try {
@@ -138,7 +123,6 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
   } catch { /* the window went away between the event and the read */ }
 });
 
-// A closed panel window must not be focused again on the next click.
 chrome.windows.onRemoved.addListener((windowId) => { ViewMode.forgetPanelWindow(windowId); });
 
 // "Open in window" from the panel document; the panel closes itself afterwards.
@@ -150,8 +134,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async response
 });
 
-// "Run in Extension" (#14): the surface opens FIRST and synchronously — the click's gesture dies at
-// the first await. No rememberTab() either: the sender is the web app, never the site under test.
+// The surface opens first, synchronously: the gesture dies at the first await.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== 'OPEN_RUN') return undefined;
   if (viewModeCache === 'sidepanel') openSidePanelFor(sender?.tab);
@@ -162,11 +145,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // async response
 });
 
-// storage.session defaults to TRUSTED_CONTEXTS only; the annotator and file-overlay content
-// scripts read their handoff keys there, so it must be opened to untrusted contexts.
+// The annotator and file overlay read their handoff keys in storage.session, so open it to them.
 try { chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }); } catch { /* older Chrome */ }
 
-// ==================== Staged screenshots: orphan sweep =====================
 // An editor draft dies with the browser session; the shots it staged sit in IndexedDB, which doesn't.
 const SHOTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -179,9 +160,7 @@ async function sweepStagedShots() {
 chrome.runtime.onStartup.addListener(sweepStagedShots);
 chrome.runtime.onInstalled.addListener(sweepStagedShots);
 
-// ============================ File overlay (#21) ===========================
-// The panel's tiles open a file OVER the page under test: a popup window cannot float above a
-// fullscreen browser, and an extension frame keeps the session the file behind the login needs.
+// Over the page: a popup can't float above fullscreen, an extension frame keeps the file's session.
 
 const FILE_OVERLAY_KEY = 'fileOverlay';
 
@@ -190,8 +169,7 @@ function viewerPageUrl(file) {
   return chrome.runtime.getURL(`viewer/viewer.html?${q}`);
 }
 
-// `activate`: an overlay on a background tab is an overlay nobody sees. A page no extension may
-// script (chrome://, the Web Store, the PDF viewer) throws at the inject and gets a tab instead.
+// A background-tab overlay is one nobody sees; a page no extension may script gets a tab instead.
 async function openFileOverlay(msg) {
   const file = {
     url: String((msg && msg.url) || ''),
@@ -221,12 +199,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async response
 });
 
-// ============================ Screenshot capture ===========================
-// A VIEWPORT shot is chrome.tabs.captureVisibleTab (no debugger banner); FULL PAGE needs the
-// DevTools protocol on a temporary attach -> capture -> detach. `beyondViewport` picks.
+// Viewport: captureVisibleTab (no debugger banner); full page needs a temporary DevTools attach.
 
-// The refusals and their copy live in shared/dbg-errors.js; screenrec/session.js reads the bare
-// `dbgIsForeignFrame` from here, at call time, exactly as it did before the move.
+// screenrec/session.js reads the bare `dbgIsForeignFrame` from here, at call time.
 const { dbgIsForeignFrame, capNeedsGrant, dbgError,
   DBG_FOREIGN_FRAME, DBG_FOREIGN_FRAME_CLICK } = DbgErrors;
 
@@ -252,10 +227,7 @@ function dbgDetach(tabId) {
   return new Promise((resolve) => chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; resolve(); }));
 }
 
-// captureVisibleTab shoots whatever tab is ACTIVE in the window (hence the guard) and refuses on
-// an inactive tab or the per-second quota — reported as a value, never thrown, so callers can fall back.
-// The timeout is not paranoia: on an occluded or minimised window Chrome can leave the callback
-// UNCALLED, and without a floor under it the panel sits on "Capturing tab…" for good.
+// On an occluded or minimised window Chrome may never call back; this floor stops the hang.
 const CAPTURE_VISIBLE_TIMEOUT_MS = 8000;
 
 function captureVisible(tab) {
@@ -283,10 +255,7 @@ function captureVisibleNow(tab) {
   });
 }
 
-// #158: `Page.getLayoutMetrics`'s cssContentSize as an explicit clip (origin 0,0 is document-relative)
-// fences the shot to ONE page; the clip `scale` MULTIPLIES the device scale factor, so 1 is no resize.
-// Chromium's maximum texture dimension: past it the compose cannot succeed, so a taller page is
-// cut here and the clip says it was cut — the alternative is a capture that fails with no reason.
+// Chromium's maximum texture dimension: a taller page is cut here, and the clip says it was cut.
 const FULLPAGE_MAX_HEIGHT = 16384;
 
 async function fullPageClip(tabId) {
@@ -303,16 +272,13 @@ async function fullPageClip(tabId) {
   } catch { return null; }
 }
 
-// The double-compose guard lives in shared/fullpage-trim.js.
 const { trimToDocument, overshoot, FULLPAGE_SLACK, FULLPAGE_TOLERANCE } = FullpageTrim;
 
-// One attach → shoot → detach (the foreign-frame path below runs it twice).
 // `captureBeyondViewport` is kept for older Chrome builds; it is a no-op next to an explicit clip.
 async function shootViaDebugger(tabId, beyondViewport) {
   let clip = null;
   let res;
-  // A cast recording already holds the attach on this tab: share it, and leave it standing.
-  // Awaited: right after a worker restart the mirror is still null and says there is no recording.
+  // A cast recording already holds the attach: share it; awaited, as after a restart the mirror is null.
   const shared = typeof srecCastOwnsReady === 'function' && await srecCastOwnsReady(tabId);
   if (!shared) await dbgAttach(tabId);
   try {
@@ -325,9 +291,7 @@ async function shootViaDebugger(tabId, beyondViewport) {
   return { res, clip };
 }
 
-// ---- #101, cleared on the fly ---------------------------------------------
-// Foreign frames are DETACHED, not hidden: `display:none` leaves the document committed and Chrome
-// keeps refusing. Re-inserting an iframe reloads it — the price of a shot that would not exist.
+// Foreign frames are detached, not hidden: `display:none` leaves them committed and Chrome refuses.
 const FOREIGN_PARK = '__testomatFramesOut';
 
 async function foreignFramesOut(tabId) {
@@ -366,14 +330,13 @@ async function foreignFramesBack(tabId) {
   } catch { /* the page navigated or closed — nothing left to put back */ }
 }
 
-// `activate` first: a background tab is a page nobody is rendering, and the viewport
-// rescue only works on the active tab.
+// `activate` first: a background tab is not rendered, and the viewport rescue needs the active tab.
 async function captureShot({ beyondViewport = false } = {}) {
   // The resolver still gates: a restricted page can be captured by neither path.
   const site = await resolveSiteTab({ verb: 'captured', activate: true });
   if (site.state !== 'ok') throw new Error(site.error);
   const tabId = site.tab.id;
-  // A refusal here (inactive tab, capture quota) falls through to the debugger rather than losing the shot.
+  // A refusal here (inactive tab, capture quota) falls through to the debugger, not a lost shot.
   if (!beyondViewport) {
     const cap = await captureVisible(site.tab);
     if (cap.dataUrl) return { dataUrl: cap.dataUrl, tabId };
@@ -401,10 +364,8 @@ async function captureShot({ beyondViewport = false } = {}) {
   return { dataUrl: out.dataUrl, tabId, trimmed: out.trimmed, framesMoved, heightClipped: !!shot.clip?.heightClipped };
 }
 
-// ============================ Step recorder ================================
-// State lives in chrome.storage.session `stepRec`: survives an SW restart, dropped on browser restart.
+// State lives in storage.session `stepRec`: survives an SW restart, dropped on browser restart.
 
-// The ordering rules live in shared/step-rec-core.js; the bare names keep this file's call sites.
 const { srPush, srPlace, srEntry, srPopTwins, srPushNav, srDupNavIdx, srFlushOpen, srFinalEnd,
   srRefineNav, srIsUrlTitle, srTrimTitle, srCleanTitle, srOpenUrl,
   SR_TITLE_MAX, SR_NAV_LEAD_MS, SR_SETTLE_MS, SR_NAV_SETTLE_MS } = StepRecCore;
@@ -414,14 +375,13 @@ async function srGet() { return (await chrome.storage.session.get(SR_KEY))[SR_KE
 async function srSet(v) { await chrome.storage.session.set({ [SR_KEY]: v }); }
 async function srClear() { await chrome.storage.session.remove(SR_KEY); }
 
-// 50-step soft cap; `stepRecCap` in storage.session overrides it (e2e seam). Continue grants one more cap.
+// 50-step soft cap; `stepRecCap` in storage.session overrides it (e2e seam); Continue adds one more.
 async function srCap() {
   const n = Number((await chrome.storage.session.get('stepRecCap')).stepRecCap);
   return Number.isFinite(n) && n > 0 ? n : 50;
 }
 
-// icons.js FIRST: the pill's "+ Expected" glyph comes from that set (same order as capture-annotate.js).
-// `allFrames`: an embedded form is where the steps go missing; one frame refusing injection is not a blind tab.
+// icons.js first: the pill's "+ Expected" glyph comes from that set.
 async function srInject(tabId) {
   try {
     await chrome.scripting.executeScript({
@@ -432,8 +392,7 @@ async function srInject(tabId) {
   } catch { return false; }
 }
 
-// BLIND: on a page Chrome keeps extensions off, executeScript throws AND tabs.onUpdated stops carrying
-// `changeInfo.url`. The slow inject stays OFF the append chain; only the state write joins it.
+// Blind: where Chrome keeps extensions off, executeScript throws and onUpdated drops `changeInfo.url`.
 async function srInjectSync(tabId) {
   const ok = await srInject(tabId);
   await srSerial(async () => {
@@ -448,8 +407,7 @@ async function srInjectSync(tabId) {
   return ok;
 }
 
-// After a blind stretch, emit only the page open NOW — intermediate hops stay unrecorded
-// rather than invented. Mutates `st` (caller persists).
+// After a blind stretch, emit only the page open now: intermediate hops stay unrecorded, not invented.
 async function srCatchUpNav(st) {
   let tab = null;
   try { tab = await chrome.tabs.get(st.tabId); } catch { return false; }
@@ -464,12 +422,12 @@ async function srCatchUpNav(st) {
 }
 
 async function srStart(sender) {
-  // `activate`: a recording follows ONE tab, so bring that tab in front of the tester.
+  // `activate`: a recording follows one tab, so bring that tab in front of the tester.
   const site = await resolveSiteTab({ verb: 'recorded', activate: true });
   if (site.state !== 'ok') return { ok: false, reason: site.error };
   const tab = site.tab;
   const { settings } = await chrome.storage.local.get('settings');
-  // The `Open <url>` step is DEFERRED to the first real action, so start-then-stop records nothing.
+  // The `Open <url>` step is deferred to the first real action, so start-then-stop records nothing.
   await srSet({
     tabId: tab.id, recording: true, paused: false, manualPause: false, capBonus: 0, blind: false,
     docIds: await srOwnerIds(sender), // the editor document that owns this recording
@@ -481,8 +439,7 @@ async function srStart(sender) {
   return { ok: true, tabId: tab.id };
 }
 
-// The owner's document id: a tab-hosted page's sender carries it, a side panel's sender has only its
-// URL — so that document is looked up by URL (exact match, query included). [] when it cannot be told.
+// A side panel's sender has only its URL, so its document is looked up by exact URL; [] when unknown.
 async function srOwnerIds(sender) {
   if (sender && sender.documentId) return [sender.documentId];
   if (!sender || !sender.url) return [];
@@ -490,8 +447,7 @@ async function srOwnerIds(sender) {
   catch { return []; }
 }
 
-// A recording belongs to the editor page that started it. Closing the panel (or the editor's own tab
-// or window) tears that page down with no unload, so the worker asks Chrome whether it is still there.
+// Closing the panel tears the editor down with no unload, so the worker asks Chrome if it's there.
 async function srOwnerOpen(st) {
   if (!st.docIds || !st.docIds.length) return true; // nothing to check — never end a live recording on a guess
   try { return (await chrome.runtime.getContexts({ documentIds: st.docIds })).length > 0; }
@@ -517,7 +473,7 @@ async function srAdd(entry, sender) {
   const kind = entry && entry.kind === 'expected' ? 'expected' : 'step';
   const text = String((entry && entry.text) || '').trim();
   if (!text) return { ok: false, ...srEcho(st) };
-  // Pause is checked BEFORE any mutation: a deferred `Open` flushed here would be dropped and lost.
+  // Pause is checked before any mutation: a deferred `Open` flushed here would be dropped and lost.
   if (st.paused || st.manualPause) return { ok: false, ...srEcho(st) };
   const cap = (await srCap()) + (st.capBonus || 0);
   // A dblclick supersedes the click(s) that produced it — those trailing twins are dropped first.
@@ -528,7 +484,6 @@ async function srAdd(entry, sender) {
   return { ok: idx !== -1, ...srEcho(st) };
 }
 
-// The state every ADD/STATUS reply echoes back to the content script.
 const srEcho = (st) => ({
   count: st.entries.length, paused: !!st.paused, manualPause: !!st.manualPause, recording: true,
 });
@@ -541,8 +496,7 @@ async function srStatus() {
     manualPause: !!st.manualPause, blind: !!st.blind, tabId: st.tabId };
 }
 
-// Manual Pause/Resume, distinct from the cap pause on purpose: Resume only clears the flag,
-// it never grants the +cap that Continue does.
+// Resume only clears the manual pause; it never grants the +cap that Continue does.
 async function srPause(on) {
   const st = await srGet();
   if (!st) return { ok: false };
@@ -557,9 +511,7 @@ async function srStopRequest() {
   return { ok: true };
 }
 
-// A `type` is written only when the field blurs, so the field the caret sits in is still unrecorded
-// when Stop arrives (#62) — the tab is asked for it first. A closed, asleep or un-injected tab never
-// answers, and Stop must proceed exactly as it does today, hence the timeout around the ask.
+// A `type` is written on blur, so Stop asks the tab first; a tab that never answers is timed out.
 const SR_FLUSH_MS = 700;
 async function srFlush() {
   const st = await srGet();
@@ -582,7 +534,6 @@ async function srContinue() {
   return { ok: true };
 }
 
-// ---- live hand-over (#160) -------------------------------------------------
 // The editor's poll: unseen finalized entries + the status, in one message per tick.
 async function srPull() {
   const st = await srGet();
@@ -611,11 +562,9 @@ async function srTitle(title) {
   return { ok: true };
 }
 
-// tabs.onUpdated carries full loads AND SPA pushState. A full load kills the content script, so it is
-// re-injected on every `complete` (the double-init guard makes a same-document re-inject a no-op).
+// A full load kills the content script, so it is re-injected on every `complete`.
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  // ON THE APPEND CHAIN: one SPA navigation delivers url and title microseconds apart, and this is a
-  // read-modify-write. The re-inject stays inside this recording/tab check, or every load flashes an indicator.
+  // On the append chain: an SPA navigation delivers url and title microseconds apart.
   let reinject = false;
   await srSerial(async () => {
     const st = await srGet();
@@ -641,14 +590,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (reinject && !(await srOrphaned())) await srInjectSync(tabId); // an orphan gets no new pill
 });
 
-// Closing the recorded tab auto-stops but PRESERVES the entries — the editor's poll drains them.
+// Closing the recorded tab auto-stops but preserves the entries; the editor's poll drains them.
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const st = await srGet();
   if (st && st.tabId === tabId && st.recording) { st.recording = false; await srSet(st); }
 });
 
-// ONE chain for appends: `stepRec` is a read-modify-write and a double-click fires three messages
-// within milliseconds, so concurrent handlers would drop entries. Reads (STATUS/PEEK) need no slot.
+// One chain for appends: a double-click fires three messages at once; parallel writes drop entries.
 let srChain = Promise.resolve();
 function srSerial(fn) {
   const next = srChain.then(fn, fn);
@@ -662,13 +610,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'STEPREC_ADD': srSerial(() => srAdd(msg.entry, sender)).then(sendResponse); return true;
     // The pill's poll doubles as the orphan check: an editor that is gone ends the recording here.
     case 'STEPREC_STATUS': srOrphaned().then(srStatus).then(sendResponse); return true;
-    // The editor's live poll (#160) — a read-modify-write, so it takes a chain slot.
+    // The editor's live poll: a read-modify-write, so it takes a chain slot.
     case 'STEPREC_PULL': srSerial(srPull).then(sendResponse); return true;
     case 'STEPREC_TITLE': srTitle(msg.title).then(sendResponse); return true;
     // Test seam (no production sender): e2e reads the raw entries mid-recording.
     case 'STEPREC_PEEK': srGet().then((st) => sendResponse({ entries: (st && st.entries) || [] })); return true;
-    // NOT on the chain: the ADD this flush waits for needs that slot, so serializing here would
-    // deadlock the pair until the timeout fires.
+    // Not on the chain: the ADD this flush waits for needs that slot, so serializing would deadlock.
     case 'STEPREC_FLUSH': srFlush().then(sendResponse); return true;
     // On the chain too: it reads `sent` a pull may be writing in the same tick.
     case 'STEPREC_STOP': srSerial(srStop).then(sendResponse); return true;
@@ -681,8 +628,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'captureTab') {
-    // A debugger failure rejects and never downgrades — except the #101 refusal, which comes back
-    // as `viewportOnly`. `trimmed` (#158) and `framesMoved` (#101) are diagnostics; the image is correct.
+    // A debugger failure rejects, except the foreign-frame refusal, which comes back as `viewportOnly`.
     captureShot({ beyondViewport: !!msg.fullPage })
       .then((r) => sendResponse({
         ok: true, dataUrl: r.dataUrl, tabId: r.tabId, viewportOnly: !!r.viewportOnly, trimmed: !!r.trimmed,
@@ -694,12 +640,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
-// =========================== Presence marker (#14) ==========================
 // The manifest declares app.testomat.io; a self-hosted instance is known only once Settings saves it.
 
 const PRESENCE_ID = 'presence-configured';
 const PRESENCE_FILE = 'content/presence.js';
-// The match pattern lives in shared/presence-match.js.
 const { presenceMatch, PRESENCE_STATIC_ORIGIN } = PresenceMatch;
 
 // The registration outlives the worker, so it can still name a host the user has replaced since.

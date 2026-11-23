@@ -1,25 +1,11 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/screen-rec.js does for the tester (#186): one button that records
-// the tab, and the upload of the file the worker parks when it stops. Two promises are expensive to
-// break here. The button must always say which of the three things it is about to do — stop a
-// recording, go back to a take waiting for review, or retry an upload that failed — because a button
-// that offers "Attach screen recording" over a parked take invites recording on top of the tester's
-// only copy. And a take names the result it was recorded for: the panel may have moved to another
-// test by the time the file arrives, and the take must wait for ITS test rather than land on the one
-// that happens to be open. Both were real regressions (949e08d, c59c8cf) before they were rules.
-// The worker's half of the same protocol is tests/screenrec-session.test.mjs; the fixtures below
-// carry exactly the fields extension/screenrec/parked.js builds, so the two sides cannot drift.
-// Rows 1-33 are the ticket's; a lettered suffix is the companion case that drives the same path the
-// other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Run: node --test tests/screen-rec.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadScreen, fakeClock, makeDocument, el, fire, plain, settle, CORE_SRC,
 } from './helpers/panel-harness.mjs';
 
-// The worker's cap and its parked-take shape, copied from extension/screenrec/session.js and
-// extension/screenrec/parked.js — the panel reads these fields and nothing else.
+// Copied from screenrec/session.js and parked.js: the panel reads these fields and nothing else.
 const CAP_MS = 5 * 60 * 1000;
 const TAKE = (over = {}) => ({
   url: 'blob:chrome-extension://ext/take-1',
@@ -36,8 +22,7 @@ const LIVE = (over = {}) => ({
   recording: true, paused: false, ms: 65000, bytes: 900, tabId: 7, recordId: 'r-6', capMs: CAP_MS, ...over,
 });
 
-// Three results, kept apart on purpose: the one the panel has open, one loaded beside it, and an id
-// no loaded record carries. Rows 18 and 22-28 are only worth anything while those three differ.
+// Three results kept apart on purpose: the binding rows are only worth anything while they differ.
 const OPEN = { id: 'r-6', test_title: 'Checkout works', test_id: 'T-6' };
 const BESIDE = { id: 'r-5', test_title: 'Login works', test_id: 'T-5' };
 const NAMELESS = { id: 'r-7', test_id: 'T-7' };
@@ -50,7 +35,7 @@ const ARCHIVED = 'Run is archived — results are read-only';
 
 const camel = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// index.html:731 and :748, cut to the three nodes this screen touches.
+// index.html, cut to the three nodes this screen touches.
 function makePage(without) {
   const doc = makeDocument([]);
   const node = {};
@@ -87,7 +72,7 @@ function load(opts = {}) {
   };
 
   const { doc, node } = makePage(o.without);
-  const order = [];   // every observable act, in the order it happened — rows 22, 24 and 25 are order
+  const order = [];   // every observable act, in the order it happened
   const sends = [];
   const calls = {
     toasts: [], progress: [], status: [], remembered: [], uploads: [], fetches: [],
@@ -163,9 +148,7 @@ function load(opts = {}) {
 
   const clock = fakeClock();
   const h = loadScreen('screen-rec', {
-    // The REAL state bag, recordFor and RunLock, loaded the way index.html loads them: `recordFor`
-    // compares ids as text and `recordWriteLock` is three rules deep, and a look-alike for either
-    // would let rows 18-20 and 26-28 pass against a comparison this panel does not make.
+    // The real recordFor and RunLock: ids compare as text and the lock is three rules deep.
     before: [['state', CORE_SRC], 'run-lock'],
     exported: '({ srecClock, SREC_COMMAND, SREC_ME, state, recordFor, RunLock })',
     document: doc, clock, globals,
@@ -193,10 +176,6 @@ function load(opts = {}) {
   };
 }
 
-// ============================================================================
-// The clock (row 1)
-// ============================================================================
-
 test('1: the button counts the recording in minutes and seconds', () => {
   const { srecClock } = load().screen;
   assert.equal(srecClock(65000), '1:05');
@@ -218,10 +197,6 @@ test('1b: past ten minutes the clock keeps counting instead of wrapping', () => 
   assert.equal(srecClock(3661000), '61:01');
   assert.equal(srecClock(CAP_MS), '5:00');
 });
-
-// ============================================================================
-// The three states the button can be in (rows 2-6)
-// ============================================================================
 
 test('2: while a recording runs the button says Stop recording with the minutes on it', () => {
   const h = load();
@@ -347,10 +322,6 @@ test('8a: a repaint refreshes from the worker, and no answer leaves the button i
   assert.equal(h.clock.count(), 0);
 });
 
-// ============================================================================
-// The reason line under the button
-// ============================================================================
-
 test('9: the reason line shows what it is given and hides when there is nothing to say', () => {
   const h = load();
   h.fn.srecReason('Chrome refused the capture');
@@ -369,10 +340,6 @@ test('9a: a page without the reason line swallows the sentence instead of throwi
   h.fn.srecReason('anything at all');
   assert.equal(h.node.screenRecReason.textContent, ''); // detached: nothing was written to it
 });
-
-// ============================================================================
-// What the tester is told when Chrome refuses (rows 11-14)
-// ============================================================================
 
 test('10: the shortcut on the line is the one bound to this command, not another', async () => {
   const h = load();
@@ -448,10 +415,6 @@ test('14: chrome.commands failing builds both sentences without the shortcut cla
     'Another extension left a frame on this page and Chrome blocks the recording — reload the page.');
   assert.equal(await h.fn.srecShortcut(), '');
 });
-
-// ============================================================================
-// Where the click goes (rows 7-10, 15)
-// ============================================================================
 
 test('7 (click): a click while recording stops it and repaints, and starts no second take', async () => {
   const h = load({ records: [OPEN], currentRecordId: OPEN.id });
@@ -554,10 +517,6 @@ test('15e: a page without the button ignores the click entirely', async () => {
   await h.fn.onScreenRecClick();
   assert.deepEqual(h.types(), []);
 });
-
-// ============================================================================
-// The upload, and the test a take is bound to (rows 16-25)
-// ============================================================================
 
 test('16: a take the tester has not reviewed yet is never uploaded', async () => {
   const h = load({ records: [OPEN], currentRecordId: OPEN.id });
@@ -662,8 +621,7 @@ test('21a: the worker not answering the claim is the same as a refusal', async (
   assert.equal(h.calls.uploads.length, 0);
 });
 
-// The claim only means anything if two panel documents are two different claimants. A constant
-// token would let the second document take a take the first is already uploading.
+// A constant token would let a second document take a take the first is already uploading.
 test('21d: two panel documents are two different claimants', () => {
   const a = load({ records: [OPEN], currentRecordId: OPEN.id });
   const b = load({ records: [OPEN], currentRecordId: OPEN.id });
@@ -671,7 +629,6 @@ test('21d: two panel documents are two different claimants', () => {
   assert.notEqual(a.screen.SREC_ME, b.screen.SREC_ME, 'and it is not who the other one is');
 });
 
-// srecAttach guards on the record AND on its id. A record with no id cannot be attached to.
 test('21e: a record with no id of its own is not something a take can be bound to', async () => {
   const h = load({ records: [{ ...OPEN, id: '' }], currentRecordId: '' });
   await h.fn.srecAttach(TAKE({ recordId: '' }));
@@ -736,7 +693,7 @@ test('23: a take of a loaded but not-open test lands there and names that test i
   assert.deepEqual(h.calls.uploads.map((u) => u.recordId), [BESIDE.id]);
   assert.deepEqual(h.calls.remembered.map((r) => r.recordId), [BESIDE.id]);
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recording attached to "Login works"' }]);
-  assert.equal(h.calls.renders, 0);      // that list belongs to the OPEN test
+  assert.equal(h.calls.renders, 0);      // that list belongs to the open test
   assert.deepEqual(h.calls.status, []);  // and so does that status line
 });
 
@@ -853,10 +810,6 @@ test('25b: the button goes dead for the length of the upload', async () => {
   assert.equal(h.label(), 'Attach screen recording');
 });
 
-// ============================================================================
-// Opening a test (rows 26-28)
-// ============================================================================
-
 test('26: opening a test tells the worker which result a page-started recording belongs to', async () => {
   const h = load({ records: [OPEN], currentRecordId: OPEN.id });
   h.worker.SCREENREC_TAKE = TAKE({ reviewed: false, recordId: null });
@@ -925,10 +878,6 @@ test('28c: the worker not answering the take is nothing to attach', async () => 
   await settle(3);
   assert.equal(h.calls.uploads.length, 0);
 });
-
-// ============================================================================
-// What the worker announces (rows 29-33)
-// ============================================================================
 
 test('29: the worker announcing a reviewed file starts its upload', async () => {
   const h = load({ records: [OPEN], currentRecordId: OPEN.id });
@@ -1003,10 +952,6 @@ test('33a: the listener answers nothing, so it never holds the message channel o
   assert.equal(h.message({ type: 'SCREENREC_EVENT', event: 'file', file: TAKE() }), undefined);
   await settle(4);
 });
-
-// ============================================================================
-// Wiring the button up
-// ============================================================================
 
 test('34: init wires the click and asks the worker where things stand', async () => {
   const h = load({ records: [OPEN], currentRecordId: OPEN.id });

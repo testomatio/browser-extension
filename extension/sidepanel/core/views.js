@@ -1,19 +1,13 @@
-// Core views: the view switcher (show), tab navigation, the contextual header row, in-tab back
-// navigation, and the delegates to the toast, the status lines, the panel's two gates and the two
-// rows that measure themselves.
+// The DOM half of navigation: show(), tabs, the contextual row, Back, and bare delegates.
 
 /* global Fit, Gates, Handoff, NavModel, PanelToast, Roving, Skeleton, Sk, loadRunsCount,
    loadTestsCount, Tooltip, PriorityIcons, refreshProjects, refreshRuns, openRunView, openTestView,
    openTcStudioView, refreshTcList, openTestSuitePicker, StatusIcons */
 
-// The tab model, the titles and the two navigation decisions are core/nav-model.js — pure, and
-// loaded ahead of this file. What is left here is the DOM half: paint what NavModel decided.
-
-// ---------- view switching ----------
+// NavModel (core/nav-model.js, loaded first) decides; this file paints what it decided.
 
 function show(view) {
-  // Before the switch, not after: the screens that load raise their own
-  // placeholder immediately after calling this.
+  // Before the switch: the screens that load raise their own placeholder right after this call.
   Skeleton.bootDone();
   Skeleton.hide();
   state.view = view;
@@ -22,13 +16,12 @@ function show(view) {
   state.tabViews[tab] = view;
   document.body.dataset.view = view; // CSS + e2e hook
   for (const v of views) $(`view-${v}`).hidden = v !== view;
-  // AFTER the loop above: it focuses the token field, which a still-hidden
-  // section cannot take.
+  // After the loop: it focuses the token field, which a still-hidden section cannot take.
   if (typeof applyConnectMode === 'function') applyConnectMode();
   focusShownView(view);
   updateContextBar(view);
   updateTabBar();
-  applyReadonlyBlock();   // #155: a read-only project shows the lockout, not the view
+  applyReadonlyBlock();   // a read-only project shows the lockout, not the view
   updateDegradedBanner(); // slim degraded strip is per-view (runs/run only)
   if (typeof updatePendingBanner === 'function') updatePendingBanner(); // offline-queue pending strip
   // Guarded: evidence.js loads after core and may be absent in a test context.
@@ -36,8 +29,7 @@ function show(view) {
   persistSession();
 }
 
-// The caret follows the switch only where the switch took it away — nothing focused, or a field
-// in a section this call just hid. A screen that focuses one of its own (project-pick) keeps it.
+// The caret follows only where the switch took it away: nothing focused, or a hidden section.
 function focusShownView(view) {
   const at = document.activeElement;
   const lost = !at || at === document.body
@@ -45,12 +37,10 @@ function focusShownView(view) {
   if (lost) $(`view-${view}`)?.focus();
 }
 
-// The bare name kept as a delegate — a declaration, so it is reached for the way every other
-// name in this file is; `state` is the panel global the model refuses to read for itself.
+// A declaration delegate; `state` is the panel global the model refuses to read for itself.
 function contextTitleFor(view) { return NavModel.contextTitleFor(view, state); }
 
-// Marks set at the head of the title, in list-row order: priority, then type.
-// A run carries none — its kind and status are pills right under this row.
+// Marks at the head of the title, in list-row order: priority, then type; a run carries none.
 function contextTitleMarks(view) {
   if (view === 'tclist') return [StatusIcons.treeIcon(StatusIcons.FILE, 'file-icon', state.tcSuiteEmoji)];
   if (view === 'test') {
@@ -63,8 +53,7 @@ function contextTitleMarks(view) {
   return [];
 }
 
-// Priority: the JWT detail first, else the v2 record; absent/unknown IS `normal`
-// (shared/priority-icons.js). A pending read holds the slot so the title cannot shift.
+// A pending priority read holds the slot so the title cannot shift.
 function testPriorityMark(rec) {
   if (typeof PriorityIcons === 'undefined') return null;
   const p = state.testrunDetail?.data?.attributes?.test?.priority || rec?.priority || '';
@@ -77,8 +66,7 @@ function testPriorityMark(rec) {
   return PriorityIcons.mark(p);
 }
 
-// The path to the open view, root-first, stopping at its PARENT (the title is the
-// last crumb). Same targets goBack() walks, so trail and arrow agree on "up".
+// Root-first, stopping at the parent; the same targets goBack() walks, so trail and arrow agree.
 const CONTEXT_TRAILS = {
   run: () => [{ label: 'Runs', open: openRunsView }],
   test: () => [
@@ -89,8 +77,7 @@ const CONTEXT_TRAILS = {
   promote: () => [{ label: 'Tests', open: openTcStudioView }],
 };
 
-// Crumbs after the root give up width first; what they lose comes back as a
-// tooltip and as their accessible name.
+// Crumbs after the root give up width first; what they lose returns as tooltip and name.
 function renderContextCrumbs(view) {
   const nav = $('context-crumbs');
   if (!nav) return;
@@ -115,14 +102,12 @@ function renderContextCrumbs(view) {
   });
 }
 
-// With no target — the suite picker, a locked project, an id that is not known
-// yet — it HIDES rather than point at a 404.
+// With no target (the suite picker, a locked project, an unknown id) it hides, not a 404.
 function renderContextOpenLink(view) {
   const a = $('context-open');
   if (!a) return;
   const s = state.settings || {};
-  // The record lookup belongs to the test screen and may not have loaded; the model takes it
-  // as an argument rather than reaching for it, which is what keeps the model dependency-free.
+  // The record lookup is the test screen's and may be absent, so it is passed in, not reached for.
   const lookup = typeof recordFor === 'function' ? recordFor : null;
   const target = capabilities.readonly ? null : NavModel.webTarget(view, state, lookup);
   if (!target || !s.baseUrl || !s.projectId) {
@@ -138,17 +123,14 @@ function renderContextOpenLink(view) {
   a.hidden = false;
 }
 
-// The Rec chip MOVES between the tabs row and the contextual row instead of living in
-// one — its own visibility rule (screens/evidence.js) decides which views show it.
+// The Rec chip moves between the tabs row and the contextual row; evidence.js decides visibility.
 function homeRecSlot(contextual) {
   const slot = $('rec-slot');
   const host = contextual ? $('context-bar') : $('header-top');
   if (slot && host && slot.parentElement !== host) host.append(slot);
 }
 
-// The same move for the one Refresh (#27): on a drill-down the two rows above fold
-// away, so the button rides along into the only chrome left instead of going
-// unreachable. Its listener survives the move, and it keeps its seat left of the open-link.
+// On a drill-down the rows above fold away, so Refresh rides into the only chrome left.
 function homeRefreshButton(contextual) {
   const btn = $('btn-refresh');
   const host = contextual ? $('context-bar') : $('project-bar');
@@ -156,8 +138,7 @@ function homeRefreshButton(contextual) {
   if (btn && host && before && btn.parentElement !== host) host.insertBefore(btn, before);
 }
 
-// Contextual header row (#127): outside a tab root it is the panel's only chrome —
-// the project strip and the tab row fold away (immersive), hence the trail here.
+// Outside a tab root the contextual row is the only chrome: the strip and tab row fold away.
 function updateContextBar(view) {
   const contextual = !NavModel.ROOT_VIEWS.has(view);
   $('context-bar').hidden = !contextual;
@@ -169,8 +150,7 @@ function updateContextBar(view) {
   renderContextCrumbs(contextual ? view : null);
   renderContextOpenLink(contextual ? view : null);
   setImmersive(contextual);
-  // Measured AFTER the row is shown — a hidden box reports nothing cut. The NAME
-  // alone, not the row's text, whose leading mark the reader can already see.
+  // Measured after the row is shown: a hidden box reports nothing cut. The name alone, no marks.
   Tooltip.set(title, title.scrollHeight > title.clientHeight + 1 ? name : '');
 }
 
@@ -186,7 +166,7 @@ function refreshContextBar() { updateContextBar(state.view); }
 
 // First-launch gate: until settings are configured, only Settings is reachable.
 function updateTabBar() {
-  const configured = isConfigured(); // token AND a resolved project (#103)
+  const configured = isConfigured(); // token and a resolved project
   for (const tab of NavModel.TABS) {
     const btn = $(`tab-${tab}`);
     if (!btn) continue;
@@ -197,21 +177,17 @@ function updateTabBar() {
     btn.disabled = disabled;
     btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     Tooltip.set(btn, disabled ? 'Configure settings first' : '');
-    // One tab stop for the whole bar, the arrows between the three: the tablist convention, and
-    // three stops fewer on the way to the screen.
+    // One tab stop for the whole bar, arrows between the three: the tablist convention.
     btn.setAttribute('tabindex', active ? '0' : '-1');
-    // Three tabs over eight sections, so the panel a tab names is the one it would show right
-    // now. A disabled tab names none — it cannot open one.
+    // A tab controls the section it would show right now; a disabled tab controls none.
     if (disabled) btn.removeAttribute('aria-controls');
     else btn.setAttribute('aria-controls', `view-${state.tabViews[tab] || NavModel.TAB_ROOT[tab]}`);
   }
-  // Wired once per container and free on every later call (shared/roving.js). Roving.item() is
-  // NOT used here: it writes role="button" over the role="tab" the markup already carries.
+  // Not Roving.item(): it writes role="button" over the markup's role="tab".
   Roving.attach($('tabbar'), { selector: '.tab', orientation: 'horizontal' });
 }
 
-// Three-state by design: a number (0 included) SHOWS the chip, unknown — nothing
-// fetched yet, or a server that sent no total — HIDES it. The bar may not guess.
+// Three-state: a number (0 included) shows the chip, unknown hides it; the bar may not guess.
 function setTabCount(tab, n) {
   const el = $(`tab-${tab}-count`);
   if (!el) return;
@@ -220,12 +196,10 @@ function setTabCount(tab, n) {
   if (known) paintCounter(el, n);
   else el.textContent = '';
 }
-// A declaration, not a const arrow: state.js reaches for it through `typeof`,
-// and `typeof` is not TDZ-safe for a lexical binding in another classic script.
+// A declaration: state.js reaches it through `typeof`, which is not TDZ-safe for a lexical binding.
 function resetTabCounts() { for (const t of NavModel.TABS) setTabCount(t, null); }
 
-// Re-painting the same value is silent — a count that did not move must not blink.
-// Replaying the keyframe needs the class off, a layout read, then the class back on.
+// Same value is silent; a replay needs the class off, a layout read, then the class back on.
 function paintCounter(el, text) {
   if (!el || el.textContent === String(text)) return;
   el.textContent = String(text);
@@ -234,24 +208,19 @@ function paintCounter(el, text) {
   el.classList.add('settled');
 }
 
-// The flash is ONE-SHOT. A CSS animation replays whenever its element comes back from
-// `display:none`, so a class left sitting there re-fades every counter on screen after
-// each Back — the filter chips, and the tab chips the immersive fold takes away and
-// gives back — a beat behind the rest of the screen. One delegated listener drops it on
-// the way out; paintCounter puts it back for the next value that actually moved.
+// One-shot: an animation replays when its element leaves `display:none`, re-fading counters on Back.
 function initCounterFade() {
   document.addEventListener('animationend', (e) => {
     if (e.animationName === 'counter-in') e.target.classList.remove('settled');
   });
 }
 
-// The chip IS the count's state — a visible one means a number is known.
+// The chip is the count's state — a visible one means a number is known.
 const tabCountKnown = (tab) => { const el = $(`tab-${tab}-count`); return !!el && !el.hidden; };
 
-// Fills only what is still UNKNOWN: the tab that loaded owns its own number (its
-// paging cursor / suite tree), and a second, separately derived count must not win.
+// Fills only what is unknown: the tab that loaded owns its number; a second count must not win.
 function prefetchTabCounts() {
-  if (capabilities.readonly) return Promise.resolve(); // a locked project has nothing to count (#155)
+  if (capabilities.readonly) return Promise.resolve(); // a locked project has nothing to count
   const epoch = state.projectEpoch; // a further switch mid-fetch discards these
   const jobs = [];
   if (!tabCountKnown('tests')) jobs.push(loadTestsCount(epoch));
@@ -259,14 +228,12 @@ function prefetchTabCounts() {
   return Promise.all(jobs);
 }
 
-// ---------- the panel-wide refresh ----------
-// Re-entrancy is blocked, not queued: a second click while the first is in flight
-// would duplicate every request it is still waiting on.
+// Re-entrancy is blocked, not queued: a second click would duplicate every pending request.
 let refreshingAll = false;
 async function refreshAll() {
   if (refreshingAll) return;
   refreshingAll = true;
-  // Disabled + spun BEFORE the first await, so nothing reads it as idle mid-refresh.
+  // Disabled + spun before the first await, so nothing reads it as idle mid-refresh.
   const btn = $('btn-refresh');
   if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
   try {
@@ -279,9 +246,7 @@ async function refreshAll() {
   }
 }
 
-// Re-pull the open view WITHOUT navigating; each leg is that screen's own load path —
-// its opener, or an in-place re-read where re-opening would throw away what the screen
-// already holds (tclist, #27). Failures stay the screens' — those paths report them.
+// Re-pull the open view without navigating; tclist re-reads in place to keep what it holds.
 function refreshCurrentView() {
   const v = state.view;
   if (v === 'runs') return refreshRuns();
@@ -294,36 +259,29 @@ function refreshCurrentView() {
   return Promise.resolve();
 }
 
-// Both counts unconditionally, minus the tests chip when the suite tree just
-// derived it. The runs chip is a project total the runs list never derives.
+// Both counts, minus the tests chip when the suite tree just derived it.
 function refreshTabCounts() {
-  if (capabilities.readonly) return Promise.resolve(); // a locked project has nothing to count (#155)
+  if (capabilities.readonly) return Promise.resolve(); // a locked project has nothing to count
   const epoch = state.projectEpoch; // a project switch mid-fetch discards these
   const jobs = [loadRunsCount(epoch)];
   if (state.view !== 'tcstudio') jobs.push(loadTestsCount(epoch));
   return Promise.all(jobs);
 }
 
-// The two rows that measure themselves — the filter chips folding into a “…” menu and the create
-// buttons dropping a word — are core/fit.js now. These two stay bare: runs-list.js and run-view.js
-// call the first, app.js the second.
+// Kept bare: runs-list.js and run-view.js call the first, app.js the second.
 function fitFilterChips(bar) { Fit.filterChips(bar); }
 function initActionLabelFit(root = document) { Fit.initActionLabels(root); }
 
-// The read-only lockout and the basic-mode strip are core/gates.js now. These four stay bare, and
-// each keeps the declaration it had: core/state.js reaches two of them through a `typeof` guard.
+// Kept as declarations: core/state.js reaches two of them through a `typeof` guard.
 function applyReadonlyBlock() { Gates.applyReadonlyBlock(); }
 function baseUrlHost() { return Gates.baseUrlHost(); }
 function updateDegradedBanner() { Gates.updateDegradedBanner(); }
 function dismissDegradedBanner() { Gates.dismissDegradedBanner(); }
 
-// The same panel-wide pull the header's Refresh does, so the banner's own
-// "Sign in there, then Refresh" means one thing wherever it is pressed. It stays on this side of the
-// seam because refreshAll is this file's, and the strip's own two states do not need it.
+// The same pull as the header's Refresh, so "Sign in there, then Refresh" means one thing.
 function refreshFromDegradedBanner() { return refreshAll(); }
 
-// Leaving Settings discards unsaved form edits — the API is reconfigured from the
-// SAVED settings. A tab click never resets that tab's in-memory screen state.
+// Leaving Settings discards unsaved edits: the API is reconfigured from the saved settings.
 function switchTab(tab) {
   if (!isConfigured() && tab !== 'settings') return;
   if (state.activeTab === 'settings' && tab !== 'settings' && state.settings) {
@@ -333,8 +291,7 @@ function switchTab(tab) {
   openTabView(tab);
 }
 
-// One of NavModel's descriptors, carried out. The openers are named one by one and not through a
-// map: every screen script loads AFTER this file, so a name is only safe to read once it is called.
+// Openers are named one by one, not via a map: screen scripts load after this file.
 function navStep(step) {
   if (!step) return;
   if (step.show) { show(step.show); return; }
@@ -355,16 +312,14 @@ function openSettingsView() {
 
 function goBack() { navStep(NavModel.backTargetFor(state.view, state)); }
 
-// The toast at the bottom and the status line under a field are core/toast.js now. These five
-// stay bare, and each keeps the declaration it had: every screen spells them this way.
+// Kept bare: every screen spells them this way.
 function toastDuration(msg) { return PanelToast.duration(msg); }
 function toast(msg, opts) { PanelToast.show(msg, opts); }
 const progressToast = (msg) => PanelToast.progress(msg);
 function hideToast() { PanelToast.hide(); }
 function setStatusLine(id, msg, cls) { PanelToast.statusLine(id, msg, cls); }
 
-// In-run auth failure: an inline link to Settings instead of teleporting the
-// tester there and losing their place in the run.
+// In-run auth failure: an inline link to Settings instead of losing the tester's place.
 function setAuthExpiredLine(id) {
   const el = $(id);
   if (!el) return;

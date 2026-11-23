@@ -1,9 +1,7 @@
-// Hover cards (IIFE global `HoverCard`) — the tooltip's richer sibling: a card the
-// pointer can ENTER, so closing runs on a grace timer, never on `pointerleave`.
+// A card the pointer can enter, so closing runs on a grace timer, never on `pointerleave`.
 
 const HoverCard = (() => {
-  // Not shadcn's 700/300: 700 reads as nothing happening in a panel. The close grace is
-  // deliberately the longer — it is the gap the pointer crosses to reach the card.
+  // 700ms reads as nothing happening in a panel; the close grace is the gap to cross to the card.
   const OPEN_DELAY = 200;
   const CLOSE_DELAY = 240;
   const EDGE = 8;    // how close to the viewport's edge the box may land
@@ -35,9 +33,9 @@ const HoverCard = (() => {
     let rafId = 0;
     let lastRect = '';
     let stashedTip = null;   // the trigger's `data-tip` while we hold the pointer
-    let described = false;   // …and whether WE are the one holding aria-describedby
+    let described = false;   // …and whether we are the one holding aria-describedby
     let suppressed = false;  // clicked: no card until the pointer leaves the trigger
-    let inside = false;      // the pointer is IN the card — see update()
+    let inside = false;      // the pointer is in the card — see update()
 
     const build = () => {
       const box = document.createElement('div');
@@ -46,7 +44,7 @@ const HoverCard = (() => {
       box.hidden = true;
       // Entering cancels the close the exit scheduled, else the card shuts under the link.
       box.addEventListener('pointerenter', () => { inside = true; clearTimeout(closeTimer); closeTimer = 0; });
-      // A card that opened UNDER a still pointer gets no `pointerenter`, so a press counts.
+      // A card that opened under a still pointer gets no `pointerenter`, so a press counts.
       box.addEventListener('pointerdown', () => { inside = true; });
       box.addEventListener('pointerleave', () => { inside = false; scheduleClose(); });
       return box;
@@ -63,8 +61,7 @@ const HoverCard = (() => {
       return { left: cx - w / 2, top: cy - h / 2, right: cx + w / 2, bottom: cy + h / 2, width: w, height: h };
     };
 
-    // A flip to the opposite side, never a rotation. Measured after the content is in
-    // the DOM — a card is a different height per open.
+    // Measured after the content is in the DOM: a card is a different height per open.
     const place = (r) => {
       const w = node.offsetWidth;
       const h = node.offsetHeight;
@@ -93,7 +90,6 @@ const HoverCard = (() => {
       lastRect = `${r.left},${r.top},${r.width},${r.height}`;
     };
 
-    // Follow the trigger while it is up, and drop the card once it is gone or hidden.
     const follow = () => {
       rafId = 0;
       if (!isOpen()) return;
@@ -132,7 +128,7 @@ const HoverCard = (() => {
       clearTimeout(closeTimer); closeTimer = 0;
       if (!paint()) { close(); return; }         // nothing to say — leave the tip to it
       if (openOne && openOne !== controller) openOne.close();
-      // Inside a modal <dialog> the card must live IN it — the top layer paints over all else.
+      // Inside a modal <dialog> the card must live in it — the top layer paints over all else.
       const host = trigger.closest('dialog[open]') || document.body;
       if (node.parentNode !== host) host.append(node);
       muteTip();
@@ -152,8 +148,7 @@ const HoverCard = (() => {
     function close() {
       clearTimeout(openTimer); openTimer = 0;
       clearTimeout(closeTimer); closeTimer = 0;
-      // A card closed from inside (Escape, a click) never gets `pointerleave`, and a
-      // stale `inside` would freeze the NEXT card for good.
+      // Closed from inside, a card gets no `pointerleave`, and a stale `inside` would freeze the next.
       inside = false;
       if (described) trigger.removeAttribute('aria-describedby');
       described = false;
@@ -182,7 +177,7 @@ const HoverCard = (() => {
       scheduleOpen();
     });
     trigger.addEventListener('pointerleave', () => { suppressed = false; scheduleClose(); });
-    // A click is an ACTION on the trigger; the card stays away until the pointer leaves.
+    // A click is an action on the trigger; the card stays away until the pointer leaves.
     trigger.addEventListener('pointerdown', () => { suppressed = true; close(); });
     // Keyboard: no "hovering slowly" to wait out, and only for focus that shows.
     trigger.addEventListener('focus', () => {
@@ -191,14 +186,13 @@ const HoverCard = (() => {
       if (visible) open();
     });
     trigger.addEventListener('blur', () => {
-      // Focus moving INTO the card keeps it up; anywhere else closes it.
+      // Focus moving into the card keeps it up; anywhere else closes it.
       if (node && node.contains(document.activeElement)) return;
       close();
     });
 
     const controller = {
-      /** Re-run `render()` in place, never a re-open. Skipped while the pointer is
-       *  INSIDE: replacing children between mousedown and mouseup fires no `click`. */
+      /** Skipped while the pointer is inside: swapping children mid-click fires no `click`. */
       update() {
         if (!isOpen() || inside || (node && node.contains(document.activeElement))) return;
         if (!paint()) { close(); return; }
@@ -215,7 +209,7 @@ const HoverCard = (() => {
     return controller;
   }
 
-  // Escape closes it but is NOT swallowed — the same key clears a search box and answers dialogs.
+  // Escape closes it but is not swallowed — the same key clears a search box and answers dialogs.
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openOne) openOne.close(); }, true);
   window.addEventListener('blur', () => { if (openOne) openOne.close(); });
   document.addEventListener('visibilitychange', () => { if (openOne) openOne.close(); });

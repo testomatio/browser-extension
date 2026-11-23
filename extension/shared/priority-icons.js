@@ -1,14 +1,11 @@
-// The five priority glyphs, drawn from shared/icons.js (Material Symbols Rounded).
-// Load AFTER icons.js in both hosts (sidepanel/index.html, editor/editor.html).
+// Load after shared/icons.js in both hosts (sidepanel/index.html, editor/editor.html).
 
 /* global Icons, Tooltip */
 /* exported PriorityIcons */
 (() => {
   'use strict';
 
-  // Material Symbols names; colour always via CSS currentColor (no inline fills). `high`
-  // is the CONTROL KEY caret, so `high` and `important` read as one arrow and two; `critical`
-  // is the FILLED label, our own derived key rather than an upstream name (#28).
+  // `high` is the control-key caret, so `high` and `important` read as one arrow and two.
   const NAMES = {
     low: 'keyboard_arrow_down',
     normal: 'radio_button_unchecked',
@@ -20,10 +17,9 @@
   // Canon sizes (priority/icons.hbs): normal is intentionally smaller.
   const DEFAULT_SIZE = { low: 19, normal: 12, high: 19, important: 19, critical: 19 };
 
-  // Web canon order (priority/modal-multiselect.js): `high` sits BEFORE `important` (#28).
+  // Web canon order (priority/modal-multiselect.js): `high` sits before `important`.
   const ORDER = ['low', 'normal', 'high', 'important', 'critical'];
 
-  // Returns an SVG string for a priority (fill=currentColor), or '' if unknown.
   function svg(priority, size) {
     const name = NAMES[priority];
     if (!name) return '';
@@ -32,8 +28,7 @@
     return Icons.markup(name, s, { rotate: priority === 'critical' ? 270 : 0 });
   }
 
-  // An absent or unknown priority IS `normal` — the priority the test actually runs at.
-  // `size` is the glyph, not the box; the box is the `.prio` component's own.
+  // An absent or unknown priority is `normal`, the priority the test actually runs at.
   function mark(priority, size) {
     const p = ORDER.includes(priority) ? priority : 'normal';
     const html = svg(p, size);

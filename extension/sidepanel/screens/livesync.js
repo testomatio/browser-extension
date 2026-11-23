@@ -1,5 +1,4 @@
-// Live sync: polls the same v2 run-tests payload run-view loads (a token suffices,
-// so basic mode works). Remote wins; the timer runs only while a run is open.
+// Polls the v2 run-tests payload (a token suffices, so basic mode works); remote wins.
 
 /* global TestomatAPI, state, capabilities, displayStatus, statusLabel, repaintRow,
    repaintRowSubstatus, runRowEl, paintRunProgress, renderRunFilterChips,
@@ -15,9 +14,7 @@ let syncWriteDepth = 0;      // tester's own writes in flight (skip ticks while 
 let syncAuthStopped = false; // a poll 401/403 stopped the loop; resumes on Refresh (openRunView)
 let syncArmedMs = 0;         // the interval the live timer is actually armed with
 
-// #106: polling a rate-limited instance at the usual rate is what keeps it rate-limiting us. While
-// the API's last answer was a 429, one tick a minute; a 2xx clears the stamp and the next re-arm
-// returns to the ordinary interval — as does a stamp gone stale, if no answer ever arrives.
+// After a 429, one tick a minute: polling at the usual rate keeps the instance rate-limiting us.
 const SYNC_RATE_LIMIT_MS = 60000;
 function syncTargetMs() {
   let at = 0;
@@ -25,7 +22,7 @@ function syncTargetMs() {
   return at && Date.now() - at < SYNC_RATE_LIMIT_MS ? SYNC_RATE_LIMIT_MS : syncPollMs;
 }
 
-// The ONE place the timer is armed, so the interval can never drift from syncTargetMs().
+// The only place the timer is armed, so the interval cannot drift from syncTargetMs().
 function syncArm() {
   if (syncTimer) clearInterval(syncTimer);
   syncArmedMs = syncTargetMs();
@@ -42,19 +39,17 @@ async function readPollMs() {
   return 20000;
 }
 
-// A test view is always a test OF the open run (openTestView only opens rows of
-// state.records), so no extra check is needed for it.
+// A test view always belongs to the open run (openTestView opens rows of state.records only).
 function syncShouldPoll() {
   if (syncAuthStopped) return false;
-  // #155 — nothing open to keep fresh; core/state.js re-probes for the way back instead.
+  // A read-only project has nothing to keep fresh; core/state.js re-probes for the way back.
   if (capabilities.readonly) return false;
   if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return false;
   if (!state.runId) return false;
   return state.view === 'run' || state.view === 'test';
 }
 
-// Called by openRunView on every open / Refresh, so it also clears an auth-stop
-// left by a prior session.
+// Runs on every open and Refresh, so it also clears an auth-stop left by a prior session.
 async function startLiveSync() {
   syncAuthStopped = false;
   syncStop();                       // clear a prior timer + bump the epoch
@@ -68,15 +63,13 @@ function syncStop() {
   syncArmedMs = 0;
 }
 
-// Own-write bracket: a poll must not apply a stale snapshot over the fresh local
-// value. Draining to zero forces an immediate refetch with the timer reset.
+// Own-write bracket: a poll must not apply a stale snapshot over the fresh local value.
 function syncBeginWrite() { syncWriteDepth += 1; }
 function syncEndWrite() {
   if (syncWriteDepth > 0) syncWriteDepth -= 1;
   if (syncWriteDepth === 0) syncNow();
 }
 
-// Immediate refetch + timer reset — only meaningful while the loop is active.
 function syncNow() {
   if (!syncTimer) return;
   syncArm();
@@ -97,28 +90,23 @@ async function syncTick() {
     if (line && line.classList.contains('error')) setStatusLine('run-status', '');
     syncApply(records.slice().sort(byRecordId));
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // a successful poll tick is a replay trigger
-    // The run detail rides the same tick: custom-status counters (#109), Run info
-    // (#112) and the finished state (#152) live there, not in the rows. Best-effort.
+    // Custom-status counters, Run info and the finished state live in the run detail, not the rows.
     if (await refreshRunInfo(runId)) {
       if (epoch !== syncEpoch || state.runId !== runId) return;
       paintRunProgress();
       if (state.view === 'run') RunInfo.render();
     }
-    // Basic mode has no such read, so it re-reads the v2 run detail instead — the
-    // one signal a token-only panel has that the run was finished elsewhere.
+    // The one signal a token-only panel has that the run was finished elsewhere.
     await refreshRunFinished(runId);
     if (epoch !== syncEpoch || state.runId !== runId) return;
-    // The lock engages (or lifts) within one poll interval of a remote finish
-    // (#152), an automated flip (#154) or an archive (#186). Unconditional: free.
+    // The lock follows a remote finish, automated flip or archive within one poll interval.
     RunLock.applyRunLock();
   } catch (e) {
-    // A token 401/403 on the poll path parks the loop (no toast spam); Refresh
-    // resumes it via openRunView. Other errors are skipped — the next tick retries.
+    // A 401/403 parks the loop without toast spam; Refresh resumes it, other errors just retry.
     if (e && e.kind === 'auth') { syncAuthStopped = true; syncStop(); }
   } finally {
     syncFetching = false;
-    // The rate-limit stamp changed under this tick (set by a 429, cleared by a 2xx) — re-arm so the
-    // NEXT tick lands at the interval that answer earned. Free while nothing is rate-limiting us.
+    // Re-arm when this tick's answer moved the rate-limit stamp, so the next tick uses its interval.
     if (syncTimer && syncArmedMs !== syncTargetMs()) syncArm();
   }
 }
@@ -128,16 +116,14 @@ function capStatus(status) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
-// Remote-wins diff keyed by RECORD id — example rows share test_id. Never touches
-// the comment draft or local step ticks: both live outside the record data.
+// Keyed by record id, not test_id: example rows share a test_id.
 function syncApply(remote) {
   const cur = new Map(state.records.map((r) => [String(r.id), r]));
   const incoming = new Map(remote.map((r) => [String(r.id), r]));
   const sameSet = cur.size === incoming.size && [...cur.keys()].every((k) => incoming.has(k));
 
   if (!sameSet) {
-    // Structural change: replace + full re-render (drafts and step ticks live
-    // in separate DOM/state, so they survive).
+    // Drafts and step ticks live outside the records, so a full re-render keeps them.
     state.records = remote;
     if (state.view === 'run') renderRunView();
     else if (state.view === 'test') renderTestProgress();
@@ -150,12 +136,10 @@ function syncApply(remote) {
   for (const [id, rem] of incoming) {
     const local = cur.get(id);
     if (!local) continue;
-    // A locally queued status counts as an own write in flight — queue wins: keep
-    // the local status/message, apply every other field, raise no remote change.
+    // A queued status counts as an own write in flight: the local status and message win.
     const queued = typeof OfflineQueue !== 'undefined' && OfflineQueue.has(id);
     const statusChanged = !queued && displayStatus(rem) !== displayStatus(local);
-    // A remote custom-status write (#109) changes no status, so it needs its own
-    // diff. A remote ASSIGN needs none — no row names its assignee any more.
+    // A remote custom-status write changes no status, so it needs its own diff.
     const substatusChanged = (rem.substatus || null) !== (local.substatus || null);
     const keepLocal = queued ? { status: local.status, message: local.message } : null;
     Object.assign(local, rem, { test_id: rem.test_id != null ? rem.test_id : local.test_id }, keepLocal || {});
@@ -178,14 +162,12 @@ function syncApply(remote) {
   renderRunFilterChips();
   for (const c of changed) { const li = runRowEl(c.id); if (li) refreshSuiteFraction(li); }
   if (state.view === 'test') renderTestProgress();
-  // #153: a COLLEAGUE's status write closes the assignee gate on the open test too
-  // — the select is otherwise repainted only on open.
+  // A colleague's status write closes the assignee gate; the select otherwise repaints only on open.
   if (openToast && typeof TestMeta !== 'undefined') TestMeta.applyAssigneeGate(recordFor(openId));
   if (openToast) toast(`"${openToast.title}" → ${capStatus(openToast.status)}`);
 }
 
-// The timer keeps firing while hidden but its ticks no-op, so becoming visible
-// triggers an immediate catch-up. Wired from app.js init().
+// Ticks no-op while hidden, so becoming visible triggers an immediate catch-up.
 function initLiveSync() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') syncTick();

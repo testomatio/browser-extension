@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// #151: every capture starts with "which tab is the site under test?". extension/shared/site-tab.js
-// answers it — the active tab, or the last real site tab standing in when the tester wandered off to
-// chrome://extensions, or the one sentence they read when there is genuinely nothing to work on. It
-// also strips a URL to the origin the evidence recorder registers its script for.
-// Also covers extension/shared/site-access.js, which is a shape mapping over the same answer.
-// Run: node --test tests/site-tab.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, chromeFake, plain } from './helpers/shared-harness.mjs';
@@ -35,8 +29,7 @@ test('T1: an ordinary page gives back the site it is on, without the path', () =
 });
 
 test('T2: a site running on a port loses the port, so every port of it is covered', () => {
-  // Chrome match patterns cannot carry a port, so recording localhost:3000 registers the hook on
-  // every port of localhost. Deliberate — pinned so the loss stays deliberate.
+  // Chrome match patterns cannot carry a port, so localhost:3000 registers on every localhost port.
   assert.equal(pure().originOf('http://localhost:3000/a'), 'http://localhost');
 });
 
@@ -256,8 +249,6 @@ test('T30: a stand-in tab that refuses to come forward is still the answer', asy
   assert.equal(site.tab.id, 7);
   assert.equal(h.updates.length, 1); // it was asked, and the refusal was swallowed
 });
-
-// ---- shared/site-access.js: the same answer, in the shape its callers read ----
 
 function loadAccess(site) {
   const calls = [];

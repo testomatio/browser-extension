@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/test-summary.js SHOWS the tester: everything the last automated
-// run left behind the verdict — how long it took, the failure text, the environment meta, the
-// reported step tree, the screenshots and the other files. These rows were half B of
-// tests/test-view-read.test.mjs until the card became its own file; the steps a tester is about to
-// run through stayed there, and the write path is tests/test-view-write.test.mjs.
-// Two things here are easy to get quietly wrong. The failure body has two readers: a reporter's
-// assertion output, where the whitespace IS the information, and a human's Markdown, which goes
-// through the sanitizer and must be hydrated before it reaches the document. And a file's address
-// has two forms — `display_url` is the inline one an IMAGE has, and anything else would get a
-// file-type icon from it, so only `url` ever opens the file itself.
-// Rows 30-56, 126-146 and 159 are the ticket's; a lettered suffix is the companion case that drives
-// the same path the other way, so a row asserting "nothing happened" cannot pass against a stub that
-// never worked.
-// Run: node --test tests/test-summary.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,16 +8,11 @@ import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeWindow, makeDocument, el, plain, settle } from './helpers/panel-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The REAL one, not a stub: the rows below assert the duration a tester reads, and a fake would
-// let them pass against a wording the panel never prints. tests/format.test.mjs owns its cases.
+// The real formatter: a fake would let a duration pass in a wording the panel never prints.
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 
-// ---------- what Md.render really emits ----------
-// Captured once from the real pipeline (vendor/showdown.min.js + shared/html-sanitize.js +
-// shared/markdown.js over the mini-DOM) and frozen here: markdown.js needs a `showdown` global and a
-// lexical `sanitizeHtml` from another file, so it is not reachable beside a screen. These strings are
-// what the tester's failure message actually becomes.
+// Frozen from the real Md.render: markdown.js needs another file's globals, so it cannot load here.
 const MD = {
   headingBody: '<h1 id="heading">heading</h1>\n<p>body text</p>',
   // '![px](https://evil.test/px.png)' — a markdown image survives the sanitizer with its host intact
@@ -46,9 +27,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// index.html's shape (:611, :639, :645, :749-794), cut to the nodes this card touches. The
-// disclosure heads live INSIDE their wrap because summaryStepsTools() inserts itself after the head
-// and then looks for itself under the wrap.
+// The heads sit inside their wraps: summaryStepsTools() inserts after a head, then looks in its wrap.
 function makePage() {
   const doc = makeDocument([]);
   const node = {};
@@ -87,9 +66,7 @@ function makePage() {
   return { doc, node };
 }
 
-// The panel globals test-summary.js reads, all of them real enough to be driven. They live here and
-// not in the harness: every screen has its own set. There is no `capabilities` in this list, and no
-// `Dropdown` and no `OfflineQueue` — the card asks the session nothing and writes nothing.
+// No capabilities, Dropdown or OfflineQueue: the card asks the session nothing and writes nothing.
 function load(opts = {}) {
   const o = {
     hasChrome: true,
@@ -112,7 +89,7 @@ function load(opts = {}) {
     renders: [],     // every string handed to Md.render
     hydrates: [],    // ImgHydrate.hydrate(group, container)
     releases: [],    // ImgHydrate.release(group)
-    loads: [],       // { group, src, opts } — row 159 is about the missing opts
+    loads: [],       // { group, src, opts } — the missing opts are the point
     empties: [],     // { host, title, icon, compact }
     presigns: [],
     requests: [],    // TestomatAPI.jwtRequest paths
@@ -149,7 +126,7 @@ function load(opts = {}) {
 
   const globals = {
     state,
-    // core/state.js:79's own.
+    // core/state.js's own.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     hasChrome: o.hasChrome,
     chrome: chromeStub,
@@ -193,7 +170,7 @@ function load(opts = {}) {
     },
     Tooltip: { set: (n, tipText) => { n.dataset.tip = tipText; } },
     Sk: { lines: () => html('div', 'sk-lines') },
-    // core/status-icons.js's vocabulary; its own rows are tests/status-icons.test.mjs.
+    // core/status-icons.js's vocabulary.
     StatusIcons: {
       svgIcon: (name, size, ...cls) => el('span', { className: ['icon', ...cls].join(' '), dataset: { icon: name } }),
       statusIcon: (status) => el('span', { className: 'status-icon', dataset: { status } }),
@@ -201,14 +178,13 @@ function load(opts = {}) {
       treeSlot: () => html('span', 'tree-icon'),
       CHEVRON: 'chevron_right',
     },
-    // test-view.js:289-296, verbatim: the step dot and the tri-state control wear the same mark, and
-    // a stub that always drew one would let the reported tree's `unset` ring pass for free.
+    // Verbatim from test-view.js: a stub that always drew a mark would let the `unset` ring pass for free.
     paintStepMark: (target, status, size, unset = '') => {
       const name = { passed: 'check', failed: 'close', skipped: 'remove' }[status] || unset;
       target.replaceChildren(...(name ? [globals.StatusIcons.svgIcon(name, size)] : []));
     },
     TestomatAPI: {
-      // The real one resolves a root-relative asset path against the instance (api/assets.js:15).
+      // The real one resolves a root-relative asset path against the instance.
       assetUrl: (raw) => { try { return new URL(String(raw), 'https://app.testomat.io/').toString(); } catch { return ''; } },
       presignArtifact: async (url) => {
         calls.presigns.push(url);
@@ -230,8 +206,6 @@ function load(opts = {}) {
 }
 
 const detail = (attributes) => ({ data: { attributes } });
-
-// ===================== the reported-step tree (rows 30-34) =====================
 
 test('30: a sub-step becomes a child node', () => {
   const h = load();
@@ -280,8 +254,6 @@ test('34a: the fields the web transform carries ride along untouched', () => {
   });
 });
 
-// ===================== linkifying a reporter's log (rows 35-41) =====================
-
 const linked = (h, source) => {
   const host = h.doc.createElement('div');
   h.mod.linkifyInto(host, source);
@@ -318,7 +290,7 @@ test('38: only http and https are linked — a javascript: URL stays words', () 
   const host = linked(h, 'javascript:alert(1)');
   assert.deepEqual(anchors(host), []);
   assert.equal(host.textContent, 'javascript:alert(1)');
-  // …and the neighbouring scheme that IS linked, so the row cannot pass on a dead regex.
+  // …and the neighbouring scheme that is linked, so the row cannot pass on a dead regex.
   assert.equal(linked(h, 'http://a.test/x').querySelectorAll('a').length, 1);
 });
 
@@ -353,8 +325,6 @@ test('41a: "https://." IS matched, and the stripped stop leaves a degenerate anc
   assert.deepEqual(anchors(host), [{ href: 'https://', text: 'https://' }]);
   assert.equal(host.textContent, 'https://.');
 });
-
-// ===================== what kind of file is this (rows 42-53) =====================
 
 test('42: a server-declared image is an image', () => {
   const h = load();
@@ -439,8 +409,6 @@ test('53: a row with no address at all answers the empty string, never undefined
   assert.equal(h.mod.href(null), '');
 });
 
-// ===================== where a thumbnail's bytes come from (rows 54-56) =====================
-
 test('54: with no hook set the instance\'s own URL is asked first', async () => {
   const h = load();
   assert.equal(await h.mod.src({ url: 'U', display_url: 'D' }), 'U');
@@ -448,8 +416,7 @@ test('54: with no hook set the instance\'s own URL is asked first', async () => 
   assert.equal(await h.mod.src({}), '');
 });
 
-// 55: the e2e hook outranks the row's own url, by name, against the hook as the base. It names an
-// off-instance host, but nothing is fetched from one: api/assets.js:35 refuses that by default.
+// The hook names an off-instance host, but nothing is fetched from one: api/assets.js refuses that.
 test('55: the e2e hook wins over the row\'s own url and rebuilds it from the name', async () => {
   const h = load({ session: { stepShotHook: 'http://127.0.0.1:8080/' } });
   assert.equal(await h.mod.src({ name: 'a.png', url: 'https://app.testomat.io/a.png' }),
@@ -473,8 +440,6 @@ test('56a: …and so does a panel with no chrome at all', async () => {
   assert.equal(await h.mod.shotHookBase(), '');
   assert.equal(await h.mod.src({ url: 'U' }), 'U');
 });
-
-// ===================== what the summary card decides to show (rows 126-128) =====================
 
 test('126: a pending result, or none at all, hides the whole card and takes the tab dot off', () => {
   for (const attrs of [{ status: 'pending' }, {}, null]) {
@@ -553,12 +518,10 @@ test('128a: with no run-time the duration line is empty, not a stray dot', () =>
   assert.equal(h.node['summary-duration'].textContent, '');
 });
 
-// ===================== the failure body (rows 129-132) =====================
-
 test('129: a reporter message is text, and its whitespace is the information', () => {
   const h = load();
   h.mod.renderSummaryFailure({ status: 'failed', automated: true, message: '\n  line one\n    indented\n\n' });
-  // Trimmed on the way in — verbatim INSIDE the trim, so the indentation of line two survives.
+  // Trimmed on the way in, verbatim inside the trim, so line two's indentation survives.
   assert.equal(h.node['summary-message'].textContent, 'line one\n    indented');
   assert.equal(h.node['summary-message'].className, 'summary-message is-failed code is-raw');
   assert.deepEqual(h.calls.renders, []); // never through the markdown renderer
@@ -581,15 +544,13 @@ test('130: a human\'s message is Markdown, appended as nodes under the sections 
   assert.equal(h.node['summary-failure'].hidden, false);
 });
 
-// 131: a manual body goes through the same hydrate every other Md.render site uses (test-view.js's
-// renderSteps, editor.js:140,805) — the CSP allows no remote <img>, so an unhydrated one is a broken box.
+// The CSP allows no remote <img>, so an unhydrated image in a manual body is a broken box.
 const FAIL_MSG = 'it broke\n\n![px](https://evil.test/px.png)';
 
 test('131: a remote image in a manual failure message is hydrated like every other body', () => {
   const h = load({ md: { [FAIL_MSG]: MD.remoteImage } });
   h.mod.renderSummaryFailure({ status: 'failed', message: FAIL_MSG });
-  // Its own group: summary-shots is released when the step tree repaints, which would revoke
-  // these while the failure body is still on screen.
+  // Its own group: summary-shots is released on a step-tree repaint, which would revoke these mid-view.
   assert.deepEqual(h.calls.hydrates, ['summary-failure']);
   // Freed before the new body is built, so the previous message's object URLs never outlive it.
   assert.deepEqual(h.calls.order.filter((o) => o === 'hydrate' || o === 'release:summary-failure'),
@@ -628,8 +589,6 @@ test('132a: a message with anything in it shows the section', () => {
   assert.equal(h.node['summary-message'].textContent, 'x');
 });
 
-// ===================== environment meta (rows 133-134) =====================
-
 test('133: the run\'s own bookkeeping entries never reach the tester', () => {
   const h = load();
   h.mod.renderSummaryMeta({ extras: [{ source: 'system', key: 'duration' }, { key: 'Browser', value: 'Chrome' }] });
@@ -653,8 +612,6 @@ test('134: a value that is missing prints nothing, not the word null', () => {
   assert.deepEqual(dds.map((n) => n.textContent), ['', '0', 'false']);
 });
 
-// ===================== the artifacts fold (row 135) =====================
-
 test('135: a row with neither an address nor a name is not a file, and an empty fold is released', () => {
   const h = load();
   h.node['summary-artifacts-body'].append(el('li', {}, 'stale'));
@@ -673,10 +630,7 @@ test('135a: a row with only a name survives and the fold opens', async () => {
   assert.equal(h.node['summary-artifacts-body'].querySelector('.file-tile').dataset.kind, 'file');
 });
 
-// ===================== the reported steps section (rows 136-138) =====================
-
-// `summarySteps` is the module's own `let`, private to the IIFE — so what it holds is read back
-// the way the tester sees it, off the body the card paints.
+// `summarySteps` is private to the IIFE, so its contents are read back off the body the card paints.
 test('136: an automated result advertises a count and the list waits for the tester to ask', async () => {
   const h = load({ testrunDetail: detail({ steps: [], sections: { steps: { count: 3 } } }) });
   h.mod.renderSummaryStepsSection({ steps: [], sections: { steps: { count: 3 } } });
@@ -743,8 +697,6 @@ test('138a: a failure for a test the tester already left is not written over the
   assert.equal(h.node['summary-steps-body'].querySelectorAll('.sk-lines').length, 1);
 });
 
-// ===================== presigning an artifact (rows 139-140) =====================
-
 test('139: a flagged URL is signed once and remembered', async () => {
   const h = load();
   const row = { needs_presign: true, url: 'U', name: 'a.png' };
@@ -768,16 +720,12 @@ test('140: a refusal is remembered as a refusal, and the raw row keeps the link 
   const row = { needs_presign: true, url: 'U' };
   const out = await h.mod.artifactSigned(row);
   assert.equal(out, row); // the same object: url 'U', still openable
-  // The memo is private to the IIFE, so the remembered '' shows itself the only way it can: the
-  // second call answers the raw row again without asking.
+  // The memo is private, so the remembered '' shows only as the raw row coming back without a request.
   assert.equal(await h.mod.artifactSigned(row), row);
   assert.deepEqual(h.calls.presigns, ['U']); // asked once, never again
 });
 
-// ===================== links, the viewer and the tiles (rows 141-146, 159) =====================
-
-// 141: the url is server data, so it is resolved and then checked — the same rule
-// RunInfo.ciBuildLink (screens/run-info.js) applies to the same kind of value on the same element.
+// The url is server data, so it is resolved then checked, the same rule as RunInfo.ciBuildLink.
 test('141: an attachment url that is not http(s) never becomes an href', () => {
   const h = load();
   const link = h.mod.attachmentLink({ name: 'a', url: 'javascript:alert(1)' });
@@ -884,8 +832,7 @@ test('146b: a video and a plain file are cards from the start and are never fetc
   assert.deepEqual(h.calls.loads, []);
 });
 
-// 159: both call sites hand ImgHydrate.load no options, and that is the SAFE shape — fetchAsset's
-// `instanceOnly` defaults to true (api/assets.js:35), so an off-instance host is refused for them.
+// No options is the safe shape: fetchAsset's `instanceOnly` defaults to true.
 test('159: a thumbnail and a tile pass no fetch options, which is instance-only by default', async () => {
   const h = load();
   h.mod.attachmentThumb('g', { name: 'a.png', url: 'https://evil.test/a.png' }, () => {});

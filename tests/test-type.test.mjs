@@ -1,20 +1,10 @@
 #!/usr/bin/env node
-// #179: the small coloured square every test wears in a list — extension/shared/test-type.js. A
-// tester reads that square before they read the title: it is how they tell a manual case from an
-// automated one, and how a defect, a detached test or one that has drifted out of sync announces
-// itself on a row that otherwise looks fine.
-// Two things here are easy to get quietly wrong. The PRECEDENCE: the server sends the flags that
-// apply and omits the ones that do not, so `of()` is a ladder — the exceptions are read BEFORE
-// `state`, because a detached test is still `automated` and what the reader needs is the loss of its
-// code. And the ASYMMETRY in mark(): `Tooltip` is guarded, `Icons` is not.
-// Run: node --test tests/test-type.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain } from './helpers/shared-harness.mjs';
 import { makeDocument } from './helpers/mini-dom.mjs';
 
-// One IIFE publishing on `window`; it keeps no state between calls, so a fresh load is only needed
-// by the rows that want one of the two globals ABSENT.
+// It keeps no state between calls, so a fresh load is needed only by rows that want a global absent.
 function load({ icons = true, tooltip = true } = {}) {
   const doc = makeDocument();
   const calls = { icons: [], tips: [] };
@@ -32,8 +22,7 @@ function load({ icons = true, tooltip = true } = {}) {
     };
   }
   if (tooltip) {
-    // The real one writes the tip onto the node it is handed (shared/tooltip.js), so a recorder
-    // alone could not tell a tip that landed on the mark from one that went nowhere.
+    // Writes the tip like the real one, so a tip that lands off the mark shows.
     sandbox.Tooltip = {
       set: (node, tip) => {
         calls.tips.push({ node, tip });
@@ -47,8 +36,6 @@ function load({ icons = true, tooltip = true } = {}) {
 
 const { T } = load();
 const kids = (el) => el.childNodes.map((n) => (n.nodeType === 1 ? n.tagName : n.nodeValue));
-
-// ---- the ladder: which square, out of whatever the server sent -------------------------------
 
 test('1: nobody at all — a null or missing record wears no square rather than a wrong one', () => {
   assert.equal(T.of(null), null);
@@ -72,15 +59,12 @@ test('5: a detached test says it lost its code, not that it is automated', () =>
   assert.equal(T.of({ state: 'automated', detached: true }), 'detached');
 });
 
-// 5 and 6 each send one exception, or a defect that outranks everything. This is the pair in the
-// middle: the order between them is what the tester reads on a row that is both.
 test('5b: a detached test that is also out of sync says detached — losing its code outranks drifting', () => {
   assert.equal(T.of({ state: 'automated', detached: true, out_of_sync: true }), 'detached');
   assert.equal(T.of({ state: 'automated', detached: true, outdated: true }), 'detached');
 });
 
-// `state` is v2's word for it and `kind` is the older one. A record carrying both is a record from a
-// server mid-upgrade, and the newer field has to win.
+// `state` is v2's word and `kind` the older one; a server mid-upgrade sends both.
 test('5c: when a record carries both state and kind, state is the one believed', () => {
   assert.equal(T.of({ state: 'manual', kind: 'automated' }), 'manual');
   assert.equal(T.of({ state: 'automated', kind: 'manual' }), 'automated');
@@ -129,15 +113,13 @@ test('14: an empty state with automated off is a manual test', () => {
   assert.equal(T.of({ state: '', automated: false }), 'manual');
 });
 
-// ---- the square itself -----------------------------------------------------------------------
-
 test('15: a defect draws the alert-tinted square with its own glyph at 12px, and says which kind it is', () => {
   const h = load();
   const m = h.T.mark('defect');
   assert.equal(m.tagName, 'SPAN');
-  assert.equal(m.className, 'type-mark alert'); // the tint is the GROUP, not the kind repeated
+  assert.equal(m.className, 'type-mark alert'); // the tint is the group, not the kind repeated
   assert.equal(m.getAttribute('data-type'), 'defect');
-  // 12, not 16: the glyph sits on its own 13.3333 frame, so this IS the drawing's size.
+  // 12, not 16: the glyph sits on its own 13.3333 frame, so this is the drawing's size.
   assert.deepEqual(plain(h.calls.icons), [{ name: 'type_defect', size: 12, cls: [] }]);
   assert.deepEqual(kids(m), ['SPAN']);
 });

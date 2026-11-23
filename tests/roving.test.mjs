@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// #109: without extension/shared/roving.js the panel's lists are mouse-only — Tab walks past every
-// run, suite and test onto the status line, and no key opens one. This is the shared answer the four
-// screens hang off: ONE tab stop per list, the arrows between rows, Home/End at the ends, Enter and
-// Space to open. Two properties carry the whole design and are asserted hardest here: the listeners
-// live on the CONTAINER, so a list whose children are swapped by replaceChildren() needs nothing
-// re-attached; and a row a fold has hidden — or a tab the first-launch gate has disabled — is not
-// somewhere the arrows may land, because the caret would arrive at what cannot hold it and stick.
-// Run: node --test tests/roving.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto } from './helpers/shared-harness.mjs';
@@ -15,8 +7,7 @@ import { makeDocument, el, fire } from './helpers/mini-dom.mjs';
 // A fresh module per case — the WeakMap of wired containers is a singleton per load.
 const load = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
-// A list of `n` rows in a real document, wired the way a screen wires it. `clicks` records which
-// row's own click listener ran, which is the only thing Enter and Space are allowed to do.
+// `clicks` records which row's own click listener ran, the only thing Enter and Space may do.
 function list({ rows = 3, orientation = 'vertical', tag = 'li' } = {}) {
   const Roving = load();
   const doc = makeDocument([]);
@@ -46,8 +37,6 @@ function list({ rows = 3, orientation = 'vertical', tag = 'li' } = {}) {
   };
 }
 
-// ---------- what a row is ----------
-
 test('R1: a marked row says it is a button and starts out reachable by Tab', () => {
   const h = list({ rows: 2 });
   assert.equal(h.at(0).getAttribute('role'), 'button');
@@ -60,8 +49,6 @@ test('R1b: item() hands back the row it was given, so a factory can return it in
   assert.equal(Roving.item(row), row);
   assert.equal(Roving.item(null), null);
 });
-
-// ---------- moving ----------
 
 test('R2: the arrows walk the list and leave exactly one tab stop behind them', () => {
   const h = list({ rows: 3 });
@@ -119,8 +106,6 @@ test('R6: a key the helper does not own is left alone for the page', () => {
   assert.equal(h.focused(), null);
 });
 
-// ---------- opening ----------
-
 test('R7: Enter opens the focused row by running its own click listener', () => {
   const h = list({ rows: 2 });
   const ev = h.key(h.at(1), 'Enter');
@@ -134,8 +119,6 @@ test('R8: Space opens it too, and is swallowed so the panel does not scroll out 
   assert.deepEqual(h.clicks, ['r0']);
   assert.equal(ev.defaultPrevented, true, 'an unhandled Space scrolls the page');
 });
-
-// ---------- what the helper must not touch ----------
 
 test('R9: a field inside the list keeps every key typed into it', () => {
   const h = list({ rows: 2 });
@@ -158,8 +141,6 @@ test('R10: a button inside a row answers Enter itself — the row is not opened 
   assert.deepEqual(h.clicks, []);
 });
 
-// ---------- folds ----------
-
 test('R11: a row a fold has hidden is not somewhere the arrows may land', () => {
   const h = list({ rows: 0 });
   const first = h.add('r0');
@@ -179,14 +160,12 @@ test('R11: a row a fold has hidden is not somewhere the arrows may land', () => 
   assert.equal(h.focused(), 'folded');
 });
 
-// ---------- the property the whole design rests on ----------
-
 test('R12: the tab stop survives a replaceChildren() re-render with nothing re-attached', () => {
   const h = list({ rows: 3 });
   h.key(h.at(0), 'End');
   assert.deepEqual(h.tabs(), ['-1', '-1', '0']);
 
-  // What every render in the panel does: brand-new rows into the SAME <ul>.
+  // What every render in the panel does: brand-new rows into the same <ul>.
   h.ul.replaceChildren();
   const fresh = ['n0', 'n1'].map((n) => h.add(n));
   assert.deepEqual(h.tabs(), ['0', '0'], 'a fresh row is born reachable');
@@ -195,7 +174,6 @@ test('R12: the tab stop survives a replaceChildren() re-render with nothing re-a
   fire(fresh[0], 'focusin', { bubbles: true });
   assert.deepEqual(h.tabs(), ['0', '-1']);
 
-  // And the arrows work on the new rows without a second attach().
   h.key(fresh[0], 'ArrowDown');
   assert.equal(h.focused(), 'n1');
   h.key(fresh[1], 'Enter');
@@ -225,8 +203,6 @@ test('R14: attach() is safe to call from a render — the listeners are wired ex
   assert.deepEqual(h.clicks, ['r0'], 'and the row opens once, not five times');
 });
 
-// ---------- the edges a list really has ----------
-
 test('R15: an empty list, and a container nothing was attached to, both stay quiet', () => {
   const h = list({ rows: 0 });
   assert.deepEqual(h.tabs(), []);
@@ -249,8 +225,6 @@ test('R16: a row that a fold hid while it had focus does not move the tab stop a
   assert.equal(h.key(inside, 'ArrowDown').defaultPrevented, false, 'it is not in the walk at all');
   assert.equal(h.focused(), null);
 });
-
-// ---------- and the other thing that cannot hold the caret (#109 PR-3) ----------
 
 test('R17: a disabled item is stepped over — the caret would arrive there and stick', () => {
   const bar = list({ rows: 3, orientation: 'horizontal', tag: 'button' });

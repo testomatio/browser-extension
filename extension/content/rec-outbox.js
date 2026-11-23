@@ -1,26 +1,21 @@
-// One queue, in the order the tester acted: an entry waits out its packet window, so an expectation
-// typed meanwhile cannot overtake the step it belongs to. The reply goes back through `onReply`.
+// One queue in the tester's order, so an expectation typed meanwhile cannot overtake its step.
 
 /* global window */
 (() => {
   'use strict';
-  // Injected on demand, and a same-document re-inject runs the file again: without this the
-  // second run throws before the recorder's own latch is ever reached.
+  // A same-document re-inject runs the file again; without this the second run throws.
   if (window.RecOutbox) return;
-  // `sendMessage` and `setTimeout` arrive as arguments so a test drives the queue without a page,
-  // and `frameClause` because which frame this is is the recorder's fact, not the queue's.
+  // `sendMessage` and `setTimeout` are injected so a test drives the queue without a page.
   function make({ sendMessage, frameClause = '', afterMs = 400, onReply, setTimeout: wait }) {
     const timer = wait || ((fn, ms) => setTimeout(fn, ms));
 
-    // A Stop flush has to know its entry REACHED the worker, not merely that it was handed to
-    // sendMessage — the editor reads and clears the state the moment the flush resolves.
+    // A Stop flush must know its entry reached the worker: the editor clears state once it resolves.
     const inflight = new Set();
 
-    // `replaces` (dblclick only) is a wire instruction: the exact single-click text this
-    // action supersedes — the worker pops those trailing twins before appending.
+    // `replaces` (dblclick only): the single-click text this supersedes; the worker pops those twins.
     function send(entry) {
       if (!entry || !entry.text) return;
-      // Onto BOTH strings: a `replaces` the worker can no longer match leaves the twins behind.
+      // Onto both strings: a `replaces` the worker can no longer match leaves the twins behind.
       if (frameClause) {
         entry.text += frameClause;
         if (entry.replaces) entry.replaces += frameClause;
@@ -48,8 +43,7 @@
       timer(item.close, afterMs);
     }
 
-    // The window is about to die (a navigation, a Stop): what is queued leaves with the
-    // packet it has rather than with the page.
+    // The window is about to die: queued entries leave with the packet they have, not with the page.
     const flushOutbox = () => { for (const it of outbox.slice()) if (it.close) it.close(); };
 
     return { send, queueEntry, flushOutbox, inflight };

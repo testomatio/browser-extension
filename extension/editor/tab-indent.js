@@ -1,10 +1,10 @@
-// Tab / Shift+Tab move the caret's line in the Markdown editor; Esc then Tab leaves it (IIFE global `TabIndent`).
+// Tab / Shift+Tab move the caret's line in the Markdown editor; Esc then Tab leaves it.
 
 const TabIndent = (() => {
   const STEP = '  ';
   const OUTDENT_RE = /^( {1,2}|\t)/;
 
-  // The caret's line moved: the slice to replace, its new text and the caret after; null when nothing moves.
+  // The slice to replace, its new text and the caret after; null when nothing moves.
   function lineEdit(value, caret, outdent) {
     const start = caret === 0 ? 0 : value.lastIndexOf('\n', caret - 1) + 1;
     const nl = value.indexOf('\n', caret);

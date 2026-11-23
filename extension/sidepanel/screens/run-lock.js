@@ -1,37 +1,21 @@
 // The panel's write gate: whether a result may be saved at all, why not, and the paint that says so.
-// Its own file, not the run screen's — core/write-status.js and nine screens ask it, and app.js
-// wires Finish run to it.
 
 /* global state, $, TestomatAPI, ConfirmDialog, toast, progressToast, setStatusLine, handleApiError,
    isAuthError, sleep, stepWriteChain, byRecordId, Tooltip, TestGates, recordFor, ROW_BTN_LABEL,
    updateRunActions, applyRunInfo, renderRunView, awaitRunState */
 
-// ---- write locks: archived (#186), finished (#152), automated (#154) ----
-// One plumbing, three reasons: runWriteLock() for the whole run, recordWriteLock()
-// for one row; applyRunLock() paints whatever they say onto the DOM.
-//
-// ---- finished run (#152)
-// The server checks no run state on these writes (the CI reporter writes into
-// finished runs by design), so the panel is the only place the gate can live.
+// The server never checks run state on writes (CI writes to finished runs), so the gate lives here.
 const TERMINAL_RUN_STATUS = new Set(['passed', 'failed', 'terminated', 'finished']);
 
 const RUN_LOCK_REASON = 'Run is finished — results are read-only';
 
-// ---- archived run (#186)
-// The server has no authorization check for archived runs (only list filtering) and
-// `Run#calculate_counters` early-returns, so a write leaves counters permanently stale.
-//
-// ONE signal, session-only: `is-archived` on the JSON:API run detail. The v2 payload
-// carries no archived flag at all, so BASIC MODE IS BLIND and deliberately stays so.
+// Archived runs accept writes but never recount; only the JSON:API detail flags them (v2 is blind).
 const ARCHIVED_LOCK_REASON = 'Run is archived — results are read-only';
 
-// ---- automated result (#154)
-// `Testrun#add_step!` returns early on an automated testrun while still answering
-// 200, so step writes are swallowed. The RUN's `kind` bars every row, a row's flag one.
+// The server answers 200 to step writes on an automated testrun but drops them.
 const AUTOMATED_LOCK_REASON = 'Automated result — read-only in the panel';
 
-// Driven by the STATE, not by a detected transition: several paths learn that the
-// run finished, and a flip-detector missed the paint. `force` is for a rebuilt DOM.
+// Painted from state, not on a transition: several paths learn the run finished. force = rebuilt DOM.
 let lockPainted = null; // last signature painted into the DOM; null = never painted
 
 const RunLock = {
@@ -47,7 +31,7 @@ const RunLock = {
 
   runAutomated: () => String(state.runKind || '').toLowerCase() === 'automated',
 
-  // The JSON:API detail is consulted for the OPEN test, in case the list row is stale.
+  // The JSON:API detail is consulted for the open test, in case the list row is stale.
   recordAutomated(record) {
     if (!record) return false;
     if (record.automated === true) return true;
@@ -55,8 +39,7 @@ const RunLock = {
       && state.testrunDetail?.data?.attributes?.automated === true;
   },
 
-  // '' = writable, else the reason holding for EVERY row. Archived outranks finished
-  // outranks automated: the tester must be told the ACTUAL reason.
+  // '' = writable. Archived outranks finished outranks automated, so the tester sees the real reason.
   runWriteLock() {
     if (!state.runId) return '';
     if (RunLock.runArchived()) return ARCHIVED_LOCK_REASON;
@@ -65,13 +48,11 @@ const RunLock = {
     return '';
   },
 
-  // The run-level reason first (it is true of this row too), then the row's own flag.
   recordWriteLock(record) {
     return RunLock.runWriteLock() || (RunLock.recordAutomated(record) ? AUTOMATED_LOCK_REASON : '');
   },
 
-  // The reason alone is not enough (#154): a reporter result landing in a mixed run
-  // flips one row mid-poll while the run-level reason stays ''.
+  // A reporter result can flip one row mid-poll while the run-level reason stays ''.
   lockSignature(reason) {
     const rows = (state.records || []).filter(RunLock.recordAutomated).map((r) => r.id).join(',');
     return `${reason} | ${rows}`;
@@ -82,7 +63,7 @@ const RunLock = {
     const signature = RunLock.lockSignature(reason);
     if (!force && signature === lockPainted) return;
     lockPainted = signature;
-    // Per ROW, not per run: a mixed run locks only its automated rows.
+    // Per row, not per run: a mixed run locks only its automated rows.
     document.querySelectorAll('#run-tests li.test-row').forEach((li) => RunLock.applyRowLock(li));
     const note = $('run-lock-note');
     if (note) { note.textContent = reason; note.hidden = !reason; }
@@ -90,8 +71,7 @@ const RunLock = {
     if (typeof TestGates !== 'undefined') TestGates.update();
   },
 
-  // The row itself stays clickable — only the write buttons go dead, with the reason
-  // on their tooltip. The default reason is the row's own (a mixed run locks some).
+  // The row stays clickable; only the write buttons go dead, with the reason on their tooltip.
   applyRowLock(li, reason = RunLock.recordWriteLock(recordFor(li.dataset.recordId))) {
     li.querySelectorAll('.row-actions .row-st').forEach((b) => {
       b.disabled = !!reason;
@@ -99,7 +79,6 @@ const RunLock = {
     });
   },
 
-  // Finish while writes are pending: step writes ride stepWriteChain, a save flips state.saving.
   async settlePendingWrites() {
     await Promise.resolve(stepWriteChain).catch(() => {});
     for (let i = 0; i < 200 && (state.saving || state.inlineWrites > 0); i++) await sleep(25);
@@ -108,8 +87,7 @@ const RunLock = {
     return !state.saving && state.inlineWrites <= 0;
   },
 
-  // Deliberately NOT runWriteLock(), which would also bar an automated run: the
-  // button would be visible and then refuse itself (#154 gates results, not the run).
+  // Not runWriteLock(): automated gates results, not the run, and the button would refuse itself.
   finishBlockedReason() {
     if (RunLock.runArchived()) return ARCHIVED_LOCK_REASON;
     if (RunLock.runFinished()) return RUN_LOCK_REASON;
@@ -118,13 +96,12 @@ const RunLock = {
 
   async finishRun() {
     if (!state.runId) return;
-    // #186: visibility is not a sufficient gate — the flag lands after updateRunActions().
-    // Checked on BOTH sides of the dialog: the confirm can sit open indefinitely.
+    // Checked on both sides of the dialog: the archived flag lands late and the confirm can sit open.
     await awaitRunState();
     let blocked = RunLock.finishBlockedReason();
     if (blocked) { RunLock.applyRunLock({ force: true }); toast(blocked); return; }
     const ok = await ConfirmDialog.ask('Finish run? Pending tests will be marked skipped.');
-    if (!ok) return; // dismissed = no-op
+    if (!ok) return;
     blocked = RunLock.finishBlockedReason();
     if (blocked) { RunLock.applyRunLock({ force: true }); toast(blocked); return; }
     const btn = $('btn-finish-run');

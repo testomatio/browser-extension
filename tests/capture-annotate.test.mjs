@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// #168: the annotator handoff. Between "the tester pressed the screenshot button" and "the annotator
-// is in front of them" sits extension/shared/capture-annotate.js: it asks the worker for the picture,
-// tries to open the annotator right on the page under test, and opens an editor tab instead when that
-// page will not host it. Three separate "the panel sits on Annotating… forever" bugs were fixed in
-// here, so nearly every row below is really the same question — does the promise still come back?
-// Run: node --test tests/*.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
@@ -31,10 +25,7 @@ function track(p) {
   return seen;
 }
 
-/**
- * One sandbox, one load, one set of recorders. `libCss` is module-level memo state, so every
- * case needs its own load or the second one sees no fetch at all.
- */
+// libCss is module-level memo state, so every case needs its own load or it sees no fetch.
 function load(opts = {}) {
   const {
     chromeMissing = false, noStorageSession = false, noScripting = false,
@@ -155,8 +146,6 @@ function load(opts = {}) {
   };
 }
 
-// ---- the on-page overlay answers -------------------------------------------
-
 test('R1: the overlay comes up and the tester applies — the panel gets the drawing, no tab is opened, and the handoff is cleared away', async () => {
   const h = load();
   const run = h.start();
@@ -247,7 +236,6 @@ test('R6: the overlay reports its own failure — that sentence is the toast, an
   assert.equal(run.settled, false);
 });
 
-// #205: the third door #119 left open, after Esc and pagehide — a raw close must attach nothing.
 test('R7: the tester closes the annotator tab without applying — nothing is attached, and they are told so', async () => {
   const h = load({ overlayUp: false });
   const run = h.start();
@@ -283,8 +271,7 @@ test('R8: some other tab closing while the annotator tab is open is none of the 
   assert.deepEqual(h.rec.removes, []);
 });
 
-// The worker clamps a full-page shot to FULLPAGE_MAX_HEIGHT and the panel says so, which keeps
-// this rare — the degrade is pinned all the same.
+// The worker clamps full-page shots so this is rare, but the degrade is pinned all the same.
 test('R9: the session store refuses the handoff — the tester gets one sentence and the capture is thrown away, not uploaded', async () => {
   const h = load({ setThrowsOn: 1 });
   const run = h.start();
@@ -298,8 +285,6 @@ test('R9: the session store refuses the handoff — the tester gets one sentence
   assert.deepEqual(h.rec.removes, [KEY]);
   assert.equal(h.listeners(), 0);
 });
-
-// ---- the editor tab --------------------------------------------------------
 
 test('R10: asked for the tab outright, the page under test is never touched at all', async () => {
   const h = load({ site: { state: 'ok', tab: { id: 77 } } });
@@ -368,7 +353,7 @@ test('R14: two answers race — the drawing the tester applied wins, and the han
   assert.deepEqual(slow.rec.removes, [KEY]);
   assert.deepEqual(slow.rec.toasts, []);
 
-  // And again, with the drawing landing in the very turn the fallback tab fails to open.
+  // The drawing lands in the very turn the fallback tab fails to open.
   const clash = load({ overlayUp: false });
   clash.hooks.create = async () => {
     clash.emit({ resultDataUrl: DRAWN });
@@ -383,15 +368,13 @@ test('R14: two answers race — the drawing the tester applied wins, and the han
   assert.deepEqual(clash.rec.removes, [KEY]); // finish ran once, not once per answer
 });
 
-// ---- injection ------------------------------------------------------------
-
 test('R15: the stylesheet handed to the overlay carries no webfont and no :root, and is read from disk only once', async () => {
   const h = load();
   assert.equal(await h.api.tryInjectOverlay(7, KEY), true);
 
   const css = h.rec.scripts[0].args[2];
   assert.equal(css.includes('@font-face'), false);
-  assert.equal(css.includes('ink.woff2'), false); // a relative url() would be fetched FROM the site
+  assert.equal(css.includes('ink.woff2'), false); // a relative url() would be fetched from the site
   assert.equal(css.includes(':root'), false);
   assert.equal(css.includes(':host { --bg: #fff; }'), true);
   assert.equal(css.includes(':host[data-theme="dark"] { --bg: #000; }'), true);
@@ -438,8 +421,6 @@ test('R17: the key, the scheme and the stylesheet are stashed first, then the se
   assert.equal(await bare.api.tryInjectOverlay(7, KEY), true);
   assert.equal(bare.rec.scripts[0].args[1], null);
 });
-
-// ---- preflight and the worker round-trip -----------------------------------
 
 test('R18: on a page Chrome bars extensions from, the preflight refuses and hands back the sentence to show', async () => {
   const restricted = load({ site: { state: 'restricted', error: 'Chrome doesn’t allow extensions on this page' } });

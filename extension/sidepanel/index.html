@@ -4,25 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Testomat.io</title>
-  <!-- tokens (values) → components (the shared controls) → this screen's own stylesheet. Later wins. -->
+  <!-- Order matters: tokens, then shared components, then this screen's stylesheet; later wins. -->
   <link rel="stylesheet" href="../shared/tokens.css" />
   <link rel="stylesheet" href="../shared/components.css" />
   <link rel="stylesheet" href="style.css" />
-  <!-- The ONE script in the head: it pins the saved colour scheme on <html> before the first paint. -->
+  <!-- In the head so the saved colour scheme is pinned on <html> before the first paint. -->
   <script src="../shared/theme.js"></script>
 </head>
-<!-- Written into the markup, not set by a script, so the very first paint carries it; core/skeleton.js
-     drops it, and the container, on the first view the panel can paint. -->
+<!-- In the markup, not set by a script, so the very first paint carries it. -->
 <body data-booting="true">
-  <!-- Boot placeholder: Skeleton.paintBoot() (core/skeleton.js) ARMS it and fills it a quarter second
-       later, so a fast open lands on the real panel having drawn none. Empty here on purpose. -->
+  <!-- Filled a quarter second later by Skeleton.paintBoot(), so a fast open draws none. -->
   <div id="boot-skeleton" class="boot-skeleton" aria-hidden="true"></div>
 
-  <!-- Panel header (#127), top-down: the project strip, the tabs, and a contextual Back+title row. -->
-
-  <!-- Row 1 — project switcher (#103), the TOPMOST row: it scopes everything under it, tabs included.
-       #126: a CUSTOM dropdown — Chrome draws a <select> popup at OS level, which lands beside a narrow
-       side panel as a huge misplaced menu. -->
+  <!-- A custom dropdown: Chrome draws a <select> popup at OS level, misplaced beside a narrow panel. -->
   <div id="project-bar" class="bar project-bar" hidden>
     <span id="project-bar-label" class="project-bar-label">Project</span>
     <div id="project-dropdown" class="project-dd">
@@ -33,37 +27,30 @@
         <span class="md-icon project-caret" data-icon="keyboard_arrow_down"></span>
       </button>
     </div>
-    <!-- Panel-wide Refresh, scoped by the project beside it: it re-pulls the WHOLE panel (refreshAll(),
-         core/views.js). On a drill-down this row folds away and the button MOVES into row 3, the only
-         chrome left there — homeRefreshButton(), #27. data-tip-side="bottom" — this is the top row, so
-         a label above would open off it, and row 3 tips open downward too. -->
+    <!-- Moves into row 3 on a drill-down (homeRefreshButton); tips open below, this is the top row. -->
     <button id="btn-refresh" class="icon-btn" data-tip="Refresh all data"
             data-tip-side="bottom" aria-label="Refresh all data">
       <span class="md-icon" data-icon="refresh" data-icon-size="20"></span>
     </button>
-    <!-- An ANCHOR wearing the icon-button skin, so it is a real link (middle-click, copy address); href
-         is built from the ACTIVE settings by renderProjectOpenLink(). -->
+    <!-- An anchor, so it is a real link (middle-click, copy address); renderProjectOpenLink() sets href. -->
     <a id="project-open" class="icon-btn" target="_blank" rel="noopener noreferrer"
        data-tip="Open this project in Testomat" data-tip-side="bottom"
        aria-label="Open this project in Testomat" hidden>
       <span class="md-icon" data-icon="open_in_new" data-icon-size="20"></span>
     </a>
-    <!-- Which SURFACE this panel is in (#208): one button, two states. The static mark is the side-panel
-         state's, and core/view-switch.js repaints both mark and label once it knows which this is. -->
+    <!-- The static mark is the side-panel state's; core/view-switch.js repaints it once it knows. -->
     <button id="view-switch" class="icon-btn" type="button"
             data-tip="Open in window" data-tip-side="bottom" aria-label="Open in window">
       <span class="md-icon" data-icon="web_asset" data-icon-size="20"></span>
     </button>
-    <!-- The popup hangs off the BAR, not off the trigger's box: the trigger is only as wide as the project
-         name, so anchored there the list could never reach the panel's left edge (full-width picker). -->
+    <!-- Hangs off the bar, not the trigger: the trigger is only as wide as the project name. -->
     <div id="project-menu" class="menu project-menu" hidden>
-      <!-- Type-to-filter (#126): matches title and slug. -->
+      <!-- Matches title and slug. -->
       <input id="project-filter" class="input size-sm project-filter" type="text" autocomplete="off"
              spellcheck="false" placeholder="Filter projects…" aria-label="Filter projects"
              aria-controls="project-list" />
       <ul id="project-list" class="menu-list project-list" role="listbox" aria-label="Projects"></ul>
-      <!-- Written out rather than built by EmptyState.build(), because it is markup that exists before any
-           script runs — icons.js hydrates the data-icon slot. -->
+      <!-- Written out, not built by EmptyState.build(): it must exist before any script runs. -->
       <div id="project-empty" class="empty compact" hidden>
         <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
         <div class="empty-body"><p class="empty-text">No project matches</p></div>
@@ -71,13 +58,8 @@
     </div>
   </div>
 
-  <!-- Row 2: the tab bar plus the Rec chip. This is the row that PINS — the project strip above it
-       scrolls away. -->
   <div id="header-top" class="bar sticky stretch header-top">
-    <!-- Counts are filled by setTabCount() (core/views.js) once the number is known and hidden until
-         then — a tab bar must not guess. aria-hidden: the tab's own label already names the section.
-         aria-controls and the roving tabindex are updateTabBar()'s: three tabs serve eight panels, so
-         which one a tab names moves with the section it is standing on. -->
+    <!-- No aria-controls here: three tabs serve eight panels, so updateTabBar() sets it per section. -->
     <nav id="tabbar" class="tabs fill" role="tablist" aria-label="Sections">
       <button id="tab-tests" class="tab" type="button" role="tab" aria-selected="false">
         <span class="md-icon" data-icon="task" aria-hidden="true"></span>
@@ -94,11 +76,9 @@
         <span class="tab-label">Settings</span>
       </button>
     </nav>
-    <!-- Evidence recorder (M2 PR-1): the Record toggle. The slot is hidden with it, so it costs the tabs
-         no width. The recorded tab's NAME is on the hover card instead (screens/evidence.js). -->
+    <!-- The slot hides with the toggle, so it costs the tabs no width. -->
     <div id="rec-slot" class="rec-slot" hidden>
-      <!-- No data-tip: this is the one control whose label is a HOVER CARD instead (screens/evidence.js);
-           aria-label carries the same for a reader. -->
+      <!-- No data-tip: this control's label is a hover card (screens/evidence.js). -->
       <button id="evidence-toggle" class="btn pill size-xs evidence-toggle" hidden aria-pressed="false">
         <span class="rec-dot" aria-hidden="true"></span><span class="rec-text">Rec</span>
         <!-- Hidden at zero, and aria-hidden — the button's own accessible name carries the figure as a word. -->
@@ -107,30 +87,23 @@
     </div>
   </div>
 
-  <!-- Row 3 — contextual row (#127): Back plus what is open, rendered ONLY outside a tab root. Here it
-       is the panel's WHOLE chrome — the two rows above stand down (the immersive block in style.css). -->
-  <!-- data-tip-side: every tip in this row opens DOWNWARD, over the view — a label above would cover
-       the only chrome an immersed panel has left. -->
+  <!-- Tips open downward: a label above would cover the only chrome an immersed panel has left. -->
   <div id="context-bar" class="bar context-bar" data-tip-side="bottom" hidden>
     <button id="btn-back" class="icon-btn" data-tip="Back" aria-label="Back">
       <span class="md-icon" data-icon="arrow_back" data-icon-size="20"></span>
     </button>
     <div class="context-main">
-      <!-- Ancestors only — the last crumb of the path is the title under it. Filled by
-           renderContextCrumbs() (core/views.js). -->
+      <!-- Ancestors only: the last crumb of the path is the title under it. -->
       <nav id="context-crumbs" class="crumbs" aria-label="Breadcrumb" hidden></nav>
       <div id="context-title" class="context-title"></div>
     </div>
-    <!-- The way out of the panel for whatever this row NAMES. href + label are rebuilt per view by
-         renderContextOpenLink() (core/views.js); with nothing to link to it hides. -->
+    <!-- href and label are rebuilt per view by renderContextOpenLink(). -->
     <a id="context-open" class="icon-btn" target="_blank" rel="noopener noreferrer" hidden>
       <span class="md-icon" data-icon="open_in_new" data-icon-size="20"></span>
     </a>
-    <!-- (#rec-slot and #btn-refresh are moved in here while the row is up — see homeRecSlot() and
-         homeRefreshButton(); the Refresh lands just before the link above, as it sits in row 1.) -->
+    <!-- #rec-slot and #btn-refresh move in here while the row is up (homeRecSlot, homeRefreshButton). -->
   </div>
 
-  <!-- Degraded/login-blocked banner (Block 4): what basic mode disables and how to restore it. -->
   <div id="degraded-banner" class="banner warning degraded-banner" hidden role="status">
     <span class="banner-text degraded-banner-text"></span>
     <button id="degraded-banner-refresh" class="btn size-sm degraded-banner-refresh" type="button">Refresh</button>
@@ -138,24 +111,20 @@
             data-tip="Dismiss" aria-label="Dismiss"><span class="md-icon" data-icon="close"></span></button>
   </div>
 
-  <!-- Offline queue (M4): status writes that failed on a network / paused-token error, queued for replay. -->
   <div id="pending-banner" class="banner accent pending-banner" hidden role="status">
     <span class="banner-text pending-banner-text"></span>
-    <!-- The panel's disclosure, shrunk into a banner row: the caret and aria-expanded carry the state,
-         the label never changes, and updatePendingList() paints the body below. -->
+    <!-- The label never changes: the caret and aria-expanded carry the state. -->
     <button id="pending-banner-toggle" class="btn size-sm pending-banner-toggle" type="button"
             aria-expanded="false" aria-controls="pending-queue">
       <span class="md-icon disc-caret" data-icon="chevron_right" data-icon-size="16"></span><span>Details</span>
     </button>
     <button id="pending-banner-retry" class="btn size-sm pending-banner-retry" type="button">Retry</button>
-    <!-- One row per queued result, each with its own Retry and Discard. aria-live off: the summary
-         line above is the announcement, and a repaint per enqueue would read the whole queue out. -->
+    <!-- aria-live off: the summary line is the announcement; a repaint would read the whole queue out. -->
     <ul id="pending-queue" class="list pending-queue" aria-live="off" hidden></ul>
   </div>
 
   <main>
-    <!-- Read-only lockout (#155): a reader-role member or an archived project gets 403 from v2 on EVERY
-         request, GET included — so this replaces the tab content. Shown by views.js applyReadonlyBlock(). -->
+    <!-- Reader roles and archived projects get 403 on every v2 request, so this replaces the tab content. -->
     <section id="readonly-block" class="notice warning" hidden role="status">
       <h2 class="notice-title">Your access to this project is read-only</h2>
       <p class="notice-text">
@@ -164,13 +133,11 @@
       </p>
     </section>
 
-    <!-- The eight panels of #tabbar's three tabs (TAB_OF_VIEW, core/nav-model.js). tabindex="-1" is not a
-         tab stop: it is what lets show() put the caret on the section it just opened. -->
+    <!-- tabindex="-1" is no tab stop: it lets show() put the caret on the section it just opened. -->
     <section id="view-settings" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-settings">
 
-      <!-- First-run connect screen: the same form, same ids and same Save & validate path, promoted — the
-           Connection section IS the connect screen. Mode is flipped by applyConnectMode() (screens/settings.js). -->
+      <!-- First-run connect screen: the same form and ids, flipped by applyConnectMode() (settings.js). -->
       <div id="connect-hero" class="connect-hero" hidden>
         <svg class="connect-art" viewBox="0 0 128 96" width="128" height="96" aria-hidden="true">
           <rect class="art-card" x="20.75" y="12.75" width="86.5" height="70.5" rx="11.5"/>
@@ -191,10 +158,7 @@
           tests next to the site you are testing.</p>
       </div>
 
-      <!-- Connection (#103): ONE credential, the account General token. The token FIELD below belongs to the
-           first-run screen; the full form brings it back only for an instance it holds no token for. -->
-      <!-- Every section below is one ACCORDION item. The heads are real <h3>s wrapping the shared
-           .disclosure-head, and the header TEXT stays the plain section name, which the e2e reads. -->
+      <!-- The e2e reads each head's text, so it stays the plain section name. -->
       <div id="settings-sections" class="accordion settings-accordion">
 
       <div id="settings-connection-item" class="disclosure accordion-item">
@@ -207,23 +171,18 @@
         <div id="settings-connection-body" class="disclosure-body">
           <div id="connection-card" class="card connection-card" hidden>
             <span class="md-icon connection-icon" data-icon="check_circle" data-icon-size="20"></span>
-            <!-- Host over state: the card IS the answer to "am I connected, and to what?", so the
-                 verdict sits with the host instead of on a status line under the Save button. -->
+            <!-- The verdict sits with the host: the card answers "am I connected, and to what?" -->
             <div class="connection-main">
               <p id="connection-host" class="connection-host"></p>
               <span id="connection-state" class="badge passed connection-state">Connected</span>
             </div>
             <button id="btn-disconnect" type="button" class="btn size-sm">Disconnect</button>
           </div>
-          <!-- Says who signed this panel in when it was not the tester: there is no token of theirs
-               in the box above, and Disconnect means something different for such a connection. -->
+          <!-- Names who signed this panel in when it was not the tester; Disconnect means something else then. -->
           <p id="connection-source" class="hint settings-help" hidden></p>
-          <!-- Disconnect erases the active instance and reloads into the connect screen, so this line only
-               ever speaks for a failure. -->
+          <!-- Disconnect reloads into the connect screen, so this line only ever speaks for a failure. -->
           <p id="connection-status" class="status-line" role="status"></p>
-          <!-- Authorizing is the way in: it hands back a token that reads your projects AND their
-               API keys, so nothing else has to be found or pasted. Both links track the Instance
-               field in Advanced (default app.). -->
+          <!-- Both links track the Instance field in Advanced (default app.). -->
           <p id="token-authorize" class="settings-help">
             <a id="token-authorize-link" class="btn size-sm"
                href="https://app.testomat.io/app-auth?app_name=Testomat.io+Extension"
@@ -240,8 +199,7 @@
         </div>
       </div>
 
-      <!-- Failure log: everything that governs what gets attached on a FAIL. Open by default with
-           Connection — these rows decide what leaves the browser. -->
+      <!-- Open by default with Connection: these rows decide what leaves the browser. -->
       <div id="settings-failure-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-failure-head" type="button" class="disclosure-head"
@@ -250,8 +208,6 @@
                   class="md-icon head-icon" data-icon="description" data-icon-size="16"></span>Failure log</button>
         </h3>
         <div id="settings-failure-body" class="disclosure-body">
-          <!-- Default OFF (absent -> OFF). ON arms the recorder on entering a testrun, bound to it —
-               leaving the test still stops it, so "Next test" chains one recording per test. -->
           <label class="choice checkbox-row">
             <input id="set-evidence-autostart" class="checkbox" type="checkbox" />
             <span class="choice-text">Auto-start console &amp; network recorder when you open a test in a run<button type="button" class="info-tip"
@@ -259,8 +215,6 @@
               aria-label="The console and network recorder starts by itself when you open a test in a run, bound to that test, and stops when you leave it. Off by default."><span
               class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
           </label>
-          <!-- Default ON (absent -> ON). OFF skips only the FAIL log upload/link; the manual per-entry
-               Attach still works. -->
           <label class="choice checkbox-row">
             <input id="set-evidence-autoattach" class="checkbox" type="checkbox" />
             <span class="choice-text">Attach log to failures<button type="button" class="info-tip"
@@ -268,8 +222,6 @@
               aria-label="The recorded console and network log is uploaded and linked on a test you mark FAIL. On by default. Off skips only that automatic upload — the per-entry Attach still works."><span
               class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
           </label>
-          <!-- #95: default ON (absent -> ON). OFF keeps the request metadata and notes "(body capture
-               disabled)" where a snippet would be. -->
           <label class="choice checkbox-row">
             <input id="set-evidence-bodies" class="checkbox" type="checkbox" />
             <span class="choice-text">Include response bodies<button type="button" class="info-tip"
@@ -277,8 +229,7 @@
               aria-label="Failed requests carry a snippet of what came back, up to 16 KB. On by default. Off keeps the request metadata and writes “(body capture disabled)” where the snippet would be."><span
               class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
           </label>
-          <!-- Evidence recorder window (M2 PR-1): seconds of console/network history attached on a failed
-               test. Absent -> 60; a save outside 10-600 is refused, not clamped. -->
+          <!-- A save outside 10-600 is refused, not clamped. -->
           <label class="settings-field-sm">
             <span class="choice-text">Log window<button type="button" class="info-tip"
               data-tip="How much console &amp; network history is attached to a failed test. Between 10 and 600 seconds; leave it blank for 60."
@@ -289,8 +240,6 @@
               <span class="hint settings-field-unit">seconds</span>
             </span>
           </label>
-          <!-- Default ON (absent -> ON). Since #116 the facts are written as testrun meta, not into the
-               comment, and on every status rather than only on a failure. -->
           <label class="choice checkbox-row">
             <input id="set-env-info" class="checkbox" type="checkbox" />
             <span class="choice-text">Record environment info<button type="button" class="info-tip"
@@ -298,8 +247,6 @@
               aria-label="The browser, OS, viewport and page URL are written onto the run as meta, on every status you set — not only on a failure. On by default."><span
               class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
           </label>
-          <!-- #177: default OFF. The recorded URL is trimmed to origin + path, because a query string
-               routinely carries reset tokens, signed links and session ids. -->
           <label class="choice checkbox-row">
             <input id="set-env-full-url" class="checkbox" type="checkbox" />
             <span class="choice-text">Include the query string<button type="button" class="info-tip"
@@ -310,8 +257,6 @@
         </div>
       </div>
 
-      <!-- Step recorder (#176): default OFF (absent -> OFF). ON drops every entered value, so no
-           heuristic has to be right; a password field keeps its noun either way. -->
       <div id="settings-recorder-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-recorder-head" type="button" class="disclosure-head"
@@ -330,8 +275,7 @@
         </div>
       </div>
 
-      <!-- Appearance commits on the CLICK, not on Save & validate, and is deliberately NOT part of the
-           settings object: settings is per-instance (a map per host), this belongs to the browser. -->
+      <!-- Commits on click, outside the settings object: settings is per instance, this is per browser. -->
       <div id="settings-appearance-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-appearance-head" type="button" class="disclosure-head"
@@ -352,8 +296,7 @@
         </div>
       </div>
 
-      <!-- Advanced (#83/#146): the ONE section whose open state is COMPUTED rather than remembered — it
-           opens for a self-hosted instance. Its TEXT stays exactly "Advanced", which the e2e reads. -->
+      <!-- Open state is computed, not remembered: it opens for a self-hosted instance. -->
       <div id="settings-advanced-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-advanced-head" type="button" class="disclosure-head"
@@ -364,20 +307,17 @@
         <div id="settings-advanced-body" class="disclosure-body" hidden>
           <p class="hint settings-hint">For a self-hosted Testomat — leave as is for app.testomat.io.</p>
           <label>Instance
-            <!-- Host history: hidden until at least two hosts exist, and free-form entry stays the source of
-                 truth. The shared Dropdown, not a <select>, so it opens under the field, not as an OS menu. -->
+            <!-- Host history, shown from two hosts; the shared Dropdown opens under the field, not as an OS menu. -->
             <div id="set-host-history-mount"></div>
             <input id="set-baseurl" class="input" type="url" placeholder="https://app.testomat.io" autocomplete="off" />
           </label>
-          <!-- Forget acts on the instance THIS form points at; the one you are ON is the card's Disconnect. -->
+          <!-- Forget acts on the instance this form points at; the one you are on is the card's Disconnect. -->
           <button id="btn-forget-instance" type="button" class="btn danger size-sm">Forget this instance</button>
           <p id="settings-forget-status" class="status-line" role="status"></p>
         </div>
       </div>
 
-      <!-- Diagnostics: the first questions a "it does not work" report opens with, so answering them
-           costs a fold instead of the developer tools. The rows are built by renderDiagnostics(), and
-           Copy serialises THOSE — a credential can only leak by first being painted here. -->
+      <!-- Copy serialises the painted rows, so a credential can only leak by first being painted here. -->
       <div id="settings-diagnostics-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-diagnostics-head" type="button" class="disclosure-head"
@@ -397,8 +337,7 @@
         </div>
       </div>
 
-      <!-- Stored credentials (#177): last on purpose, and folded — an erase is not something to trip over.
-           The card's Disconnect takes back the instance you are on; this takes back every one. -->
+      <!-- Last on purpose, and folded: an erase is not something to trip over. -->
       <div id="settings-credentials-item" class="disclosure accordion-item">
         <h3 class="settings-section-title">
           <button id="settings-credentials-head" type="button" class="disclosure-head"
@@ -416,18 +355,14 @@
         </div>
       </div>
 
-      </div><!-- /.settings-accordion -->
+      </div>
 
-      <!-- Save & validate belongs to the FORM, not to Advanced: it commits the token, every checkbox and
-           the instance in one press, and standing outside every collapse is what says so. -->
+      <!-- Outside every section: it commits the token, every checkbox and the instance in one press. -->
       <button id="btn-save-settings" class="btn primary">Save &amp; validate</button>
       <p id="settings-status" class="status-line" role="status"></p>
     </section>
 
-    <!-- Step two of the first run: the token is in, the project is not. The header switcher's popup
-         cannot make THIS pick — it opens over a panel with nothing behind it — so the same rows and the
-         same filter take the whole screen, and the way back out sits in the footer under them.
-         screens/project-pick.js. -->
+    <!-- Step two of the first run: the token is in, the project is not (screens/project-pick.js). -->
     <section id="view-pick" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-settings">
       <div class="pick-head">
@@ -435,8 +370,7 @@
         <p class="pick-sub">Pick the project this panel runs against. You can switch it any time
           from the header.</p>
       </div>
-      <!-- role=combobox on the INPUT, not on a wrapper: it owns focus for the whole screen, so it is
-           what carries aria-activedescendant while the arrows walk the list. -->
+      <!-- role=combobox on the input: it owns focus for the screen, so it carries aria-activedescendant. -->
       <div class="field pick-field">
         <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
         <input id="pick-filter" class="input size-sm" type="text" autocomplete="off" spellcheck="false"
@@ -447,15 +381,13 @@
         </button>
       </div>
       <ul id="pick-list" class="list pick-list" role="listbox" aria-label="Projects"></ul>
-      <!-- Written out rather than built by EmptyState.build(), for the reason the popup's twin is. The
-           BLOCK shape, not the popup's .compact: here the missing rows are the whole screen. -->
+      <!-- The block shape, not the popup's .compact: here the missing rows are the whole screen. -->
       <div id="pick-empty" class="empty" hidden>
         <span class="empty-mark"><span class="md-icon" data-icon="domain_disabled"></span></span>
         <div class="empty-body"><p class="empty-text">No project matches</p></div>
       </div>
       <p id="pick-status" class="status-line" role="status"></p>
-      <!-- The footer is the screen's OTHER answer: this panel is connected, and nothing here is worth
-           doing. Tertiary, and behind a rule, because leaving is not what the screen is for. -->
+      <!-- Tertiary and behind a rule: leaving is not what this screen is for. -->
       <div class="bar footer pick-footer">
         <span class="pick-footer-host">Connected to <span id="pick-host" class="pick-host"></span></span>
         <button id="pick-disconnect" class="btn tertiary size-sm" type="button">Disconnect</button>
@@ -464,8 +396,7 @@
 
     <section id="view-runs" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-runs">
-      <!-- Search FIRST, the status filters under it — the same order the run view uses. One input for
-           both jobs (#106): live title search, and a pasted run/rungroup URL opens its target. -->
+      <!-- One input, two jobs: live title search, and a pasted run or rungroup URL opens its target. -->
       <div class="toolbar runs-bar">
         <div class="field">
           <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
@@ -475,8 +406,7 @@
             <span class="md-icon" data-icon="close" data-icon-size="18"></span>
           </button>
         </div>
-        <!-- #118: run creation stays in the web app — href built from the ACTIVE settings by
-             renderNewRunLink(), hidden until both halves are known. -->
+        <!-- Run creation stays in the web app; renderNewRunLink() sets href once both halves are known. -->
         <a id="btn-new-run" class="btn primary size-sm new-run-link fit-label" data-label="New run"
            target="_blank" rel="noopener noreferrer"
            data-tip="Create a run in the Testomat web app" hidden><span class="md-icon" data-icon="add" data-icon-size="16"></span><span class="label-long">New run</span><span class="label-short">Run</span></a>
@@ -488,8 +418,7 @@
 
     <section id="view-tcstudio" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-tests">
-      <!-- The search takes the width that is left; the three creates pin right and only the test create
-           keeps a word — measured, never written short (.fit-label, fitActionLabels). -->
+      <!-- Only the test create keeps a word, measured by fitActionLabels, never written short. -->
       <div id="tc-tree-bar" class="toolbar tc-tree-bar">
         <div class="field">
           <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
@@ -514,8 +443,6 @@
 
     <section id="view-tclist" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-tests">
-      <!-- One line, the runs toolbar's shape: the search takes the width that is left, "New test" keeps
-           its own. -->
       <div class="toolbar tc-list-bar">
         <div class="field">
           <span class="md-icon field-icon" data-icon="search" data-icon-size="16"></span>
@@ -526,17 +453,14 @@
         </div>
         <button id="tc-list-new" class="btn primary size-sm fit-label" data-label="New test"><span class="md-icon" data-icon="add" data-icon-size="16"></span><span class="label-long">New test</span><span class="label-short">Test</span></button>
       </div>
-      <!-- What the rows under it ARE, and how many the search left. Painted by renderTcList() and hidden
-           until the fetch lands — a caption must not guess. -->
+      <!-- The count stays hidden until the fetch lands: a caption must not guess. -->
       <div class="list-caption">
         <h2>Tests</h2>
         <span id="tc-list-count" class="counter size-sm" hidden></span>
       </div>
       <ul id="tc-list" class="list"></ul>
       <p id="tclist-status" class="status-line" role="status"></p>
-      <!-- Add new test (#3), the web app's own widget pinned at the panel's bottom: a title creates a
-           test in this suite without opening the editor, and Bulk turns the field into a list.
-           data-tip-side: the row sits on the bottom edge, so its labels open upward over the list. -->
+      <!-- Tips open upward: the row sits on the panel's bottom edge. -->
       <div id="tc-quick-bar" class="bar footer tc-quick-bar" data-tip-side="top">
         <input id="tc-quick-title" class="input size-sm" type="text" placeholder="Add new test" autocomplete="off" aria-label="New test title" />
         <textarea id="tc-quick-titles" class="textarea autogrow size-sm" rows="3" placeholder="One test title per line" aria-label="New test titles, one per line" hidden></textarea>
@@ -555,27 +479,20 @@
 
     <section id="view-run" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-runs">
-      <!-- Run summary card: ONE card for everything the panel knows about the open run — stacked loose
-           they read as four unrelated notes under the panel header. -->
       <div id="run-header" class="card run-summary">
-        <!-- Independent run-open fetches (Block 4): when only the run-meta fetch fails the checklist still
-             renders, and it is this card's own fields that are missing — so the note belongs inside it. -->
+        <!-- When only the run-meta fetch fails, the checklist still renders, so the note sits in this card. -->
         <p id="run-meta-note" class="hint" hidden>Couldn't load run details — showing the checklist only.</p>
         <div class="run-state-row">
-          <!-- Run kind (#111): the type-of-test mark in its LABEL form; [hidden] when the meta read failed
-               or the kind is unknown. -->
+          <!-- The type-of-test mark in label form; hidden when the meta read failed or the kind is unknown. -->
           <span id="run-kind" hidden></span>
-          <!-- The run's OWN status (#112), promoted out of the folded field table: the status mark's label
-               form, so the two chips are one family. -->
+          <!-- The run's own status in the status mark's label form, so the two chips are one family. -->
           <span id="run-state" hidden></span>
           <button id="btn-finish-run" class="btn primary size-sm" hidden>Finish run</button>
         </div>
         <div id="run-progress"></div>
-        <!-- #152/#154: a finished or automated run is fully read-only. ONE note for the view, shown only
-             when the reason holds for EVERY row (a mixed run explains itself per row). RunLock.applyRunLock(). -->
+        <!-- Shown only when the lock holds for every row; a mixed run explains itself per row. -->
         <p id="run-lock-note" class="lock-note run-lock-note" hidden></p>
-        <!-- Run info (#112): the web run sidebar's fields folded into the foot of the card. Open by default,
-             and the open/closed state is remembered across panel sessions. -->
+        <!-- The web run sidebar's fields; the open state is remembered across panel sessions. -->
         <div id="run-info" class="disclosure card-foot run-info" hidden>
           <button id="run-info-head" type="button" class="disclosure-head"
                   aria-expanded="true" aria-controls="run-info-body">
@@ -602,8 +519,7 @@
 
     <section id="view-test" hidden tabindex="-1"
              role="tabpanel" aria-labelledby="tab-runs">
-      <!-- Test summary card: the run view's summary card one screen down, deliberately the same one, so a
-           tester moving between the screens finds the furniture where they left it. -->
+      <!-- The run view's summary card, deliberately the same, so the furniture stays where it was. -->
       <div id="test-header" class="card run-summary">
         <!-- Marks about the test; the verdict is always one (Pending if unreported), so the pager stays put. -->
         <div id="test-state-row" class="run-state-row">
@@ -612,26 +528,22 @@
             <span id="summary-status"></span>
             <span id="summary-duration" class="summary-duration"></span>
           </div>
-          <!-- The custom status refining the verdict (#109). Read-only here: it is WRITTEN by the select in
-               the Test result tab, and the run rows wear the same pill. -->
+          <!-- Read-only here: the custom status is written by the select in the Test result tab. -->
           <span id="test-substatus-mark" class="badge custom-status" hidden></span>
-          <!-- Offline queue: this test's status is saved locally and awaiting sync. The tip here is the
-               offline one; updateTestQueuedMarker swaps it when the token was rejected instead (#106). -->
+          <!-- updateTestQueuedMarker swaps this offline tip when the token was rejected instead. -->
           <span id="test-queued" class="badge outline queued-mark" hidden
                 data-tip="Saved offline — will sync when the connection returns">queued</span>
-          <!-- Hidden rather than dropped: the h2 is still the one element the title is written into, and the
-               row above has to see there is nothing in it. -->
+          <!-- Hidden, not dropped: the title is still written into this h2. -->
           <h2 id="test-title" hidden></h2>
         </div>
         <div id="test-progress"></div>
-        <!-- The card's foot, where the run card keeps Run info. Moving on is explicit since #108 (no status
-             auto-advances), so it is ALWAYS available, not a post-marking affordance. -->
+        <!-- No status auto-advances, so moving on is always available, not a post-marking affordance. -->
         <div id="test-next-row" class="card-foot next-row">
           <!-- Hotkey discoverability: "?" toggles a compact legend, beside the controls those keys stand for. -->
           <button id="hotkey-help" class="icon-btn hotkey-help" type="button"
                   aria-expanded="false" aria-controls="hotkey-legend" aria-label="Keyboard shortcuts"
                   data-tip="Keyboard shortcuts"><span class="md-icon" data-icon="help" data-icon-size="18"></span></button>
-          <!-- Pager = the ← / → keys: ±1 through the visible list plus the open test, no wrap; N jumps to untested. -->
+          <!-- Pager = the ← / → keys: ±1 through the visible list plus the open test, no wrap. -->
           <nav id="test-pager" class="pager" aria-label="Tests in this run">
             <button id="btn-prev-test" class="icon-btn" type="button" aria-label="Previous test">
               <span class="md-icon" data-icon="chevron_right" data-icon-rotate="180" data-icon-size="18"></span>
@@ -651,22 +563,18 @@
         <span id="example-badge" class="badge skipped badge-hint" hidden
               data-tip="This test is parametrized but its example data couldn't be loaded — placeholders are shown raw. The test is still fully executable.">example row missing</span>
       </div>
-      <!-- Primary control of the screen, and the one thing NOT inside a section: whichever section is
-           open, marking the result stays one click away. -->
+      <!-- Outside the sections, so marking the result stays one click away whichever is open. -->
       <div id="test-status-buttons" class="row st-row">
         <button id="btn-passed" class="btn st passed outline"><span class="md-icon" data-icon="status_passed" data-icon-size="18"></span><span>Passed</span></button>
         <button id="btn-failed" class="btn st failed outline"><span class="md-icon" data-icon="status_failed" data-icon-size="18"></span><span>Failed</span></button>
         <button id="btn-skipped" class="btn st skipped outline"><span class="md-icon" data-icon="block" data-icon-size="18"></span><span>Skipped</span></button>
       </div>
-      <!-- #152/#154: why the three buttons above (and their hotkeys) are dead. One note for the group —
-           they are one control in three parts. -->
+      <!-- One lock note for the three buttons above: they are one control in three parts. -->
       <p id="status-lock-reason" class="lock-note status-lock-reason" hidden></p>
-      <!-- The write's own line — Saving…, queued offline, or the error; it says nothing when a write LANDS.
-           OUTSIDE the sections below, so a message can never land in one the tester is not looking at. -->
+      <!-- Outside the sections, so a write's message never lands in one the tester is not looking at. -->
       <p id="test-status" class="status-line" role="status"></p>
 
-      <!-- Three sections, because the screen answers three questions: what to do, the tester's workflow on
-           the result, and what the run ALREADY reported. Marking a status lands the tester in Status. -->
+      <!-- Marking a status lands the tester in the Test result tab. -->
       <div id="test-sections" class="tabs fill test-sections" role="tablist" aria-label="Test sections">
         <button id="tab-test-desc" class="tab" type="button" role="tab"
                 aria-selected="true" aria-controls="pane-test-desc">
@@ -686,8 +594,7 @@
       </div>
       <div id="pane-test-status" class="test-pane" role="tabpanel" aria-labelledby="tab-test-status" hidden>
         <div id="test-actions">
-          <!-- Assignee (M4): JWT-only, hidden in basic mode. A CUSTOM dropdown, not a <select> — a native popup
-               prints plain text only, and a row here needs a monogram plus a type-to-filter box. -->
+          <!-- JWT-only. A custom dropdown: a native popup prints plain text only, no monogram or filter. -->
           <div id="test-assignee" class="assignee-control" hidden>
             <span id="assignee-label" class="assignee-label">Assignee</span>
             <div id="assignee-dd" class="assignee-dd">
@@ -708,19 +615,16 @@
                 </div>
               </div>
             </div>
-            <!-- #153: why the trigger above is dead — a row that already carries a result can no longer be
-                 re-assigned (web parity). Filled/hidden by TestMeta.applyAssigneeGate(). -->
+            <!-- A row that already carries a result cannot be re-assigned (web parity). -->
             <p id="assignee-reason" class="hint inline-reason" hidden></p>
           </div>
-          <!-- Custom status: the shared Dropdown (TestMeta.initSubstatus()). A <label for> cannot name a
-               button, so the word is a <span> the trigger points at with aria-labelledby. -->
+          <!-- A <label for> cannot name a button, so the trigger points at this <span> via aria-labelledby. -->
           <div id="test-substatus" class="substatus" hidden>
             <span id="substatus-label" class="substatus-label">Custom status</span>
             <div id="substatus-mount"></div>
           </div>
           <textarea id="test-comment" class="textarea" rows="4" placeholder="Comment (optional)"></textarea>
-          <!-- Evidence (M2 PR-1): errors-only list for the current window. Its OWN accordion, ABOVE
-               Attachments — reading the log comes before attaching. Hidden unless recording. -->
+          <!-- Above Attachments: reading the log comes before attaching. -->
           <div id="evidence-section" class="disclosure accordion-item" hidden>
             <button id="evidence-head" type="button" class="disclosure-head evidence-head"
                     aria-expanded="false" aria-controls="evidence-body">
@@ -732,35 +636,25 @@
               <ul id="evidence-list" class="list framed evidence-list"></ul>
             </div>
           </div>
-          <!-- The capture controls fold into one disclosure, open by default so the files on a
-               result are visible without digging; closing it is remembered for the session. -->
+          <!-- Open by default so a result's files show without digging; closing it is remembered. -->
           <div id="attachments-disclosure" class="disclosure accordion-item">
             <button id="attachments-head" type="button" class="disclosure-head"
                     aria-expanded="true" aria-controls="attachments-body">
               <span class="md-icon disc-caret" data-icon="chevron_right"></span><span
                       class="md-icon head-icon" data-icon="attach_file"></span>Attachments
-              <!-- What the result already carries, counted beside the name like every other fold. -->
               <span id="attachments-count" class="counter" hidden></span>
             </button>
             <div id="attachments-body" class="disclosure-body">
-              <!-- The two capture buttons and the Full-page option share ONE row — stacking them spent three
-                   lines of a section that is already a disclosure. Buttons left, option right; the row
-                   wraps, so a narrow panel drops a control to the next line rather than squeezing labels. -->
+              <!-- The row wraps, so a narrow panel drops a control to the next line rather than squeezing labels. -->
               <div class="attach-actions">
-                <!-- capture → annotator tab → Apply uploads the merged JPEG (even with zero annotations); Cancel
-                     uploads nothing. -->
+                <!-- Apply uploads the merged JPEG even with zero annotations; Cancel uploads nothing. -->
                 <button id="btn-screenshot-annotate" class="btn size-sm"><span class="md-icon" data-icon="photo_camera"></span><span>Attach screenshot</span></button>
-                <!-- #107: the native picker, uploaded through the SAME JWT attachment path as the screenshot. The
-                     input is hidden and the button clicks it, so the panel keeps one button style. -->
+                <!-- The hidden input is clicked by the button, so the panel keeps one button style. -->
                 <button id="btn-attach-file" class="btn size-sm"><span class="md-icon" data-icon="attach_file"></span><span>Attach file</span></button>
                 <input id="attach-file-input" type="file" multiple hidden />
-                <!-- #68: the tab's own picture. The controls sit ON THE PAGE while it records (content/rec-bar.js);
-                     this button starts it and, at the stop, uploads what came back. -->
+                <!-- The recording controls sit on the page (content/rec-bar.js); this starts it and uploads at stop. -->
                 <button id="btn-screen-rec" class="btn size-sm"><span class="md-icon" data-icon="videocam"></span><span id="screen-rec-label">Attach screen recording</span></button>
-                <!-- Full-page capture (M2 PR-3): a setting of the next shot, not an act — so it stands apart
-                     from the two buttons, at the far end of the row, rather than breaking them up. (A
-                     checkbox is what a setting reads as; it writes itself on change, with no Save to belong
-                     to.) It comes LAST in the markup so the reading order matches what the eye sees. -->
+                <!-- A setting of the next shot, not an act; last in the markup so reading order matches the eye. -->
                 <label class="choice fullpage-row">
                   <input id="fullpage-test" type="checkbox" />
                   <span class="choice-text">Full page<button type="button" class="info-tip"
@@ -769,27 +663,22 @@
                     class="md-icon" data-icon="info" data-icon-size="14"></span></button></span>
                 </label>
               </div>
-              <!-- Gate reasons shown inline (a hover-only tooltip is invisible on touch). They stay UNDER the
-                   row — a sentence has no business inside it. -->
+              <!-- Gate reasons inline: a hover-only tooltip is invisible on touch. -->
               <p id="screenshot-reason" class="hint inline-reason" hidden></p>
               <p id="attach-file-reason" class="hint inline-reason" hidden></p>
               <p id="screen-rec-reason" class="hint inline-reason" hidden></p>
-              <!-- #192: an annotation the upload re-check refuses is KEPT, not lost — this saves it to disk.
-                   Never gated by the run lock: it writes nowhere but the tester's own machine. Its own line:
-                   it is a rare recovery step with a long label, not a peer of the two capture buttons. -->
+              <!-- Never gated by the run lock: it writes nowhere but the tester's own machine. -->
               <button id="btn-save-annotation" class="btn size-sm" hidden
                       data-tip="The upload was refused, but your annotated screenshot is still here — save it to your computer"><span
                       class="md-icon" data-icon="upload_file"></span><span>Save the annotated screenshot</span></button>
-              <!-- Everything uploaded onto THIS result: server truth on open, plus whatever this session sent. -->
+              <!-- Everything uploaded onto this result: server truth on open, plus this session's uploads. -->
               <ul id="attachment-list" class="attachment-list file-grid" hidden></ul>
             </div>
           </div>
         </div>
       </div>
       <div id="pane-test-summary" class="test-pane" role="tabpanel" aria-labelledby="tab-test-summary" hidden>
-        <!-- Result summary (#117): what the run ALREADY reported — the web's Summary panel, minus the
-             Stacktrace section the panel deliberately never shows. Hidden for an unreported test. -->
-        <!-- Nothing to show: the shared EmptyState (shared/empty-state.js), built by paintSummaryEmpty(). -->
+        <!-- The web's Summary panel minus Stacktrace, which the panel deliberately never shows. -->
         <div id="test-summary-empty"></div>
         <div id="test-summary" class="summary" hidden>
           <div class="accordion">
@@ -804,8 +693,7 @@
                 <div id="summary-message" class="summary-message"></div>
               </div>
             </div>
-            <!-- #21: what the RUNNER attached (screencast, screenshot, log). Its own section, open by
-                 default — on an automated result nobody opens the manual "Attachments" controls. -->
+            <!-- What the runner attached; open by default, since nobody opens the manual Attachments here. -->
             <div id="summary-artifacts" class="disclosure accordion-item" hidden>
               <button id="summary-artifacts-head" type="button" class="disclosure-head"
                       aria-expanded="true" aria-controls="summary-artifacts-body">
@@ -839,8 +727,7 @@
     </section>
   </main>
 
-  <!-- Live region: polite by default; toast() flips it to role="alert" for an error, so a screen
-       reader interrupts instead of queueing it. -->
+  <!-- toast() flips this to role="alert" for an error, so a screen reader interrupts. -->
   <div id="toast" class="toast" role="status" hidden></div>
 
   <dialog id="confirm-dialog" class="dialog">
@@ -861,56 +748,43 @@
   <script src="../api.js"></script>
   <script src="../params.js"></script>
   <script src="../shared/html-sanitize.js"></script>
-  <!-- …and the renderer that always runs it: markdown → sanitized nodes, one showdown config shared
-       with the editor's Preview tab. -->
+  <!-- One showdown config, shared with the editor's Preview tab. -->
   <script src="../shared/markdown.js"></script>
   <!-- The icon set (Material Symbols Rounded) before anything that draws one. -->
   <script src="../shared/icons.js"></script>
-  <!-- The image swap the CSP forces on every rendered image (#205) — after api.js, whose fetchAsset it
-       goes through, and after icons.js, whose ↗ its fallback link wears. -->
+  <!-- After api.js (fetchAsset) and icons.js (the fallback link's ↗): the CSP forces this image swap. -->
   <script src="../shared/img-hydrate.js"></script>
   <script src="../shared/priority-icons.js"></script>
-  <!-- …and its neighbour on a test row: the type-of-test square, off the same icon set. -->
   <script src="../shared/test-type.js"></script>
-  <!-- The monogram + name cell. Tooltip.set is optional at call time, so order is free. -->
+  <!-- Tooltip.set is optional at call time, so this script's order is free. -->
   <script src="../shared/user-cell.js"></script>
   <!-- The empty-state builder — after icons.js, which draws its mark. -->
   <script src="../shared/empty-state.js"></script>
-  <!-- …and its twin: the grey bars, shared with the editor page. Before core/skeleton.js, which
-       composes the panel's placeholders out of them. -->
+  <!-- Before core/skeleton.js, which composes the panel's placeholders out of these bars. -->
   <script src="../shared/skeleton.js"></script>
-  <!-- The extension's <select> — after icons.js (the caret and the tick) and empty-state.js (what a
-       filtered-down popup says). -->
+  <!-- After icons.js (caret and tick) and empty-state.js (what a filtered-down popup says). -->
   <script src="../shared/dropdown.js"></script>
   <!-- The tooltip engine only listens, so it can load before the screens that hand out data-tip. -->
   <script src="../shared/tooltip.js"></script>
-  <!-- The keyboard's way through a list of rows. No dependencies, but before every screen below:
-       they call Roving.item() as they build each row. -->
+  <!-- Before every screen below: they call Roving.item() as they build each row. -->
   <script src="../shared/roving.js"></script>
-  <!-- Which surface this document is in (#208). Before site-tab.js, which asks it whether the window
-       it is looking at is the panel's own. -->
+  <!-- Before site-tab.js, which asks it whether a window is the panel's own. -->
   <script src="../shared/view-mode.js"></script>
 
-  <!-- …and the tooltip's richer sibling, for the one label that is a LIST. After tooltip.js: an open
-       card mutes the tip on its own trigger, so the engine it stands down has to be there. -->
+  <!-- After tooltip.js: an open card mutes the tip on its own trigger. -->
   <script src="../shared/hovercard.js"></script>
   <script src="../shared/site-tab.js"></script>
-  <!-- The panel's port to the worker (PanelLink.init() runs from app.js): while it is up, the toolbar
-       click grants access without re-opening this panel. -->
+  <!-- While this port is up, the toolbar click grants access without re-opening the panel. -->
   <script src="../shared/panel-link.js"></script>
   <script src="../shared/site-access.js"></script>
-  <!-- A host app's handoff file, read by this panel, the editor and the viewer alike. -->
   <script src="../shared/handoff.js"></script>
   <script src="../shared/capture-annotate.js"></script>
   <script src="core/state.js"></script>
-  <!-- The icon vocabulary every row draws with. Core rather than the run screen it came from:
-       core/views.js calls it for the tclist crumb, so it stands before that and every screen. -->
+  <!-- Before core/views.js, which calls it for the tclist crumb, and every screen. -->
   <script src="core/status-icons.js"></script>
-  <!-- The suite tree's four pure algorithms. Nothing here runs at load, so the position is only
-       the convention "before the file that uses it" — screens/tc-studio.js, and the next caller. -->
+  <!-- Nothing runs at load; it only has to precede its user, screens/tc-studio.js. -->
   <script src="core/suite-tree.js"></script>
-  <!-- The one confirm dialog above. Core rather than the run screen it came from: settings.js,
-       run-view.js and attachments.js all ask it, and settings.js is the earliest of the three. -->
+  <!-- Before settings.js, the earliest of its callers (settings, run-view, attachments). -->
   <script src="core/dialog.js"></script>
   <!-- Value formatting two screens share — no dependencies of its own. -->
   <script src="core/format.js"></script>
@@ -918,61 +792,44 @@
   <script src="core/skeleton.js"></script>
   <script src="core/env-info.js"></script>
   <script src="core/storage.js"></script>
-  <!-- Which tab a screen belongs to, what the row above it says, and where Back goes. Pure, and
-       the file below is its only reader — so it stands immediately before core/views.js. -->
+  <!-- Pure, and core/views.js below is its only reader, so it stands right before it. -->
   <script src="core/nav-model.js"></script>
-  <!-- The plaque at the bottom of the panel and the status line under a field. Before
-       core/views.js, which keeps toast()/setStatusLine() as one-line delegates to it. -->
+  <!-- Before core/views.js, which keeps toast() and setStatusLine() as delegates to it. -->
   <script src="core/toast.js"></script>
-  <!-- The read-only lockout and the basic-mode strip. Before core/views.js, which keeps the four
-       bare names as delegates; it reaches back for updateContextBar/setImmersive at paint time. -->
+  <!-- Before core/views.js, which delegates to it; it reaches back for updateContextBar at paint time. -->
   <script src="core/gates.js"></script>
-  <!-- The filter row that folds into a "…" menu and the create buttons that drop a word. Before
-       core/views.js, which keeps fitFilterChips() and initActionLabelFit() as delegates to it. -->
+  <!-- Before core/views.js, which keeps fitFilterChips() and initActionLabelFit() as delegates. -->
   <script src="core/fit.js"></script>
   <script src="core/views.js"></script>
-  <!-- The one place a verdict becomes a request — the test view, the run rows and the queue
-       replay all call it. After core/views.js, before every screen that writes. -->
+  <!-- After core/views.js, before every screen that writes. -->
   <script src="core/write-status.js"></script>
   <script src="core/project-switcher.js"></script>
   <!-- The header's surface switch — after core/views.js, whose toast it uses. -->
   <script src="core/view-switch.js"></script>
-  <!-- The "Run in Extension" click left in session storage. Nothing runs at load and the opener is
-       handed in, so the position is only the convention "before the file that uses it" — app.js. -->
+  <!-- Nothing runs at load; it only has to precede its user, app.js. -->
   <script src="core/open-run-intent.js"></script>
-  <!-- The guards a stored session is read back through, and the editor's one-shot breadcrumb. The
-       filter keys are handed in, so this stands only before its one reader — app.js. -->
+  <!-- The filter keys are handed in, so it only has to precede its one reader, app.js. -->
   <script src="core/session-restore.js"></script>
-  <!-- The choose-a-project screen — after core/project-switcher.js, whose row builder and filter it
-       shares with the header popup, and before settings.js, which sends the first run to it. -->
+  <!-- After core/project-switcher.js (shared rows and filter), before settings.js, which opens it. -->
   <script src="screens/project-pick.js"></script>
-  <!-- The Settings form on its own — painting it, reading it back and folding it. Ahead of
-       settings.js, which is its only caller, and of app.js, which wires four of it to the markup. -->
+  <!-- Ahead of settings.js, its only caller, and of app.js, which wires it to the markup. -->
   <script src="screens/settings-form.js"></script>
-  <!-- Forget instance, Disconnect and Sign out. Ahead of settings.js, which delegates to it and
-       whose syncTokenField() asks it which host a destructive button is aimed at. -->
+  <!-- Ahead of settings.js, which delegates Forget, Disconnect and Sign out to it. -->
   <script src="screens/settings-erase.js"></script>
   <script src="screens/settings.js"></script>
-  <!-- The Runs tab's paging arithmetic. Ahead of runs-list.js, its only caller: nothing else in the
-       panel counts pages, so this tag stands between the two rather than earlier. -->
+  <!-- Ahead of runs-list.js, its only caller. -->
   <script src="screens/runs-paging.js"></script>
-  <!-- What a pasted run link or a bare id may mean. Ahead of runs-list.js, which calls it while the
-       tester types; ../shared/handoff.js loads EARLIER and reaches forward for it, as it always has. -->
+  <!-- Ahead of runs-list.js; ../shared/handoff.js loads earlier and reaches forward for it. -->
   <script src="screens/runs-url.js"></script>
   <script src="screens/runs-list.js"></script>
-  <!-- The write gate every result write asks. Ahead of run-view.js, which paints its note, and of
-       the eight screens after it; core/write-status.js asks it late-bound, as it always has. -->
+  <!-- Ahead of run-view.js and the screens after it; core/write-status.js reaches it late-bound. -->
   <script src="screens/run-lock.js"></script>
-  <!-- The Run info card. Ahead of run-view.js, which renders it, and of livesync.js and app.js;
-       core/storage.js loads EARLIER and reaches forward for RunInfo.open, as it always has. -->
+  <!-- Ahead of run-view.js; core/storage.js loads earlier and reaches forward for RunInfo.open. -->
   <script src="screens/run-info.js"></script>
   <script src="screens/run-view.js"></script>
-  <!-- The unsent comment box, reached by the run open, the project switch and app init too. -->
   <script src="screens/test-drafts.js"></script>
-  <!-- The result summary card, and the file tile every list of files wears — so it must come
-       before screens/attachments.js, which draws a manual upload with that same tile. -->
+  <!-- Before screens/attachments.js, which draws a manual upload with this file's tile. -->
   <script src="screens/test-summary.js"></script>
-  <!-- The custom status and the assignee, wired by app init and re-gated by screens/livesync.js. -->
   <script src="screens/test-meta.js"></script>
   <!-- The attach gates and their copy — before screens/attachments.js, whose two locks read it. -->
   <script src="screens/test-gates.js"></script>
@@ -987,12 +844,9 @@
   <script src="screens/attachments.js"></script>
   <script src="screens/screen-rec.js"></script>
   <script src="screens/hotkeys.js"></script>
-  <!-- The Add-new-test bar under the TC list. Ahead of screens/tc-studio.js, which resets it, and of
-       app.js, which wires it; its own call back into the screen is late-bound, as it always was. -->
+  <!-- Ahead of screens/tc-studio.js and app.js; its call back into the screen is late-bound. -->
   <script src="screens/tc-quick-bar.js"></script>
-  <!-- The inline new-folder / new-suite row on the tree. Ahead of screens/tc-studio.js, which
-       draws its buttons, and of app.js, which opens it at the root; its two calls back into
-       the screen are late-bound, as they always were. -->
+  <!-- Ahead of screens/tc-studio.js and app.js; its calls back into the screen are late-bound. -->
   <script src="screens/tc-suite-create.js"></script>
   <script src="screens/tc-studio.js"></script>
   <script src="app.js"></script>

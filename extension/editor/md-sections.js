@@ -1,15 +1,7 @@
-// Markdown section arithmetic (IIFE global `MdSections`). The recorder writes into a body a
-// tester already wrote, so a section is SPLICED, never re-emitted from a parse: prose, images,
-// code fences, `1)` numbering and second-level bullets are what the tester put there and come
-// back out byte for byte. Pure data in, markdown out — no DOM, no editor state, so `node --test`
-// covers it (tests/md-sections.test.mjs).
-//
-// An item is `{text, subs}` plus the positions a splice needs; `subs` are the indented
-// `- Expected: …` lines under it (#78). Ordered items are `N.` or `N)`, bullets `-`, `*`, `+`.
+// Sections are spliced, never re-emitted from a parse, so the tester's text comes back byte for byte.
 
 const MdSections = (() => {
-  // `\r?$`: a body saved with CRLF keeps its steps — `.` does not match the `\r` a split on `\n`
-  // leaves behind, while HEAD_RE's `\s*$` swallows it, so the heading was found and its items lost.
+  // `\r?$`: `.` does not match the `\r` a split on `\n` leaves, so CRLF bodies would lose their steps.
   const ITEM_RE = /^(\s*)(?:(\d+)([.)])|([-*+]))\s+(.*\S.*)\r?$/;
   const SUB_RE = /^\s{2,}[-*+]\s+(.*\S.*)\r?$/; // indented bullet = a sub-line of the item above
   const HEAD_RE = /^#{1,6}\s+\S/;
@@ -17,12 +9,10 @@ const MdSections = (() => {
 
   const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // A "Steps"-like heading, in the two languages a test body is written in here. shared/markdown.js
-  // keeps its own copy: the panel never loads this file, and this file must not need showdown.
+  // Copied in shared/markdown.js: the panel never loads this file, and this one must not need showdown.
   const STEPS_HEADING = /step|крок/i;
 
-  // Whatever sits inside ``` or ~~~ is prose: a `- flag` line there is not a step to be
-  // numbered, and a `# note` is not the heading that ends the section.
+  // Fenced text is prose: a `- flag` there is not a step, and a `# note` does not end the section.
   function fencedLines(lines) {
     const out = new Array(lines.length).fill(false);
     let open = null;
@@ -41,12 +31,10 @@ const MdSections = (() => {
     return out;
   }
 
-  // Indent to THIS item's content column or the sub-list starts a new top-level list instead
-  // of nesting (`10.` needs one space more than `9.`).
+  // Indent to this item's content column (`10.` needs a space more than `9.`) or the sub-list un-nests.
   const subPad = (indent, marker) => `${indent}${' '.repeat(marker.length + 1)}`;
 
-  // `opts.ordered` decides an EMPTY section only; a section that already has a list keeps its
-  // own shape, so bullets stay bullets and `1)` continues as `2)`.
+  // `opts.ordered` only decides an empty section; an existing list keeps its own markers.
   function styleOf(items, opts) {
     const last = items[items.length - 1];
     if (!last) return { ordered: !!(opts && opts.ordered), bullet: '-', delim: '.', indent: '', start: 1 };
@@ -70,11 +58,7 @@ const MdSections = (() => {
     return out;
   }
 
-  /**
-   * The name this body already gives a section, for a caller that knows the section by pattern
-   * rather than by name (`### Кроки` is the steps list too) — or null when it has none. What
-   * comes back is what `slice` then looks for: no `#`s, no trailing space and no CRLF `\r`.
-   */
+  /** The body's own name for a section matching `re`, trimmed the way `slice` looks for it, or null. */
   function findHeading(md, re) {
     const lines = String(md == null ? '' : md).split('\n');
     const fenced = fencedLines(lines);
@@ -86,11 +70,7 @@ const MdSections = (() => {
     return null;
   }
 
-  /**
-   * The section as data: `{ lines, hIdx, end, items, style }`. `hIdx === -1` = no such heading
-   * yet; `end` is the line the section stops at (the next heading, or past the last line). Each
-   * item carries `line`/`endLine`/`subLines` — the positions a splice writes between.
-   */
+  /** `{ lines, hIdx, end, items, style }`; `hIdx === -1` means no such heading yet. */
   function slice(md, heading, opts) {
     const lines = String(md == null ? '' : md).split('\n');
     const fenced = fencedLines(lines);
@@ -130,8 +110,7 @@ const MdSections = (() => {
     const leadSubs = (opts && opts.leadSubs) || [];
     const cut = slice(md, heading, opts);
     if (!list.length && !(leadSubs.length && cut.items.length)) return md;
-    // No such heading: the block is appended, and only here does a tail trim survive — it
-    // decides where the new section joins the document.
+    // No such heading: append; only here may the tail be trimmed, as it decides where the section joins.
     if (cut.hIdx === -1) {
       const block = [`### ${heading}`, '', ...render(list, cut.style)];
       // `cut.lines` is the body slice() normalised: a missing one joins onto '', not onto "null".
@@ -140,18 +119,15 @@ const MdSections = (() => {
     const lines = cut.lines.slice();
     const last = cut.items[cut.items.length - 1];
     if (last) {
-      // `leadSubs` (#160) belong to the LAST item already in the section: live insertion
-      // delivers an expected result after the step it followed is already in the body.
+      // `leadSubs` go to the last item already there: an expected result arrives after its step.
       const lead = leadSubs.map((s) => `${subPad(last.indent, last.marker)}- ${s}`);
       lines.splice(last.endLine + 1, 0, ...lead, ...render(list, cut.style));
       return lines.join('\n');
     }
-    // No items: the steps go at the END of the section, under whatever prose, image or fence
-    // the tester wrote there, and the section's own trailing blanks stay where they are.
+    // No items: steps go under the tester's prose at the section end, before its trailing blanks.
     let at = cut.end;
     while (at > cut.hIdx + 1 && !lines[at - 1].trim()) at--;
-    // With no step before them, `leadSubs` belong to the FIRST of the new ones: an expected result
-    // with nothing above it describes the step that follows.
+    // With no step above, an expected result describes the step that follows.
     const head = leadSubs.length
       ? [{ ...list[0], subs: [...leadSubs, ...(list[0].subs || [])] }, ...list.slice(1)]
       : list;
@@ -159,12 +135,7 @@ const MdSections = (() => {
     return lines.join('\n');
   }
 
-  /**
-   * The polish rewrite (#23), in place: 1:1 by index over the `count` items starting at `start`
-   * — polished item N replaces recorded item N, keeping that item's own marker and indent. An
-   * item whose text is no longer what we last wrote there (`written`) was edited by hand and is
-   * left exactly as it is; so is one the answer has nothing for.
-   */
+  /** Polish rewrite: item N replaces item N in place; one edited by hand (not `written`) stays. */
   function replaceItems(md, heading, opts, spec) {
     const { start, count, next, written } = spec || {};
     const cut = slice(md, heading, opts);
@@ -182,8 +153,7 @@ const MdSections = (() => {
       let subs = (it.subs || []).slice();
       if (want && it.text === ours) {
         text = want.text;
-        // Rewritten only when the answer HAS subs: an expected result the recorder folded in
-        // is not something a silent answer may drop.
+        // Subs change only if the answer has some: silence must not drop an expected result we folded in.
         const fresh = want.subs && want.subs.length ? want.subs.slice() : null;
         if (fresh) subs = fresh.slice();
         const own = `${it.indent}${it.marker} ${text}`;

@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// What extension/evidence/relay.js owes the tester (#173): it is the translator between the hook
-// riding inside the page under test (which sees the page but has no chrome.*) and the worker (which
-// is the other way round). Two of the things it carries decide whether a recording behaves at all.
-// It is the ONLY way a page hook is ever told to STOP — when the tester ends a recording, this is
-// what makes the page go quiet — and it is what tells the hook whether the tester allowed response
-// bodies to be captured. Get that default backwards and the extension either records bodies nobody
-// asked for or loses the one body the tester needed.
-// The rows are the ticket's 22, numbered in their names; a row that pins behaviour we are NOT
-// changing here gets a second `test.todo` naming the audit finding that will. Companion rows carry a
-// letter suffix and drive the same path the other way, so a row asserting "nothing happened" cannot
-// pass against a dead stub.
-// Run: node --test tests/evidence-relay.test.mjs
 import { runInContext } from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,18 +6,15 @@ import { loadInto, chromeFake, plain, settle, sharedPath, sourceOf } from './hel
 
 const CHANNEL = '__testomat_evidence__';
 const KEY = 'evidenceCaptureBodies';
-// SHARED_SRC / SHARED_MODULES=relay.js=<path> point sharedPath at a mutated copy, so a
-// falsification run never has to edit the shipped file and risk leaving it edited.
+// SHARED_SRC / SHARED_MODULES point sharedPath at a mutated copy, so the shipped file is never edited.
 const RELAY = 'evidence/relay.js';
 
-// The relay is a bare IIFE: it publishes nothing and declares no top-level function, so there is no
-// export to grab. Every row drives it through the four callbacks it registered and the one post it
-// makes at load.
+// The relay is a bare IIFE with no exports, so rows drive it through its callbacks and its load post.
 function load(opts = {}) {
   const {
     local = {},                 // storage.local seed
     localFail = {},             // { get: true } makes the config read reject
-    noSendMessage = false,      // the guard at :10 — an ISOLATED world without the API
+    noSendMessage = false,      // an isolated world without the runtime API
     chromeMode = 'full',        // 'full' | 'undefined' (the binding exists, the value does not)
     noOnMessage = false,        // chrome.runtime.onMessage absent — addListener throws
     onMessageThrows = false,    // the API is there and refuses
@@ -42,8 +27,7 @@ function load(opts = {}) {
 
   const fake = chromeFake({ local, localFail });
   const chrome = fake.chrome;
-  // Not the permission being denied at a call — the namespace simply is not there, so every
-  // reach through `chrome.storage.` is a TypeError rather than a rejected promise.
+  // The namespace is missing, not denied, so every chrome.storage reach is a TypeError, not a rejection.
   if (noStorage) delete chrome.storage;
 
   const sent = [];              // every chrome.runtime.sendMessage payload, in order
@@ -77,7 +61,7 @@ function load(opts = {}) {
     chrome: chromeMode === 'undefined' ? undefined : chrome,
     console: { warn() {}, error() {} },
   };
-  sandbox.window = sandbox;     // `e.source !== window` at :27 depends on this identity
+  sandbox.window = sandbox;     // `e.source !== window` in the relay depends on this identity
   sandbox.postMessage = (msg, target) => {
     if (postThrows) throw new Error('frame detached');
     posts.push({ msg: plain(msg), target });
@@ -85,8 +69,7 @@ function load(opts = {}) {
   sandbox.addEventListener = (type, fn) => { listeners.push({ type, fn }); };
 
   const { context } = loadInto(sandbox, [RELAY]);
-  // node hands the vm its own global proxy for `window`, not the raw sandbox object, and
-  // `e.source !== window` at :27 compares against exactly that.
+  // node hands the vm its own global proxy for window, and the relay's e.source check compares to that.
   const win = runInContext('globalThis', context);
 
   const msgListener = () => (listeners.find((l) => l.type === 'message') || {}).fn;
@@ -98,15 +81,14 @@ function load(opts = {}) {
     context,
     win,
     posts: () => posts.slice(),
-    // Every control message carries the per-document token (rows 22a-22c); the rows about WHAT
-    // the relay says read past it, and `batch` puts it back on the way in.
+    // Every control message carries the token; rows about what the relay says read past it.
     controls: () => posts.map((p) => { const { tok, ...rest } = p.msg; return rest; }),
     tok: handed,
     sent: () => sent.slice(),
     listeners: () => listeners.map((l) => l.type),
     storage: fake.local,
     settle,
-    // A batch from the hook WE injected: stamped with the token the relay handed out.
+    // A batch from the hook we injected: stamped with the token the relay handed out.
     batch: (events) => ({ source: CHANNEL, tok: handed(), events }),
     // A batch the page hook posted onto the shared DOM channel.
     page: (data, source = win) => {
@@ -122,11 +104,8 @@ function load(opts = {}) {
 }
 
 const control = (payload) => ({ source: CHANNEL, control: true, ...payload });
-// Everything a page can build unaided: the channel name is compiled into both halves, so it is
-// published, and knowing it is the whole of what a forger has.
+// The channel name is compiled into both halves, so it is public: all a forger has.
 const forged = (events) => ({ source: CHANNEL, events });
-
-// ---- the body-capture default (rows 1-4) -----------------------------------
 
 test('1: the tester who never touched the body switch gets bodies — an absent setting means ON', async () => {
   const h = load();
@@ -161,8 +140,6 @@ test('4a: the hook is never left waiting — the config post happens at load, be
   await h.settle();
   assert.equal(h.controls().length, 1);
 });
-
-// ---- forwarding a batch (rows 5-8) -----------------------------------------
 
 test('5: a batch the page hook posted reaches the worker as EVIDENCE_EVENTS', async () => {
   const h = load();
@@ -200,8 +177,6 @@ test('8a: an empty batch is still a batch — it reaches the worker and can be a
   h.page(h.batch([]));
   assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: [] }]);
 });
-
-// ---- the reply path (rows 9-12) --------------------------------------------
 
 test('9: the worker with no recording for this page tells the hook to stop, and the hook is told', async () => {
   const h = load({ reply: () => ({ off: true }) });
@@ -264,8 +239,6 @@ test('12: a batch the sleeping worker never took is dropped, not retried and not
   assert.equal(h.sent().length, 2, 'and the next batch is still attempted');
 });
 
-// ---- the worker's own channel (rows 13-15) ---------------------------------
-
 test('13: ending a recording mutes the hook of a page that never navigated', async () => {
   const h = load();
   await h.settle();
@@ -291,8 +264,6 @@ test('15: any other worker message is left alone — the relay never claims the 
   assert.equal(h.controls().length, 1, 'and nothing was posted to the page');
 });
 
-// ---- the config change (rows 16-17) ----------------------------------------
-
 test('16: the tester flipping the body switch mid-recording reaches the page at once', async () => {
   const h = load();
   await h.settle();
@@ -310,8 +281,6 @@ test('17: a change to some other key, or in some other area, is not the body swi
   await h.settle();
   assert.equal(h.controls().length, 1);
 });
-
-// ---- loading in a world that cannot help (rows 18-21) ----------------------
 
 test('18: an isolated world with no runtime API registers nothing and posts nothing', async () => {
   const h = load({ noSendMessage: true });
@@ -376,9 +345,7 @@ test('21a: a page that tore the frame down under us swallows the post instead of
   assert.deepEqual(h.controls(), []);
 });
 
-// A build without the `storage` permission is the one world where the relay can end up neither
-// installed nor stood down: the config read is the last thing the file does and the only thing in
-// it that reaches `chrome.storage` unguarded. The three rows below are the three ways that shows.
+// Without storage permission the unguarded config read, run last, could leave the relay half-done.
 
 test('21b (#343): a world with no chrome.storage installs the relay whole, not halfway', async () => {
   const h = load({ noStorage: true });
@@ -410,11 +377,7 @@ test('21d (#343): with no storage, a hook that missed the config is still handed
     'and what it posts next is believed — a mute hook records nothing at all');
 });
 
-// ---- whose batch it is (row 22) --------------------------------------------
-
-// The evidence log is what the tester attaches to a ticket as proof. A row in it that the page
-// wrote, not the hook, is a lie the tester will never spot — so the relay believes the token it
-// handed its own hook and nothing else.
+// The relay believes only the token it handed its own hook: a page-written row would be a silent lie.
 const EVIDENCE = [{ t: 'net', status: 500, url: 'https://bank.example.com/statement' }];
 
 test('22: a batch the page forged is refused — only the hook we injected is believed', async () => {
@@ -431,9 +394,7 @@ test('22a: the very same events from our hook go through — the token is the wh
   assert.deepEqual(h.sent(), [{ type: 'EVIDENCE_EVENTS', events: EVIDENCE }]);
 });
 
-// The comparison is `!==` against a string, and it has to stay that way: a single-element array
-// stringifies to the element, so anything looser lets a lookalike through. No worse than knowing
-// the token outright — but the strictness is the fix, and a fix nothing asks about drifts.
+// Strict !== on purpose: a one-element array stringifies to its element, so looser lets it through.
 test('22e: a token-shaped lookalike is not the token — the comparison is strict, not coerced', async () => {
   const h = load();
   await h.settle();
@@ -469,8 +430,6 @@ test('22d: a hook that missed the config is handed a token, not believed on its 
   assert.equal(h.controls().length, 2, 'and the config went out again so the hook learns the token');
   assert.equal(h.posts()[1].msg.tok, h.tok(), 'the same token, not a fresh one');
 });
-
-// ---- the shape of every control message ------------------------------------
 
 test('23: every message the relay puts on the page channel is marked as its own control', async () => {
   const h = load({ reply: () => ({ off: true }) });

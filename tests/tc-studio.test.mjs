@@ -1,32 +1,10 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/tc-studio.js is for the tester (#163): the suite tree — the
-// project's folders and files, read whole from the server and re-sorted here so the panel matches the
-// web; the list of test cases inside the suite they opened, with its own search and its own counter;
-// and the quick-add bar under it, which takes one title, or — with the Bulk switch — a whole pasted
-// list at once. Clicking an existing test opens it read-only; New test opens the editor already bound
-// to the suite that was chosen.
-// Two things here are easy to get quietly wrong, so most of this file is about them. The bar's text
-// follows the switch: the quick field is the FIRST line of the list, and the lines under it wait in
-// memory for Bulk to come back. And a folder's counter shows its whole subtree while a file's shows
-// only its own — zero included, because a badge left off the row reads as "not loaded".
-// Rows 1-81 are the ticket's; a lettered suffix is the companion case that drives the same path the
-// other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Rows 1-3, 5-18, 40-63b, 68, 69b and 70-73b are no longer here: the four algorithms behind the
-// first left for extension/sidepanel/core/suite-tree.js, the whole quick/bulk bar for
-// extension/sidepanel/screens/tc-quick-bar.js and the inline create row for
-// extension/sidepanel/screens/tc-suite-create.js (#196), and tests/suite-tree.test.mjs,
-// tests/tc-quick-bar.test.mjs and tests/tc-suite-create.test.mjs drive them with no screen at all.
-// This file loads all THREE real modules beside the screen, in index.html's own order, and keeps
-// every row about what the SCREEN does with them — the render, the suite open that wipes the bar,
-// and rows 69, 69c and 59b where the screen and a module meet.
-// Run: node --test tests/tc-studio.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
 import { loadInto } from './helpers/shared-harness.mjs';
 
-// The real shared/roving.js, one per load(): its map of wired containers is a singleton, and the
-// keyboard rows below are worth nothing against a stub. Its own contract is tests/roving.test.mjs.
+// The real roving.js, one per load(): its map of wired containers is a singleton.
 const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
 const BASE = 'https://app.testomat.io';
@@ -39,19 +17,17 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// A keypress from the row that has focus, which bubbles to the <ul> the helper is delegated on —
-// the same trip a real one makes.
+// Bubbles to the <ul> the helper is delegated on, the same trip a real keypress makes.
 const key = (node, k) => fire(node, 'keydown', { key: k, bubbles: true });
 
 const folder = (id, title, children = [], extra = {}) =>
   ({ id, title, file_type: 'folder', children, ...extra });
 const file = (id, title, extra = {}) => ({ id, title, file_type: 'file', ...extra });
 
-// The panel globals tc-studio.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the screens beside this one land in parallel.
+// Each screen has its own globals, so they live here rather than in the shared harness.
 function load(opts = {}) {
   const o = {
-    readonly: false,                 // capabilities.readonly — the #155 lockout
+    readonly: false,                 // capabilities.readonly — the read-only lockout
     gate: false,                     // what readonlyGate() answers on the Tests screen
     settings: { baseUrl: BASE, projectId: 'my project' },
     suites: [],                      // state.tcSuites
@@ -68,7 +44,7 @@ function load(opts = {}) {
     ...opts,
   };
 
-  // index.html's shape (:451-508), cut to the nodes this screen touches.
+  // index.html's shape, cut to the nodes this screen touches.
   const doc = makeDocument([]);
   const node = {
     tree: el('ul', { id: 'tc-tree' }),
@@ -90,7 +66,7 @@ function load(opts = {}) {
       create: el('button', { id: 'tc-quick-create', disabled: true, textContent: 'Create' }),
       bulk: el('input', { id: 'tc-quick-bulk', type: 'checkbox', checked: false, disabled: false }),
     });
-    // index.html's shape: the tip lives on the LABEL, because a disabled input answers no pointer.
+    // index.html's shape: the tip lives on the label, because a disabled input answers no pointer.
     node.bulkLabel = el('label', { className: 'choice tc-quick-bulk', dataset: { tip: 'Add more' } }, node.bulk);
     doc.body.append(node.title, node.titles, node.create, node.bulkLabel);
   }
@@ -121,8 +97,7 @@ function load(opts = {}) {
     bulks: [],
   };
 
-  // mini-dom has neither, and both are real acts here: the inline create row scrolls itself in, and
-  // the empty list's New test button clicks the toolbar's.
+  // mini-dom lacks both: the create row scrolls itself in, the empty list clicks the toolbar's New test.
   const create = doc.createElement.bind(doc);
   doc.createElement = (tag) => {
     const made = create(tag);
@@ -132,8 +107,7 @@ function load(opts = {}) {
   node.listNew.click = () => { calls.listNew += 1; };
   doc.documentElement.scrollHeight = 4321;
 
-  // Reassignable after load(), so a test can answer the second read differently from the first, or
-  // change the world from inside a call the screen is awaiting.
+  // Reassignable after load(), so a later read can answer differently, or mid-call.
   const on = {
     orderedTree: async () => o.serverTree ?? [],
     tree: async () => o.serverTree ?? [],
@@ -158,8 +132,7 @@ function load(opts = {}) {
     suiteEmoji: null,
   };
 
-  // shared/icons.js's own rule: an empty value or an unresolved `:shortcode:` draws nothing, so the
-  // caller falls back to the glyph — treeIcon below is core/status-icons.js's, which this screen borrows.
+  // As in shared/icons.js: an empty value or an unresolved `:shortcode:` draws nothing.
   const emojiSpan = (value, cls = '') => {
     const s = String(value || '').trim();
     if (!s || /^:[a-z0-9_+-]+:$/i.test(s)) return null;
@@ -177,8 +150,7 @@ function load(opts = {}) {
     return span;
   };
 
-  // EmptyState.build's own `fill`: a string, a node or a list of either, appended in order — which
-  // is what makes the web-app link inside the sentence findable.
+  // EmptyState.build's own `fill`: a string, a node or a list of either, appended in order.
   const buildEmpty = (spec = {}) => {
     calls.empties.push({ tag: spec.tag, icon: spec.icon, title: spec.title, live: !!spec.live });
     const box = doc.createElement(spec.tag || 'div');
@@ -203,8 +175,7 @@ function load(opts = {}) {
     state,
     Roving: roving(),
     capabilities: { readonly: o.readonly },
-    // Node installs it on the main context only, exactly as the harness documents for `URL`. Without
-    // it openEditor throws instead of building its query, and every hand-off row fails for that.
+    // Node puts it on the main context only; without it openEditor throws instead of building its query.
     URLSearchParams,
     sessionStorage: {
       setItem: (k, v) => {
@@ -231,8 +202,7 @@ function load(opts = {}) {
       show: (view) => { calls.skeleton.push(['show', view]); return { view }; },
       hide: (handle) => { calls.skeleton.push(['hide', handle ? handle.view : handle]); },
     },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         calls.tips.push(tip);
@@ -250,8 +220,7 @@ function load(opts = {}) {
       FILE: 'tree_suite',
     },
     EmptyState: { build: buildEmpty },
-    // PriorityIcons and TestType are deliberately absent: renderTcList reaches for both behind a
-    // `typeof` guard, so leaving them out is a valid panel and exercises the fallback row.
+    // PriorityIcons and TestType are left out on purpose: the `typeof` guard then takes the fallback row.
     TestomatAPI: {
       jwtAvailable: () => { calls.jwtAsked += 1; return o.jwt; },
       getSuiteTree: async () => { calls.countReads += 1; return on.tree(); },
@@ -283,21 +252,17 @@ function load(opts = {}) {
     removeEventListener: () => {},
   };
 
-  // The screen's own `const` arrows are lexical, not sandbox properties: named here or unreachable.
-  // The `let`s are deliberately NOT named — the fields and the button are all the tester can see.
+  // The screen's `const` arrows are lexical: named here or unreachable; its `let`s stay private.
   const h = loadScreen('tc-studio', {
     globals,
     document: doc,
     window: win,
-    // index.html's own order: core/suite-tree.js and screens/tc-quick-bar.js both stand ahead of
-    // this screen, which asks the first what a query keeps and the second to wipe the bar on every
-    // suite open. Both REAL — a stub would leave the rows below asserting the stub (#196).
+    // index.html's order, with both modules real: a stub would leave the rows asserting the stub.
     before: [['suite-tree', CORE_SRC], 'tc-quick-bar', 'tc-suite-create'],
     exported: '({ tcExpanded, tcRowMatches, TcQuickBar, TcSuiteCreate })',
   });
 
-  // app.js:62-72 wires the two search fields and the quick bar; the screen registers nothing at load,
-  // so the fixture stands in for index.html's own wiring and every row below drives real listeners.
+  // Stands in for app.js's wiring: the screen registers nothing at load.
   node.search.addEventListener('input', h.fn.onTcSearch);
   node.searchClear.addEventListener('click', h.fn.clearTcSearch);
   node.treeSearch.addEventListener('input', h.fn.onTcTreeSearch);
@@ -321,8 +286,7 @@ function load(opts = {}) {
     doc,
     win,
     session,
-    // The top-level rows; then every row in the tree — a folded folder still BUILDS its children,
-    // so `shownIds` is the one that answers what the tester can actually see.
+    // A folded folder still builds its children, so `shownIds` answers what the tester can see.
     rootIds: () => node.tree.children.map((li) => li.querySelector('.tc-row')?.dataset.id),
     rowIds: () => node.tree.querySelectorAll('.tc-row').map((r) => r.dataset.id),
     shownIds: () => node.tree.querySelectorAll('.tc-row')
@@ -338,17 +302,11 @@ function load(opts = {}) {
     listRows: () => node.list.children.filter((li) => li.dataset.id != null),
     listTitles: () => node.list.children.filter((li) => li.dataset.id != null).map((li) => li.textContent),
     emptyTitle: (ul) => ul.querySelector('.empty-title')?.textContent ?? null,
-    // The tester typing into any of the four fields this screen still owns.
     type: (fieldNode, value) => { fieldNode.value = value; fire(fieldNode, 'input'); },
-    // The open inline create row, and the field inside it.
     newRow: () => node.tree.querySelector('.tc-new-suite'),
     newInput: () => node.tree.querySelector('.tc-new-suite .tree-input'),
   };
 }
-
-// ---------- what the screen makes of the filter (row 4) ----------
-// Rows 1-3, 5-18 are the algorithms themselves and now live in tests/suite-tree.test.mjs, which
-// drives extension/sidepanel/core/suite-tree.js with no stubs at all.
 
 const CHECKOUT = [folder('f1', 'Checkout', [file('s1', 'Guest'), file('s2', 'Card')])];
 
@@ -358,14 +316,12 @@ test('4: a query nothing answers makes the screen say "No suites match" over an 
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.equal(h.emptyTitle(h.node.tree), 'No suites match');
   assert.deepEqual(h.rowIds(), []);
-  // The identical render with a query that DOES match draws the rows instead of the plaque.
+  // The identical render with a query that does match draws the rows instead of the plaque.
   h.state.tcTreeSearch = 'guest';
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.equal(h.emptyTitle(h.node.tree), null);
   assert.deepEqual(h.rowIds(), ['f1', 's1']);
 });
-
-// ---------- what the tree render decides (rows 19-24, 74-75) ----------
 
 test('19: a live query filters the tree and the suites made this visit still ride at the top of it', () => {
   const h = load({ suites: [folder('a', 'Alpha'), folder('b', 'Beta'), folder('c', 'Gamma')] });
@@ -508,12 +464,6 @@ test('75b: on the Tests screen the same empty state offers Suite and Folder inst
   assert.equal(h.newInput().placeholder, 'Enter folder name');
 });
 
-// ---------- the tree and the inline create row, where they meet (rows 69, 69c) ----------
-// Rows 68, 69b and 70-73b are gone from here: the create row is its own module now, and
-// tests/tc-suite-create.test.mjs drives it with no screen at all (#196). These two are what neither
-// file can assert alone — a real folder row's pill opening the row, and the re-render that follows a
-// create replacing that row with the node it made.
-
 test('69: a folders own New suite sends the folder as the parent, keeps it open, and re-reads the tree', async () => {
   const h = load({ suites: [folder('f1', 'Checkout')] });
   h.on.orderedTree = async () => [folder('f1', 'Checkout', [file('new-1', 'Guest checkout')])];
@@ -543,8 +493,7 @@ test('69c: a folder the tester collapsed while naming is opened again, so the ne
   h.fn.renderSuiteTree(h.state.tcSuites);
 
   fire(h.rowFor('f1').querySelectorAll('.tc-new')[0], 'click'); // opens the folder to show the input
-  // Two clicks to fold: the pill opened the folder without telling the row handler, so its first
-  // click only re-opens what is already open.
+  // Two clicks to fold: the pill opened the folder without telling the row handler.
   fire(h.rowFor('f1'), 'click');
   fire(h.rowFor('f1'), 'click');
   assert.equal(h.state.tcExpanded.f1, false);
@@ -557,8 +506,6 @@ test('69c: a folder the tester collapsed while naming is opened again, so the ne
   assert.equal(h.state.tcExpanded.f1, true);
   assert.deepEqual(h.rowIds(), ['f1', 'new-1']);
 });
-
-// ---------- opening the Tests screen, and the chip's own read (rows 76-80) ----------
 
 test('76: a tree already in memory is on screen before the re-read leaves, in the projects own order', async () => {
   const h = load({ suites: [folder('a', 'Alpha'), folder('b', 'Beta')] });
@@ -680,8 +627,6 @@ test('80b: a project switched mid-read paints neither the chip nor the marks', a
   assert.equal(h.calls.emojiIndex.length, 1);
 });
 
-// ---------- the TC list, and the guard against two reads answering out of order (rows 25-39) ----------
-
 test('25: with no query every row in the suite is a match', () => {
   const h = load();
   assert.equal(h.lex.tcRowMatches({ title: 'Login' }), true);
@@ -792,7 +737,7 @@ test('33: rows for a suite the tester has already left are dropped, not painted 
   assert.deepEqual(h.listTitles(), []);
   assert.deepEqual(plain(h.state.tcTests), []);
   assert.deepEqual(h.calls.skeleton, [['show', 'tclist'], ['hide', 'tclist']]); // it still tidies up
-  // The identical read for the suite that IS open paints, so the silence above is the guard.
+  // The identical read for the suite that is open paints, so the silence above is the guard.
   h.on.tests = async () => [{ id: 't2', title: 'this suites row' }];
   await h.fn.loadTcList('s2');
   assert.deepEqual(h.listTitles(), ['this suites row']);
@@ -934,8 +879,7 @@ test('39c: opening a suite wears the mark the tree gave it, and drops it when th
   assert.equal(h.state.tcSuiteEmoji, null);
 });
 
-// One roving tab stop per list, not one per row: Tab enters the tree once, the arrows walk it, and
-// Enter opens the row under them. The helper's own contract is tests/roving.test.mjs.
+// One roving tab stop per list, not one per row: Tab enters once, the arrows walk, Enter opens.
 test('81 (#109): a suite row and a test row are reachable from the keyboard', () => {
   const h = load({
     suites: [folder('f1', 'Checkout', [file('s1', 'Guest')]), file('s2', 'Payments')],
@@ -1002,8 +946,7 @@ test('81c (#109): the inline create field keeps every key typed into it, tree or
   assert.equal(h.doc.activeElement, h.rowFor('f1'));
 });
 
-// 81d: the row is a role="button" that folds a branch, and the chevron pointing one way or the
-// other is a picture. Three places write this fold, and a reader believes whichever wrote last.
+// Three places write this fold, and a reader believes whichever wrote last.
 test('81d (#109): a folder row says whether it is open — and a file row claims no fold at all', () => {
   const h = load({ suites: [folder('f1', 'Checkout', [file('s1', 'Guest')]), file('s2', 'Payments')] });
   h.fn.renderSuiteTree(h.state.tcSuites);
@@ -1026,8 +969,6 @@ test('81d (#109): a folder row says whether it is open — and a file row claims
   h.fn.renderSuiteTree(h.state.tcSuites);
   assert.equal(h.rowFor('f1').getAttribute('aria-expanded'), 'true');
 });
-
-// ---------- the two search fields, and what a reset is allowed to touch (rows 4d-30c) ----------
 
 test('4b: typing in the tree search narrows the tree and reveals the branch under every match', () => {
   const h = load({ suites: [folder('f1', 'Checkout', [file('s1', 'Guest')]), folder('f2', 'Payments')] });
@@ -1123,12 +1064,6 @@ test('30c: the list reset drops the query without redrawing and without taking t
   h.fn.resetTcSearch();
 });
 
-// ---------- the bar and the list, where they meet (row 59b) ----------
-// Rows 40-63b are gone from here: the quick/bulk bar is its own module now, and
-// tests/tc-quick-bar.test.mjs drives it over four field stubs with no screen at all (#196). What is
-// left is the one thing neither file can assert alone — the bar dropping the screen's live filter
-// and the screen then drawing the row that filter would have hidden.
-
 test('59b (#196): the bar drops the live search before its re-read, so the row it just made shows', async () => {
   const h = load({ suiteId: 's1', tests: [{ id: 't0', title: 'Checkout' }] });
   h.type(h.node.search, 'checkout');
@@ -1148,8 +1083,6 @@ test('59b (#196): the bar drops the live search before its re-read, so the row i
   h.type(h.node.search, 'checkout');
   assert.deepEqual(h.listTitles(), ['Checkout']);
 });
-
-// ---------- the hand-off to the test page (rows 64-67) ----------
 
 test('64: opening an existing test leaves the suite behind as a breadcrumb and navigates by id', () => {
   const h = load();

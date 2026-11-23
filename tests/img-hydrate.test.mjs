@@ -1,16 +1,5 @@
 #!/usr/bin/env node
-// #177: the pictures inside a test's description, a comment or an attachment —
-// extension/shared/img-hydrate.js. The panel's CSP carries no `https:` in `img-src` BY DESIGN, so an
-// <img> the server sent cannot simply load: the bytes are fetched through the API and handed back as
-// a `blob:` URL. What matters to a tester is the failure path — a broken image in a bug report is a
-// bug report the next person cannot act on, so an image that will not load DEGRADES to a link they
-// can click rather than to a blank box.
-// Three rules are worth reading twice. A 200 IS NOT AN IMAGE: a signed-out fetch of an attachment
-// gets the sign-in PAGE back, so the blob's own type is checked and `text/html` is a failure. An
-// image pointing at a host the instance never named is a tracking beacon in authored markdown, so it
-// is fetched with `instanceOnly` and shown as a link instead. And the whole walk must run on a
-// DETACHED container, between sanitizeHtml() and the append.
-// Run: node --test tests/img-hydrate.test.mjs
+// The panel's CSP has no https: in img-src by design, so server images load as blob: URLs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain, settle } from './helpers/shared-harness.mjs';
@@ -20,8 +9,7 @@ const BASE = 'https://a.io';
 const RAILS = '/rails/active_storage/x.png';
 const RAILS_URL = `${BASE}${RAILS}`;
 
-// A response the way api.js's fetchAsset hands one back. `type` is the BLOB's, not the header's —
-// that is the one looksLikeImage() reads.
+// `type` is the blob's, not the header's — that is the one looksLikeImage() reads.
 const okBlob = (blob) => ({ ok: true, status: 200, blob: async () => blob });
 const ok = (type = 'image/png') => okBlob({ type });
 const status = (code) => ({ ok: false, status: code, blob: async () => ({ type: 'text/html' }) });
@@ -50,8 +38,7 @@ function load({ icons = true, respond = () => ok(), revokeThrows = false } = {})
         if (revokeThrows) throw new Error('already revoked');
       },
     },
-    // api/assets.js:15 and :35, cut to what this file leans on — including the default the real
-    // fetchAsset applies when a caller hands it no options at all.
+    // api/assets.js cut down, including the default fetchAsset applies when given no options.
     TestomatAPI: {
       assetUrl: (raw) => {
         calls.assetUrls.push(raw);
@@ -87,8 +74,6 @@ function box(h, html) {
   node.innerHTML = html;
   return node;
 }
-
-// ---- what counts as a picture (read through load(), the only door onto it) ---------------------
 
 const IMAGEY = [
   ['a plain png', { type: 'image/png' }],
@@ -126,8 +111,7 @@ test('6: a refused or missing asset answers false and mints nothing — it never
   assert.equal(img.getAttribute('src'), null);
 });
 
-// 6's refusal carries a text/html body, so the type check alone would also reject it. This one calls
-// itself a PNG: the status has to be believed on its own, or an error page is drawn as the picture.
+// This refusal calls itself a PNG: the status must be believed on its own, not only the type.
 test('6c: a refusal that claims to be a PNG is still a refusal', async () => {
   const h = load({ respond: () => ({ ok: false, status: 403, blob: async () => ({ type: 'image/png' }) }) });
   const img = h.doc.createElement('img');
@@ -152,8 +136,6 @@ test('8: a picture that did load carries the blob and the flag the end-to-end ru
   assert.equal(h.H.held('g'), 1);
   assert.deepEqual(plain(h.calls.fetches), [{ url: RAILS_URL, opts: { instanceOnly: true } }]);
 });
-
-// ---- the ledger: every blob the panel minted, and letting go of it -----------------------------
 
 test('9: closing a view hands back every blob it minted', async () => {
   const h = load();
@@ -193,8 +175,6 @@ test('12: closing one view leaves the pictures another view is still showing alo
   assert.deepEqual(h.calls.revoked, ['blob:img/1']);
 });
 
-// ---- the walk over a description ---------------------------------------------------------------
-
 test('13: a description that never rendered is nothing to walk over', () => {
   const h = load();
   assert.doesNotThrow(() => h.H.hydrate('g', null));
@@ -233,7 +213,7 @@ test('16: a description image loses its raw src BEFORE anything else, and shows 
   const node = box(h, `<img src="${RAILS}" alt="Chart">`);
   h.H.hydrate('g', node);
   const img = node.querySelector('img');
-  // Synchronously, before a single byte: no src to resolve against chrome-extension:// and trip the CSP.
+  // Synchronously, before a byte: no src to resolve against chrome-extension:// and trip the CSP.
   assert.equal(img.getAttribute('src'), null);
   assert.equal(img.dataset.img, 'loading');
   assert.deepEqual(h.calls.assetUrls, [RAILS]);

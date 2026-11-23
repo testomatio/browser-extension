@@ -1,5 +1,4 @@
-// Tooltips (IIFE global `Tooltip`): markup carries `data-tip`, this file draws the box.
-// `window.Tooltip`, not a top-level `const` — a re-injection of a const-declaring file throws.
+// `window.Tooltip`, not a top-level `const`: re-injecting a const-declaring file throws.
 
 window.Tooltip = window.Tooltip || (() => {
   // 300, not shadcn's 700: in a panel that is a row of icon buttons, 700 reads as broken.
@@ -14,9 +13,9 @@ window.Tooltip = window.Tooltip || (() => {
   let layer = null;       // the one node, built on first use
   let arrow = null;
   let trigger = null;     // what is described right now
-  let described = false;  // …and whether WE are the one holding its aria-describedby
+  let described = false;  // …and whether we are the one holding its aria-describedby
   let openTimer = 0;
-  let pendingEl = null;   // waiting out the delay — NOT re-armed by a wobble on it
+  let pendingEl = null;   // waiting out the delay — not re-armed by a wobble on it
   let closedAt = 0;       // for the grace window
   let suppressed = null;  // clicked: no tip until the pointer leaves it
   let rafId = 0;
@@ -40,8 +39,7 @@ window.Tooltip = window.Tooltip || (() => {
 
   const tipOf = (el) => (el && el.dataset ? (el.dataset.tip || '') : '');
 
-  // The fallback order flips to the OPPOSITE side first, never a rotation. The side is
-  // read off the nearest ANCESTOR naming one, so a header can say it once for its row.
+  // The side is read off the nearest ancestor naming one, so a header can say it once for its row.
   const sideOwner = (el) => el.closest('[data-tip-side]');
   const sidesFor = (owner) => {
     const want = (owner ? owner.dataset.tipSide : 'top').toLowerCase();
@@ -50,8 +48,7 @@ window.Tooltip = window.Tooltip || (() => {
     return order[want] || order.top;
   };
 
-  // What the box must CLEAR: a tip whose side a BLOCK chose is measured off that block,
-  // so "below the header" is not 8px under a button that still sits inside it.
+  // A tip whose side a block chose clears that block, not just the button inside it.
   const blockFor = (el, r) => {
     const owner = sideOwner(el);
     return owner && owner !== el ? boxOf(owner) : r;
@@ -59,8 +56,7 @@ window.Tooltip = window.Tooltip || (() => {
 
   const clamp = (v, min, max) => (max < min ? min : Math.min(Math.max(v, min), max));
 
-  // A rotating element's client rect breathes (a spinner made the label bounce), so the centre
-  // comes off the painted box and the size off offsetWidth/Height. Only its OWN transform is undone.
+  // A rotating element's rect breathes, so the centre comes off the box and the size off offsetWidth.
   const boxOf = (el) => {
     const r = el.getBoundingClientRect();
     if (getComputedStyle(el).transform === 'none') return r;
@@ -71,8 +67,7 @@ window.Tooltip = window.Tooltip || (() => {
     return { left: cx - w / 2, top: cy - h / 2, right: cx + w / 2, bottom: cy + h / 2, width: w, height: h };
   };
 
-  // First side it fits on. The caller un-hides the box FIRST: a tip that wraps to two
-  // lines is a different height, and guessing it lands the label half off-screen.
+  // The caller un-hides the box first: a tip that wraps to two lines is a different height.
   const place = (r) => {
     const w = layer.offsetWidth;
     const h = layer.offsetHeight;
@@ -104,7 +99,7 @@ window.Tooltip = window.Tooltip || (() => {
     layer.style.left = `${Math.round(x)}px`;
     layer.style.top = `${Math.round(y)}px`;
 
-    // The arrow keeps pointing at the CONTROL's middle after the edge clamp shifts the box.
+    // The arrow keeps pointing at the control's middle after the edge clamp shifts the box.
     if (side === 'top' || side === 'bottom') {
       const ax = clamp(r.left + r.width / 2 - x - ARROW / 2, ARROW_INSET, w - ARROW - ARROW_INSET);
       arrow.style.left = `${Math.round(ax)}px`;
@@ -142,8 +137,7 @@ window.Tooltip = window.Tooltip || (() => {
     trigger = el;
     shownText = text;
     layer.replaceChildren(document.createTextNode(text), arrow);
-    // Inside an open modal <dialog> the tip must live IN the dialog: the top layer paints
-    // over everything else, z-index included. Under a shadow root, that root is home.
+    // Inside an open modal <dialog> the tip must live in it: the top layer paints over z-index.
     const host = el.closest('dialog[open]') || scope || document.body;
     if (layer.parentNode !== host) host.append(layer);
     // Rendered but transparent: measured and placed before it opens, so the zoom starts right.
@@ -151,7 +145,7 @@ window.Tooltip = window.Tooltip || (() => {
     layer.dataset.open = 'false';
     place(boxOf(el));
     requestAnimationFrame(() => { if (trigger === el) layer.dataset.open = 'true'; });
-    // The DESCRIPTION, never the name — and never over one the trigger already has.
+    // The description, never the name — and never over one the trigger already has.
     if (!el.hasAttribute('aria-describedby')) {
       el.setAttribute('aria-describedby', 'app-tooltip');
       described = true;
@@ -172,27 +166,23 @@ window.Tooltip = window.Tooltip || (() => {
     }, OPEN_DELAY);
   };
 
-  // `elementFromPoint`, not the event target: a disabled control dispatches no pointer
-  // events at all, and a gate's reason is precisely a tip on a disabled control.
+  // `elementFromPoint`, not the event target: a disabled control dispatches no pointer events.
   const hitTest = () => {
-    // A shadow root hit-tests THROUGH itself; the document would answer with
-    // the shadow host and never see the button the pointer is actually on.
+    // A shadow root hit-tests through itself; the document would only see the shadow host.
     const under = (scope || document).elementFromPoint(px, py);
     const found = under && under.closest ? under.closest('[data-tip]') : null;
     const el = found && tipOf(found) ? found : null;
     if (suppressed && el !== suppressed) suppressed = null;
     if (el && el === suppressed) return;
     if (el === trigger) return;                 // already showing this one
-    // The delay means "the pointer stopped HERE", so a drift across a button must not
-    // restart the clock on every frame.
+    // The delay means "the pointer stopped here", so a drift across a button must not restart it.
     if (el && el === pendingEl) return;
     if (!el) { clearTimeout(openTimer); openTimer = 0; hide(); return; }
     hide();
     openLater(el);
   };
 
-  // Drop it the moment the trigger leaves the DOM, stops being shown, or loses its tip —
-  // all three happen constantly, the panel re-renders rows under the pointer.
+  // The panel re-renders rows under the pointer, so a gone, hidden or tipless trigger drops it.
   const follow = () => {
     if (!trigger) return;
     if (!trigger.isConnected || (trigger.offsetWidth === 0 && trigger.offsetHeight === 0)) { hide(); return; }
@@ -215,7 +205,6 @@ window.Tooltip = window.Tooltip || (() => {
   };
   function schedule() { if (!rafId) rafId = requestAnimationFrame(tick); }
 
-  // ---- wiring ---------------------------------------------------------
   // The pointer is sampled, not acted on: one hit-test per frame at most.
   document.addEventListener('pointermove', (e) => {
     if (e.pointerType === 'touch') return; // a touch has no hover to answer
@@ -223,8 +212,7 @@ window.Tooltip = window.Tooltip || (() => {
     schedule();
   }, { passive: true, capture: true });
 
-  // On <html> and NOT captured on the document: `pointerleave` is dispatched per element
-  // left, so a capture listener up here would close the tip on every move between rows.
+  // On <html>, not captured: a capture listener here would close the tip on every move between rows.
   document.documentElement.addEventListener('pointerleave', hide);
 
   // A click answers the question, so the label stays away until the pointer leaves.
@@ -234,8 +222,7 @@ window.Tooltip = window.Tooltip || (() => {
     hide();
   }, true);
 
-  // Focus opens it at once, but only :focus-visible — a click must not leave its own
-  // label hanging over the row.
+  // Only :focus-visible opens it: a click must not leave its own label hanging over the row.
   document.addEventListener('focusin', (e) => {
     const el = e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
     if (!el || !tipOf(el)) return;
@@ -245,8 +232,7 @@ window.Tooltip = window.Tooltip || (() => {
   }, true);
   document.addEventListener('focusout', (e) => { if (trigger && e.target === trigger) hide(); }, true);
 
-  // Escape closes the label but is deliberately NOT swallowed — the same key clears the
-  // search box and answers dialogs.
+  // Escape closes the label but is not swallowed: the same key clears search and answers dialogs.
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); }, true);
 
   window.addEventListener('blur', hide);
@@ -266,8 +252,7 @@ window.Tooltip = window.Tooltip || (() => {
     },
     get(el) { return tipOf(el); },
 
-    /** Draw tips inside a ShadowRoot: from the document neither the hit test nor
-     *  `aria-describedby` reaches into one. `unmount()` hands it back. */
+    /** From the document neither the hit test nor `aria-describedby` reaches into a ShadowRoot. */
     mount(root) {
       if (!root || typeof root.elementFromPoint !== 'function') return;
       hide();
@@ -281,8 +266,7 @@ window.Tooltip = window.Tooltip || (() => {
       scope = null;
     },
 
-    /** Take over `title`s in vendored markup (the markdown toolbar). MOVING the
-     *  attribute is the point — leaving it opens the OS tooltip beside ours. */
+    /** Moving vendored `title`s is the point: leaving them opens the OS tooltip beside ours. */
     adopt(root) {
       if (!root || !root.querySelectorAll) return;
       root.querySelectorAll('[title]').forEach((el) => {

@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// extension/params.js (#147): the file that turns `Open ${email}` into `Open "admin@example.com"`
-// for the example row the panel is showing, and decides whether the "example" badge still fires.
-// Run: node --test tests/params.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,17 +7,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// PARAMS_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// PARAMS_SRC points the file at a mutated copy, so a mutation run never edits the shipped module.
 const SRC = process.env.PARAMS_SRC || join(repoRoot, 'extension/params.js');
 const source = readFileSync(SRC, 'utf8');
 
-// params.js touches no global at all, so the sandbox is bare; its top-level `const` is lexical,
-// not a global property — the script's completion value is it.
+// params.js touches no global, so the sandbox is bare; the lexical const is the completion value.
 const Params = runInNewContext(`${source}\nTestomatParams;`, {});
 const sub = (text, params, example) => Params.substitute(text, params, example);
-
-// ===================== substitution, the happy contract =====================
 
 test('P1: the value the tester put in the row reaches the step in double quotes', () => {
   assert.equal(sub('Hi ${a}', ['a'], ['X']), 'Hi "X"');
@@ -37,8 +30,7 @@ test('P3: a column named 0 is skipped and its placeholder stays on the screen', 
 
 test('P4: with no example row to read, the step is handed back exactly as written', () => {
   assert.equal(sub('x', ['a'], 'notarray'), 'x');
-  // The row above cannot see the guard go (there is no placeholder in `x` to substitute);
-  // this one can — without it a string example is indexed into and `${a}` becomes "n".
+  // Without the guard a string example is indexed into, and `${a}` becomes "n".
   assert.equal(sub('Hi ${a}', ['a'], 'notarray'), 'Hi ${a}');
   assert.equal(sub('Hi ${a}', 'a', ['X']), 'Hi ${a}');
 });
@@ -49,7 +41,7 @@ test('P5: an empty or missing description comes back as an empty string, never a
   assert.equal(sub('', ['a'], ['X']), '');
 });
 
-// #147 predicted '' here; only a FALSY non-string takes the `|| ''` branch of line 7.
+// Only a falsy non-string takes the `|| ''` branch.
 test('P6: a description that is not text at all is handed straight back', () => {
   assert.equal(sub(123, ['a'], ['X']), 123);
   assert.equal(sub(0, ['a'], ['X']), ''); // the falsy half, which is where '' comes from
@@ -57,8 +49,7 @@ test('P6: a description that is not text at all is handed straight back', () => 
 
 test('P17: a column name with spaces round it is matched with the spaces kept', () => {
   assert.equal(sub('${ x }', [' x '], ['A']), '"A"');
-  // The name is trim()-TESTED but used UNTRIMMED, so the tidy-looking placeholder is the one
-  // that misses. Today's answer, not an endorsement: trimming belongs with the product's mirror.
+  // The name is trim()-tested but used untrimmed, so the tidy-looking placeholder misses.
   assert.equal(sub('${x}', [' x '], ['A']), '${x}');
 });
 
@@ -66,16 +57,11 @@ test('P18: a column named in Ukrainian substitutes like any other', () => {
   assert.equal(sub('${кроки}', ['кроки'], ['так']), '"так"');
 });
 
-// #147 asked for the opposite here: a value carrying a placeholder should survive the later
-// passes. It does not — substitution is one pass per column and pass two re-reads pass one's
-// output. Pinned as today's answer only; the single-pass rewrite belongs with the product's
-// own descriptionWithExample.js, which this file mirrors line for line.
+// One pass per column, so pass two re-reads pass one's output, as descriptionWithExample.js does.
 test('P23: an example value that looks like a placeholder is substituted a second time, so the column order decides the answer', () => {
   assert.equal(sub('${a} ${b}', ['a', 'b'], ['${b}', 'V']), '""V"" "V"');
   assert.equal(sub('${a} ${b}', ['b', 'a'], ['V', '${b}']), '"${b}" "V"');
 });
-
-// ================= a column name is data, not a pattern (#112) ==============
 
 test('P7: a column named price(usd) substitutes instead of leaving ${price(usd)} on the screen', () => {
   assert.equal(sub('X ${price(usd)} Y', ['price(usd)'], ['V']), 'X "V" Y');
@@ -105,23 +91,19 @@ test('P12: every punctuation mark the parameters grid lets a tester type substit
   }
 });
 
-// Today's answer, not a correct one: the first pass has already taken every occurrence, so the
-// second column can never be seen. Refusing two columns of one name is the editor's plan(), #112.
 test('P12b: a column named with digits substitutes like any other', () => {
-  // Unescaped braces made `${2}` read as the quantifier `{2}`, so the placeholder was never found.
+  // Braces must be escaped, or `${2}` reads as the quantifier `{2}`.
   for (const name of ['2', '12', '0x1']) {
     assert.equal(sub(`X \${${name}} Y`, [name], ['V']), 'X "V" Y', name);
     assert.equal(sub(`X {{${name}}} Y`, [name], ['V']), 'X "V" Y', name);
   }
-  // …and a column named exactly '0' is still the one the product skips (P3).
+  // A column named exactly '0' is still the one the product skips.
   assert.equal(sub('${0}', ['0'], ['V']), '${0}');
 });
 
 test('P13: with two columns of the same name the FIRST one wins', () => {
   assert.equal(sub('${email}', ['email', 'email'], ['a@x', 'b@y']), '"a@x"');
 });
-
-// ============ a row shorter than the columns writes no "undefined" ==========
 
 test('P14: a row that stops short leaves the rest of the placeholders raw, never the word undefined', () => {
   assert.equal(sub('${a} ${b}', ['a', 'b'], ['A']), '"A" ${b}');
@@ -136,8 +118,6 @@ test('P16: a row with nothing in it leaves the step exactly as the tester wrote 
   // The control: a cell the tester deliberately left blank is a value, and still substitutes.
   assert.equal(sub('${a}', ['a'], ['']), '""');
 });
-
-// ============================= the two predicates ===========================
 
 test('P19: a step still holding a placeholder is reported as one, in either spelling', () => {
   assert.equal(Params.hasPlaceholder('${a}'), true);
@@ -154,7 +134,7 @@ test('P21: anything that is not text holds no placeholder', () => {
   assert.equal(Params.hasPlaceholder(42), false);
 });
 
-// The badge and the substitution loop must not drift: this is line 11's test, spelled again.
+// The badge and the substitution loop must use the same column test, or they drift apart.
 test('P22: a test counts as parametrized only when a column has a usable name', () => {
   assert.equal(Params.isParametrized(['a']), true);
   assert.equal(Params.isParametrized(['0']), false);

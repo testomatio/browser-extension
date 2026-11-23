@@ -1,9 +1,7 @@
-// Parametrized-test placeholder substitution — an EXACT mirror of the product's own
-// `descriptionWithExample.js`, down to the non-"0" rule and the DOUBLE QUOTES it wraps values in.
+// Mirrors the product's `descriptionWithExample.js` exactly, down to the non-"0" rule and the quotes.
 
 const TestomatParams = (() => {
-  // A column name is whatever the parameters grid let the tester type: `price(usd)` would compile
-  // to a capture group and `a.b` would match `axb`, so it is escaped before it becomes a pattern.
+  // Column names are free text: `price(usd)` would compile to a group and `a.b` would match `axb`.
   const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   // Unchanged when there is nothing to substitute, so callers can render the raw placeholders + a badge.
@@ -13,12 +11,10 @@ const TestomatParams = (() => {
     let description = text;
     for (let i in params) {
       if (typeof params[i] === 'string' && params[i].trim() !== '' && params[i].trim() !== '0') {
-        // A cell this row does not have stays a raw placeholder — an incomplete row must read as
-        // incomplete, not as a test that says "undefined". An empty cell is a value, and substitutes.
+        // A missing cell stays a placeholder, so a short row reads incomplete, not "undefined".
         if (example[i] == null) continue;
         let param = escapeRe(params[i]);
-        // The braces are escaped too: unescaped, a column named `2` reads as the quantifier
-        // `{2}` and the placeholder is never found.
+        // Braces escaped too: otherwise a column named `2` reads as the quantifier `{2}`.
         description = description.replace(new RegExp(`\\$\\{${param}\\}`, 'g'), '"' + example[i] + '"');
         description = description.replace(new RegExp(`\\{\\{${param}\\}\\}`, 'g'), '"' + example[i] + '"');
       }

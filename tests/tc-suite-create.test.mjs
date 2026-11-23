@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/tc-suite-create.js — the inline row a tester names a new folder or a
-// new suite in, without leaving the tree: one field with a tick and a cross, mounted where the
-// button that opened it stands. Enter or the tick create; Escape, the cross or focus leaving the row
-// dismiss. Only one may be open at a time, and a create in flight owns its row until it answers.
-// Rows 68, 69b and 70-73b of #163, moved here when the block left screens/tc-studio.js (#196); the
-// lettered rows after them close what that move showed nothing was pinning. Rows 69 and 69c stayed
-// behind — they need the screen's own folder row and the re-render that replaces the create row.
-// The screen is NOT loaded — that is the point of the split. Its three names the module calls back
-// into (renderSuiteTree, resetTcTreeSearch) and the run view's rememberSuiteEmoji are recorders, so
-// a row can assert the ORDER the module asks for them in. core/status-icons.js is stubbed the way
-// tests/tc-studio.test.mjs stubs it and for the same reason tests/runs-list.test.mjs states: the
-// icon vocabulary has its own file, tests/status-icons.test.mjs, and loading it here would make
-// these rows depend on it.
-// Run: node --test tests/tc-suite-create.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -35,11 +21,10 @@ const folder = (id, title, children = [], extra = {}) =>
   ({ id, title, file_type: 'folder', children, ...extra });
 const file = (id, title, extra = {}) => ({ id, title, file_type: 'file', ...extra });
 
-// The panel globals tc-suite-create.js reads, all of them real enough to be driven.
 function load(opts = {}) {
   const o = { expanded: {}, suites: [], ...opts };
 
-  // index.html's shape (:480), cut to the one node this module mounts into.
+  // index.html's shape, cut to the one node this module mounts into.
   const doc = makeDocument([]);
   const node = { tree: el('ul', { id: 'tc-tree' }) };
   doc.body.append(node.tree);
@@ -76,8 +61,7 @@ function load(opts = {}) {
     state,
     $: (id) => doc.getElementById(id),
     toast: (msg) => { calls.toasts.push(msg); calls.order.push('toast'); },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         calls.tips.push(tip);
@@ -93,8 +77,7 @@ function load(opts = {}) {
       FOLDER: 'tree_folder',
       FILE: 'tree_suite',
     },
-    // The screen's own two, and the run view's one. Recorders: the module is asserted on what it
-    // ASKS for and in which order, not on what the screen then draws.
+    // Recorders: the module is asserted on what it asks for and in which order, not on what gets drawn.
     resetTcTreeSearch: () => { calls.resets += 1; calls.order.push('reset'); },
     rememberSuiteEmoji: (roots) => { calls.emojiIndex.push(plain(roots)); calls.order.push('emoji'); },
     renderSuiteTree: (roots) => { calls.renders.push(plain(roots)); calls.order.push('render'); },
@@ -118,15 +101,12 @@ function load(opts = {}) {
     on,
     node,
     doc,
-    // The open inline create row, and the field inside it.
     newRow: () => doc.querySelector('.tc-new-suite'),
     newInput: () => doc.querySelector('.tc-new-suite .tree-input'),
-    // What a folder row's pill does: open the row as the FIRST child of that folder's <ul>.
+    // What a folder row's pill does: open the row as the first child of that folder's <ul>.
     mountInto: (ul) => (r) => { ul.prepend(r); r.scrollIntoView({ block: 'nearest' }); },
   };
 }
-
-// ---------- inline suite and folder create (rows 68-73b) ----------
 
 test('68: a blank name is not a suite — the row waits instead of sending it', async () => {
   const h = load();
@@ -143,8 +123,6 @@ test('68: a blank name is not a suite — the row waits instead of sending it', 
   assert.deepEqual(h.calls.createSuites, [{ title: 'Checkout', parentId: null, fileType: 'file' }]);
 });
 
-// 69 and 69c stayed in tests/tc-studio.test.mjs: they need the screen's own folder row and its
-// re-render. This is the same create seen from inside — the six acts it performs, and their order.
 test('69d (#196): a create names the folder as the parent, keeps it open, and re-reads the tree', async () => {
   const h = load({ suites: [folder('f1', 'Checkout')] });
   h.on.orderedTree = async () => [folder('f1', 'Checkout', [file('new-1', 'Guest checkout')])];
@@ -167,8 +145,7 @@ test('69d (#196): a create names the folder as the parent, keeps it open, and re
   assert.equal(h.calls.resets, 1);
   assert.equal(h.calls.treeReads, 1);
   assert.equal(h.calls.emojiIndex.length, 1);
-  // The one order that matters: the id is remembered and the filter dropped BEFORE the re-read, and
-  // the tree is re-drawn only once the new node is in state.
+  // Remember the id and drop the filter before the re-read; redraw only once the node is in state.
   assert.deepEqual(h.calls.order, ['createSuite', 'reset', 'tree', 'emoji', 'render']);
   assert.deepEqual(h.calls.renders, [[folder('f1', 'Checkout', [file('new-1', 'Guest checkout')])]]);
   assert.deepEqual(plain(h.state.tcSuites), [folder('f1', 'Checkout', [file('new-1', 'Guest checkout')])]);
@@ -281,8 +258,6 @@ test('73b: the row mounts at the top of the tree and scrolls itself into view', 
   assert.equal(h.doc.activeElement, h.newInput());
 });
 
-// ---------- the row itself, and the ids nothing else was pinning (rows 68b-73f) ----------
-
 test('68b (#196): a create that answers no id still lands — the row goes, the tree comes back', async () => {
   const h = load();
   const name = async (title) => {
@@ -295,19 +270,17 @@ test('68b (#196): a create that answers no id still lands — the row goes, the 
   await name('Checkout');
   assert.deepEqual([...h.mod.justCreated], [], 'nothing to hoist without an id');
   assert.deepEqual(h.calls.order, ['createSuite', 'reset', 'tree', 'emoji', 'render']);
-  // An answer that IS an object but carries no id is the same nothing: `'undefined'` in the hoist
-  // list would pin whichever row the tree happens to have no id for.
+  // An object with no id is the same nothing: `'undefined'` in the hoist list would pin a stray row.
   h.on.createSuite = async () => ({ title: 'Checkout' });
   await name('Checkout');
   assert.deepEqual([...h.mod.justCreated], []);
-  // …and an answer that DOES carry one puts it at the head, newest first.
+  // …and an answer that does carry one puts it at the head, newest first.
   h.on.createSuite = async () => ({ id: 7 });
   await name('Payments');
   assert.deepEqual([...h.mod.justCreated], ['7'], 'and stringified, the way the tree compares ids');
 });
 
-// Two suites named in one visit, nothing cleared between: the array is what the tree is hoisted by,
-// so the order in it IS the order they ride at the top in — newest first, not oldest.
+// The array is what the tree is hoisted by, so its order is the order they ride at the top in.
 test('69e (#196): a second suite made this visit goes ahead of the first, not behind it', async () => {
   const h = load();
   for (const [id, title] of [['a1', 'Alpha'], ['b2', 'Beta'], ['c3', 'Gamma']]) {
@@ -428,11 +401,7 @@ test('73f (#196): the pair wears the hover pill by default, and whatever class t
     ['btn size-sm tc-add', 'btn size-sm tc-add']);
 });
 
-// ---------- the array the screen shares with this module (row 73g) ----------
-
-// The one binding that crossed the file boundary. `justCreated` is a plain property holding the
-// array the submit unshifts onto, so the screen's `length = 0` clears the very array the module
-// reads — assert the IDENTITY, because a copy would clear nothing and no other row would notice.
+// Assert the identity: a copy would clear nothing and no other row would notice.
 test('73g (#196): justCreated is one array — the screen clears what this module writes', async () => {
   const h = load();
   const shared = h.mod.justCreated;
@@ -457,8 +426,6 @@ test('73g (#196): justCreated is one array — the screen clears what this modul
   assert.equal(h.mod.justCreated, shared);
 });
 
-// ---------- the seam itself (rows 73h-73i) ----------
-
 const read = (p) => readFileSync(join(repoRoot, p), 'utf8');
 
 test('73h (#196): index.html loads the module before both of its callers', () => {
@@ -473,9 +440,7 @@ test('73h (#196): index.html loads the module before both of its callers', () =>
     assert.ok(html.includes(`id="${id}"`), id);
   }
 
-  // The back-edge, on purpose: renderSuiteTree and resetTcTreeSearch live in the screen that loads
-  // AFTER this module. That is allowed only because nothing here runs at load — so the module has to
-  // publish its object in a realm where neither name, nor any other of its globals, exists at all.
+  // Its callbacks load after this module, which works only because nothing here runs at load.
   const studio = read('extension/sidepanel/screens/tc-studio.js');
   for (const back of ['function renderSuiteTree(', 'function resetTcTreeSearch(']) {
     assert.ok(studio.includes(back), back);
@@ -495,8 +460,7 @@ test('73i (#196): nothing answers to the five old names, and every caller names 
       assert.equal(src.includes(gone), false, `${gone} still in ${where}`);
     }
   }
-  // An object literal, never top-level `function`s: those land on globalThis in a classic script, and
-  // a bare old name left at a call site would still resolve.
+  // An object literal, not top-level functions: those land on globalThis and would keep old names alive.
   assert.equal(/^function /m.test(mod), false);
   assert.equal(/\bthis\b/.test(mod), false, 'no `this`, so app.js may hand openRoot around unbound');
   assert.equal(studio.match(/TcSuiteCreate\./g).length, 8);

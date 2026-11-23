@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// The contract of extension/editor/draft.js (#192): the key a draft lives under, what comes back
-// when storage.session or the shot store is not there, and what the dirty tracker writes.
-// Cases numbered as in #192. Run: node --test tests/editor-draft.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,16 +7,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// DRAFT_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// DRAFT_SRC points the file at a mutated copy, so a falsification run never edits the shipped module.
 const SRC = process.env.DRAFT_SRC || join(repoRoot, 'extension/editor/draft.js');
 const source = readFileSync(SRC, 'utf8');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// The 400ms throttle is the point of half these cases, so the sandbox gets its own clock rather
-// than a real timer: `run()` fires what is still armed, and nothing fires by itself.
+// The 400ms throttle matters, so the sandbox has its own clock: run() fires what is armed.
 function makeClock(log) {
   let seq = 0;
   const jobs = new Map();
@@ -33,9 +28,7 @@ function makeClock(log) {
   };
 }
 
-// One sandbox per test: the tracker keeps module state (dirty, the timer, the shots revision) and
-// `log` is an ORDERED trace — case 69 is about which of two calls happens first.
-// `session:false` is a browser that lost chrome.storage.session; `getFails` rejects the read.
+// One sandbox per test: the tracker keeps module state, and `log` is an ordered trace.
 function load({ session = true, getFails = false, setThrows = false, removeThrows = false } = {}) {
   const log = [];
   const store = new Map();
@@ -124,8 +117,6 @@ test('the module publishes exactly the surface editor.js and the tests reach for
   ]);
 });
 
-// ===================== the key, and reading a draft back ====================
-
 test('58: a test key and a suite key can never collide', () => {
   const { editorDraftKey } = load().EditorDraft;
   assert.equal(editorDraftKey({ test: 't1' }), 'editorDraft:test:t1');
@@ -148,7 +139,6 @@ test('59: no storage.session, or a read that rejects, is null and not a throw', 
   assert.equal(await broken.EditorDraft.readEditorDraft('editorDraft:test:t1'), null);
   assert.deepEqual(broken.log, ['session.get:editorDraft:test:t1']);
 
-  // …and a key that simply is not there is the same answer as a failure.
   const empty = load();
   assert.equal(await empty.EditorDraft.readEditorDraft('editorDraft:test:t1'), null);
   const held = load();
@@ -174,9 +164,7 @@ test('60: removing a draft always drops its shots, storage.session or not', () =
   assert.deepEqual(broken.shots.del, ['editorDraft:test:t1']);
 });
 
-// ===================== the shots a restored draft was holding ===============
-
-// D P0-4 (#137): the draft carries its own count, so shots the store lost are still known about.
+// The draft carries its own count, so shots the store lost are still known about.
 async function restore(had, back) {
   const env = load();
   env.shots.answer = Array.from({ length: back }, (_, i) => `data:image/jpeg;base64,shot${i}`);
@@ -206,17 +194,13 @@ test('64: a draft with no shots never opens the store at all', async () => {
   const { env, out } = await restore(0, 3);
   assert.deepEqual(out, { shots: [], lost: 0 });
   assert.deepEqual(env.shots.get, []);
-  // The same for a draft with no `shots` field, and for no draft at all.
   const bare = load();
   assert.deepEqual(plain(await bare.EditorDraft.readDraftShots({}, 'k')), { shots: [], lost: 0 });
   assert.deepEqual(plain(await bare.EditorDraft.readDraftShots(null, 'k')), { shots: [], lost: 0 });
   assert.deepEqual(bare.shots.get, []);
 });
 
-// ===================== persistDraftNow =====================================
-
-// #249: a tab editor is torn down by an extension update or a reload like any other page, and the
-// beforeunload dialog it relies on cannot survive that. The restore in editor.js moved with this.
+// An update or reload tears a tab editor down, and its beforeunload dialog cannot survive that.
 test('65 (#249): a tab-context editor persists its draft, so a reload does not eat it', () => {
   const env = load();
   const { t } = tracker(env, { ctx: 'tab' });
@@ -236,8 +220,7 @@ test('65 (#249): a TAB takes the same 400ms throttle and the same shot write as 
   assert.deepEqual(env.shots.put, [['editorDraft:test:t1', ['a']]]); // …and the pictures with it
 });
 
-// Gate 3 of the same fix: without it a tab that saves or discards leaves its draft behind, and the
-// panel then restores that stale text over what the server now holds.
+// A draft left behind would make the panel restore stale text over what the server holds.
 test('65 (#249): a TAB that discards drops its draft and its shots, not just the panel', () => {
   const env = load();
   const { t } = tracker(env, { ctx: 'tab' });
@@ -256,13 +239,11 @@ test('65: no storage.session is the only early return left on the write', () => 
   assert.deepEqual(env.shots.put, []); // not even the pictures — the whole write is off
 });
 
-// #112: a create whose test landed but whose parameters did not. Without the id in the draft a
-// reload reopens it as a create, and the retry makes a SECOND test on the server.
+// Without the id, a reload reopens a half-landed create and the retry makes a second test.
 test('66b (#112): the draft carries the id of a test already created, and omits it when there is none', () => {
   const half = load();
   tracker(half, { savedId: 'T7' }).t.persistDraftNow();
   assert.equal(written(half).savedId, 'T7');
-  // …and an ordinary draft does not grow the field at all.
   const plainEnv = load();
   tracker(plainEnv).t.persistDraftNow();
   assert.equal('savedId' in written(plainEnv), false);
@@ -273,7 +254,7 @@ test('66: a grid that has not read the server yet leaves `params` off the draft'
   const { t } = tracker(env, { params: null });
   t.persistDraftNow();
   const draft = written(env);
-  assert.equal('params' in draft, false); // absent, NOT null — #5's guard against an empty grid
+  assert.equal('params' in draft, false); // absent, not null: the guard against restoring an empty grid
   assert.deepEqual(draft.title, 'Login works');
   assert.deepEqual(draft.priority, 'high');
   assert.equal(draft.test, 't1');
@@ -281,7 +262,6 @@ test('66: a grid that has not read the server yet leaves `params` off the draft'
   assert.equal(draft.shots, 0);
   assert.equal(typeof draft.ts, 'number');
 
-  // …and a grid that has read it puts its model in verbatim.
   const ready = load();
   const grid = tracker(ready, { params: { headers: ['email'], rows: [], removed: [] } });
   ready.log.length = 0;
@@ -295,7 +275,6 @@ test('67: nothing recorded leaves `recording` off the draft', () => {
   t.persistDraftNow();
   assert.equal('recording' in written(env), false);
 
-  // One entry and the whole recording travels — packets, item range and both texts.
   const rec = load();
   const shape = {
     entries: [{ text: 'Click A' }], start: 0, count: 1,
@@ -313,13 +292,12 @@ test('68: the pictures are rewritten only when the strip actually moved', () => 
   assert.equal(env.shots.put.length, 1); // twice through, one write
   assert.deepEqual(env.shots.put[0], ['editorDraft:test:t1', ['a']]);
   assert.equal(env.store.size, 1); // …while the draft itself is written every time
-  // The strip moves → the next persist takes the pictures with it.
   state.shots = ['a', 'b'];
   state.shotsRev = 2;
   t.persistDraftNow();
   assert.equal(env.shots.put.length, 2);
   assert.deepEqual(env.shots.put[1], ['editorDraft:test:t1', ['a', 'b']]);
-  assert.equal(written(env).shots, 2); // the count the draft carries for D P0-4
+  assert.equal(written(env).shots, 2); // the count the draft carries for lost shots
 });
 
 test('71: a storage.session write that throws still lets the pictures through', () => {
@@ -330,8 +308,6 @@ test('71: a storage.session write that throws still lets the pictures through', 
   assert.equal(env.shots.put.length, 1); // …and the shots write ran anyway
 });
 
-// ===================== markDirty / clearDirty ==============================
-
 test('69: discarding kills the scheduled write BEFORE it removes the draft', () => {
   const env = load();
   const { t } = tracker(env);
@@ -340,11 +316,9 @@ test('69: discarding kills the scheduled write BEFORE it removes the draft', () 
   assert.equal(env.clock.armed(), 1);
   env.log.length = 0;
   t.clearDirty();
-  // The order is the contract: a clearTimeout after the removal would let a write already
-  // scheduled put the discarded draft straight back.
+  // Order matters: a clearTimeout after the removal would let a scheduled write restore the draft.
   assert.deepEqual(env.log, ['clearTimeout', 'ShotStore.del', 'session.remove:editorDraft:test:t1']);
   assert.equal(env.clock.armed(), 0);
-  // Proof of the same thing from the outside: running the clock writes nothing.
   env.clock.run();
   assert.equal(env.store.size, 0);
   assert.deepEqual(env.shots.put, []);
@@ -373,8 +347,7 @@ test('70: the tab-ctx beforeunload guard is added and removed exactly once', () 
   t.clearDirty();
   t.clearDirty();
   assert.equal(t.isDirty(), false);
-  // clearDirty kills the (unarmed) persist timer first and removes the draft last — in every
-  // context since #249, so the order of case 69 holds here too.
+  // clearDirty kills the persist timer first and removes the draft last, as case 69 requires.
   assert.deepEqual(env.log, ['add:beforeunload', 'clearTimeout', 'remove:beforeunload',
     'ShotStore.del', 'session.remove:editorDraft:test:t1']);
   assert.equal(env.listeners.length, 0);
