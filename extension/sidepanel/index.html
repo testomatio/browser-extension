@@ -605,11 +605,9 @@
       <!-- Test summary card: the run view's summary card one screen down, deliberately the same one, so a
            tester moving between the screens finds the furniture where they left it. -->
       <div id="test-header" class="card run-summary">
-        <!-- Marks about the test itself. The title moved to the panel's own header, so this row carries
-             marks only and disappears whole when the test has none. -->
+        <!-- Marks about the test; the verdict is always one (Pending if unreported), so the pager stays put. -->
         <div id="test-state-row" class="run-state-row">
-          <!-- The test's OWN reported result, promoted out of the Summary tab — how it went is the first
-               thing the screen answers. Hidden entirely for an unreported (pending) test. -->
+          <!-- The test's own reported result, out of the Summary tab; an unreported test says Pending. -->
           <div id="test-result-row" class="summary-line" hidden>
             <span id="summary-status"></span>
             <span id="summary-duration" class="summary-duration"></span>
@@ -633,8 +631,7 @@
           <button id="hotkey-help" class="icon-btn hotkey-help" type="button"
                   aria-expanded="false" aria-controls="hotkey-legend" aria-label="Keyboard shortcuts"
                   data-tip="Keyboard shortcuts"><span class="md-icon" data-icon="help" data-icon-size="18"></span></button>
-          <!-- Where you are in the run, as a PAGER. The arrows are the ← / → keys' own move: ±1 through the
-               visible list, no wrap, each dead at its end. (The status-aware jump is the N key.) -->
+          <!-- Pager = the ← / → keys: ±1 through the visible list plus the open test, no wrap; N jumps to untested. -->
           <nav id="test-pager" class="pager" aria-label="Tests in this run">
             <button id="btn-prev-test" class="icon-btn" type="button" aria-label="Previous test">
               <span class="md-icon" data-icon="chevron_right" data-icon-rotate="180" data-icon-size="18"></span>

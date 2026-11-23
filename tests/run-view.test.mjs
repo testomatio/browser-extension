@@ -429,7 +429,7 @@ function load(opts = {}) {
     // the completion value, exactly as tests/md-sections.test.mjs takes `MdSections`.
     exported: `({ statusLabel,
       matchesRunFilter, exampleOf, rowVisible, suiteKeyOf, suiteEmojiOf, orderedRecords,
-      visibleRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
+      visibleRecords, pagerRecords, rowTitle, awaitRunState, RUN_STATUS_FILTERS, RUN_FILTER_KEYS, RUN_FILTER_TINT,
       NO_SUITE, PROBE_WAIT_MS, StatusIcons, RunLock, RunInfo,
       RUN_STATE_TINT, ROW_BTN_LABEL })`,
   });
@@ -871,6 +871,20 @@ test('100: the traversal order is the SECTION order, and the visible sequence ap
   assert.deepEqual([...h.lex.visibleRecords()].map((r) => r.id), [1, 3, 2]);
   h.state.runFilter = 'passed';
   assert.deepEqual([...h.lex.visibleRecords()].map((r) => r.id), [3, 2]);
+});
+
+test('100a: the pager keeps the open test in its place even once the filter has dropped it', () => {
+  const h = load({
+    records: [rec(1, { suite_title: 'A' }), rec(2, { suite_title: 'B', status: 'passed' }),
+      rec(3, { suite_title: 'A', status: 'passed' })],
+  });
+  h.state.runFilter = 'passed';
+  h.state.currentRecordId = '1'; // just marked out of the filter, still open — a string id too
+  assert.deepEqual([...h.lex.pagerRecords()].map((r) => r.id), [1, 3, 2], 'in the section order');
+  h.state.currentRecordId = 3;
+  assert.deepEqual([...h.lex.pagerRecords()].map((r) => r.id), [3, 2], 'a matching open test adds nothing');
+  h.state.currentRecordId = null;
+  assert.deepEqual([...h.lex.pagerRecords()].map((r) => r.id), [3, 2]);
 });
 
 test('101: a plain row has no example values to search — the chip and the lookup are both empty', () => {

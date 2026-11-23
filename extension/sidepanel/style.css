@@ -58,6 +58,11 @@ body {
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
+/* A test title always takes two lines (+2px for the 20px marks on line one), so the pager stays put. */
+body[data-view="test"] #context-title {
+  -webkit-line-clamp: 2;
+  min-height: calc(2 * var(--fs-title) * var(--leading-snug) + 2px);
+}
 
 /* ---- immersive drill-down ---- */
 /* Body-level flag set by setImmersive() (core/views.js), so the header state is one attribute rather

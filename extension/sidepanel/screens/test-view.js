@@ -448,9 +448,9 @@ function paintTestNav() {
   const pos = $('test-position');
   const prev = $('btn-prev-test');
   const next = $('btn-next-test');
-  const order = visibleRecords();
+  const order = pagerRecords(); // the open test keeps its place after a status takes it out of the filter
   const at = order.findIndex((r) => String(r.id) === String(state.currentRecordId));
-  // -1 = the open test is not in the visible set (a filter no longer matches it).
+  // -1 = the open test is not in the run at all.
   if (pos) pos.textContent = at === -1 ? '' : `${at + 1} of ${order.length}`;
   if (prev) prev.disabled = at <= 0;
   if (next) next.disabled = at === -1 || at >= order.length - 1;

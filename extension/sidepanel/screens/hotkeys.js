@@ -24,7 +24,7 @@ function popupOpen() {
 
 // ±1 through the VISIBLE sequence (filter + search applied), clamped, no wrap.
 function navigateTest(delta) {
-  const order = visibleRecords();
+  const order = pagerRecords(); // the open test keeps its place after a status takes it out of the filter
   const from = order.findIndex((r) => String(r.id) === String(state.currentRecordId));
   if (from === -1) return;
   const to = from + delta;

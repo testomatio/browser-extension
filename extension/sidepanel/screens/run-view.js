@@ -439,6 +439,9 @@ function orderedRecords() {
 
 // The visible sequence: render order with the filter + search applied.
 const visibleRecords = () => orderedRecords().filter(rowVisible);
+// The pager's sequence: the visible one plus the open test, which its own new status may have filtered out.
+const pagerRecords = () => orderedRecords()
+  .filter((r) => rowVisible(r) || String(r.id) === String(state.currentRecordId));
 
 // Updated, not rebuilt: the counts move on every mark and poll tick, under the eye.
 function renderRunFilterChips() {
