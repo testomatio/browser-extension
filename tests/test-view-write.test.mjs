@@ -187,6 +187,7 @@ function load(opts = {}) {
     orderedRecords: () => state.records,
     rowVisible,
     visibleRecords: () => state.records.filter(rowVisible),
+    pagerRecords: () => state.records.filter((r) => rowVisible(r) || String(r.id) === String(state.currentRecordId)),
     openRunView: (id, title) => { calls.runViews.push([id, title]); calls.order.push('runView'); },
     renderTestProgress: () => { calls.progress += 1; calls.order.push('progress'); },
     refreshContextBar: () => { calls.contextBars += 1; },
@@ -571,11 +572,18 @@ test('104b: the two edges disable one arrow each', () => {
   assert.deepEqual([last.node.btnPrevTest.disabled, last.node.btnNextTest.disabled], [false, true]);
 });
 
-test('105: a filter that no longer matches the open test empties the position and both arrows', () => {
+test('105: a filter that no longer matches the open test still counts it where it was', () => {
+  const h = load({ recordId: 2, records: [1, 2, 3].map((id) => rec(id)), hidden: ['2'] });
+  h.fn.paintTestNav();
+  assert.equal(h.node.testPosition.textContent, '2 of 3');
+  assert.deepEqual([h.node.btnPrevTest.disabled, h.node.btnNextTest.disabled], [false, false]);
+});
+
+test('105a: …and at the end of the list it is still the last one, not a dead pager', () => {
   const h = load({ recordId: 3, records: [1, 2, 3].map((id) => rec(id)), hidden: ['3'] });
   h.fn.paintTestNav();
-  assert.equal(h.node.testPosition.textContent, '');
-  assert.deepEqual([h.node.btnPrevTest.disabled, h.node.btnNextTest.disabled], [true, true]);
+  assert.equal(h.node.testPosition.textContent, '3 of 3');
+  assert.deepEqual([h.node.btnPrevTest.disabled, h.node.btnNextTest.disabled], [false, true]);
 });
 
 test('106: Next test walks past the end and back to the first untested row', () => {

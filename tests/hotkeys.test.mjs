@@ -152,6 +152,8 @@ function load(opts = {}) {
     $: (id) => doc.getElementById(id),
     Tooltip: { set: (node, tip) => { calls.tips.push([node ? node.id : node, tip]); } },
     visibleRecords: () => (o.visible || o.records),
+    pagerRecords: () => o.records.filter((r) => (o.visible || o.records).some((v) => String(v.id) === String(r.id))
+      || String(r.id) === String(state.currentRecordId)),
     openTestView: (id) => { calls.openTestView.push(String(id)); calls.order.push('openTestView'); },
     clickStatus: (s) => { calls.clickStatus.push(s); calls.order.push('clickStatus'); },
     nextTest: () => { calls.nextTest += 1; calls.order.push('nextTest'); },
@@ -285,16 +287,16 @@ test('21: the first visible row is the other end — no wrap onto the last', () 
   assert.deepEqual(h.calls.openTestView, ['1']);
 });
 
-test('22: a row the filter has hidden is not a place to step from', () => {
-  // The open test is real but filtered out of the visible sequence: stepping has no anchor.
+test('22: the open test a status change filtered out still steps to its neighbours', () => {
+  // Marked out of the filter while open: it keeps its place, so ← and → land on the rows around it.
   const h = load({ records: rows(3), visible: [{ id: '1' }, { id: '3' }], currentRecordId: '2' });
   h.fn.navigateTest(1);
   h.fn.navigateTest(-1);
-  assert.deepEqual(h.calls.openTestView, []);
-  // Widening the filter back over that row restores the step — same drive, one thing changed.
-  const wide = load({ records: rows(3), currentRecordId: '2' });
-  wide.fn.navigateTest(1);
-  assert.deepEqual(wide.calls.openTestView, ['3']);
+  assert.deepEqual(h.calls.openTestView, ['3', '1']);
+  // A filtered-out row that is NOT open is still skipped.
+  const past = load({ records: rows(3), visible: [{ id: '1' }, { id: '3' }], currentRecordId: '1' });
+  past.fn.navigateTest(1);
+  assert.deepEqual(past.calls.openTestView, ['3']);
 });
 
 test('23: numeric record ids and a string currentRecordId are the same row', () => {

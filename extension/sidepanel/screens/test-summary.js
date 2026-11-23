@@ -8,7 +8,7 @@
 // the same `fileTileItem` and releases the same group — hence this file loads before it.
 
 /* global TestomatAPI, Md, Fmt, Sk, EmptyState, ImgHydrate, Tooltip, state, hasChrome, $,
-   paintStepMark, StatusIcons */
+   paintStepMark, StatusIcons, recordFor */
 
 const TestSummary = (() => {
   // Object-URL groups (shared/img-hydrate.js) — four, because each is repainted and released
@@ -25,7 +25,7 @@ const TestSummary = (() => {
   // Remembered for the panel session (module-level), like the Attachments one.
   const summaryOpen = { failure: true, artifacts: true, meta: false, steps: false };
 
-  const STATUS_LABEL = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped' };
+  const STATUS_LABEL = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped', pending: 'Pending' };
   // Mirrors the run header's RUN_STATE_TINT; anything else is neutral.
   const TEST_STATE_TINT = { passed: 'passed', failed: 'failed', skipped: 'skipped' };
 
@@ -63,10 +63,31 @@ const TestSummary = (() => {
     if (!existing) tab.append(dot);
   }
 
+  // The verdict always holds its row (Pending when there is none), so the pager under it never moves.
+  function paintVerdict(status, duration) {
+    const row = $('test-result-row');
+    const el = $('summary-status');
+    if (!row || !el) return;
+    row.hidden = false;
+    // `data-status` stays: the machine-readable value a script reads off the element.
+    el.className = `status-label ${TEST_STATE_TINT[StatusIcons.normStatus(status)] || 'neutral'}`;
+    el.dataset.status = status;
+    const word = document.createElement('span');
+    word.textContent = STATUS_LABEL[status] || status;
+    el.replaceChildren(StatusIcons.statusIcon(status), word);
+    if ($('summary-duration')) $('summary-duration').textContent = duration ? `· ${duration}` : '';
+  }
+
+  // With nothing reported in the detail, the open test's run row speaks: its status, or Pending.
+  function rowVerdict() {
+    const s = typeof recordFor === 'function' ? recordFor(state.currentRecordId)?.status : null;
+    return s && s !== 'pending' ? s : 'pending';
+  }
+
   function hideResultSummary() {
     const box = $('test-summary');
     if (box) box.hidden = true;
-    if ($('test-result-row')) $('test-result-row').hidden = true;
+    paintVerdict(rowVerdict(), '');
     paintSummaryEmpty('unreported');
     paintSectionMark('');
     if ($('summary-message')) $('summary-message').replaceChildren();
@@ -103,17 +124,7 @@ const TestSummary = (() => {
     const status = attrs?.status;
     // "Reported" = the web's `hasStatus`: a real, non-pending status.
     if (!attrs || !status || status === 'pending') { hideResultSummary(); return; }
-    if ($('test-result-row')) $('test-result-row').hidden = false;
-    const label = STATUS_LABEL[status] || status;
-    // `data-status` stays: the machine-readable value a script reads off the element.
-    const el = $('summary-status');
-    el.className = `status-label ${TEST_STATE_TINT[StatusIcons.normStatus(status)] || 'neutral'}`;
-    el.dataset.status = status;
-    const word = document.createElement('span');
-    word.textContent = label;
-    el.replaceChildren(StatusIcons.statusIcon(status), word);
-    const dur = Fmt.humanDuration(attrs['run-time']);
-    $('summary-duration').textContent = dur ? `· ${dur}` : '';
+    paintVerdict(status, Fmt.humanDuration(attrs['run-time']));
     renderSummaryFailure(attrs);
     renderSummaryArtifacts(attrs);
     renderSummaryMeta(attrs);
@@ -130,7 +141,8 @@ const TestSummary = (() => {
   // patched into the prefetched detail instead of costing a re-read.
   function refreshResultSummary(record) {
     const attrs = state.testrunDetail?.data?.attributes;
-    if (!attrs || !record) return;
+    if (!record) return;
+    if (!attrs) { hideResultSummary(); return; } // no detail to patch: the row's new status is the verdict
     attrs.status = record.status;
     attrs.message = record.message || '';
     renderResultSummary();

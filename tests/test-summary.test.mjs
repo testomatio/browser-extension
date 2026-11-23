@@ -95,6 +95,7 @@ function load(opts = {}) {
     hasChrome: true,
     runtime: true,        // false — a chrome that cannot send a message
     currentRecordId: '55',
+    records: [{ id: 55, status: 'pending' }], // the run rows; recordFor() reads the open one
     testrunDetail: null,
     session: {},          // chrome.storage.session's seed — `stepShotHook` lives here
     sessionThrows: false,
@@ -121,6 +122,7 @@ function load(opts = {}) {
 
   const state = {
     currentRecordId: o.currentRecordId,
+    records: o.records,
     testrunDetail: o.testrunDetail,
   };
 
@@ -147,6 +149,8 @@ function load(opts = {}) {
 
   const globals = {
     state,
+    // core/state.js:79's own.
+    recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     hasChrome: o.hasChrome,
     chrome: chromeStub,
     $: (id) => doc.getElementById(id),
@@ -479,7 +483,12 @@ test('126: a pending result, or none at all, hides the whole card and takes the 
     h.node['tab-test-summary'].append(el('span', { className: 'status-dot' }));
     h.mod.render();
     assert.equal(h.node['test-summary'].hidden, true);
-    assert.equal(h.node['test-result-row'].hidden, true);
+    // The verdict row stays, saying Pending, so the pager under it does not move between tests.
+    assert.equal(h.node['test-result-row'].hidden, false);
+    assert.equal(h.node['summary-status'].textContent, 'Pending');
+    assert.equal(h.node['summary-status'].dataset.status, 'pending');
+    assert.ok(h.node['summary-status'].className.includes('neutral'));
+    assert.equal(h.node['summary-duration'].textContent, '');
     assert.equal(h.node['tab-test-summary'].querySelectorAll('.status-dot').length, 0);
     assert.equal(h.calls.empties.at(-1).title, 'Nothing reported yet');
     // Every group the card was holding goes with it — a failure body's images included.
@@ -487,6 +496,35 @@ test('126: a pending result, or none at all, hides the whole card and takes the 
       assert.ok(h.calls.releases.includes(g), g);
     }
   }
+});
+
+test('126a: with no detail at all the run row speaks — a marked test is not called Pending', () => {
+  const h = load({ testrunDetail: null, records: [{ id: 55, status: 'passed' }] });
+  h.mod.render();
+  assert.equal(h.node['test-result-row'].hidden, false);
+  assert.equal(h.node['summary-status'].textContent, 'Passed');
+  assert.equal(h.node['summary-duration'].textContent, '');
+});
+
+test('126b: hide() on opening a test paints THAT test, never the previous one', () => {
+  const h = load({ testrunDetail: detail({ status: 'failed', 'run-time': 1200 }) });
+  h.mod.render();
+  assert.equal(h.node['summary-status'].textContent, 'Failed');
+  h.state.currentRecordId = '56';
+  h.state.records.push({ id: 56, status: 'pending' });
+  h.mod.hide();
+  assert.equal(h.node['test-result-row'].hidden, false);
+  assert.equal(h.node['summary-status'].textContent, 'Pending');
+  assert.equal(h.node['summary-duration'].textContent, '');
+});
+
+test('126c: a status saved with no detail to patch still repaints the verdict from the row', () => {
+  const h = load({ testrunDetail: null, records: [{ id: 55, status: 'pending' }] });
+  h.mod.render();
+  assert.equal(h.node['summary-status'].textContent, 'Pending');
+  h.state.records[0].status = 'failed';
+  h.mod.refresh(h.state.records[0]);
+  assert.equal(h.node['summary-status'].textContent, 'Failed');
 });
 
 test('127: a marked test the run left nothing behind on keeps the card shut and says so', () => {
