@@ -1,29 +1,4 @@
-// The shared load() for the sidepanel's screen scripts — extension/sidepanel/screens/*.js — the way
-// tests/helpers/core-harness.mjs is the core's and tests/helpers/api-harness.mjs is api.js's.
-
-// LOADING. Every screen is a plain script: no IIFE, no exports. Its FUNCTION declarations land on the
-// sandbox object, so `h.fn.drainPass` works. Its top-level `const`/`let` do NOT — those go to the
-// context's global LEXICAL scope, invisible as a property — and the object a screen publishes
-// (`OfflineQueue`, and one per screen after it) is exactly one of those. So the caller NAMES it and
-// gets it back as the script's completion value, the same seam tests/md-sections.test.mjs:16 uses.
-
-// THE BOUNDARY. This file carries only what every screen needs identically: a document, a window, a
-// chrome fake, a real ApiError and `URL`. A screen's OWN panel globals — `state`, `capabilities`,
-// `toast`, `$`, `writeStatus`, … — are passed in by the test as a plain `globals` object. The eight
-// screens after offline-queue land in parallel, and a harness that owned their stubs would be a
-// merge conflict in every one of those PRs.
-
-// THE BOOT. bootPanel() at the foot of this file is the other half: app.js, whose last statement is
-// `init().finally(...)`, run against stubs for every global it names. See its own comment.
-
-// URL is NOT a vm-realm global: Node installs it on the main context only. Seven of the thirteen
-// screens build one, and without it they silently take their catch branch — a URL row would then
-// pass for the wrong reason.
-
-// TRAPS. A screen's `online` handler is registered on `window`, so a sandbox without one skips that
-// step in silence. `storage.session.onChanged` keeps its callback here, because firing it by hand is
-// the only way to reach the live-flag branch; `sessionOnChanged: false` reproduces an older Chrome
-// that has no such event at all.
+// A screen's published const is lexical, so the caller names it and gets the completion value.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,9 +9,7 @@ export { makeDocument, el, text, fire, event };
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
-// SCREENS_SRC points the whole suite at a mutated COPY of the screens directory, so a falsification
-// run never has to edit the shipped files and risk leaving them edited. CORE_SRC is the same knob
-// for extension/sidepanel/core, spelled the way tests/helpers/core-harness.mjs already spells it.
+// SCREENS_SRC/CORE_SRC point at mutated copies, so a mutation run never edits the shipped files.
 export const SCREENS_SRC = process.env.SCREENS_SRC || join(repoRoot, 'extension/sidepanel/screens');
 export const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 
@@ -49,8 +22,7 @@ const sourceOf = (path) => {
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 export const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// One turn of the macrotask queue drains every microtask behind it; a listener that starts an async
-// drain and drops the promise needs exactly this.
+// One macrotask turn drains every microtask behind it, as a dropped async drain promise needs.
 export const settle = async (turns = 2) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
@@ -61,10 +33,7 @@ export const rejection = async (p) => {
   throw new Error('expected a rejection, got a resolution');
 };
 
-// ---------- TestomatAPI.ApiError ----------
-
-// The real class from extension/api/errors.js, not a look-alike shape: a screen that CONSTRUCTS one
-// is asserted on `instanceof`, and only a Node-realm class keeps that working across the vm boundary.
+// The real class: only a Node-realm class keeps `instanceof` working across the vm boundary.
 export class ApiError extends Error {
   constructor(kind, status, detail) {
     super(detail || kind);
@@ -73,10 +42,7 @@ export class ApiError extends Error {
   }
 }
 
-// ---------- chrome.storage ----------
-
-// In memory, and every call recorded in order. `fails` makes one op reject, which is the only way to
-// reach the swallowed-rejection branches: a persist that never lands, a boot off corrupt storage.
+// `fails` makes one op reject, the only way to reach the swallowed-rejection branches.
 export function fakeChrome(opts = {}) {
   const { local = {}, session = {}, sessionOnChanged = true } = opts;
   const data = { ...local };
@@ -89,16 +55,14 @@ export function fakeChrome(opts = {}) {
     const keys = Array.isArray(arg) ? arg : [arg];
     return Object.fromEntries(keys.filter((k) => k in bag).map((k) => [k, bag[k]]));
   };
-  // `raw` as well as the JSON copy: a key whose value is `undefined` vanishes from JSON, and some
-  // rows are asserted by their exact key set.
+  // `raw` too: an undefined value vanishes from JSON, and some rows assert the exact key set.
   const record = (area, op, arg) => { calls.push({ area, op, arg: plain(arg), raw: arg }); };
 
   const localOp = (op) => async (arg) => {
     record('local', op, arg);
     if (fails[op]) throw fails[op];
     if (op === 'get') return pick(data, arg);
-    // A JSON copy, the way real storage serialises: a live reference would let a later in-memory
-    // mutation rewrite what a test believes was already written.
+    // A JSON copy, as real storage serialises: a live reference would let later mutations rewrite it.
     if (op === 'set') Object.assign(data, plain(arg));
     if (op === 'remove') for (const k of [].concat(arg)) delete data[k];
     return undefined;
@@ -109,8 +73,7 @@ export function fakeChrome(opts = {}) {
     return pick(sess, arg);
   };
 
-  // The panel's one WRITE to session storage is a removal, and it is ordered: the open-run intent is
-  // burnt before it is acted on, so a row has to watch the key actually leave `sess`, not just count.
+  // The open-run intent is burnt before it is acted on, so rows watch the key actually leave `sess`.
   const sessionRemove = async (arg) => {
     record('session', 'remove', arg);
     for (const k of [].concat(arg)) delete sess[k];
@@ -148,10 +111,7 @@ export function fakeChrome(opts = {}) {
   return store;
 }
 
-// ---------- window ----------
-
-// A screen's `online` / `offline` / `beforeunload` handler is asserted by RUNNING it, so the fake
-// keeps the registration rather than merely counting it.
+// Handlers are asserted by running them, so the fake keeps registrations rather than counting.
 export function fakeWindow() {
   const listeners = [];
   return {
@@ -166,10 +126,7 @@ export function fakeWindow() {
   };
 }
 
-// ---------- the clock ----------
-
-// A REAL interval keeps the node test process alive for its whole period; these fire only when a
-// test calls tick(). Same shape core-harness.mjs proves: callbacks held, clear() really unregisters.
+// A real interval keeps the node process alive; these fire only when a test calls tick().
 export function fakeClock() {
   let nextId = 1;
   const live = new Map();  // id -> { fn, ms, repeat }
@@ -213,13 +170,7 @@ export function fakeClock() {
   };
 }
 
-// ---------- the loader ----------
-
-// `exported` names the screen's published `const` — the trailing completion expression. `globals` is
-// the screen's own panel globals, which this file deliberately knows nothing about. `dir` is the
-// directory to read from: core/views.js is a plain script of the same shape, one folder over.
-// `before` names the sibling scripts index.html loads AHEAD of this one, evaluated into the same
-// context: a published `const` is a global lexical, shared between the scripts and never a property.
+// `before` scripts share the context: a published const is a global lexical, never a property.
 export function loadScreen(name, opts = {}) {
   const {
     dir = SCREENS_SRC,
@@ -235,8 +186,7 @@ export function loadScreen(name, opts = {}) {
     window: win = fakeWindow(),
   } = opts;
 
-  // Without it a poll gate silently takes its "no such property" branch and passes for the
-  // wrong reason — the same trap this file already documents for `URL`.
+  // Without it a poll gate takes its "no such property" branch and passes for the wrong reason.
   if (doc.visibilityState === undefined) doc.visibilityState = visibility;
 
   const sandbox = {
@@ -257,8 +207,7 @@ export function loadScreen(name, opts = {}) {
   const source = sourceOf(file);
   const context = createContext(sandbox);
   for (const dep of before) {
-    // A name in `dir`, or [name, otherDir] for a script index.html loads from another folder —
-    // core/status-icons.js stands ahead of every screen, and CORE_SRC has to stay switchable.
+    // [name, otherDir] loads a script from another folder, so CORE_SRC stays switchable.
     const [depName, depDir = dir] = [].concat(dep);
     const path = join(depDir, `${depName}.js`);
     runInContext(sourceOf(path), context, { filename: path });
@@ -272,20 +221,15 @@ export function loadScreen(name, opts = {}) {
   };
 }
 
-// ---------- the panel's own boot ----------
-
-// APP_SRC is CORE_SRC's file-shaped twin: extension/sidepanel/app.js is one script, not a directory,
-// so a falsification run points the knob at the mutated COPY itself.
+// APP_SRC points at a mutated copy of app.js, the file-shaped twin of CORE_SRC.
 export const APP_SRC = process.env.APP_SRC || join(repoRoot, 'extension/sidepanel/app.js');
 
-// What SessionRestore.fromStored() answers for a panel that has nothing stored — the floor every
-// bootPanel() row starts from, so `restored` only ever names the one field it is about.
+// SessionRestore.fromStored() for an empty panel, so `restored` names only the field a row is about.
 const RESTORE_DEFAULTS = {
   stepTicks: {}, expandedGroups: [], runsFilter: 'all', runInfoOpen: true, tabViews: {}, activeTab: null,
 };
 
-// The panel globals app.js only WIRES — a listener each, never called during boot. They are stubs so
-// the boot reaches its decisions; each is still recorded, so a row may assert one was hooked up.
+// Globals app.js only wires during boot: stubbed so boot reaches its decisions, still recorded.
 const BOOT_NOOPS = [
   'initActionLabelFit', 'initCounterFade', 'switchTab', 'openTestSuitePicker', 'openEditor', 'goBack',
   'saveSettings', 'initSettingsSections', 'toggleSettingsAdvanced', 'initThemeSwitch',
@@ -305,18 +249,7 @@ const BOOT_OPENERS = [
   'openRunView', 'openTestView', 'openTcListView', 'openSettingsView', 'openTcStudioView', 'openRunsView',
 ];
 
-/**
- * Stand the side panel up and run its boot.
- *
- * app.js has no export and no entry point: its last statement is `init().finally(...)`, so LOADING
- * the file is running the boot. That statement is also the script's COMPLETION VALUE, which is how
- * this gets a handle on a promise nobody returns — awaiting it waits for bootDone() too, and
- * rethrows whatever init() threw. The shipped file needs no seam of its own.
- *
- * Every panel global is a recorded stub, so a row asserts WHICH opener boot chose, with what
- * arguments, and in what order. `answers` replaces what one hands back without losing the recording
- * (`'Handoff.openRun'`, `'openRunView'`, …); `globals` is the raw last word over the sandbox.
- */
+// Loading app.js is the boot: its last `init().finally(...)` is the completion value awaited here.
 export async function bootPanel(opts = {}) {
   const {
     stored = {},          // what loadStored() answers: { settings, session, … }
@@ -345,8 +278,7 @@ export async function bootPanel(opts = {}) {
     };
   };
 
-  // $() MINTS the element it is asked for rather than answering null: app.js looks up some sixty
-  // ids, and one missing would end the boot in a TypeError halfway through the wiring.
+  // $() mints what it is asked for: one of app.js's ~60 lookups answering null would throw mid-boot.
   const lookups = [];
   const $ = (id) => {
     lookups.push(id);
@@ -408,8 +340,7 @@ export async function bootPanel(opts = {}) {
   };
 
   const boot = runInContext(sourceOf(file), createContext(sandbox), { filename: file });
-  // The handle is the completion value or nothing at all: a build whose last statement stopped being
-  // the boot must fail here rather than let every row below pass against a boot nobody waited for.
+  // No handle means app.js's last statement stopped being the boot: fail rather than pass hollow.
   if (!boot || typeof boot.then !== 'function') {
     throw new Error(`${file} did not end in the boot promise — its last statement is this harness's only handle`);
   }
@@ -423,8 +354,7 @@ export async function bootPanel(opts = {}) {
     names,
     count: (name) => calls.filter((c) => c.name === name).length,
     argsOf: (name) => calls.filter((c) => c.name === name).map((c) => c.args),
-    // The subsequence of the boot's calls a row cares about: an ordering assertion should not have
-    // to step over fifty listener wirings to read.
+    // The calls a row names, in boot order, without the fifty listener wirings in between.
     order: (...of) => names().filter((n) => of.includes(n)),
   };
 }

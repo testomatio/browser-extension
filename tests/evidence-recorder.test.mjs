@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// What extension/evidence/recorder.js owes the tester: while they reproduce a bug the worker
-// quietly keeps the last minute of the page's console errors and failed requests, so "attach the log"
-// hands over that window — not the whole session, not a list full of duplicates, and not an empty file
-// because Chrome put the worker to sleep halfway through.
-// Two sources feed the same buffer. chrome.webRequest sees every request of the tab; a hook riding
-// inside the page sees more (response bodies, console text) but only the top frame. evWrOwns() is the
-// referee, evAdoptTwin() merges the pair when both reported the same request, and the storage.session
-// mirror is what a recycled worker wakes up holding.
-// The rows are the ticket's 58, numbered in their names; a row that pins a bug we are NOT fixing here
-// gets a second `test.todo` naming the issue that will. Companion rows carry a letter suffix and drive
-// the same path the other way, so a row asserting "nothing happened" cannot pass against a dead stub.
-// Run: node --test tests/evidence-recorder.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,14 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// EV_SRC runs the whole file against a mutated copy, so a falsification run never has to edit the
-// shipped module and risk leaving it edited.
+// EV_SRC points the file at a mutated copy, so a falsification run never edits the shipped module.
 const SRC = process.env.EV_SRC || join(repoRoot, 'extension/evidence/recorder.js');
-// The REAL SiteTab, not a look-alike: row 38 asserts the restricted-page sentence word for word, and
-// row 57 leans on originOf() dropping the port.
+// The real SiteTab: row 38 checks its sentence word for word, row 57 needs originOf() to drop ports.
 const SITE_TAB = join(repoRoot, 'extension/shared/site-tab.js');
-// The ring buffer the recorder is built on — the worker importScripts it first, so the rows get it
-// first too, unstubbed.
+// The worker importScripts the ring buffer first, so the rows load it first too, unstubbed.
 const BUFFER = join(repoRoot, 'extension/evidence/buffer.js');
 const source = readFileSync(SRC, 'utf8');
 const siteTabSource = readFileSync(SITE_TAB, 'utf8');
@@ -35,25 +20,19 @@ const bufferSource = readFileSync(BUFFER, 'utf8');
 const NOW = 1_700_000_000_000;
 const TAB = 5;
 const SITE = 'https://shop.example.com';
-// The worker's own ceilings on what one batch from the page may store (rows 21-23). Spelled out
-// here, not read off the module, so widening the shipped constant fails the row instead of moving it.
+// Spelled out, not read off the module, so widening the shipped cap fails the row.
 const BODY_CAP = 16 * 1024;
 const TEXT_CAP = 4000;
 const BATCH_CAP = 500;
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
-// One turn of the macrotask queue drains every microtask behind it; three is the cheap margin for
-// evStart's own chain (settings -> tabs.get -> inject -> register -> mirror).
+// One macrotask turn drains its microtasks; three covers evStart's own settings-to-mirror chain.
 const settle = async (turns = 3) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-// Every ev* is a top-level `function`, so it lands on the sandbox anyway; the recorder's own state
-// is lexical `const`/`let` and exists only in the script's completion value. The ring buffer and the
-// caps now live behind `EvBuffer` (evidence/buffer.js, loaded into the same context), so the rows
-// reach them through the recorder's `evBuf`. `st` hands the rows live getters/setters over those
-// bindings — the only way to seed a buffer or a session from outside.
+// The recorder state is lexical, so `st` gives the rows live getters and setters over those bindings.
 const PICK = `
 ;({
   fns: { evClampWindow: EvBuffer.clampWindow, evLoadSettings, evPush: (e) => evBuf.push(e),
@@ -89,7 +68,7 @@ function load(opts = {}) {
     now = NOW,
     settings,                    // undefined: the `settings` key is absent from storage.local
     mirror,                      // undefined: nothing was mirrored
-    deferRestore = false,        // hold the mirror READ open until release() — rows 51/53
+    deferRestore = false,        // hold the mirror read open until release() — rows 51/53
     noSession = false,           // chrome.storage.session missing entirely — row 47
     noWebRequest = false,        // a build without the permission
     webRequestThrows = false,    // addListener refuses — the try at the registration block
@@ -123,7 +102,7 @@ function load(opts = {}) {
     tabsSendMessage: () => ({ ok: true }),
   };
 
-  // ---- fake timers: evScheduleMirror leaves one live after almost every row ----------------
+  // Fake timers: evScheduleMirror leaves one live after almost every row.
   const setTimeoutFake = (fn, ms = 0, ...args) => {
     const id = (timerSeq += 1);
     timers.set(id, { at: clock + Number(ms || 0), fn, args });
@@ -146,7 +125,6 @@ function load(opts = {}) {
     return clock;
   };
 
-  // ---- chrome -----------------------------------------------------------------------------
   const bus = (throws = false) => {
     const fns = [];
     const filters = []; // chrome.webRequest takes a second argument, and the wrong one records nothing
@@ -170,8 +148,7 @@ function load(opts = {}) {
     get: async (keys) => {
       log('storage.session.get', keys);
       if (sessionGetFails) throw new Error('storage.session unavailable');
-      // Chrome answers from the value the read was DISPATCHED against; a write racing it lands
-      // after. Snapshotting here is what lets row 51 show the stale mirror winning.
+      // Chrome answers from the value the read was dispatched against; a racing write lands after it.
       const snap = plain(readKeys(sess, keys));
       if (gate) await gate;
       return snap;
@@ -250,7 +227,6 @@ function load(opts = {}) {
     };
   }
 
-  // ---- the sandbox ------------------------------------------------------------------------
   class FakeDate extends Date { static now() { return clock; } }
 
   const sandbox = {
@@ -263,14 +239,12 @@ function load(opts = {}) {
   };
 
   const context = createContext(sandbox);
-  // Same context, before the recorder: site-tab.js's top-level `const SiteTab` lands in the global
-  // lexical scope, which is exactly how the worker's bare `SiteTab` resolves after importScripts.
+  // Same context, first: site-tab.js's const SiteTab lands in the global lexical scope, as in a worker.
   runInContext(siteTabSource, context, { filename: SITE_TAB });
   runInContext(bufferSource, context, { filename: BUFFER });
   const api = runInContext(`${source}\n${PICK}`, context, { filename: SRC });
 
-  // One trip through the listener. `sync` is how many replies landed BEFORE it returned — rows 52/53
-  // turn on the difference between an answer and a promise of one.
+  // `sync` counts replies that landed before it returned: an answer versus a promise of one.
   const send = (msg, sender = {}) => {
     const replies = [];
     const rets = emit(runtime.onMessage, msg, sender, (r) => { replies.push(plain(r)); });
@@ -302,7 +276,6 @@ function load(opts = {}) {
     release: () => { releaseRestore(); },
 
     emit: (path, ...args) => emit(path.split('.').reduce((o, k) => o[k], chromeStub), ...args),
-    // Fire one chrome.webRequest event at whatever the module registered for it.
     wr: (event, d) => emit(chromeStub.webRequest[event], d),
     send,
     ask: async (msg, sender = {}) => { const s = send(msg, sender); await settle(); return s.replies[0]; },
@@ -331,8 +304,6 @@ const net = (over = {}) => ({ ts: at(1), kind: 'network', method: 'GET', url: `$
 const wrq = (over = {}) => ({
   requestId: 'r1', tabId: TAB, frameId: 0, type: 'xmlhttprequest', method: 'GET', url: `${SITE}/api/x`, ...over,
 });
-
-// ============================ the window and the ring buffer ============================
 
 test('1: a window setting that is not a number at all falls back to a minute', async () => {
   const { fns } = await ready();
@@ -401,8 +372,6 @@ test('5: the buffer keeps two windows of history, not the one the panel shows', 
   assert.deepEqual(h.window().map((e) => e.text), ['fresh']);
 });
 
-// The window is mutable: a settings change rewrites it mid-recording, and BOTH halves have to
-// follow it. Row 5 pins the panel's half; this one pins the prune's.
 test('5b: shortening the window mid-recording shortens what the buffer keeps, not just what it shows', async () => {
   const h = await ready();
   h.st.windowSec = 10;
@@ -411,8 +380,7 @@ test('5b: shortening the window mid-recording shortens what the buffer keeps, no
   assert.deepEqual(h.buffer().map((e) => e.text), ['still inside them', 'fresh']);
 });
 
-// The leak guard runs INSIDE push, before the mirror is told — otherwise the mirror writes a buffer
-// whose in-flight rows the map has already forgotten. Only reachable below the recorder's own buffer.
+// The leak guard runs inside push, before the mirror is told, or the mirror writes forgotten rows.
 test('8b: the requestId map is already empty by the time the mirror is scheduled', async () => {
   const h = await ready();
   const sizes = [];
@@ -427,8 +395,7 @@ test('8b: the requestId map is already empty by the time the mirror is scheduled
   assert.deepEqual(sizes, [2, 0], 'over the cap it is cleared first, and the mirror sees it empty');
 });
 
-// Append order is not time order (row 9), so the stale row is routinely sitting BEHIND a fresh
-// one rather than at index 0 — which is the only place a prune that reads the head ever looks.
+// Append order is not time order, so a stale row often sits behind a fresh one, not at index 0.
 test('6: an old entry hiding behind a fresh one is pruned like any other', async () => {
   const h = await ready();
   h.st.windowSec = 60;
@@ -441,10 +408,7 @@ test('6: an old entry hiding behind a fresh one is pruned like any other', async
   assert.equal(h.buffer()[5].text, 'newest');
 });
 
-// The companion: a buffer with nothing stale in it comes back untouched, so row 6 cannot be
-// satisfied by a prune that simply empties the buffer on every push.
-// The prune's own edge. Row 10 pins the WINDOW's; this is the 2x retroactive margin, and it went
-// unpinned — a comparison shifted by one silently narrows how far back the tester's log reaches.
+// The prune's 2x retroactive margin: an off-by-one here silently narrows how far back the log reaches.
 test('6b: the row sitting exactly on the margin is inside it; the one past it is not', async () => {
   const h = await ready();
   h.st.windowSec = 60; // so the prune's cutoff is exactly at(120)
@@ -521,8 +485,6 @@ test('13: the healthy band is 200 up to 299 — a 199 and a 300 are both evidenc
   assert.equal(fns.evIsError({ kind: 'network', status: 299 }), false);
 });
 
-// ============================ page events, and adopting the twin ============================
-
 test('14: a batch from another tab is answered with the stop signal and buffers nothing', async () => {
   const h = await recording();
   assert.deepEqual(h.pageEvents([con()], { tab: { id: 9 }, frameId: 0 }), { off: true });
@@ -542,7 +504,6 @@ test('16: a hook still posting at a worker with no recording is told to stop', a
   const h = await ready();
   assert.deepEqual(h.pageEvents([con()], { tab: { id: TAB }, frameId: 0 }), { off: true });
   assert.equal(h.st.buffer.length, 0);
-  // No sender tab at all (a panel message) is the same answer.
   h.st.session = { tabId: TAB };
   assert.deepEqual(h.pageEvents([con()], { frameId: 0 }), { off: true });
 });
@@ -608,8 +569,7 @@ test('20a: a text row carries the url, line and column the tester needs to find 
   assert.deepEqual(h.buffer()[0], { ts: NOW, kind: 'log', level: 'error', text: '', url: null, line: null, col: null });
 });
 
-// The hook's own caps run inside the page, so they are worth exactly what the page is worth. The
-// rows below hand the worker a batch from a page that honoured none of them.
+// The hook's caps run inside the page, so the worker must enforce them on a batch that ignored them.
 test('21: a response body over the cap is cut down before it reaches the buffer', async () => {
   const h = await recording();
   h.fns.evOnPageEvents(
@@ -621,9 +581,6 @@ test('21: a response body over the cap is cut down before it reaches the buffer'
   assert.equal(h.st.buffer[0].bodyTruncated, true, 'the tester is told the row holds a fragment');
 });
 
-// The edge of the cap itself. Row 23 pins the batch boundary; the body's went unpinned, so a
-// comparison that let one character past — and with it the `bodyTruncated` flag the tester reads
-// the row by — would have gone unnoticed.
 test('21b: a body exactly at the cap is kept whole, one character over is cut and flagged', async () => {
   const h = await recording();
   h.fns.evOnPageEvents([
@@ -717,8 +674,7 @@ test('25a: exactly on the merge window the twin is still adopted', async () => {
 test('25b: the scan stops at the first row older than the merge window, even mid-buffer', async () => {
   const h = await recording();
   h.fns.evWrStart(wrq({ requestId: 'r1', url: `${SITE}/api/x` }));
-  // A hook batch replaying a row stamped a minute ago lands AFTER the fresh webRequest row, so
-  // append order is not time order — and the backwards scan gives up on reaching it.
+  // A hook batch replaying an old row lands after the fresh one, so append order is not time order.
   h.fns.evPush(con({ ts: at(60), text: 'late and old' }));
   h.st.hookReady = true;
   h.fns.evPushPageNet({ method: 'GET', url: `${SITE}/api/x`, status: 500 }, NOW);
@@ -750,8 +706,6 @@ test('26b: a page row nobody else saw carries the hook-only fields and its own d
     durationMs: null, bodySkipped: true }]);
 });
 
-// ============================ the source split and the webRequest backbone ============================
-
 test('27: once the hook says hello a top-frame xhr is the hook\'s, not webRequest\'s', async () => {
   const h = await recording();
   h.st.hookReady = true;
@@ -769,7 +723,7 @@ test('28: the hook only patches the top frame, so a sub-frame xhr stays webReque
 test('29: the resource types webRequest actually reports for the rest of the page stay ours', async () => {
   const h = await recording();
   h.st.hookReady = true;
-  // Chrome reports fetch() AS xmlhttprequest; a literal 'fetch' is not a type the browser sends.
+  // Chrome reports fetch() as xmlhttprequest; a literal 'fetch' is not a type the browser sends.
   for (const type of ['fetch', 'main_frame', 'sub_frame', 'script', 'image', 'stylesheet', 'websocket']) {
     assert.equal(h.fns.evWrOwns(wrq({ frameId: 0, type })), true, type);
   }
@@ -917,8 +871,6 @@ test('36c: a build with no webRequest permission still loads and still answers t
     assert.equal(res.status.recording, false);
   }
 });
-
-// ============================ start, stop, wipe ============================
 
 test('37: the session is armed before the hook is injected, over a cleared buffer', async () => {
   const h = await recording();
@@ -1150,8 +1102,6 @@ test('44c: status is what the panel reconciles against, before and during a reco
       windowSec: 120, entryCount: 1 });
 });
 
-// ============================ the mirror and the restore ============================
-
 test('45: a burst of activity costs one mirror write, not fifty', async () => {
   const h = await recording();
   for (let i = 0; i < 50; i += 1) h.fns.evScheduleMirror();
@@ -1160,7 +1110,6 @@ test('45: a burst of activity costs one mirror write, not fifty', async () => {
   assert.equal(h.named('storage.session.set').length, 0);
   h.advance(1);
   assert.equal(h.named('storage.session.set').length, 1);
-  // The timer is free again, so the next burst is mirrored too.
   h.fns.evScheduleMirror();
   h.advance(h.caps.MIRROR_MS);
   assert.equal(h.named('storage.session.set').length, 2);
@@ -1229,9 +1178,7 @@ test('50: a mirror whose buffer is not a list restores as an empty one', async (
   assert.deepEqual(h.buffer(), []);
 });
 
-// Record pressed while Chrome is still waking the worker. The mirror of a worker that slept with
-// nothing recording says `session: null` — landing second, that erases the recording just started
-// and unregisters the hook with it, so the toggle has to be answered AFTER the read, like row 53.
+// A sleeping worker's mirror says session: null; landing second it would erase the new recording.
 test('51 (#315): a toggle answered before the restore lands keeps the recording it started', async () => {
   const h = load({ deferRestore: true, mirror: { session: null, buffer: [] } });
   const s = h.send({ type: 'EVIDENCE_TOGGLE', tabId: TAB, recordId: 'rec-1' });
@@ -1248,9 +1195,7 @@ test('51 (#315): a toggle answered before the restore lands keeps the recording 
     'the restore does not get the last word on the hook');
 });
 
-// Not only the toggle. A panel opening at the same moment asks for the status first and draws its
-// button from the answer — told "nothing is recording" while a recording is being restored, it draws
-// Start, and the tester's next press is the Stop that ends the take they thought they were beginning.
+// A panel told nothing is recording mid-restore draws Start, and the tester's press becomes a Stop.
 test('51b (#315): a status asked before the restore lands answers the session it is about to find', async () => {
   const h = load({ deferRestore: true, mirror: { session: { tabId: 77, recordId: 'stale' }, buffer: [] } });
   const s = h.send({ type: 'EVIDENCE_STATUS' });
@@ -1268,12 +1213,10 @@ test('51a (#315): the same toggle acts on the session the restore found, not on 
   h.release();
   await h.ready;
   await h.settle();
-  // The restore re-adopted tab 77, so this press is the STOP the panel's button was showing.
+  // The restore re-adopted tab 77, so this press is the Stop the panel's button was showing.
   assert.equal(h.st.session, null);
   assert.equal(s.replies[0].status.recording, false);
 });
-
-// ============================ the protocol and the registrations ============================
 
 test('52: a hook batch arriving after the restore is answered on the spot', async () => {
   const h = await recording();

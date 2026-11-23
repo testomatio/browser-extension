@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/settings.js does for the tester (#187): this is where they paste a
-// token, point the extension at their Testomat instance, set the recording preferences — and, at the
-// bottom, erase it all again. Saving is not a write: the token is checked against the real server
-// first, and the refusal is spelled out in the tester's own words with the Advanced fold opened for
-// them when the problem is down there.
-// Two things here are expensive to get wrong. The save gauntlet must never store a credential the
-// server refused, and it must never leave the previous host's project slugs in the switcher. And the
-// three erase paths — Forget, Disconnect, Sign out — make a promise the tester has to be able to
-// trust: STORAGE IS WRITTEN FIRST and the in-memory copy follows only on success, so a rejected write
-// leaves the panel unchanged instead of half-erased. That ordering, not the end state, is the
-// contract, so the rows below assert the whole sequence; a test that only reads the final storage
-// cannot tell a correct order from a lucky one. `HOST_SCOPED_KEYS` is the other half of the promise —
-// it is what stops a Forget leaving the tester's queued results behind on the machine.
-// Rows 1-75 are the ticket's; a lettered suffix is the companion case that drives the same path the
-// other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Run: node --test tests/settings.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,15 +10,11 @@ import {
   ApiError, SCREENS_SRC, CORE_SRC,
 } from './helpers/panel-harness.mjs';
 
-// The REAL toggle readers, not look-alikes: "absent -> ON" for three of them and "absent -> OFF" for
-// the other two is the whole of rows 4-6, and a hand-written stub would let the form's defaults pass
-// against a rule the panel does not have. SCREENS_SRC / CORE_SRC keep a falsification run pointed at
-// its mutated copy.
+// The real toggle readers: "absent -> on" for three and "absent -> off" for two is the defaults row.
 const fromSource = (path, names) => runInNewContext(
   `${readFileSync(path, 'utf8')}\n({ ${names.join(', ')} });`, { URL },
 );
-// index.html has no source-substitution seam of its own, so the one static row (#113 D11) reads the
-// shipped file; the screen beside it is read through SCREENS_SRC, like everything else here.
+// index.html has no source-substitution seam, so the static row reads the shipped file.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { envInfoEnabled, envFullUrlEnabled } = fromSource(
   join(CORE_SRC, 'env-info.js'), ['envInfoEnabled', 'envFullUrlEnabled'],
@@ -63,9 +43,7 @@ const OPEN = new Set(['connection', 'failure']);
 
 const camel = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// index.html's shape, cut to the nodes this screen touches. The heads really are buttons inside an
-// <h3 class="settings-section-title"> wrapping an icon span, because the delegate matches on that
-// exact descent and a flatter fixture would let row 16 pass against a selector that never matches.
+// The heads are buttons inside an <h3> with an icon span: the delegate matches that exact descent.
 function makePage(o) {
   const doc = makeDocument([]);
   const node = {};
@@ -135,8 +113,7 @@ function makePage(o) {
     mk('button', 'btn-forget-instance'),
     mk('p', 'settings-forget-status'),
   );
-  // Diagnostics (#113): a <dl>, one Copy button and the line beside it. The rows are BUILT, never
-  // static, so the fixture ships the empty list index.html ships.
+  // Diagnostics rows are built, never static, so the fixture ships index.html's empty list.
   body.diagnostics.append(
     mk('dl', 'diagnostics-rows', { className: 'kv rows' }),
     mk('button', 'btn-copy-diagnostics'),
@@ -153,8 +130,7 @@ function makePage(o) {
   return { doc, node };
 }
 
-// `state` is an ACCESSOR bag, not a plain object: the erase paths' whole safety property is that
-// storage is written before any of these four is touched, and only a recorded write can show that.
+// `state` is an accessor bag: only a recorded write shows storage is written before memory moves.
 function makeState(o, order) {
   const bag = {
     view: o.view,
@@ -180,8 +156,7 @@ function makeState(o, order) {
   return state;
 }
 
-// The panel globals settings.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set.
+// The panel globals settings.js reads; each screen has its own set, so they live here.
 function load(opts = {}) {
   const o = {
     view: 'settings',
@@ -208,7 +183,7 @@ function load(opts = {}) {
     sessionSeed: {},
     sessionThrows: false,
     fail: {},              // { set, remove, clear, sessionClear } — a storage op that rejects
-    // ---- Diagnostics (#113). Each `null` is the state ABSENT, which is the half worth driving.
+    // Each `null` below is the state absent, the half worth driving.
     version: '1.4.2',      // chrome.runtime.getManifest().version — null: no getManifest at all
     bytes: 12288,          // chrome.storage.local.getBytesInUse — null: the API is not there
     readonly: false,       // capabilities.readonly
@@ -270,7 +245,7 @@ function load(opts = {}) {
       order.push(`local.remove(${[].concat(arg).join(',')})`);
       return store.chrome.storage.local.remove(arg);
     },
-    // #113: absent on an older Chrome, and the diagnostics row has to survive that.
+    // Absent on an older Chrome, and the diagnostics row has to survive that.
     ...(o.bytes === null ? {} : { getBytesInUse: async () => o.bytes }),
     clear: async () => {
       order.push('local.clear');
@@ -290,8 +265,7 @@ function load(opts = {}) {
         order.push(`send:${msg.type}`);
         calls.sends.push(plain(msg));
         if (o.reply) return o.reply(msg);
-        // #113: the worker's liveness IS the round trip answering. A dead worker resolves
-        // `undefined` (no listener) or rejects, and both have to read as "not answering".
+        // A dead worker resolves `undefined` (no listener) or rejects; both read as "not answering".
         if (/_STATUS$/.test(msg.type)) {
           if (o.worker === 'throw') return Promise.reject(new Error('Receiving end does not exist'));
           return Promise.resolve(o.worker ? { recording: false } : undefined);
@@ -302,8 +276,7 @@ function load(opts = {}) {
     if (o.version !== null) chromeStub.runtime.getManifest = () => ({ version: o.version });
   }
 
-  // The shared Dropdown's surface, cut to the four members this screen touches. `of` answers nothing
-  // until `create` has run, or initHostHistoryDropdown bails and rows 7-8 pass for the wrong reason.
+  // `of` answers nothing until `create` has run; otherwise initHostHistoryDropdown bails.
   const registry = new Map();
   const Dropdown = {
     of: (id) => registry.get(id),
@@ -352,8 +325,7 @@ function load(opts = {}) {
         return o.confirm;
       },
     },
-    // core/state.js's own rule, and shared/handoff.js's: a handed-over connection is credentialed
-    // without a token of the tester's own.
+    // A handed-over connection is credentialed without a token of the tester's own.
     Handoff: {
       credentialed: (s) => !!(s && s.baseUrl && (s.apiToken || s.handoff)),
       configure: (s) => { calls.configured.push(plain(s)); },
@@ -372,10 +344,10 @@ function load(opts = {}) {
         if (o.validate) return o.validate();
         return undefined;
       },
-      // #113: tri-state, so 'unknown' is a value and not an absence.
+      // Tri-state, so 'unknown' is a value and not an absence.
       jwtAvailable: () => o.jwt,
     },
-    // core/state.js's own gate object, read directly the way every other screen reads it (#113).
+    // core/state.js's own gate object, read directly the way every other screen reads it.
     capabilities: { jwt: o.jwt === true, readonly: o.readonly },
     Theme: {
       get: () => { order.push('Theme.get'); return o.theme; },
@@ -391,8 +363,7 @@ function load(opts = {}) {
     openRunsView: () => { order.push('openRunsView'); calls.runsView += 1; },
     askForProject: () => { order.push('askForProject'); calls.askProject += 1; },
   };
-  // #113: index.html loads both of these AFTER settings.js, so the panel really can be asked for
-  // them before they exist. `null` reproduces exactly that, and the row must still be painted.
+  // index.html loads both after settings.js, so they can be asked for before they exist.
   if (o.queue !== null) globals.OfflineQueue = { count: () => o.queue };
   if (o.pollMs !== null) {
     globals.syncPollMs = o.pollMs;
@@ -414,16 +385,12 @@ function load(opts = {}) {
 
   const clock = fakeClock();
   const h = loadScreen('settings', {
-    // screens/settings-form.js and screens/settings-erase.js are index.html's two tags immediately
-    // above this one, and settings.js does not run without either.
+    // index.html loads these two immediately above settings.js, which does not run without either.
     before: ['settings-form', 'settings-erase'],
     exported: '({ HOST_SCOPED_KEYS, DEFAULT_BASE_URL, AUTH_APP_NAME, EVIDENCE_WIPE_MS, EVIDENCE_WIPE_WARN_KEY, SettingsForm, SettingsErase })',
     document: doc, clock, store, globals,
   });
-  // Each of the two publishes ONE object, and a published `const` is a global lexical — never a
-  // property of the sandbox. The rows call them by the bare names they wore inside settings.js, so
-  // put those names back on. The eleven settings.js still delegates are already there and stay: the
-  // delegate is what app.js calls, and a row has to drive the same path the panel does.
+  // A published `const` is a global lexical, not a sandbox property, so the bare names are put back.
   for (const [bare, member] of Object.entries({
     tokenHelpBase: 'tokenHelpBase',
     stepRecNeverValuesEnabled: 'neverValuesEnabled',
@@ -472,7 +439,7 @@ function load(opts = {}) {
     }),
     // The last thing written to one status line, which is what the tester is left looking at.
     lineOf: (id) => [...calls.status].reverse().find((s) => s.id === id) || null,
-    // #113: the painted diagnostics as the tester reads them — label to value, in order.
+    // The painted diagnostics as the tester reads them: label to value, in order.
     diag: () => {
       const cells = doc.getElementById('diagnostics-rows').querySelectorAll('dt, dd');
       const rows = {};
@@ -482,7 +449,6 @@ function load(opts = {}) {
     // …and the last thing the Copy button put on the clipboard.
     copied: () => calls.clipboard[calls.clipboard.length - 1],
     stored: () => plain(store.data),
-    // Every key the save actually persisted, which is the whole of row 51.
     written: () => store.ops('local', 'set').map((c) => Object.keys(c.arg).sort()),
   };
 }
@@ -496,10 +462,6 @@ const CONFIGURED = {
   hostHistory: ['a.io'],
   baseUrl: 'https://a.io',
 };
-
-// ============================================================================
-// The form, the history dropdown and the folds (rows 1-17)
-// ============================================================================
 
 test('1: the token-help link follows the origin of what is being typed, path and all dropped', () => {
   const h = load({ baseUrl: 'https://a.io/x/' });
@@ -673,7 +635,7 @@ test('12: the token box stays away for an instance we already hold a token for',
   const h = load({ ...CONFIGURED, baseUrl: 'https://a.io' });
   h.fn.syncTokenField();
   assert.equal(h.node.viewSettings.dataset.token, 'off');
-  // …and for the ACTIVE instance even when the per-host map has no row of its own.
+  // …and for the active instance even when the per-host map has no row of its own.
   const bare = load({ settings: { baseUrl: 'https://a.io', apiToken: 't' }, baseUrl: 'https://a.io' });
   bare.fn.syncTokenField();
   assert.equal(bare.node.viewSettings.dataset.token, 'off');
@@ -764,19 +726,7 @@ test('17a: a page with no accordion wires nothing and throws nothing', () => {
   assert.equal(h.doc.getElementById('settings-sections'), null);
 });
 
-// ============================================================================
-// Diagnostics (#113) — rows D1-D11
-// ============================================================================
-// The section exists so a "it does not work" report does not cost a round of questions, and every
-// value in it is state the panel already held. Two properties are worth more than the nine rows
-// put together. First, a value the panel cannot reach costs ONE row's text and never the section:
-// an older Chrome with no getBytesInUse, a worker that has been evicted, a livesync that has not
-// loaded yet all have to leave nine rows standing. Second, and this is the whole feature: the Copy
-// text is SERIALISED OFF THE PAINTED ROWS. Copying a settings object and deleting the credential
-// keys would pass every row below on the day it was written and leak the next credential field
-// somebody adds; reading the DOM back cannot, because a token has to be rendered before it can be
-// copied. D8 seeds four recognisable tokens and asserts they reach neither the section nor the
-// clipboard, and D9 proves the text really is read back off the rows rather than rebuilt beside them.
+// The Copy text is read off the painted rows, so a credential has to be rendered before it can leak.
 
 // A configured panel with a handed-over session, which is the auth case the card cannot show.
 const HANDED = {
@@ -815,7 +765,7 @@ test('#113 D2: a panel with nothing configured paints all nine rows and says wha
 test('#113 D2a: a connected instance with no project picked yet still names the instance', async () => {
   const h = load({ settings: { baseUrl: 'https://self.host:8443/sub', apiToken: 'tok-1', projectId: '' } });
   await h.fn.renderDiagnostics();
-  assert.equal(h.diag().Instance, 'self.host'); // the HOST, not the whole URL
+  assert.equal(h.diag().Instance, 'self.host'); // the host, not the whole URL
   assert.equal(h.diag().Project, 'not picked');
 });
 
@@ -841,7 +791,7 @@ test('#113 D3a: the three credentials the v2 leg can be holding are told apart',
   assert.equal(await credential({
     settings: { baseUrl: 'https://a.io', apiToken: 'eyJhbGciOi.body.sig', projectId: 'p1' },
   }), 'a key minted from the session');
-  // A host handed one over for THIS project — the offer carries it, settings never do.
+  // A host handed one over for this project: the offer carries it, settings never do.
   assert.equal(await credential({
     ...HANDED, offer: { app: 'runner', projectId: 'p1', jwt: 'eyJ0', projectToken: 'pk-1' },
   }), 'a handed-over project token');
@@ -883,7 +833,7 @@ test('#113 D6: state the panel cannot reach costs one row, never the section', a
     [rows.Version, rows['Storage used'], rows.Queue, rows['Live sync'], rows.Worker],
     ['unavailable', 'unavailable', 'unavailable', 'unavailable', 'not answering'],
   );
-  assert.equal(rows.Instance, 'a.io'); // …and what IS reachable is still there
+  assert.equal(rows.Instance, 'a.io'); // …and what is reachable is still there
 });
 
 test('#113 D6a: no chrome at all, and a worker that rejects, are both painted rather than thrown', async () => {
@@ -897,10 +847,7 @@ test('#113 D6a: no chrome at all, and a worker that rejects, are both painted ra
   assert.deepEqual(dead.calls.sends.map((m) => m.type), ['SCREENREC_STATUS']);
 });
 
-// The liveness probe has to be a QUESTION. STEPREC_STATUS is not one: the worker answers it through
-// srOrphaned(), which ends a step recording whose owner tab has gone — and nothing else in the panel
-// sends it, so asking here would be a new side effect on every visit to Settings. SCREENREC_STATUS
-// the panel already sends on its own (screens/screen-rec.js), so this door costs nothing.
+// STEPREC_STATUS ends an orphaned step recording, so only SCREENREC_STATUS is a safe probe.
 test('#113 D6b: the probe asks the screen recorder only — the step recorder\'s door is not read-only', async () => {
   const alive = load(CONFIGURED);
   await alive.fn.renderDiagnostics();
@@ -925,9 +872,7 @@ test('#113 D7: entering Settings paints the section, and a page without it is no
   assert.equal(bare.doc.getElementById('diagnostics-rows'), null);
 });
 
-// Two callers paint this section — fillSettingsForm() on the way into Settings, and the head on
-// every click — so the second paint has to REPLACE the first. diag() reads label-to-value, where a
-// duplicated row is invisible; this one counts the cells and the copied lines instead.
+// Two callers paint this section; diag() hides a duplicated row, so this counts cells instead.
 test('#113 D7a: painting twice leaves nine rows, not eighteen', async () => {
   const h = load(CONFIGURED);
   await h.fn.renderDiagnostics();
@@ -967,15 +912,14 @@ test('#113 D8: not one credential the panel holds reaches the section or the cli
     assert.equal(painted.includes(secret), false, `${secret} is on screen`);
     assert.equal(copied.includes(secret), false, `${secret} is on the clipboard`);
   }
-  // The credential is still NAMED — the row is useless if it does not say which one is in hand.
+  // The credential is still named: the row is useless if it does not say which one is in hand.
   assert.equal(h.diag().Auth, 'session up, a handed-over project token');
 });
 
 test('#113 D9: the copy is the painted rows serialised, not a second reading of the state', async () => {
   const h = load({ ...CONFIGURED, version: '1.4.2', bytes: 12288, jwt: true });
   await h.fn.renderDiagnostics();
-  // Rewriting a painted cell is the only way to tell the two designs apart: a copy built from
-  // state would ignore this, and one read off the rows cannot.
+  // A copy built from state would ignore a rewritten cell; one read off the rows cannot.
   h.node.diagnosticsRows.querySelectorAll('dd')[1].textContent = 'REWRITTEN-BY-THE-TEST';
   await h.fn.copyDiagnostics();
   const copied = h.copied();
@@ -1013,8 +957,7 @@ test('#113 D10: the section is one more accordion disclosure, and the delegate f
 });
 
 test('#113 D11: index.html carries the section between Advanced and Stored credentials', () => {
-  // Read raw: no fixture stands in for the shipped markup, so nothing else catches a drift in the
-  // exact descent (`h3.settings-section-title > button.disclosure-head`) the delegate matches on.
+  // Read raw: nothing else catches a drift in the exact descent the delegate matches on.
   const html = readFileSync(join(repoRoot, 'extension/sidepanel/index.html'), 'utf8');
   const at = (id) => html.indexOf(`id="settings-${id}-item"`);
   for (const id of ['advanced', 'diagnostics', 'credentials']) assert.ok(at(id) > 0, `${id} is there`);
@@ -1036,8 +979,6 @@ test('#113 D11: index.html carries the section between Advanced and Stored crede
   const form = readFileSync(join(SCREENS_SRC, 'settings-form.js'), 'utf8');
   assert.equal(form.includes("head.id === 'settings-diagnostics-head'"), false);
 });
-
-// ---------- the theme control ----------
 
 test('T1: the theme switch presses exactly the mode that is live', () => {
   const h = load({ theme: 'dark' });
@@ -1067,10 +1008,6 @@ test('T2a: a click beside the segments sets no theme, and a page without the swi
   assert.equal(bare.calls.themeListeners.length, 0);
 });
 
-// ============================================================================
-// The two pure validators (rows 26-34)
-// ============================================================================
-
 test('26: a blank Log window means the 60-second default, not an error', () => {
   const h = load({ window: '' });
   assert.equal(h.fn.evidenceWindowFromField(), 60);
@@ -1099,7 +1036,7 @@ test('29: a fractional window rounds to the nearest second', () => {
   assert.equal(h.fn.evidenceWindowFromField(), 60);
   h.fill({ window: '10.4' });
   assert.equal(h.fn.evidenceWindowFromField(), 10);
-  h.fill({ window: '9.6' }); // rounds INTO range: 10 is a real value, not a clamp
+  h.fill({ window: '9.6' }); // rounds into range: 10 is a real value, not a clamp
   assert.equal(h.fn.evidenceWindowFromField(), 10);
 });
 
@@ -1132,10 +1069,6 @@ test('34: no projects resolve to no project', () => {
   const h = load();
   assert.equal(h.fn.resolveProjectId([], 'a'), '');
 });
-
-// ============================================================================
-// Connect mode and the three handoff sentences (rows 18-25)
-// ============================================================================
 
 test('18: a credentialed instance with a project reads Connected on a ready card', () => {
   const h = load({ settings: { baseUrl: 'https://a.io', apiToken: 't', projectId: 'p1' } });
@@ -1263,10 +1196,6 @@ test('25a: leaving the connect screen and coming back focuses the token box agai
   h.fn.applyConnectMode(); // and back in
   assert.equal(h.doc.activeElement, h.node.setToken);
 });
-
-// ============================================================================
-// The save gauntlet (rows 35-52)
-// ============================================================================
 
 test('35: an empty Instance is an Advanced problem, so Advanced is unfolded with the error', async () => {
   const h = load({ baseUrl: '' });
@@ -1550,10 +1479,6 @@ test('52a: with no chrome the panel still holds the config, it just persists not
   assert.deepEqual(plain(h.state.hostHistory), ['a.io']);
   assert.equal(h.store.ops('local', 'set').length, 0);
 });
-
-// ============================================================================
-// The erase paths — the ordering is the safety property (rows 53-75)
-// ============================================================================
 
 test('53: a destructive control never retargets itself off a half-typed Instance field', () => {
   const h = load({ ...CONFIGURED, baseUrl: 'nonsense' });

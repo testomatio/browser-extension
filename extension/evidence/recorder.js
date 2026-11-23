@@ -1,20 +1,16 @@
-// Evidence recorder in the background worker (importScripts): the EVIDENCE_* protocol around
-// the ring buffer of evidence/buffer.js. Two sources — page-hook.js and webRequest — separated
-// by evWrOwns().
+// Worker half of the evidence recorder: page-hook.js and webRequest rows, split by evWrOwns().
 
 /* global chrome, SiteTab, EvBuffer */
 
 const EVIDENCE_MIRROR_MS = 2000;     // throttled mirror to storage.session
 
-// What the worker will keep out of one batch, whatever the page sends. page-hook.js applies the
-// same two lengths, but it runs inside the page under test — the side that cannot be trusted.
+// page-hook.js applies the same caps, but it runs in the untrusted page, so the worker repeats them.
 const EV_BODY_CAP = 16 * 1024;       // parity with page-hook.js BODY_CAP
 const EV_TEXT_CAP = 4000;            // parity with page-hook.js TEXT_CAP
 // Half the ring buffer: a page flooding one batch cannot erase the reproduction already recorded.
 const EV_BATCH_CAP = 500;
 
-// Registered per origin while recording so a navigation is instrumented at document_start;
-// the ids are fixed so a leftover registration is always found and replaced.
+// Fixed ids, so a leftover document_start registration is always found and replaced.
 const EV_CS_HOOK = 'testomat-evidence-hook';
 const EV_CS_RELAY = 'testomat-evidence-relay';
 const EV_HOOK_FILE = 'evidence/page-hook.js';
@@ -27,12 +23,10 @@ let evHookReady = false;             // the page hook owns this document's fetch
 let evRestored = false;              // the storage.session mirror has been read back
 let evMirrorTimer = null;
 
-// The ring buffer itself, holding [{ ts, kind, ... }] newest last. It owns the map's leak guard
-// and schedules the mirror, so every write to a row goes through it.
+// It owns the map's leak guard and schedules the mirror, so every row write goes through it.
 const evBuf = EvBuffer.makeBuffer({ netMap: evNetById, onChange: evScheduleMirror, windowSec: evWindowSec });
 
-// Cached (refreshed on start and on any settings change) so per-event reads stay cheap.
-// The body-capture flag is NOT cached here — the relay feeds it to the hook.
+// Cached so per-event reads stay cheap; the body-capture flag is not, the relay feeds it to the hook.
 async function evLoadSettings() {
   try {
     const { settings } = await chrome.storage.local.get('settings');
@@ -42,14 +36,10 @@ async function evLoadSettings() {
   evBuf.setWindowSec(evWindowSec);
 }
 
-// ---- page hook events ----------------------------------------------------
-
-// Text rows the hook can send: a patched console call, a row the browser would have
-// produced, and an uncaught exception / unhandled rejection (#163).
+// Text rows the hook sends: a console call, a browser-made row and an uncaught exception.
 const EV_PAGE_KINDS = { console: 'console', log: 'log', exception: 'exception' };
 
-// The relay forwards each batch with its sender tab, so a stale document from another
-// tab can never write into this recording.
+// The relay forwards the sender tab, so a stale document in another tab cannot write here.
 function evOnPageEvents(events, sender) {
   const tabId = sender && sender.tab && sender.tab.id;
   if (!evSession || tabId == null || tabId !== evSession.tabId) return { off: true };
@@ -71,8 +61,7 @@ function evOnPageEvents(events, sender) {
   return { off: false };
 }
 
-// A copy, never the row itself: the caller still owns the message it was handed. `bodyTruncated`
-// is raised as well, so a body WE cut still reads as a fragment in the log.
+// A copy, as the caller owns the message; `bodyTruncated` makes a body we cut read as a fragment.
 function evCapBody(ev) {
   if (!ev.bodySnippet) return ev;
   const body = String(ev.bodySnippet);
@@ -80,10 +69,7 @@ function evCapBody(ev) {
   return { ...ev, bodySnippet: body.slice(0, EV_BODY_CAP), bodyTruncated: true };
 }
 
-// ---- chrome.webRequest (the backbone) ------------------------------------
-
-// The hook patches fetch + XHR of the TOP frame only, so once it has said hello those
-// rows are its business; everything else is exactly what it cannot see.
+// The hook patches only the top frame's fetch + XHR; once it says hello those rows are its own.
 function evWrOwns(d) {
   if (!evSession || d.tabId !== evSession.tabId) return false;
   if (evHookReady && d.frameId === 0 && d.type === 'xmlhttprequest') return false;
@@ -92,8 +78,7 @@ function evWrOwns(d) {
 
 function evWrStart(d) {
   if (!evWrOwns(d)) return;
-  // A fresh main-frame request means the current document (and its hook) is on its way
-  // out; the newly injected hook says hello again.
+  // A main-frame request means this document's hook is leaving; the next one says hello again.
   if (d.type === 'main_frame' && d.frameId === 0) evHookReady = false;
   const entry = evBuf.push({
     ts: Date.now(), kind: 'network', requestId: d.requestId,
@@ -123,8 +108,7 @@ function evWrError(d) {
   evScheduleMirror();
 }
 
-// A redirect keeps ONE requestId across the whole chain, so the hop that just finished
-// is closed off and the target starts its own row.
+// A redirect keeps one requestId for the chain, so each hop closes and the target starts a row.
 function evWrRedirect(d) {
   const e = evNetById.get(d.requestId);
   if (e) {
@@ -141,8 +125,7 @@ function evWrRedirect(d) {
   evNetById.set(d.requestId, next);
 }
 
-// Registered at load, NOT on start: an MV3 worker only re-attaches listeners declared at
-// the top level, and a recording must survive it being recycled.
+// Registered at load, not on start: a recycled MV3 worker re-attaches only top-level listeners.
 if (chrome.webRequest) {
   const filter = { urls: ['<all_urls>'] };
   try {
@@ -153,10 +136,7 @@ if (chrome.webRequest) {
   } catch { /* permission missing (unpacked copy without it) — the hook still records */ }
 }
 
-// ---- inject / start / stop -----------------------------------------------
-
-// The relay goes first so it is listening when the hook says hello — executeScript order
-// across worlds is not a contract, so the hook re-announces as well.
+// Relay first to hear the hook's hello; cross-world order is no contract, so the hook re-announces.
 async function evInject(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId }, files: [EV_RELAY_FILE], world: 'ISOLATED', injectImmediately: true,
@@ -166,8 +146,7 @@ async function evInject(tabId) {
   });
 }
 
-// document_start is the only way to see a page's very first requests. A registration
-// names an ORIGIN, not a tab (#198); the tabs.onUpdated re-inject covers the rest.
+// document_start is the only way to see a page's first requests; it names an origin, not a tab.
 async function evRegister(origin) {
   await evUnregister();
   if (!origin || !chrome.scripting.registerContentScripts) return false;
@@ -179,7 +158,7 @@ async function evRegister(origin) {
         world: 'MAIN', allFrames: false, persistAcrossSessions: false },
     ]);
     return true;
-  } catch { return false; } // an origin the registration API refuses (never http(s) now)
+  } catch { return false; } // an origin the registration API refuses (never http(s))
 }
 
 async function evUnregister() {
@@ -188,8 +167,7 @@ async function evUnregister() {
   catch { /* nothing registered */ }
 }
 
-// The hook is muted, never un-patched (others may have wrapped fetch after us). The mute
-// SURVIVES a document that never navigated, so a new recording has to wake it back up.
+// Muted, never un-patched (others may wrap fetch after us), so a new recording must wake it up.
 function evTellHook(tabId, on) {
   if (tabId == null || !chrome.tabs || !chrome.tabs.sendMessage) return;
   try { chrome.tabs.sendMessage(tabId, { type: on ? 'EVIDENCE_HOOK_ON' : 'EVIDENCE_HOOK_OFF' }).catch(() => {}); }
@@ -217,8 +195,7 @@ async function evStart(tabId, recordId) {
   await evLoadSettings();
   let tab = null;
   try { tab = await chrome.tabs.get(tabId); } catch { /* title may be hidden */ }
-  // Armed BEFORE the inject: the hook says hello the instant it lands, and a batch
-  // arriving at a session-less worker is answered by muting the hook we just installed.
+  // Armed before the inject: a batch reaching a session-less worker would mute the new hook.
   evBuf.clear();
   evNetById.clear();
   evHookReady = false;
@@ -232,8 +209,7 @@ async function evStart(tabId, recordId) {
   try {
     await evInject(tabId);
   } catch {
-    // resolveSiteTab said `ok` moments ago, so a refused inject means the tab left for a
-    // restricted page in between — name that, not the API error.
+    // resolveSiteTab said `ok` moments ago, so a refused inject means the tab went restricted.
     evSession = null;
     evMirror();
     throw new Error(SiteTab.restrictedCopy('recorded'));
@@ -256,8 +232,7 @@ async function evStop(keepBuffer = true) {
   await evMirror(); // awaited so EVIDENCE_WIPE can order its remove() after this write
 }
 
-// The one path for a stop nobody clicked (tab gone, testrun left, panel closed): the same
-// evStop, plus the broadcast that names the reason. A no-op when nothing is recording.
+// The one path for a stop nobody clicked: evStop plus a broadcast naming the reason.
 async function evStopIfRecording(reason) {
   if (!evSession) return false;
   await evStop(true);
@@ -265,14 +240,12 @@ async function evStopIfRecording(reason) {
   return true;
 }
 
-// Sign out's erase (#183). The buffer lives HERE, not in storage — `evidenceMirror` is
-// only a copy — so the panel clearing storage.session gets it back ~2 s later.
+// The buffer lives here, not in storage, so clearing storage.session alone refills it ~2 s later.
 async function evWipe() {
   await evReady; // a restore still in flight would re-adopt the buffer we drop
-  // A mirror ALREADY scheduled fires after the panel's clear() — cancel it first.
+  // A mirror already scheduled fires after the panel's clear(), so cancel it first.
   if (evMirrorTimer) { clearTimeout(evMirrorTimer); evMirrorTimer = null; }
-  // evStop ends in evMirror(), writing the key back empty — so the removal below must
-  // come after it.
+  // evStop writes the key back empty, so the removal must come after it.
   await evStop(false);
   if (chrome.storage.session) await chrome.storage.session.remove('evidenceMirror');
 }
@@ -290,15 +263,12 @@ function evStatus() {
   };
 }
 
-// ---- storage.session mirror (survives SW restart mid-session) ------------
-
 function evScheduleMirror() {
   if (evMirrorTimer) return;
   evMirrorTimer = setTimeout(() => { evMirrorTimer = null; evMirror(); }, EVIDENCE_MIRROR_MS);
 }
 
-// Returns the write so a caller that must ORDER something after it can await; every other
-// call site is fire-and-forget (the promise carries its own catch).
+// Returns the write so a caller can order after it; other callers fire and forget.
 function evMirror() {
   try {
     return chrome.storage.session
@@ -307,8 +277,7 @@ function evMirror() {
   } catch { return Promise.resolve(); } // storage.session unavailable — best effort
 }
 
-// SW start: restore the mirror, then resync. Nothing to re-attach — the page hook keeps
-// running and its next batch wakes us; only a vanished tab drops the session.
+// The page hook keeps running and wakes us with its next batch; only a vanished tab drops the session.
 async function evRestore() {
   await evLoadSettings();
   try {
@@ -327,15 +296,12 @@ async function evRestore() {
   evRestored = true;
 }
 
-// ---- listeners -----------------------------------------------------------
-
 // A closed recorded tab ends the recording (the hook died with it).
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (evSession && evSession.tabId === tabId) evStopIfRecording('target_closed');
 });
 
-// Unconditional on purpose: the document_start registration covers the START origin only,
-// so a recording that follows the tester cross-origin has nothing else.
+// Unconditional: the document_start registration covers only the start origin.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (!evSession || evSession.tabId !== tabId) return;
   if (changeInfo.status !== 'loading' && changeInfo.status !== 'complete') return;
@@ -350,8 +316,7 @@ const EVIDENCE_REQUESTS = new Set(['EVIDENCE_TOGGLE', 'EVIDENCE_STOP', 'EVIDENCE
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !EVIDENCE_REQUESTS.has(msg.type)) return undefined; // not ours (incl. the EVIDENCE_STOPPED broadcast)
-  // The hook's batches are answered synchronously so a busy page never queues microtasks
-  // behind a storage read; one that beats the mirror read would mute a live hook.
+  // Answered synchronously once restored; one answered before the mirror read would mute a live hook.
   if (msg.type === 'EVIDENCE_EVENTS') {
     const events = Array.isArray(msg.events) ? msg.events : [];
     if (evRestored) { sendResponse(evOnPageEvents(events, sender)); return undefined; }
@@ -360,8 +325,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   (async () => {
     try {
-      // The mirror read decides whether anything is recording, so a request that beats it would
-      // both answer wrong and have its own work overwritten when the read lands.
+      // The mirror read decides whether anything records; a request beating it would answer wrong.
       await evReady;
       if (msg.type === 'EVIDENCE_TOGGLE') {
         if (evSession) { await evStop(true); }
@@ -390,6 +354,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // async response
 });
 
-// Awaited only by the one handler that can arrive before it settles: a page hook still
-// posting after a worker restart.
+// A page hook may still post after a worker restart, before this restore settles.
 const evReady = evRestore();

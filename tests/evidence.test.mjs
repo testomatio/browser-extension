@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/evidence.js does for the tester (#157): while they work through a
-// run the panel can keep the last minute of the tested tab's console errors and failed requests. The
-// chip counts them, a hover card shows the newest six, each row attaches itself to the comment as a
-// quoted snippet, and marking the test Failed uploads the whole window as a readable .txt beside the
-// result. The background recorder is the source of truth; this file is its face.
-// Two things here are easy to break and expensive to lose. The 2-second poll repaints the whole list,
-// and a row the tester opened has to still be open afterwards — the verdict comes from evUi.expanded,
-// not from the DOM. And a recording belongs to the testrun it was STARTED in: evUi.recordId is the
-// recorder's own copy, so a panel reload still knows which screen owns the session and walking off
-// that screen ends it.
-// Rows 1-64 are the ticket's; a lettered suffix is the companion case that drives the same path the
-// other way, so a row asserting "nothing happened" cannot pass against a stub that never worked.
-// Rows 1-17 — the formatting and escaping — moved to tests/evidence-format.test.mjs when their code
-// became screens/evidence-format.js; this file still loads that module and drives it through the UI.
-// Rows 55-59 — the FAIL upload — went the same way to tests/evidence-upload.test.mjs; the screen no
-// longer uploads anything itself, it only keeps the evSend and the gate that one reaches back for.
-// Run: node --test tests/evidence.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,15 +7,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, fakeClock, makeDocument, el, fire, plain, settle } from './helpers/panel-harness.mjs';
 
-// The REAL trim from core/env-info.js, not a look-alike: PRIVACY.md's promise is that file's
-// wording, and a stub would let the snippet Attach writes pass against a marker the panel never
-// writes. CORE_SRC points the suite at a mutated COPY of core/, so a falsification run never edits it.
+// The real trim: a stub would let Attach's snippet pass against a marker the panel never writes.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const envTrimUrl = runInNewContext(`${readFileSync(join(CORE_SRC, 'env-info.js'), 'utf8')}\nenvTrimUrl;`, { URL });
 
-// evTime reads getHours/getMinutes/getSeconds — LOCAL time. Pinned here so the ticket's own UTC
-// stamps are the ones asserted; the row also carries a clock-agnostic form beside them.
+// evTime reads local time, so TZ is pinned to keep the UTC fixture stamps asserted.
 process.env.TZ = 'UTC';
 
 const NOW = Date.UTC(2026, 8, 3, 14, 6, 9); // what the panel's clock reads
@@ -42,8 +22,7 @@ const SITE = 'https://shop.example.com';
 const NO_TEST = 'Open a test to record its console & network log';
 const ATTACHED = 'Log snippet added to the comment';
 
-// Date.now() ages every card row, and the no-argument form is pinned beside it. The one-argument
-// form stays real, because that is the entry timestamp the row stamp is formatted from.
+// Date.now() ages every card row; the one-argument form stays real for entry stamps.
 class PinnedDate extends Date {
   constructor(...args) { if (!args.length) super(NOW); else super(...args); }
   static now() { return NOW; }
@@ -68,8 +47,7 @@ const HIDDEN = new Set(['rec-slot', 'evidence-toggle', 'evidence-errors', 'evide
   'evidence-count', 'evidence-body']);
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// The panel globals evidence.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the ones beside this land in parallel.
+// The panel globals evidence.js reads; they live here because every screen needs its own set.
 function load(opts = {}) {
   const o = {
     view: 'test',
@@ -102,15 +80,14 @@ function load(opts = {}) {
   }
 
   const calls = {
-    order: [],       // one ordered trace: "the flag, THEN the toggle, THEN the toast" is a row
+    order: [],       // one ordered trace: "the flag, then the toggle, then the toast" is a row
     sends: [],
     toasts: [],
     counters: [],
     empties: [],
     sections: [],    // showTestSection('status')
     disabledAt: [],  // the Rec button's state each time the flow reaches the site resolver
-    // Whether the screen still believed it was recording as each message left — the only way to see
-    // that the local status is cleared BEFORE the stop goes out.
+    // Whether the screen still thought it was recording as each message left: the clear must come first.
     recordingAt: [],
     card: { update: 0, close: 0 },
     listener: null,  // whatever initEvidence registered on chrome.runtime.onMessage
@@ -200,8 +177,7 @@ function load(opts = {}) {
 
   const clock = fakeClock();
   const h = loadScreen('evidence', {
-    // index.html's own order: the escaping layer is evaluated into this context first, so the real
-    // EvidenceFormat is what every row below drives — and it reads evWindowSeconds back out of here.
+    // index.html's order: the escaping layer loads first, so rows drive the real EvidenceFormat.
     before: ['evidence-format'],
     exported: '({ evUi, EV_CARD_ROWS, EvidenceFormat })',
     document: doc, clock, store, globals,
@@ -211,19 +187,15 @@ function load(opts = {}) {
   return {
     ...h,
     state, calls, node, store, clock,
-    // evUi is a lexical const: invisible as a sandbox property, reachable only off the completion
-    // value. Everything state-driven in this file is asserted through it or through what it paints.
+    // evUi is a lexical const, reachable only off the completion value; state is asserted through it.
     evUi: h.screen.evUi,
     format: h.screen.EvidenceFormat, // the module loaded beside the screen, same lexical scope
 
     types: () => calls.sends.map((m) => m.type),
     rows: () => (node.evidenceList ? node.evidenceList.children : []),
-    // The tester's own two clicks, through the listeners initEvidence registered.
     click: (name) => fire(node[name], 'click'),
   };
 }
-
-// ---------- what the hover card says (rows 18-22) ----------
 
 test('18: a request to the site under test is shown by its path — the origin is not the news', () => {
   const h = load();
@@ -258,15 +230,12 @@ test('21: a string that is no URL at all comes back as it came', () => {
 test('21 (#268): a data: URL on the card keeps the scheme that says what it is', () => {
   const h = load();
   h.evUi.tabUrl = `${SITE}/cart`;
-  // Was: 'text/plain,hi' — a payload the tester read as a path the site under test served.
   assert.equal(h.fn.evShortUrl('data:text/plain,hi'), 'data:text/plain,hi');
   // The same for every host-less scheme: what new URL calls the "path" there is not an address.
   assert.equal(h.fn.evShortUrl('blob:https://shop.example.com/9f2-4e'), 'blob:https://shop.example.com/9f2-4e');
   assert.equal(h.fn.evShortUrl('file:///tmp/report.html'), 'file:///tmp/report.html');
-  // A request that HAS a host is still shortened the same way it always was.
   assert.equal(h.fn.evShortUrl(`${SITE}/api/x?y=1`), '/api/x?y=1');
   assert.equal(h.fn.evShortUrl('https://cdn.other/z'), 'cdn.other/z');
-  // …and a payload longer than the card still goes through the same shortener.
   assert.equal(h.fn.evShortUrl(`data:image/png;base64,${'A'.repeat(400)}`).length, 200);
 });
 
@@ -279,8 +248,6 @@ test('22: a row is aged, not clocked — inside a trailing window the age is the
   assert.equal(h.fn.evAge(NOW - 60_000), '1m');
 });
 
-// ---------- the three settings gates (rows 23-28) ----------
-
 test('23: the kept window mirrors the recorder\'s clamp — 10 to 600, rounded, 60 by default', () => {
   const h = load({ settings: {} });
   assert.equal(h.fn.evWindowSeconds(), 60);
@@ -292,14 +259,11 @@ test('23: the kept window mirrors the recorder\'s clamp — 10 to 600, rounded, 
   assert.equal(at(60), 60);
   h.state.settings = undefined;
   assert.equal(h.fn.evWindowSeconds(), 60);
-  // state.settings starts life as null (core/state.js) and Number(null) is a finite 0, so an
-  // unguarded clamp floored it at 10 while the recorder kept 60. The row below is the whole rule.
+  // state.settings starts as null and Number(null) is a finite 0, so an unguarded clamp floors it at 10.
   h.state.settings = null;
   assert.equal(h.fn.evWindowSeconds(), 60);
 });
 
-// The three ways the value can be missing, every one of which the recorder answers 60 for: the
-// settings not loaded yet, the key never written, and the null stored for an out-of-range entry.
 test('23 (#264): every way the window can go missing quotes the recorder\'s 60s, not 10s', () => {
   const h = load({ settings: null });
   assert.equal(h.fn.evWindowSeconds(), 60, 'nothing loaded yet — the panel a tester opens cold');
@@ -307,8 +271,7 @@ test('23 (#264): every way the window can go missing quotes the recorder\'s 60s,
   assert.equal(h.fn.evWindowSeconds(), 60, 'settings.js stores null when what was typed is refused');
   h.state.settings = { baseUrl: 'https://app.testomat.io' };
   assert.equal(h.fn.evWindowSeconds(), 60, 'the key never written at all');
-  // A 0 the tester actually typed is a VALUE, not a gap: the `!= null` guard must not swallow it,
-  // and the recorder floors it at 10 the same way.
+  // A typed 0 is a value, not a gap: the != null guard must not swallow it, and the recorder floors it.
   h.state.settings = { evidenceWindowSec: 0 };
   assert.equal(h.fn.evWindowSeconds(), 10);
   h.state.settings = { evidenceWindowSec: '0' };
@@ -337,7 +300,6 @@ test('26: auto-start is the one that defaults OFF — a recorder nobody switched
   assert.equal(h.fn.evidenceAutoStartEnabled({}), false);
   assert.equal(h.fn.evidenceAutoStartEnabled({ evidenceAutoStart: true }), true);
   assert.equal(h.fn.evidenceAutoStartEnabled({ evidenceAutoStart: 'yes' }), false); // only the boolean
-  // The three gates really do disagree on the same empty settings object.
   assert.deepEqual(
     [h.fn.evidenceAutoAttachEnabled({}), h.fn.evidenceCaptureBodiesEnabled({}), h.fn.evidenceAutoStartEnabled({})],
     [true, true, false],
@@ -361,7 +323,6 @@ test('28: a storage that refuses the write is not a crash the Rec click carries'
   h.store.fails.set = new Error('storage unavailable');
   await h.fn.mirrorCaptureBodiesForRelay(); // swallowed whole
   assert.equal(h.store.ops('local', 'set').length, 1);
-  // A build with no storage area does not even reach for it.
   const bare = load({ storage: false });
   await bare.fn.mirrorCaptureBodiesForRelay();
   assert.equal(bare.store.ops('local', 'set').length, 0);
@@ -369,8 +330,6 @@ test('28: a storage that refuses the write is not a crash the Rec click carries'
   await noChrome.fn.mirrorCaptureBodiesForRelay();
   assert.equal(noChrome.store.ops('local', 'set').length, 0);
 });
-
-// ---------- which testrun a recording belongs to (rows 29-32) ----------
 
 test('29: the tester is told what ended the recording, unless naming it would mean the test title', () => {
   const h = load();
@@ -385,10 +344,8 @@ test('30: a live session whose testrun is not the screen on show has been left b
   h.evUi.recording = true;
   h.evUi.recordId = '55';
   assert.equal(h.fn.evLeftBoundTestrun(), true);
-  // Back on the test it started in, it has not been left at all.
   h.state.view = 'test';
   assert.equal(h.fn.evLeftBoundTestrun(), false);
-  // …and a screen with no recording under it is never "left", wherever the tester is.
   h.evUi.recording = false;
   h.state.view = 'run';
   assert.equal(h.fn.evLeftBoundTestrun(), false);
@@ -399,7 +356,6 @@ test('31: a panel reload passes through the run view on its way back — that is
   h.evUi.recording = true;
   h.evUi.recordId = '55';
   assert.equal(h.fn.evLeftBoundTestrun(), false);
-  // The same screen once the boot has finished IS a departure.
   h.state.booting = false;
   assert.equal(h.fn.evLeftBoundTestrun(), true);
 });
@@ -409,12 +365,9 @@ test('32: the bound testrun is compared stringified — a numeric id and its str
   h.evUi.recording = true;
   h.evUi.recordId = '7';
   assert.equal(h.fn.evLeftBoundTestrun(), false);
-  // A genuinely different testrun on the same screen still ends the session.
   h.state.currentRecordId = 8;
   assert.equal(h.fn.evLeftBoundTestrun(), true);
 });
-
-// ---------- status and the Rec toggle (rows 33-39) ----------
 
 const RECORDING = { recording: true, tabId: 7, recordId: '55', tabTitle: 'Shop', tabUrl: `${SITE}/cart` };
 
@@ -449,8 +402,7 @@ test('33b: a status that does not stop the recording leaves the rows where they 
 
 test('33c: the chip counts the RECORDING, so rows left over from an ended one show no figure', () => {
   const h = load();
-  // The second line of defence behind the clear in applyEvidenceStatus: whatever is still in the
-  // list, an idle chip must read as "nothing has been recorded", never as "recorded, 2 errors".
+  // Second line of defence: whatever is in the list, an idle chip must read as nothing recorded.
   h.evUi.errors = [con(), net()];
   h.fn.renderEvidenceToggle();
   assert.equal(h.node.evidenceErrors.hidden, true);
@@ -458,7 +410,6 @@ test('33c: the chip counts the RECORDING, so rows left over from an ended one sh
   assert.equal(h.node.evidenceToggle.getAttribute('aria-label'),
     'Rec — record the console & network log from the tab under test');
 
-  // The identical rows under a live recording are exactly what the chip is for.
   h.evUi.recording = true;
   h.evUi.tabTitle = 'Shop';
   h.fn.renderEvidenceToggle();
@@ -466,7 +417,6 @@ test('33c: the chip counts the RECORDING, so rows left over from an ended one sh
   assert.equal(h.node.evidenceErrors.textContent, '2');
   assert.equal(h.node.evidenceToggle.getAttribute('aria-label'), 'Rec — recording Shop, 2 errors caught, click to stop');
 
-  // One error is singular, and the chip belongs to the test view alone.
   h.evUi.errors = [con()];
   h.fn.renderEvidenceToggle();
   assert.equal(h.node.evidenceToggle.getAttribute('aria-label'), 'Rec — recording Shop, 1 error caught, click to stop');
@@ -499,7 +449,6 @@ test('35: Rec off the test view, or with no testrun to belong to, says so and st
     assert.deepEqual(h.calls.disabledAt, [], JSON.stringify(opts)); // it never reached the resolver
     assert.equal(h.node.evidenceToggle.disabled, false);
   }
-  // The identical click inside an open test does start a session.
   const open = load({ reply: () => ({ ok: true, status: RECORDING }) });
   await open.fn.onEvidenceToggle();
   assert.deepEqual(open.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
@@ -523,8 +472,7 @@ test('37: a start writes the page\'s flag BEFORE the toggle, so the hook cannot 
   await settle();
   assert.deepEqual(h.calls.order, [
     'resolveSiteTab', 'storage.set', 'send:EVIDENCE_TOGGLE',
-    // The status is applied before the toast, and the poll it starts asks for its first figure
-    // straight away rather than waiting the 2 s out.
+    // The status is applied before the toast, and the poll asks for its first figure without waiting 2 s.
     'card.attach', 'card.update', 'send:EVIDENCE_LIST', 'toast', 'card.update',
   ]);
   assert.deepEqual(h.calls.sends[0], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
@@ -554,7 +502,6 @@ test('39: a recorder that refuses says why and then re-reads the truth from the 
   await settle();
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
   assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
-  // A STOP the worker never answered is named too, rather than passing for a success.
   const gone = load({ reply: () => undefined });
   gone.evUi.recording = true;
   await gone.fn.onEvidenceToggle();
@@ -567,30 +514,23 @@ test('39 (#267): a recorder that refused is toasted as an error, not as a confir
   const h = load({ reply: () => ({ ok: false, error: 'x' }) });
   await h.fn.onEvidenceToggle();
   await settle();
-  // Was the ordinary confirmation style, in the very place a success is announced.
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: x', error: true }]);
-  // A page Chrome keeps extensions off is the same news, and carries the same flag.
   const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
   await off.fn.onEvidenceToggle();
   assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
-  // …while a start that WORKED stays a plain confirmation: the flag is the failure's, not the flow's.
   const ok = load({ reply: () => ({ ok: true, status: RECORDING }) });
   await ok.fn.onEvidenceToggle();
   assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
 });
 
 test('39c (#265): an unanswered START says "Recorder: unavailable", like an unanswered stop', async () => {
-  // chrome.runtime.sendMessage resolves to undefined when nothing answered, and the start path read
-  // `r.unrecordable` one line above the `!r` guard the stop path already enjoyed.
+  // chrome.runtime.sendMessage resolves to undefined when nothing answered.
   const h = load({ reply: () => undefined });
   await h.fn.onEvidenceToggle();
   await settle();
-  // Was: "Recorder error: Cannot read properties of undefined (reading 'unrecordable')".
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recorder: unavailable', error: true }]);
-  // …and the refresh the TypeError used to skip runs, so the chip stops showing what it last had.
   assert.deepEqual(h.types(), ['EVIDENCE_TOGGLE', 'EVIDENCE_STATUS']);
   assert.equal(h.node.evidenceToggle.disabled, false);
-  // The answer that DOES carry `unrecordable` still reaches its own sentence, not this one.
   const off = load({ site: { state: 'system-page', tab: null, origin: null, error: 'That page cannot be recorded' } });
   await off.fn.onEvidenceToggle();
   assert.deepEqual(off.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
@@ -606,24 +546,19 @@ test('39b: a throw inside the flow is a sentence, and the button is released all
 });
 
 test('39d (#291): a throw is toasted as an error too — the last exit #267 did not reach', async () => {
-  // A worker that answers `ok` with no status: the confirmation one line below reads
-  // r.status.recording and throws. A second real way into this catch, next to 39b's.
+  // A worker answering ok with no status: the confirmation reads r.status.recording and throws.
   const h = load({ reply: () => ({ ok: true }) });
   await h.fn.onEvidenceToggle();
   await settle();
-  // Was the plain confirmation style, in the very slot `Recording stopped` uses — so the failure read
-  // as "done", and a reader's screen reader queued it as a status instead of interrupting.
+  // An error toast interrupts a screen reader; the plain style would queue the failure as a status.
   assert.equal(h.calls.toasts.length, 1);
   assert.equal(h.calls.toasts[0].error, true);
   assert.ok(h.calls.toasts[0].msg.startsWith('Recorder error: '), h.calls.toasts[0].msg);
   assert.equal(h.node.evidenceToggle.disabled, false); // …and the button still comes back
-  // All four exits of the handler now agree, and only a success stays a plain confirmation.
   const ok = load({ reply: () => ({ ok: true, status: RECORDING }) });
   await ok.fn.onEvidenceToggle();
   assert.deepEqual(ok.calls.toasts, [{ msg: 'Recording Shop' }]);
 });
-
-// ---------- starting by itself, and the 2 s poll (rows 40-48) ----------
 
 const AUTO = { evidenceAutoStart: true };
 const started = (m) => (m.type === 'EVIDENCE_TOGGLE'
@@ -648,7 +583,6 @@ test('40: entering a testrun arms the recorder — but only with the setting on 
   await away.fn.evAutoStartOnTestView();
   assert.deepEqual(away.types(), []);
 
-  // All four conditions met, driven identically: the session starts and the poll begins.
   const on = load({ settings: AUTO, reply: started });
   await on.fn.evAutoStartOnTestView();
   await settle();
@@ -664,7 +598,7 @@ test('41: Back and straight forward again inside one round trip starts ONE sessi
   await first;
   await second;
   await settle();
-  // A second toggle would have STOPPED the first one's session, which is the whole point.
+  // A second toggle would stop the first one's session.
   assert.deepEqual(h.types().filter((t) => t === 'EVIDENCE_TOGGLE'), ['EVIDENCE_TOGGLE']);
   // One entry on its own still starts one, so the row above is not counting a stub that never sends.
   const alone = load({ settings: AUTO, reply: started });
@@ -698,7 +632,7 @@ test('42: a session that lands after the tester walked off is still applied, the
   });
   await h.fn.evAutoStartOnTestView();
   await settle();
-  // Only a LIVE session can be the one the poll then stops — the stop is the proof it was applied.
+  // Only a live session can be the one the poll then stops: the stop is the proof it was applied.
   assert.deepEqual(h.calls.sends, [
     { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' },
     { type: 'EVIDENCE_STOP', reason: 'left-testrun' },
@@ -706,7 +640,6 @@ test('42: a session that lands after the tester walked off is still applied, the
   assert.equal(h.evUi.recording, false);
   assert.equal(h.clock.count(), 0); // and the 2 s timer it armed went with it
 
-  // The same start with the tester still on the test keeps the session and polls instead.
   const stay = load({ settings: AUTO, reply: started });
   await stay.fn.evAutoStartOnTestView();
   await settle();
@@ -724,7 +657,7 @@ test('43: an automatic start is silent in both outcomes — a toast on every tes
   await blocked.fn.evAutoStartOnTestView();
   assert.deepEqual(blocked.calls.toasts, []);
   assert.deepEqual(blocked.types(), []);
-  // The tester's OWN click on that same page does say it — the silence belongs to the auto-start.
+  // The tester's own click on that page does say it: the silence belongs to the auto-start.
   await blocked.fn.onEvidenceToggle();
   assert.deepEqual(blocked.calls.toasts, [{ msg: 'That page cannot be recorded', error: true }]);
 });
@@ -739,7 +672,6 @@ test('44: a poll that finds the tester gone clears the chip FIRST and only then 
   assert.deepEqual(h.calls.recordingAt, [{ type: 'EVIDENCE_STOP', recording: false }]);
   assert.equal(h.evUi.recording, false);
 
-  // The same poll on the testrun the session belongs to asks for the list instead.
   const home = load({ reply: () => ({ ok: true, status: { recording: true }, entries: [con()] }) });
   home.evUi.recording = true;
   home.evUi.recordId = '55';
@@ -758,7 +690,6 @@ test('45: a recorder that stopped underneath us wins — its rows never reach th
   assert.equal(h.evUi.recording, false);
   assert.deepEqual(plain(h.evUi.errors), []); // B never lands, and A goes with the stop
 
-  // A poll the worker could not answer changes nothing at all.
   const lost = load({ reply: () => ({ ok: false, error: 'no-extension' }) });
   lost.evUi.recording = true;
   lost.evUi.recordId = '55';
@@ -775,8 +706,7 @@ test('46: the recording gets ONE 2 s poll, and the count does not wait 2 s for i
   h.fn.syncEvidencePolling();
   await settle();
   assert.deepEqual(h.clock.arms(), [2000]);
-  // The immediate first poll, and it asks for the errors ONLY: the section is an error log, and a
-  // full console would bury the two rows the tester came for under every info line the page wrote.
+  // The first poll asks for errors only: a full console would bury the rows the tester came for.
   assert.deepEqual(h.calls.sends, [{ type: 'EVIDENCE_LIST', errorsOnly: true }]);
   assert.equal(h.evUi.errors.length, 2);
 
@@ -802,7 +732,6 @@ test('47: the timer belongs to the recording — a stop takes it away', async ()
   assert.equal(h.clock.count(), 0);
   assert.equal(h.evUi.pollTimer, null);
   assert.deepEqual(h.clock.cleared.length, 1);
-  // A tick after the stop reaches nothing: no further round trip is made.
   const before = h.calls.sends.length;
   await h.clock.tick();
   await settle();
@@ -818,7 +747,6 @@ test('48: leaving the test retires the rows the tester had open — a later reco
   assert.equal(h.node.evidenceSection.hidden, true);
   assert.equal(h.evUi.expanded.size, 0);
 
-  // On the test, with the recording still live, the same call keeps them.
   const stay = load();
   stay.evUi.recording = true;
   stay.evUi.expanded.add('console:1:boom');
@@ -833,8 +761,6 @@ test('48: leaving the test retires the rows the tester had open — a later reco
   assert.equal(idle.node.evidenceSection.hidden, false);
   assert.equal(idle.evUi.expanded.size, 0); // …but the keys retire with the session that made them
 });
-
-// ---------- the list (rows 49-52) ----------
 
 const many = (n) => Array.from({ length: n }, (_, i) => con({ text: `e${i}`, ts: TS + i }));
 
@@ -889,7 +815,6 @@ test('49c: the Attach button on a row does not also fold the row open', async ()
   // The click really lands on the button inside the head, the way a pointer delivers it.
   fire(head, 'click', { target: row.querySelector('.ev-attach') });
   assert.equal(row.classList.contains('expanded'), false);
-  // …while the same click anywhere else in the head does open it.
   fire(head, 'click');
   assert.equal(row.classList.contains('expanded'), true);
 });
@@ -917,7 +842,6 @@ test('51: an empty errors-only log is a TICK, not a shrug — the page behaved',
   assert.equal(h.node.evidenceCount.textContent, '0');
   assert.deepEqual(h.calls.empties.map((e) => e.icon), ['check_circle']);
   assert.equal(h.rows()[0].querySelector('.empty-text').textContent, 'No console or network errors captured yet.');
-  // The moment one error arrives, the tick gives way to the row.
   h.evUi.errors = [con()];
   h.fn.renderEvidenceList();
   assert.equal(h.node.evidenceCount.textContent, '1');
@@ -951,13 +875,12 @@ const detailsOf = (box) => {
 
 test('52b (#292): the expanded row on SCREEN keeps the address whole — that is what finds the bug', () => {
   const h = load();
-  // DELIBERATE, not the leak #292 left behind: this card never leaves the browser, and a tester
-  // looking at their own page needs the address that reopens it, query string and all.
+  // Deliberate: this card never leaves the browser, and the tester needs the address that reopens it.
   const con1 = detailsOf(h.fn.evDetails(con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })));
   assert.equal(con1.Location, `${SITE}/reset?token=abc123:42:7`);
   const net1 = detailsOf(h.fn.evDetails(net({ url: `${SITE}/pay?token=abc123&card=4111` })));
   assert.equal(net1.URL, `${SITE}/pay?token=abc123&card=4111`);
-  // …and the row the LIST paints is that same untrimmed one, not a second rendering.
+  // The row the list paints is that same untrimmed one, not a second rendering.
   h.evUi.recording = true;
   h.evUi.sectionOpen = true;
   h.evUi.errors = [con({ url: `${SITE}/reset?token=abc123`, line: 42, col: 7 })];
@@ -969,8 +892,6 @@ test('52b (#292): the expanded row on SCREEN keeps the address whole — that is
     `500 GET ${SITE}/pay?token=abc123 · ${AT}`);
 });
 
-// ---------- attaching one row to the comment (rows 53-54) ----------
-
 test('53: Attach drops the snippet into the comment and tells the draft-save it changed', () => {
   const h = load();
   const seen = [];
@@ -980,7 +901,6 @@ test('53: Attach drops the snippet into the comment and tells the draft-save it 
   assert.equal(h.node.testComment.value, `> \`[console.error ${AT}] boom\``);
   assert.deepEqual(h.calls.toasts, [{ msg: ATTACHED }]);
 
-  // A second row appends under the first, on its own line — it never replaces what is there.
   h.fn.attachEvidenceEntry(net({ url: 'https://x/y' }));
   assert.equal(
     h.node.testComment.value,
@@ -1001,13 +921,11 @@ test('54: a panel with no comment box to attach to is not a crash', () => {
   const h = load({ without: ['test-comment'] });
   h.fn.attachEvidenceEntry(con());
   assert.deepEqual(h.calls.toasts, []); // silent: nothing was attached, so nothing is claimed
-  // The same entry on a panel that HAS the box does toast, so the silence is the missing box.
+  // The same entry on a panel that has the box does toast, so the silence is the missing box.
   const box = load();
   box.fn.attachEvidenceEntry(con());
   assert.deepEqual(box.calls.toasts, [{ msg: ATTACHED }]);
 });
-
-// ---------- wiring, messaging and the card (rows 60-64) ----------
 
 test('60: in the chain the dot keeps pulsing, so a "stopped" toast would contradict the screen', () => {
   const h = load({ settings: AUTO });
@@ -1017,14 +935,12 @@ test('60: in the chain the dot keeps pulsing, so a "stopped" toast would contrad
   assert.deepEqual(h.calls.toasts, []);
   assert.equal(h.evUi.recording, false); // …but the status was applied all the same
 
-  // Every other reason keeps its sentence, chain or no chain.
   h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'target_closed' });
   h.calls.listener({ type: 'EVIDENCE_STOPPED', reason: 'panel-closed' });
   assert.deepEqual(h.calls.toasts, [
     { msg: 'Recording stopped — the recorded tab was closed' },
     { msg: 'Recording stopped — the panel was closed' },
   ]);
-  // And a message that is not ours is not ours.
   h.calls.listener({ type: 'SOMETHING_ELSE', reason: 'target_closed' });
   h.calls.listener(null);
   assert.equal(h.calls.toasts.length, 2);
@@ -1062,7 +978,6 @@ test('60c: init wires the Rec chip and the fold, and asks the worker what it is 
   await settle();
   assert.deepEqual(h.calls.sends[1], { type: 'EVIDENCE_TOGGLE', tabId: 7, recordId: '55' });
   assert.deepEqual(h.calls.toasts, [{ msg: 'Recording Shop' }]);
-  // …and folding it shut again is the same click.
   h.click('evidenceHead');
   assert.equal(h.evUi.sectionOpen, false);
   assert.equal(h.node.evidenceBody.hidden, true);
@@ -1075,7 +990,6 @@ test('61: outside the extension context every message answers instead of throwin
       JSON.stringify(opts));
     assert.deepEqual(h.calls.sends, [], JSON.stringify(opts));
   }
-  // A live context passes the worker's own answer straight back.
   const live = load({ reply: () => ({ ok: true, status: { recording: true } }) });
   assert.deepEqual(plain(await live.fn.evSend({ type: 'EVIDENCE_STATUS' })), { ok: true, status: { recording: true } });
 });
@@ -1084,7 +998,6 @@ test('62: a worker torn down mid-message hands its sentence back rather than thr
   const gone = load({ reply: () => Promise.reject(new Error('Receiving end does not exist')) });
   assert.deepEqual(plain(await gone.fn.evSend({ type: 'EVIDENCE_STATUS' })),
     { ok: false, error: 'Receiving end does not exist' });
-  // A rejection that is not an Error at all still reads as a sentence.
   const odd = load({ reply: () => Promise.reject('boom') });
   assert.deepEqual(plain(await odd.fn.evSend({ type: 'EVIDENCE_STATUS' })), { ok: false, error: 'boom' });
 });
@@ -1144,18 +1057,9 @@ test('64d: the link on the card lands the tester on the rows, in the tab that ho
   h.evUi.errors = many(2);
   const box = h.fn.evRecordingCard();
   fire(box.querySelector('.link-btn'), 'click');
-  // The fold lives in the Status tab, which a test does not open on: the tab is switched FIRST.
+  // The fold lives in the Status tab, which a test does not open on: the tab is switched first.
   assert.deepEqual(h.calls.sections, ['status']);
   assert.equal(h.evUi.sectionOpen, true);
   assert.equal(h.calls.card.close, 1);
 });
-
-// ===================== shipped bugs, carried over unfixed =====================
-
-// Every row below asserts what the tester should get; each fails against today's file. The numbers
-// stay as placeholders — the issues are described in the PR, not filed from here.
-
-// 11: nothing on this path caps the body. A recorded page can post fabricated rows with a
-// megabyte-long bodySnippet and the whole of it lands in the tester's comment.
-// 23 (#264) was one of these and is fixed — it reads as a rule up with the settings gates now.
 

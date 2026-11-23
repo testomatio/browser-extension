@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// The Run info card of extension/sidepanel/screens/run-info.js (#161 rows 14-28b plus this file's
-// own 89-96a, moved out of tests/run-view.test.mjs by #194): what the panel makes of a run detail,
-// the rows it prints from it, and the disclosure a tester's choice outlives the panel through.
-// Three things here are easy to get quietly wrong, so most of this file is about them. The model
-// reads TWO payloads that spell the same field differently and must never write null over what the
-// other one found; a stamp is printed in the ACCOUNT PROFILE's zone in en-US wording, not the
-// machine's; and ciBuildLink is this codebase's reference safe-href — server data reaching an
-// `href`, so `javascript:`, `data:` and a scheme-relative URL each have to come back as no link
-// at all rather than as a link that looks harmless.
-// Rows 137-141 are new: the falsification run behind the move found the disclosure accessor, the
-// status pill repainted with the card, the persisted key's spelling, the load order and every call
-// site pinned nowhere at all. tests/run-view.test.mjs keeps what the SCREEN does with this card
-// (row 136 — opening a run fills it) and drives the real module to do it.
-// Run: node --test tests/run-info.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,27 +8,22 @@ import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, SCREENS_SRC, makeDocument, el, fire, plain } from './helpers/panel-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The two switchable directories, so rows 140-141 read whatever SCREENS_SRC / CORE_SRC point at;
-// index.html belongs to neither and is read where it ships, as tests/run-lock.test.mjs:134 reads it.
+// SCREENS_SRC / CORE_SRC are switchable; index.html belongs to neither and is read where it ships.
 const raw = (dir, f) => readFileSync(join(dir, f), 'utf8');
 
-// formatTimeIn falls back to the MACHINE zone when the profile zone is junk (row 18). Pinned to a
-// zone that is neither UTC nor the repo's own, so the fallback is distinguishable from a honoured
-// timeZone argument rather than accidentally equal to it. Set before anything formats a date.
+// Neither UTC nor the repo's zone, so the junk-zone fallback is visible; set before any date formats.
 process.env.TZ = 'Asia/Tokyo';
 
-// The REAL formatter, not a stub: the Duration row asserts what a tester reads, and a fake would
-// let it pass against a wording the panel never prints (tests/format.test.mjs).
+// The real formatter: a fake would let the Duration row pass on a wording the panel never prints.
 const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 
-// index.html:521-530, cut to the three nodes this module touches.
+// index.html's run-info card, cut to the three nodes this module touches.
 const NODES = [['div', 'run-info', true], ['button', 'run-info-head', false], ['dl', 'run-info-body', false]];
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
 const rec = (id, over = {}) => ({ id, test_id: id, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// The panel globals run-info.js reads. paintRunState belongs to screens/run-view.js and stays
-// there, so it is a recorder: what this module owes it is THAT it repaints with the card.
+// paintRunState belongs to run-view.js, so it is a recorder: this module only owes the repaint.
 function load(opts = {}) {
   const o = {
     runInfo: {},
@@ -61,9 +42,7 @@ function load(opts = {}) {
     node[key(id)] = n;
     doc.body.append(n);
   }
-  // The three members mini-dom does not have and this module reaches for. Layout is STATED here
-  // (a browser measures it): zero-by-zero means the description fits, which is the branch that
-  // leaves the "Show more" button off — row 96 states an overflow and gets the button instead.
+  // Layout is stated, not measured: zero-by-zero means the description fits and gets no "Show more".
   const create = doc.createElement.bind(doc);
   doc.createElement = (tag) => {
     const made = create(tag);
@@ -92,8 +71,7 @@ function load(opts = {}) {
 
   const state = { runInfo: o.runInfo, records: o.records };
 
-  // shared/user-cell.js's own normalize, verbatim in behaviour: a string with an @ is an address, a
-  // record is name+email+avatar, anything naming nobody is null. Rows 14, 16 and 28 are ABOUT it.
+  // user-cell.js's normalize: an @ string is an address, a record a person, anything else null.
   const normalize = (user) => {
     if (!user) return null;
     if (typeof user === 'string') {
@@ -112,8 +90,7 @@ function load(opts = {}) {
     state,
     $: (id) => doc.getElementById(id),
     persistSession: () => { calls.persists += 1; },
-    // The real core/format.js, recorded on the way through. The ARGUMENT is the point of row 23:
-    // this module holds SECONDS and has to multiply, so an unconverted 90 prints '0.09s'.
+    // This module holds seconds and must multiply, so an unconverted 90 prints '0.09s'.
     Fmt: { humanDuration: (ms) => { calls.durations.push(ms); return Fmt.humanDuration(ms); } },
     viewerTimezone: () => o.timezone ?? null,
     assigneeUser: (email) => (o.members || {})[String(email).toLowerCase()] || null,
@@ -123,10 +100,8 @@ function load(opts = {}) {
       const at = String(email).indexOf('@');
       return at > 0 ? String(email).slice(0, at) : String(email);
     },
-    // screens/run-view.js's own, recorded: it stayed with the screen this module came out of.
     paintRunState: () => { calls.runStates += 1; },
-    // shared/icons.js's own el: `cls` is handed to classList.add one token per argument, and the
-    // real one throws on a token with a space — the arity is the contract, so the stub keeps it.
+    // The real el throws on a class token with a space, so the stub keeps one token per argument.
     Icons: {
       el: (name, size = 16, ...cls) => {
         const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
@@ -135,17 +110,14 @@ function load(opts = {}) {
       },
       emoji: () => null,
     },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // The real one writes data-tip on the node; a bare recorder could not tell where a tip landed.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
         return n;
       },
     },
-    // A stub, deliberately: the rows below assert what Run info COMPOSES around a cell — 'Created
-    // by <person><date>' is one row — and the real cell's monogram would rewrite every one of those
-    // strings without testing anything of this module. shared/user-cell.js has its own suite.
+    // A stub on purpose: the real cell's monogram would rewrite every composed string asserted below.
     UserCell: {
       normalize,
       cell: (user) => {
@@ -165,12 +137,9 @@ function load(opts = {}) {
   const h = loadScreen('run-info', {
     globals,
     document: doc,
-    // index.html's own order: core/status-icons.js stands ahead of every screen, and the status
-    // cell and the CI link draw their glyphs through it. The REAL one — a stub would make rows 21
-    // and 90 test the stub (#194).
+    // index.html's order: the real status-icons.js before every screen, or the glyph rows test a stub.
     before: [['status-icons', CORE_SRC]],
-    // RunInfo is a lexical const: invisible as a sandbox property, reachable only off the completion
-    // value, the same seam tests/md-sections.test.mjs uses.
+    // RunInfo is a lexical const: not a sandbox property, reachable only off the completion value.
     exported: 'RunInfo',
   });
 
@@ -193,9 +162,6 @@ function load(opts = {}) {
     },
   };
 }
-
-
-// ---------- the Run info model (rows 14-21, 89-90) ----------
 
 test('14: the v2 detail is kept verbatim — the authoritative count, and only plans that NAME one', () => {
   const h = load();
@@ -301,7 +267,7 @@ test('21: a padded https URL is trimmed, opened in a new tab and never printed a
   assert.ok(a.textContent.startsWith('Open CI build'), a.textContent);
   assert.equal(a.querySelector('.link-out-icon').dataset.icon, 'open_in_new');
   assert.equal(a.textContent.includes('ci.example'), false, 'and never the label');
-  // http and an upper-case scheme are the same answer — the check is the SCHEME, not the spelling.
+  // http and an upper-case scheme are the same answer — the check is the scheme, not the spelling.
   assert.equal(h.mod.ciBuildLink('http://ci.example/9').href, 'http://ci.example/9');
   assert.equal(h.mod.ciBuildLink('HTTPS://ci.example/9').rel, 'noopener noreferrer');
 });
@@ -322,8 +288,6 @@ test('90: the status cell normalises the colour key but prints the word the serv
   assert.equal(span.textContent, 'launching');
 });
 
-// ---------- the Run info rows (rows 22-28, 91-96) ----------
-
 // state.runInfo is what rows() reads; everything below states it directly.
 const withInfo = (info, over = {}) => load({ runInfo: info, timezone: 'UTC', ...over });
 const labelled = (h) => Object.fromEntries(h.mod.rows()
@@ -332,7 +296,7 @@ const labelled = (h) => Object.fromEntries(h.mod.rows()
 test('22: the card prints the SERVER\'s total, not the number of rows loaded into the panel', () => {
   const h = withInfo({ testsCount: 180 }, { records: Array.from({ length: 50 }, (_, i) => rec(i + 1)) });
   assert.equal(labelled(h).Tests, '180');
-  // …and never below the checklist: a run created moments ago has rows the count has not caught up to.
+  // Never below the checklist: a run created moments ago has rows the count has not caught up to.
   h.state.runInfo = { testsCount: 0 };
   assert.equal(labelled(h).Tests, '50');
 });
@@ -391,11 +355,10 @@ test('28: one person named twice is one cell — the key is the ADDRESS, whateve
 });
 
 test('28a: the ticket\'s "one by email, one by name" is TWO cells — the key is not a human', () => {
-  // Following the code, not row 28's wording: `(u.email || u.name).toLowerCase()` cannot know that
-  // 'Bob' and 'bob@x.io' are the same tester, and the comment above it says "keyed by address".
+  // `(u.email || u.name).toLowerCase()` cannot know 'Bob' and 'bob@x.io' are one tester.
   const h = withInfo({ assignees: ['Bob'] }, { records: [rec(1, { assigned_to: 'bob@x.io' })] });
   assert.deepEqual(h.mod.assignees().children.map((c) => c.textContent), ['Bob', 'bob']);
-  // …and a NAME is folded by the same rule the address is: two spellings of one are one cell.
+  // A name is folded by the same rule the address is: two spellings of one are one cell.
   const named = withInfo({ assignees: ['Ann', 'ANN'] });
   assert.deepEqual(named.mod.assignees().children.map((c) => c.textContent), ['Ann']);
 });
@@ -409,7 +372,7 @@ test('28b: nobody assigned anywhere is no row at all', () => {
 test('91: a person named only by address is resolved through the project members for their name', () => {
   const h = withInfo({ executedBy: 'ann@x.io' }, { members: { 'ann@x.io': { name: 'Ann Lee', email: 'ann@x.io' } } });
   assert.equal(labelled(h)['Executed by'], 'Ann Lee');
-  // What the PAYLOAD said wins over the members map.
+  // What the payload said wins over the members map.
   h.state.runInfo = { executedBy: { name: 'A. Lee', email: 'ann@x.io' } };
   assert.equal(labelled(h)['Executed by'], 'A. Lee');
   // Nobody in the map and no name: the address's local part, the way the assignee chip falls back.
@@ -508,15 +471,13 @@ test('95: a page without the card is not an error — the test view shares the r
   assert.doesNotThrow(() => h.mod.paint());
 });
 
-// ---------- the seams the move opened (rows 137-141) ----------
-
 test('137 (#194): `open` is a real accessor — what app.js writes is what the paint reads', () => {
   const h = withInfo({ status: 'running' });
-  // The default is OPEN: a profile predating the key must not find the card shut.
+  // The default is open: a profile predating the key must not find the card shut.
   assert.equal(h.mod.open, true);
   h.mod.render();
   assert.equal(h.node.runInfoBody.hidden, false);
-  // app.js:152's own write. A data property beside a module `let` would leave this unread.
+  // The write app.js makes: a data property beside a module `let` would leave this unread.
   h.mod.open = false;
   h.mod.paint();
   assert.equal(h.node.runInfoBody.hidden, true);
@@ -576,8 +537,7 @@ test('140 (#194): the page carries the card and loads the module ahead of every 
   for (const s of ['screens/run-view.js', 'screens/livesync.js', 'app.js']) {
     assert.ok(at('screens/run-info.js') < at(s), `screens/run-info.js stands before ${s}`);
   }
-  // core/storage.js is the one caller it does NOT stand before — a core file reaching forward into
-  // a screen, exactly as it did when this name lived in run-view.js. Late-bound, unchanged.
+  // core/storage.js loads before it: a core file reaching forward into a screen, late-bound.
   assert.ok(at('core/storage.js') < at('screens/run-info.js'));
 });
 
@@ -588,27 +548,25 @@ test('141 (#194): every call site asks RunInfo by name, and the saved key keeps 
     [join(CORE_SRC, 'storage.js')]: 1,
     [join(repoRoot, 'extension/sidepanel/app.js')]: 2, // neither directory — read where it ships
   };
-  // Every name the module took, as a CALL: a bare one here throws only under a tester's finger.
+  // Every name the module took, as a call: a bare one here throws only under a tester's finger.
   const OLD = /(^|[^.\w])(runInfoFromDetail|envList|planList|flatPeople|formatTimeIn|runInfoTime|ciBuildLink|runInfoTags|runInfoStatus|runInfoUser|runInfoAssignees|measureRunInfoPeople|runInfoDescription|runInfoDescExpander|measureRunInfoDesc|runInfoRows|renderRunInfo|paintRunInfo|toggleRunInfo)\s*\(/;
   for (const [file, n] of Object.entries(callers)) {
     const src = readFileSync(file, 'utf8');
     const code = src.replace(/\/\/.*$/gm, ''); // two files name the module in a trailing comment too
     assert.equal((code.match(/\bRunInfo\.\w+/g) || []).length, n, `${file} names RunInfo ${n} time(s)`);
     assert.doesNotMatch(code, OLD, `${file} calls no bare old name`);
-    // The bare `let` is gone too: an assignment to it would now build a stray global in silence.
+    // An assignment to a bare runInfoOpen would build a stray global in silence.
     assert.doesNotMatch(code, /(^|[^.\w])runInfoOpen\s*=[^=]/, `${file} assigns no bare runInfoOpen`);
   }
-  // The `/* global … */` block of the two screens that have one; core/storage.js has none, and
-  // reads `state`, `hasChrome` and `hostOf` just as bare.
+  // The `/* global … */` block of the two screens that have one; core/storage.js reads them bare.
   for (const file of [join(SCREENS_SRC, 'run-view.js'), join(SCREENS_SRC, 'livesync.js'),
     join(repoRoot, 'extension/sidepanel/app.js')]) {
     assert.ok(/\/\* global ([\s\S]*?)\*\//.exec(readFileSync(file, 'utf8'))[1].includes('RunInfo'),
       `${file} declares the global`);
   }
-  // The persisted KEY, not the module's name for it: renaming it loses every profile's choice.
+  // The persisted key, not the module's name for it: renaming it loses every profile's choice.
   assert.match(raw(CORE_SRC, 'storage.js'), /\brunInfoOpen:\s*RunInfo\.open\b/);
-  // app.js hands the head the method itself, unbound — which is only safe because nothing in the
-  // module says `this`. One `this.` in there and every click on the card would throw.
+  // The handler is passed unbound, safe only while the module never says `this`.
   assert.match(readFileSync(join(repoRoot, 'extension/sidepanel/app.js'), 'utf8'),
     /addEventListener\('click', RunInfo\.toggle\)/);
   assert.doesNotMatch(raw(SCREENS_SRC, 'run-info.js').replace(/\/\/.*$/gm, ''), /\bthis\b/);

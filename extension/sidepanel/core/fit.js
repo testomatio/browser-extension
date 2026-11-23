@@ -1,21 +1,15 @@
-// The two rows that measure themselves: the filter chips that send their overflow into a "…" menu,
-// and the create buttons that drop a word when the field beside them runs out of room. Read by
-// core/views.js, which keeps fitFilterChips and initActionLabelFit as bare delegates to this.
+// Self-measuring rows: filter chips overflow into a "…" menu, create buttons drop a word.
 
 /* global Icons, Tooltip */
 
-// Every helper below the state is a `const`, never a declaration: a top-level `function` would sit
-// on the page's global object, where a mistyped call resolves to something instead of throwing.
+// Helpers are `const`s: a top-level `function` lands on the global object, where typos resolve.
 
-// ---------- filter chips: the row that sends its overflow to a menu ----------
-// Measured, not guessed — the panel is user-resizable and counts change width, so
-// there is no breakpoint: hide one chip at a time from the right, never "All".
+// Measured, not guessed: the panel resizes and counts change width; never hide "All".
 const filterFitWidth = new WeakMap(); // last width each row was fitted at
 const filterFitObserved = new WeakSet();
 const filterMoreApi = new WeakMap(); // bar -> its trigger+menu, built once
 
-// The observer also fires for the width the fit itself changed, hence the width
-// guard — without it the row would re-fit forever.
+// The observer also fires for the width the fit changed; the guard stops an endless re-fit.
 const observeFilterFit = (bar) => {
   if (filterFitObserved.has(bar)) return;
   filterFitObserved.add(bar);
@@ -24,18 +18,14 @@ const observeFilterFit = (bar) => {
   }).observe(bar);
 };
 
-// Where a pick leaves the caret. The chosen chip's own click re-renders the row underneath, so this
-// is a question, not a constant — and focus on a node that is hidden or no longer in the row is
-// focus on nothing, which the browser answers by dropping the caret on <body>.
+// The chip's own click re-renders the row, and focus on a gone node drops the caret on <body>.
 const caretAfterPick = (bar, chip, wrap, trigger) => {
   if (chip.isConnected && !chip.hidden) chip.focus();
   else if (!wrap.hidden) trigger.focus();
   else { bar.tabIndex = -1; bar.focus(); } // a group holds the caret only once it is made able to
 };
 
-// ---------- create-button labels ----------
-// Measured on the FIELD beside the button, not the button: these rows never wrap and
-// the search is all that shrinks. 144 = "Search suites…" plus magnifier and padding.
+// Measured on the search field beside the button; 144 = "Search suites…" + magnifier + padding.
 const LABEL_FIT_MIN_FIELD = 144;
 const labelFitWidth = new WeakMap(); // last width each row was fitted at
 const labelFitObserved = new WeakSet();
@@ -57,8 +47,7 @@ const observeLabelFit = (bar) => {
 };
 
 const Fit = {
-  // Built once per bar and reused across every fit — torn down and rebuilt while
-  // open, the menu would close itself out from under the pointer.
+  // Built once per bar: rebuilt while open, the menu would close out from under the pointer.
   ensureFilterMore(bar) {
     let api = filterMoreApi.get(bar);
     if (api) return api;
@@ -72,8 +61,7 @@ const Fit = {
     trigger.className = 'btn secondary icon size-sm filter-more-trigger';
     trigger.setAttribute('aria-haspopup', 'menu');
     trigger.setAttribute('aria-expanded', 'false');
-    // Both: a tip is only the accessible DESCRIPTION (shared/tooltip.js sets
-    // aria-describedby), so a glyph-only button is announced as "button" without a name.
+    // Both: a tip is only the accessible description, so a glyph-only button needs a name.
     trigger.setAttribute('aria-label', 'More filters');
     Tooltip.set(trigger, 'More filters');
     trigger.append(Icons.el('more_horiz', 16));
@@ -116,8 +104,7 @@ const Fit = {
     return api;
   },
 
-  // One option per hidden chip. A pick clicks the real (hidden) chip, so it runs
-  // the exact listener and render path a visible chip would.
+  // A pick clicks the real hidden chip, so it runs the exact path a visible chip would.
   renderFilterMore(bar, hiddenChips) {
     const { wrap, trigger, menu, close } = Fit.ensureFilterMore(bar);
     wrap.hidden = hiddenChips.length === 0;
@@ -133,8 +120,7 @@ const Fit = {
       li.append(label);
       const counter = chip.querySelector('.counter');
       if (counter) li.append(counter.cloneNode(true));
-      // Shut first, then run the chip: its click reaches the document-level closer before its own
-      // listener, so close({ focus: true }) would find the menu already down and move nothing.
+      // Shut first: the chip's click reaches the document closer before its own listener.
       const pick = () => { close(); chip.click(); caretAfterPick(bar, chip, wrap, trigger); };
       li.addEventListener('click', pick);
       li.addEventListener('keydown', (e) => {
@@ -144,8 +130,7 @@ const Fit = {
       });
       return li;
     }));
-    // The trigger stands in for what it hides, so it wears the selected state when
-    // the chosen chip is one of them.
+    // The trigger stands in for what it hides, so it wears the selected state for them.
     const standingIn = hiddenChips.some((c) => c.classList.contains('selected'));
     trigger.classList.toggle('selected', standingIn);
     trigger.classList.toggle('secondary', !standingIn);
@@ -153,16 +138,14 @@ const Fit = {
 
   filterChips(bar) {
     if (!bar) return;
-    // Armed before measuring: a row rendered while its screen is hidden has no
-    // width, and the observer is what brings it back the moment it is shown.
+    // Armed before measuring: a row rendered hidden has no width, and the observer brings it back.
     observeFilterFit(bar);
     const chips = [...bar.querySelectorAll(':scope > .filter-chip[data-filter]')];
     if (!chips.length || !bar.clientWidth) return;
     const { wrap } = Fit.ensureFilterMore(bar);
     if (wrap.parentNode !== bar) bar.append(wrap); // trigger always trails the real chips
 
-    // Re-fit from the wide state, never from wherever the last fit left it, or a
-    // panel dragged WIDER keeps chips hidden that now have room.
+    // Re-fit from the wide state, or a panel dragged wider keeps chips hidden that now have room.
     for (const chip of chips) chip.hidden = false;
     wrap.hidden = true;
     if (bar.scrollWidth <= bar.clientWidth) {
@@ -191,7 +174,7 @@ const Fit = {
     const btns = [...bar.querySelectorAll('.fit-label')];
     const field = bar.querySelector('.field');
     if (!btns.length || !field || !bar.clientWidth) return;
-    // Both words back on first, or a panel dragged WIDER keeps the short label.
+    // Both words back on first, or a panel dragged wider keeps the short label.
     for (const btn of btns) shortenLabel(btn, false);
     // Reading clientWidth is what forces the layout the toggle above just changed.
     if (field.clientWidth < LABEL_FIT_MIN_FIELD) for (const btn of btns) shortenLabel(btn, true);

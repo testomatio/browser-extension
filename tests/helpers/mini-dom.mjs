@@ -1,25 +1,6 @@
-// A hand-made page for `node --test`: the panel screens build their UI out of elements, and this
-// repo has no package.json, so there is no jsdom to borrow one from. See DIVERGENCES below.
+// innerHTML is a tokeniser, not a browser: no implied tags, so `<table><tr>` nests as written.
 
-// DIVERGENCES, each earned by a test. querySelectorAll returns a PLAIN ARRAY, and document order
-// is depth-first, because indexOf on that array is how a step's position is computed.
-
-// append('<b>x</b>') is ONE TEXT NODE: append never parses HTML. A property assigned to a node
-// stays verbatim, while getAttribute, the selectors and `attributes` all report it.
-
-// innerHTML DOES parse, because shared/markdown.js hands showdown's output to it and the sanitizer
-// is then asked what survived. It is a tokeniser, not a browser: comments and doctypes are dropped,
-// void and raw-text elements are honoured, an unmatched `</p>` is ignored, and there is no implied
-// tag insertion — `<table><tr>` nests as written. Entities decode on the way in and `& < >` re-encode
-// on the way out, so the round trip a sanitizer test reads is the one a browser shows.
-
-// Events do not bubble by default — fire() runs the listeners on the node it is handed. `bubbles:
-// true` opts into the real capture/target/bubble walk out to the document, which is what a listener
-// delegated to a list container needs; click() always sends one of those. Pre-created ids:
-// makeDocument(['ul#tc-tree']) appends one element per entry to <body>.
-
-// The node's own machinery: never copied by cloneNode, never read as an attribute. Layout, `style`
-// and a shadow root belong here too — a browser reflects none of them.
+// The node's own machinery: never copied by cloneNode, never read as an attribute.
 const STRUCT = new Set(['tagName', 'nodeType', 'nodeValue', 'childNodes', 'parentElement', 'listeners',
   'style', 'shadowRoot', 'pointerCapture', 'overrides', 'root',
   'offsetLeft', 'offsetTop', 'offsetWidth', 'offsetHeight']);
@@ -32,8 +13,7 @@ function detach(node) {
   node.parentElement = null;
 }
 
-// The two shapes append() takes besides a node: a string becomes text, a fragment hands over its
-// children and empties. Everything is detached from its old parent first — a move, not a copy.
+// A string becomes text, a fragment hands over its children; nodes are moved, not copied.
 function incoming(parent, nodes) {
   const out = [];
   for (const n of nodes) {
@@ -65,7 +45,7 @@ function walkAll(root, out = []) {
   return out;
 }
 
-// The next or previous ELEMENT: the whitespace between two <li>s is not a sibling anyone means.
+// The next or previous element: the whitespace between two <li>s is not a sibling anyone means.
 function sibling(node, step) {
   const kids = node.parentElement ? node.parentElement.childNodes : [];
   for (let i = kids.indexOf(node) + step; i >= 0 && i < kids.length; i += step) {
@@ -81,15 +61,12 @@ function rootOf(node) {
   return n.root || (n.host ? n : null);
 }
 
-// An event's path, the way composedPath() reports it: the target, its ancestors, and the host of
-// every shadow root on the way out — which is how a click inside a pill is recognised as the pill's.
+// composedPath() order: the target, its ancestors, and each shadow root's host on the way out.
 function pathOf(node) {
   const out = [];
   for (let n = node; n; n = n.parentElement || n.host || null) out.push(n);
   return out;
 }
-
-// ---------- selectors ----------
 
 const TOKEN = /:scope|\*|#[-\w]+|\.[-\w]+|\[[^\]]*\]|[-\w]+/g;
 const unquote = (v) => v.replace(/^["']|["']$/g, '');
@@ -103,7 +80,7 @@ function parseCompound(src) {
     else if (t[0] === '#') cmp.id = t.slice(1);
     else if (t[0] === '.') cmp.classes.push(t.slice(1));
     else if (t[0] === '[') {
-      // `*=` as well as `=`: a page's chrome is found by a class SUBSTRING ([class*="toast"]).
+      // `*=` as well as `=`: a page's chrome is found by a class substring ([class*="toast"]).
       const m = /^\[([-\w]+)(?:(\*?=)(.*))?\]$/.exec(t);
       cmp.attrs.push({ name: m[1], op: m[2] || null, value: m[3] === undefined ? null : unquote(m[3]) });
     } else cmp.tag = t.toUpperCase();
@@ -111,7 +88,7 @@ function parseCompound(src) {
   return cmp;
 }
 
-// A complex selector as steps, left to right; `comb` is the combinator in FRONT of each compound.
+// A complex selector as steps, left to right; `comb` is the combinator in front of each compound.
 function parseSelector(sel) {
   const steps = [];
   let buf = '';
@@ -177,8 +154,7 @@ function matchesSelector(node, sel, scope) {
 // The two attribute names a browser mirrors onto a differently-named property.
 const REFLECT = { id: 'id', class: 'className' };
 
-// `dataset` IS the data-* attributes, both ways, which is what makes `input[data-col="0"]` findable
-// after `el.dataset.col = 0` — the editor's parameters grid addresses its cells that way.
+// `dataset` is the data-* attributes both ways, so `el.dataset.col = 0` answers `[data-col="0"]`.
 const dataName = (key) => `data-${String(key).replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
 const dataKey = (name) => name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
@@ -189,8 +165,6 @@ function reflected(node, name) {
   if (v == null || v === '' || typeof v === 'object' || typeof v === 'function') return null;
   return String(v);
 }
-
-// ---------- the innerHTML tokeniser ----------
 
 // Nothing may be inside these; `<br>two` is a sibling, not a child.
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta',
@@ -225,8 +199,7 @@ function parseAttrs(node, src) {
   }
 }
 
-// One pass, left to right; `stack` is the open elements, and an end tag that matches nothing is
-// dropped rather than unwinding the tree — a browser recovers differently, no fixture needs it to.
+// An end tag that matches nothing is dropped rather than unwinding the tree; no fixture needs more.
 function parseHtml(html, into) {
   const stack = [into];
   const top = () => stack[stack.length - 1];
@@ -284,15 +257,12 @@ function serialize(node) {
   return `<${name}${attrs}>${node.childNodes.map(serialize).join('')}</${name}>`;
 }
 
-// ---------- nodes ----------
-
 class MiniNode {
   parentElement = null;
   childNodes = [];
   listeners = new Map();
 
-  // The raw-tree view of the same three facts, for code that walks a page it did not build:
-  // nextSibling counts the text between two elements, isConnected climbs out of every shadow root.
+  // nextSibling counts the text between elements; isConnected climbs out of every shadow root.
   get parentNode() { return this.parentElement; }
 
   get nextSibling() {
@@ -311,8 +281,7 @@ class MiniNode {
     return false;
   }
 
-  // The tree this node lives in: the document, a component's shadow root, or — detached — the
-  // topmost node itself, exactly the three a browser hands back.
+  // The document, a shadow root, or (detached) the topmost node — the three a browser hands back.
   getRootNode() {
     let n = this;
     while (n.parentElement) n = n.parentElement;
@@ -335,8 +304,7 @@ class MiniNode {
     this.listeners.get(type).push({ fn, capture, options });
   }
 
-  // The phase is part of a listener's identity: a remove that forgets `true` removes nothing,
-  // exactly as in a browser — which is how a leaked document-level capture listener is caught.
+  // The phase is part of a listener's identity: a remove that forgets `true` removes nothing.
   removeEventListener(type, fn, options) {
     const capture = options === true || !!(options && options.capture);
     const list = this.listeners.get(type) || [];
@@ -344,10 +312,7 @@ class MiniNode {
     if (i >= 0) list.splice(i, 1);
   }
 
-  // A plain event reaches the node it was handed and no further, so a screen's handler is asserted
-  // on the node it was registered on. `bubbles: true` opts into the real three phases instead —
-  // capture down the ancestors, the target, then back up — which is what a delegated listener on a
-  // list container needs to see a keydown from the row that has focus.
+  // A plain event stays on its node; `bubbles: true` runs the capture, target and bubble phases.
   dispatchEvent(ev) {
     if (!ev.bubbles) {
       for (const l of [...(this.listeners.get(ev.type) || [])]) l.fn.call(this, ev);
@@ -386,8 +351,7 @@ class MiniParent extends MiniNode {
   append(...nodes) { this.childNodes.push(...incoming(this, nodes)); }
   prepend(...nodes) { this.childNodes.unshift(...incoming(this, nodes)); }
 
-  // Put back exactly where it was, which is what a node parked by position is for. A reference
-  // node that is not a child throws, as in a browser: the caller has to notice the tree moved.
+  // A reference node that is not a child throws, as in a browser: the caller must notice the move.
   insertBefore(node, ref) {
     const [inc] = incoming(this, [node]); // detaches first, so read the reference index after
     const at = ref == null ? -1 : this.childNodes.indexOf(ref);
@@ -449,8 +413,7 @@ class MiniElement extends MiniParent {
   constructor(tag) {
     super();
     this.tagName = String(tag).toUpperCase();
-    // A proxy over the attribute map, not a plain object: the real dataset stringifies on write,
-    // answers `delete`, and is the same storage `[data-col]` and getAttribute read.
+    // A proxy, not a plain object: the real dataset stringifies on write and answers `delete`.
     const keys = () => [...this.#attrs.keys()].filter((n) => n.startsWith('data-'));
     this.#data = new Proxy({}, {
       get: (t, k) => (typeof k === 'string' ? this.#attrs.get(dataName(k)) : undefined),
@@ -466,8 +429,7 @@ class MiniElement extends MiniParent {
 
   get dataset() { return this.#data; }
 
-  // A reflected property is listed here too: a walk over `attributes` has to see everything
-  // getAttribute and the selectors already answer, or a sanitizer test strips a href it cannot see.
+  // Reflected properties are listed too, or a sanitizer test strips a href it cannot see.
   get attributes() {
     const out = [...this.#attrs].map(([name, value]) => ({ name, value }));
     for (const key of Object.keys(this)) {
@@ -484,8 +446,7 @@ class MiniElement extends MiniParent {
     return reflected(this, REFLECT[name] || name);
   }
 
-  // `id` and `class` live on the property alone, so getElementById and a fixture that writes
-  // either side never disagree.
+  // `id` and `class` live on the property alone, so getElementById and fixtures never disagree.
   setAttribute(name, value) {
     if (REFLECT[name]) this[REFLECT[name]] = String(value);
     else this.#attrs.set(name, String(value));
@@ -521,8 +482,7 @@ class MiniElement extends MiniParent {
     return { left, top, width, height, right: left + width, bottom: top + height, x: left, y: top };
   }
 
-  // Focus lands on the nearest root: a shadow root records the node, the document records its host
-  // — which is exactly the ladder a caller descends to find the caret inside a web component.
+  // Focus lands on the nearest root: a shadow root records the node, the document its host.
   focus() {
     for (let n = this; n;) {
       const root = rootOf(n);
@@ -539,8 +499,7 @@ class MiniElement extends MiniParent {
     return root;
   }
 
-  // The synthetic click a keyboard handler fires in place of the tester's mouse: a real bubbling
-  // click event, so the row's own listener runs and nothing has to be duplicated for the keyboard.
+  // A real bubbling click, so a keyboard handler's synthetic click runs the row's own listener.
   click() { this.dispatchEvent(event(this, 'click', { bubbles: true })); }
 
   // Pointer capture is a nicety its caller is expected to survive losing, so this only records it.
@@ -558,8 +517,7 @@ class MiniElement extends MiniParent {
   }
 }
 
-// A member a browser computes, which a fixture must still be able to overwrite: a getter-only
-// property would throw, and `sel.selectedOptions = undefined` is how a test takes a selection away.
+// Overwritable: `sel.selectedOptions = undefined` is how a test takes a selection away.
 function computed(name, from) {
   Object.defineProperty(MiniElement.prototype, name, {
     configurable: true,
@@ -584,8 +542,7 @@ function rowsOf(el) {
   return [...section('thead'), ...el.querySelectorAll(':scope > tr'), ...section('tbody'), ...section('tfoot')];
 }
 
-// Inherited: the nearest ancestor that STATES the attribute decides, and `contenteditable=""`
-// is "true". The walk stops at a shadow root, where a browser's `parentElement` ends anyway.
+// Inherited: the nearest ancestor that states it decides, and `contenteditable=""` is "true".
 computed('isContentEditable', (el) => {
   for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
     const v = n.getAttribute('contenteditable');
@@ -608,12 +565,11 @@ computed('tHead', (el) => el.querySelector(':scope > thead'));
 class MiniFragment extends MiniParent {
   nodeType = 11;
 
-  // A fragment and a shadow root answer ids in their OWN tree; an element never answers at all.
+  // A fragment and a shadow root answer ids in their own tree; an element never answers at all.
   getElementById(id) { return walk(this).find((n) => n.id === id) || null; }
 }
 
-// What attachShadow() hands back: a tree of its own that the document's selectors never reach,
-// which records what was appended to it and where the focus went inside it.
+// attachShadow()'s own tree: the document's selectors never reach into it.
 class MiniShadowRoot extends MiniFragment {
   nodeType = 11;
   activeElement = null;
@@ -659,8 +615,6 @@ class MiniDocument extends MiniNode {
   querySelectorAll(sel) { return this.documentElement.querySelectorAll(sel); }
 }
 
-// ---------- the exports the fixtures use ----------
-
 export function el(tag, props = null, ...children) {
   const node = new MiniElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
@@ -678,8 +632,7 @@ export const makeDocument = (ids = []) => new MiniDocument(ids);
 // What createTreeWalker() filters on; `1 << (nodeType - 1)` is the whole engine.
 export const NodeFilter = { SHOW_ALL: 0xffffffff, SHOW_ELEMENT: 1, SHOW_TEXT: 4 };
 
-// The event fire() builds, on its own: a listener fire() cannot reach — one on a window, or one a
-// harness captured itself — still gets the one event shape rather than a second, thinner fake.
+// Exported so a listener fire() cannot reach still gets the same event shape, not a thinner fake.
 export function event(target, type, props = {}) {
   const ev = {
     type,
@@ -695,8 +648,7 @@ export function event(target, type, props = {}) {
   return ev;
 }
 
-// The only way into a handler a render wired up. `props` lands on the event, so a keydown test
-// passes `{ key: 'Enter' }`; the returned event carries what the handler did to it.
+// `props` lands on the event (`{ key: 'Enter' }`); the returned event shows what the handler did.
 export function fire(node, type, props = {}) {
   const ev = event(node, type, props);
   node.dispatchEvent(ev);

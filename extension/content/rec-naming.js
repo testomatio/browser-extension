@@ -1,37 +1,29 @@
-// How a step names the thing the tester acted on: aria-label, the ids it points at, the control's
-// own text, its label, its placeholder, its column header, its title, name/id — then the row or
-// section clause.
-
 /* global CSS */
 
 /* global window */
 (() => {
   'use strict';
-  // Injected on demand, and a same-document re-inject runs the file again: without this the
-  // second run throws before the recorder's own latch is ever reached.
+  // A same-document re-inject runs the file again; without this the second run throws.
   if (window.RecNaming) return;
-  // Counted in code points, never in storage units: a cut between the halves of an emoji ships
-  // half a character into the step.
+  // Counted in code points: a cut between an emoji's halves ships half a character into the step.
   const oneLine = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   const trimTo = (s, n) => {
     const cp = [...oneLine(s)];
     return cp.length <= n ? cp.join('') : cp.slice(0, n).join('');
   };
   const trim40 = (s) => trimMark(s, 40);
-  // A cut a reader can SEE: the ellipsis takes the place of what was dropped, inside the same n.
+  // A visible cut: the ellipsis takes the place of what was dropped, inside the same n.
   const trimMark = (s, n) => {
     const cp = [...oneLine(s)];
     return cp.length <= n ? cp.join('') : `${cp.slice(0, n - 1).join('').replace(/\s+$/, '')}…`;
   };
 
-  // Decorative chrome (badge, counter, anything hidden from the a11y tree, a <script>
-  // body): its text is never a name a tester reads — #86 `in the "3" row`, #75 a snippet.
+  // Decorative chrome (badge, counter, a11y-hidden, <script>): its text is never a name a tester reads.
   const BADGE_RE = /(^|[\s_-])(badge|pill|count|counter)([\s_-]|$)/i;
   const NOT_READ = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/;
   const badgeish = (el) => !!el && el.nodeType === 1
     && (NOT_READ.test(el.tagName) || el.getAttribute('aria-hidden') === 'true'
       || BADGE_RE.test(el.getAttribute('class') || ''));
-  // …the node itself or any ancestor below `stop`.
   function inBadge(node, stop) {
     for (let n = node; n && n !== stop; n = n.parentElement) if (badgeish(n)) return true;
     return false;
@@ -45,7 +37,6 @@
   const dropFields = (clone) => clone.querySelectorAll(FIELD_SEL).forEach((n) => {
     if (n.tagName === 'TEXTAREA' || String(n.getAttribute('contenteditable')).toLowerCase() !== 'false') n.remove();
   });
-  // The text a reader may repeat: none of it from inside a field.
   function plainText(node) {
     if (!node || inField(node)) return '';
     if (!node.querySelector || !node.querySelector(FIELD_SEL)) return node.textContent || '';
@@ -54,8 +45,7 @@
     return clone.textContent || '';
   }
 
-  // `glued` = this run continues the previous with NO whitespace ("ABCDE" + "$20.33"),
-  // the giveaway of a concatenation; `badge` = it came from decorative chrome.
+  // `glued` = continues the previous run with no whitespace, the sign of a concatenation.
   function textRuns(el, limit = 24) {
     const out = [];
     if (inField(el)) return out;
@@ -75,8 +65,7 @@
     return out;
   }
 
-  // A buttonish element is often a whole CARD whose textContent concatenates into an
-  // unreadable name (#86: `Adjustable Wrench ABCDE$20.33`); block structure gives it away.
+  // A buttonish element is often a whole card whose text concatenates into an unreadable name.
   const STRUCT_SEL = 'img, picture, h1, h2, h3, h4, h5, h6, p, div, section, article,'
     + ' figure, header, footer, ul, ol, li, table';
   const firstAttr = (el, sel, at) => {
@@ -89,8 +78,7 @@
     const kept = runs.filter((r) => !r.badge);
     if (!kept.length) return null; // nothing but chrome (an icon-font glyph) — let a label/id name it
     const raw = plainText(el).trim();
-    // One run (or plain inline emphasis): the raw text is the name — dropped badge text
-    // is the one reason to rebuild it from the runs.
+    // One run or inline emphasis: the raw text is the name; only dropped badge text forces a rebuild.
     if (!(runs.length > 1 && (runs.some((r) => r.glued) || el.querySelector(STRUCT_SEL)))) {
       return kept.length < runs.length ? kept.map((r) => r.text).join(' ') : raw;
     }
@@ -101,8 +89,7 @@
       || kept.reduce((a, r) => (r.text.length > a.length ? r.text : a), '') || raw;
   }
 
-  // A wrapping <label> holds the control it labels, so its textContent bleeds the
-  // control's own text (a <select>'s option labels) unless the controls are stripped.
+  // A wrapping <label> holds its control, so its text bleeds the control's own (a <select>'s options).
   function cleanLabelText(labelEl) {
     if (!labelEl || inField(labelEl)) return null;
     const clone = labelEl.cloneNode(true);
@@ -111,8 +98,7 @@
     const t = clone.textContent;
     return t && t.trim() ? t : null;
   }
-  // An id belongs to ONE tree: inside a web component that is its shadow root, and the page's
-  // ids were never that component's to answer with.
+  // An id belongs to one tree: inside a web component that is its shadow root, not the page.
   const rootOf = (el) => (el.getRootNode && el.getRootNode()) || document;
   const byId = (el, id) => { const r = rootOf(el); return r.getElementById ? r.getElementById(id) : null; };
 
@@ -128,8 +114,7 @@
 
   // The <input> types whose value is their caption.
   const BUTTON_INPUT = /^(button|submit|reset|image)$/i;
-  // "Names itself by its own text" — buttons, links and every ARIA custom control we
-  // recognize; without the roles, name/id records `Open the "tab-details" tab`.
+  // Without the ARIA roles, name/id would record `Open the "tab-details" tab`.
   const isButtonish = (el) => {
     const tag = el.tagName;
     const role = (el.getAttribute && el.getAttribute('role')) || '';
@@ -141,15 +126,13 @@
   const holdsValue = (el) => el.tagName === 'TEXTAREA' || el.tagName === 'SELECT'
     || (el.tagName === 'INPUT' && !BUTTON_INPUT.test(el.type || ''));
 
-  // `fallback` (#74: the cell's column header) slots in AHEAD of name/id — those are
-  // developer strings, a column header is what the tester actually reads. `near` (#23) is
-  // the surroundings, read once per action.
+  // `fallback` (the column header) beats name/id: those are dev strings, the header is what testers see.
   function elementName(el, fallback, near) {
     const aria = el.getAttribute && el.getAttribute('aria-label');
     if (aria && aria.trim()) return trim40(aria);
     const labelledby = el.getAttribute && el.getAttribute('aria-labelledby');
     if (labelledby) {
-      // The attribute holds a LIST of ids, and the name is everything they say, in that order.
+      // The attribute holds a list of ids, and the name is everything they say, in that order.
       const named = labelledby.trim().split(/\s+/)
         .map((id) => { const l = byId(el, id); return l ? plainText(l).trim() : ''; })
         .filter(Boolean);
@@ -164,13 +147,10 @@
     if (lbl) return trim40(lbl);
     if (el.placeholder && el.placeholder.trim()) return trim40(el.placeholder);
     if (fallback) return fallback;
-    // The tooltip on an icon-only button is the author's own name for it: under everything the
-    // tester can read without hovering, over the dev strings below.
+    // An icon button's tooltip is the author's name for it: below visible text, above dev strings.
     const title = el.getAttribute && el.getAttribute('title');
     if (title && title.trim()) return trim40(title);
-    // #23: `near.label` IS the label branch above. What is new is the row/section — a
-    // nameless control is named by the clause the sentence already carries ("Click the
-    // button in the "Bolt Cutters" row"), which beats writing a dev string over it.
+    // A nameless control is named by its row/section clause, which beats writing a dev string over it.
     if (near && near.label) return trim40(near.label);
     if (near && (near.row || near.section)) return null;
     if (el.getAttribute && el.getAttribute('name')) return trim40(el.getAttribute('name'));
@@ -178,12 +158,11 @@
     return null;
   }
 
-  // ---- element context (#74): the row/card, section and column an element sits in ----
-  // Read AT EVENT TIME: the DOM has moved on by the time anyone reads the recording.
+  // Read at event time: the DOM has moved on by the time anyone reads the recording.
   const ROW_SEL = 'tr, li, [role=row], [role=listitem]';
   const ROW_TITLE_SEL = 'h1,h2,h3,h4,h5,h6,th,td,[role=rowheader],[role=cell],[role=gridcell],strong,b';
 
-  // Nested controls stripped, so the cell that merely HOLDS a control never names the row.
+  // Nested controls stripped, so a cell that merely holds a control never names the row.
   function cleanText(node) {
     if (inField(node)) return null;
     const clone = node.cloneNode(true);
@@ -194,8 +173,7 @@
     return t || null;
   }
 
-  // A price, a date or a lone glyph is noise, not a row title (#86). A bare run of digits IS
-  // one: without it ten Delete buttons in ten order rows record ten identical steps.
+  // Prices, dates and glyphs are noise; bare digits count, or ten rows' Delete buttons read alike.
   const worded = (t) => !!t && t.length >= 2 && /\p{L}/u.test(t);
   const numeric = (t) => !!t && /^\d{2,}$/.test(t);
   const titleish = (t) => worded(t) || numeric(t);
@@ -203,9 +181,7 @@
   // A counter the page wrote no class on ("Products (12)") goes stale the moment the count moves.
   const dropCount = (t) => (t ? t.replace(/\s*\(\s*\d[\d.,]*\s*\)$/, '').trim() : t);
 
-  // The first title-ish heading/cell/bold run in document order (badges skipped), else the
-  // item's whole text when it is short enough to BE a title — a sliced paragraph is noise.
-  // A number-only cell is a title of last resort: any WORDED cell in the row reads better.
+  // A number-only cell is a title of last resort: any worded cell in the row reads better.
   function rowTitle(row) {
     let keyed = null;
     for (const n of row.querySelectorAll(ROW_TITLE_SEL)) {
@@ -219,8 +195,7 @@
     return titleish(own) && own.length <= 60 ? trim40(own) : null;
   }
 
-  // A fieldset's legend, else the nearest heading BEFORE the element. The walk is bounded
-  // (8 ancestors × 12 siblings): a full-DOM sweep on every click is not worth one clause.
+  // The walk is bounded (8 ancestors × 12 siblings): a full-DOM sweep per click is not worth a clause.
   function sectionTitle(el) {
     for (let node = el, up = 0; node && up < 8; node = node.parentElement, up++) {
       if (node.tagName === 'FIELDSET') {
@@ -231,16 +206,14 @@
       let sib = node.previousElementSibling;
       for (let i = 0; sib && i < 12; i++, sib = sib.previousElementSibling) {
         if (/^H[1-6]$/.test(sib.tagName)) { const t = cleanText(sib); if (t) return trim40(t); }
-        // A block of its own between us and the heading is a PEER — the card next to this one —
-        // and a heading past it heads that card as much as this one.
+        // A block between us and the heading is a peer card, and a heading past it heads that card too.
         if (sib.children && sib.children.length) break;
       }
     }
     return null;
   }
 
-  // A colspan makes a cell's INDEX and its column two different numbers, so both rows are
-  // counted in spans: the header that covers the column is the one that names the cell.
+  // A colspan makes a cell's index and its column differ, so both rows are counted in spans.
   const spanOf = (c) => Math.max(1, parseInt(c.getAttribute('colspan'), 10) || 1);
   function columnAt(row, cell) {
     let col = 0;
@@ -253,7 +226,6 @@
     return null;
   }
 
-  // Only a real header row answers, and only the cell whose span covers this one's column.
   function columnTitle(el) {
     const cell = el.closest && el.closest('td, th');
     if (!cell || cell.tagName === 'TH') return null;
@@ -266,8 +238,6 @@
     return t ? trim40(t) : null;
   }
 
-  // The nearest heading ABOVE the element: its own tag, then each ancestor's preceding
-  // siblings. Same bounded walk as sectionTitle, minus the fieldset legend.
   function headingOf(el) {
     for (let node = el, up = 0; node && up < 8; node = node.parentElement, up++) {
       if (/^H[1-6]$/.test(node.tagName)) { const t = cleanText(node); if (t) return trim40(t); }
@@ -285,8 +255,7 @@
     return [one(el.previousElementSibling), one(el.nextElementSibling)].filter(Boolean).join(' | ');
   }
 
-  // The surroundings, read ONCE per action: the sentence's clause and the packet's `near`
-  // (#23) are the same reads, and each of them walks the DOM.
+  // Read once per action: the sentence's clause and the packet's `near` share these DOM walks.
   function nearFacts(el) {
     const out = { label: '', row: '', column: '', section: '', heading: '', siblings: '' };
     if (!el || !el.closest) return out;
@@ -303,8 +272,7 @@
     return out;
   }
 
-  // A control a tester cannot name from the control alone borrows its column header —
-  // to them that IS its name ("the Bulk checkbox").
+  // A control unnamed by itself borrows its column header: to the tester that is its name.
   const nameOf = (el, near) => elementName(el, near.column || null, near);
 
   // The three facts, minus any that only repeat the control's own name.
@@ -319,15 +287,13 @@
     return Object.keys(ctx).length ? ctx : null;
   }
 
-  // ONE clause per step, never two: the row is the more specific fact, the section is the
-  // fallback, and the column already spoke — as the control's name.
+  // One clause per step: row first, section as fallback; the column already named the control.
   const clauseOf = (ctx) => (!ctx ? ''
     : ctx.row ? ` in the "${ctx.row}" row`
       : ctx.section ? ` in the "${ctx.section}" section` : '');
 
 
-  // Each role gets the verb a tester would write by hand; a nameless control keeps the
-  // bare-noun form ("Click the button").
+  // Each role gets the verb a tester would write by hand; a nameless control keeps the bare-noun form.
   const menuPhrase = (n) => (n ? `Choose "${n}" in the menu` : 'Choose the menu item');
   const ROLE_PHRASE = {
     tab: (n) => (n ? `Open the "${n}" tab` : 'Open the tab'),

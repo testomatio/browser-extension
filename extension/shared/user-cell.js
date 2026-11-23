@@ -1,4 +1,3 @@
-// A PERSON, printed — the monogram + name cell (`.user-cell` / `.avatar` in components.css).
 // The CSP allows extension images only, so a remote avatar is fetched and swapped in as `blob:`.
 
 /* global Tooltip, TestomatAPI */
@@ -41,8 +40,7 @@
     return words[0][0] + words[1][0];
   }
 
-  // Through the API, never a bare fetch: an avatar URL is server DATA, and fetchAsset is what
-  // keeps a host named there from getting a request (and the session from following it out).
+  // Through the API, never a bare fetch: an avatar URL is server data and must not reach other hosts.
   const photos = new Map(); // url → Promise<objectURL|null>
 
   function photo(url) {
@@ -82,8 +80,7 @@
     name.className = 'user-name';
     name.textContent = displayName(u);
     el.append(av, name);
-    // Both: a list out of room drops to the circles alone (`.user-cells.is-stacked`),
-    // and then the tooltip is the only label.
+    // A list out of room drops to the circles alone, and then the tooltip is the only label.
     const tip = [displayName(u), u.email].filter(Boolean);
     if (tip.length && typeof Tooltip !== 'undefined') Tooltip.set(el, tip.join(' · '));
     return el;

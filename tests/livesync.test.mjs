@@ -1,21 +1,13 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/livesync.js re-reads, keeps and refuses to overwrite (#159): a
-// colleague's result reaches the open run within a poll, while the tester's own in-flight write and
-// anything parked in the offline queue win over whatever the server says. The loop stops while the
-// panel is hidden or the project is read-only, parks for good on an expired session, and slows to one
-// tick a minute while the instance is rate-limiting us.
-// Run: node --test tests/livesync.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, settle } from './helpers/panel-harness.mjs';
 import { loadState } from './helpers/core-harness.mjs';
 
-// The REAL comparator out of core/state.js, not a hand-written copy: #258 was three copies of one
-// sort rule, and a stub here would be a fourth free to drift. Its own rows live in state.test.mjs.
+// The real comparator from core/state.js: a hand-written copy here would be free to drift.
 const { byRecordId } = loadState();
 
-// screens/run-view.js's own two one-liners. Stubs that answered `record.status` verbatim would let
-// the pending/untested rows pass without the module ever comparing a DISPLAY status.
+// run-view.js's own one-liners: a verbatim `record.status` stub would let pending/untested rows lie.
 const displayStatus = (record) => {
   const s = record?.status;
   return s && s !== 'pending' ? s : 'untested';
@@ -30,14 +22,11 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-// A payload with a DIFFERENT id set: applying it replaces state.records and repaints the whole view,
-// so "the poll was discarded" is visible as the records standing untouched.
+// A different id set replaces state.records, so a discarded poll shows as records left untouched.
 const STRUCTURAL = [{ id: 2, status: 'failed' }];
 
 const NOW = 1_700_000_000_000;
 
-// The panel globals livesync.js reads, all of them real enough to be driven. They live here and not
-// in the harness: every screen has its own set, and the ones after this land in parallel.
 function load(opts = {}) {
   const o = {
     view: 'run',
@@ -45,7 +34,7 @@ function load(opts = {}) {
     currentRecordId: null,
     readonly: false,
     visibility: 'visible',
-    records: [],          // the LOCAL records; copied, because syncApply mutates them in place
+    records: [],          // the local records; copied, because syncApply mutates them in place
     remote: null,         // what listTestruns answers with; by default a fresh copy of `records`
     answer: null,         // …or a function, for a fetch the test holds open or makes reject
     rows: null,           // the <li>s on screen; by default one per local record
@@ -60,8 +49,7 @@ function load(opts = {}) {
     ...opts,
   };
 
-  // index.html's shape, cut to the two nodes this screen touches: the run's status line and the row
-  // list runRowEl() walks.
+  // index.html cut to the two nodes this screen touches.
   const doc = makeDocument([]);
   const runStatus = el('div', { id: 'run-status', className: o.statusClass });
   const ids = o.rows || o.records.map((r) => String(r.id));
@@ -121,12 +109,10 @@ function load(opts = {}) {
     renderRunFilterChips: () => { calls.renderRunFilterChips += 1; },
     renderRunView: () => { calls.renderRunView += 1; },
     renderTestProgress: () => { calls.renderTestProgress += 1; },
-    // A recorder, not the real screens/run-info.js: these rows are about the poll ASKING for a
-    // repaint. What the card then prints is tests/run-info.test.mjs's (#194).
+    // A recorder, not the real run-info.js: these rows are about the poll asking for a repaint.
     RunInfo: { render: () => { calls.renderRunInfo += 1; } },
     RunLock: { applyRunLock: () => { calls.applyRunLock += 1; } },
-    // #153's gate moved to screens/test-meta.js; livesync only asks it to re-run after a
-    // colleague's write, so the stub records the ask and tests/test-meta.test.mjs owns the rule.
+    // livesync only asks the assignee gate to re-run; tests/test-meta.test.mjs owns the rule.
     TestMeta: { applyAssigneeGate: (rec) => { calls.applyAssigneeGate.push(rec ? String(rec.id) : rec); } },
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     byRecordId,
@@ -134,8 +120,7 @@ function load(opts = {}) {
     refreshRunInfo: async (runId) => { calls.refreshRunInfo.push(String(runId)); return o.runInfoChanged; },
     refreshRunFinished: async (runId) => { calls.refreshRunFinished.push(String(runId)); },
   };
-  // Left OUT rather than set to undefined when the panel has no queue: the module reaches it through
-  // `typeof`, and only a genuinely absent binding reproduces that.
+  // Left out rather than set to undefined: the module reaches it through `typeof`.
   if (o.withQueue) {
     globals.OfflineQueue = {
       has: (id) => queued.has(String(id)),
@@ -154,8 +139,6 @@ function load(opts = {}) {
 
 // Let a tick reach the fetch it is waiting on, without waiting for the tick itself.
 const startTick = async (h) => { h.fn.syncTick(); await settle(); };
-
-// ---------- the poll interval and the poll gate (rows 1-6) ----------
 
 test('1: the poll interval comes from storage.session, and anything unusable falls back to 20s', async () => {
   const set = load({ session: { pollInterval: 500 } });
@@ -219,8 +202,6 @@ test('6: the loop runs on the run and on a test of it, never on the runs list', 
   }
 });
 
-// ---------- the timer lifecycle and the own-write bracket (rows 7-11) ----------
-
 test('7: a second start leaves one timer alive and discards the fetch the first one had on the wire', async () => {
   const d = deferred();
   const h = load({ records: [{ id: 1, status: 'passed' }], answer: () => d.promise });
@@ -235,8 +216,7 @@ test('7: a second start leaves one timer alive and discards the fetch the first 
   assert.deepEqual(h.state.records.map((r) => r.id), [1]);
   assert.equal(h.calls.renderRunView, 0);
 
-  // The same drive without the restart applies the answer, so the two rows above are not asserting
-  // a fetch that never resolves.
+  // Without the restart the same drive applies the answer, so the rows above are not hollow.
   const d2 = deferred();
   const alone = load({ records: [{ id: 1, status: 'passed' }], answer: () => d2.promise });
   await alone.fn.startLiveSync();
@@ -261,8 +241,7 @@ test('8: stopping clears the timer and discards the fetch already on the wire', 
   assert.equal(h.calls.renderRunView, 0);
   assert.equal(h.calls.applyRunLock, 0);
 
-  // The very same answer lands once the loop is running again, so the rows above are not about a
-  // payload that could never be applied.
+  // The same answer lands once the loop runs again, so the rows above are not hollow.
   await h.fn.startLiveSync();
   await h.clock.tick();
   assert.deepEqual(h.state.records.map((r) => r.id), [2]);
@@ -321,8 +300,6 @@ test('11: an immediate refetch is meaningless while the loop is stopped, and doe
   assert.equal(h.clock.arms().length, 2);
   assert.equal(h.clock.count(), 1);
 });
-
-// ---------- the tick (rows 12-20) ----------
 
 test('12: a tick landing while one is on the wire does not start a second fetch', async () => {
   const d = deferred();
@@ -427,7 +404,7 @@ test('17: a good tick replays the queue, re-reads the run detail and settles the
   assert.equal(h.calls.paintRunProgress, 0); // the detail read said nothing changed
   assert.equal(h.calls.renderRunInfo, 0);
 
-  // A detail that DID change repaints the header numbers on the same tick.
+  // A detail that did change repaints the header numbers on the same tick.
   const moved = load({ records: [{ id: 1 }], runInfoChanged: true });
   await moved.fn.startLiveSync();
   await moved.clock.tick();
@@ -482,15 +459,13 @@ test('20: Refresh resumes a loop an expired session parked', async () => {
   assert.equal(h.calls.replays, 1);
 });
 
-// ---------- the remote-wins diff (rows 21-33) ----------
-
 test('21: the poll re-sorts by record id, and a newest-first payload comes out in run order', async () => {
   const numbers = load({ records: [], answer: () => Promise.resolve([{ id: 10 }, { id: 9 }]) });
   await numbers.fn.startLiveSync();
   await numbers.clock.tick();
   assert.deepEqual(numbers.state.records.map((r) => r.id), [9, 10]);
 
-  // The poll re-sorts the payload rather than the LIST, so the server's array is left alone.
+  // The poll re-sorts the payload rather than the list, so the server's array is left alone.
   const payload = [{ id: 10 }, { id: 9 }];
   const untouched = load({ records: [], answer: () => Promise.resolve(payload) });
   await untouched.fn.startLiveSync();
@@ -586,7 +561,7 @@ test('28: a result queued offline wins over the server — its status and messag
   assert.deepEqual(h.calls.repaintRow, []);
   assert.equal(h.calls.paintRunProgress, 0);
 
-  // The same payload on a row that is NOT queued takes the remote status and says so.
+  // The same payload on a row that is not queued takes the remote status and says so.
   const free = load({
     view: 'test',
     currentRecordId: 1,
@@ -651,8 +626,7 @@ test('31: only the test actually on screen is toasted — not another row, and n
   assert.deepEqual(h.calls.toasts, []);
   assert.deepEqual(h.calls.applyAssigneeGate, []);
 
-  // Back on the run list, the row the tester last had open changes: the id still matches, the view
-  // does not, and a toast about a test that is not on screen would be wrong.
+  // On the run list the id still matches but the view does not: no toast about an off-screen test.
   const listed = load({
     view: 'run',
     currentRecordId: 2,
@@ -666,14 +640,14 @@ test('31: only the test actually on screen is toasted — not another row, and n
 
 test('32: a poll that brings nothing new paints nothing at all', () => {
   const h = load({ records: [{ id: 1, status: 'passed' }, { id: 2, status: 'pending' }] });
-  // `pending` and `untested` are the same DISPLAY status, so neither row moved.
+  // `pending` and `untested` are the same display status, so neither row moved.
   h.fn.syncApply([{ id: 1, status: 'passed' }, { id: 2, status: 'untested' }]);
   assert.equal(h.calls.paintRunProgress, 0);
   assert.equal(h.calls.renderRunFilterChips, 0);
   assert.deepEqual(h.calls.repaintRow, []);
   assert.deepEqual(h.calls.refreshSuiteFraction, []);
 
-  // One real change through the same call does paint, so the four rows above are not empty.
+  // One real change through the same call does paint, so the rows above are not hollow.
   h.fn.syncApply([{ id: 1, status: 'passed' }, { id: 2, status: 'skipped' }]);
   assert.equal(h.calls.paintRunProgress, 1);
   assert.equal(h.calls.renderRunFilterChips, 1);
@@ -688,8 +662,6 @@ test('33: a changed row with no <li> on screen is skipped instead of throwing', 
   assert.equal(h.calls.paintRunProgress, 1); // the rest of the paint still runs
   assert.equal(h.state.records[0].status, 'failed'); // and the invisible record still took the change
 });
-
-// ---------- the label and the catch-up (rows 34-36) ----------
 
 test('34: the toast label is capitalised, and a falsy status passes straight through', () => {
   const h = load();
@@ -718,21 +690,17 @@ test('36: a panel being hidden is not a reason to fetch', async () => {
   await settle();
   assert.deepEqual(h.calls.listTestruns, []);
 
-  // The listener's own check is not the gate's, and only this value tells them apart: a document
-  // reporting NO visibility is one syncShouldPoll() would poll, and the catch-up still must not run.
+  // No visibility at all is a state syncShouldPoll() polls in, yet the catch-up must not run.
   h.visibility(undefined);
   await settle();
   assert.equal(h.fn.syncShouldPoll(), true);
   assert.deepEqual(h.calls.listTestruns, []);
 
-  // The same listener, the value it does answer to: without this the rows above would pass on a
-  // handler that was never registered.
+  // Without this the rows above would pass on a handler that was never registered.
   h.visibility('visible');
   await settle();
   assert.deepEqual(h.calls.listTestruns, ['r1']);
 });
-
-// ---------- the rate-limit back-off (rows 37-43; newer than #159, no rows of its own there) ----------
 
 test('37: while the instance is still refusing us the target is one tick a minute', async () => {
   let stamp = 0;
@@ -763,8 +731,7 @@ test('39: a stamp that is absent, throws or is not a number is not a rate limit'
   assert.equal(load({ rateLimitedAt: () => { throw new Error('boom'); } }).fn.syncTargetMs(), 20000);
   assert.equal(load({ rateLimitedAt: () => 'nope' }).fn.syncTargetMs(), 20000);
   assert.equal(load({ rateLimitedAt: () => 0 }).fn.syncTargetMs(), 20000);
-  // The same seam WITH a live stamp does answer the back-off, so the four rows above are not
-  // asserting a stub that can never say yes.
+  // A live stamp does answer the back-off, so the rows above are not asserting a stub.
   assert.equal(load({ rateLimitedAt: () => NOW - 1 }).fn.syncTargetMs(), 60000);
 });
 
@@ -825,8 +792,7 @@ test('43: a panel with no offline queue polls and diffs anyway — both typeof g
   assert.deepEqual(h.calls.repaintRow, ['1']);
   assert.equal(h.state.records[0].status, 'failed');
   assert.equal(h.calls.replays, 0);
-  // A ReferenceError here would be swallowed by the tick's own catch, so the proof the guard held
-  // is that the tick RAN ON past the replay line.
+  // A ReferenceError would be swallowed by the tick's catch; the proof is the tick ran on past it.
   assert.deepEqual(h.calls.refreshRunFinished, ['r1']);
   assert.equal(h.calls.applyRunLock, 1);
 

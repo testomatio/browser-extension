@@ -1,5 +1,4 @@
-// Colour scheme for every page this extension owns — pinned as `color-scheme` on <html>,
-// which tokens.css resolves `light-dark()` against. MUST load from <head> (paint flash).
+// Pins `color-scheme` on <html> for tokens.css's `light-dark()`; must load from <head> (paint flash).
 
 const Theme = (() => {
   'use strict';
@@ -8,8 +7,7 @@ const Theme = (() => {
   const KEY = 'theme';
   const hasChrome = typeof chrome !== 'undefined' && !!chrome.storage?.local;
 
-  // Anything that is not one of the three is `system`, and `system` is the ABSENCE of the
-  // pin: `:root`'s own `color-scheme: light dark` takes over and follows the OS live.
+  // `system` is the absence of the pin: `:root`'s own `color-scheme: light dark` follows the OS live.
   const clean = (m) => (MODES.includes(m) ? m : 'system');
 
   let mode = 'system';
@@ -19,8 +17,7 @@ const Theme = (() => {
     document.documentElement.style.colorScheme = mode === 'system' ? '' : mode;
   }
 
-  // Best effort: a browser with localStorage blocked still gets the theme from
-  // chrome.storage a tick later — it just pays the flash.
+  // With localStorage blocked, chrome.storage brings the theme a tick later, at the cost of a flash.
   function mirror() {
     try { window.localStorage.setItem(KEY, mode); } catch { /* nothing to do */ }
   }
@@ -31,8 +28,7 @@ const Theme = (() => {
     }
   }
 
-  // Takes a mode that came FROM storage: never writes back, and the early return is what
-  // stops the onChanged echo of our own set() bouncing between the panel and the tab.
+  // Never writes back; the early return stops our own set()'s onChanged echo bouncing between pages.
   function adopt(next) {
     next = clean(next);
     if (next === mode) return;
@@ -42,8 +38,7 @@ const Theme = (() => {
     announce();
   }
 
-  // Paints first and persists after, so a storage write that fails still leaves the page
-  // showing the choice for this session.
+  // Paints first and persists after, so a failed storage write still shows the choice this session.
   async function set(next) {
     next = clean(next);
     if (next !== mode) { mode = next; paint(); mirror(); announce(); }
@@ -52,16 +47,13 @@ const Theme = (() => {
     }
   }
 
-  // ---------- boot: both steps run at load, before the page has drawn ----------
-
-  // 1. The mirror, synchronously.
+  // The localStorage mirror, synchronously, before the page has drawn.
   let seed = null;
   try { seed = window.localStorage.getItem(KEY); } catch { /* fall through to system */ }
   mode = clean(seed);
   paint();
 
-  // 2. The authority, as soon as it answers — and the cross-page subscription that keeps
-  //    an open editor tab in step with the panel.
+  // Then the authority, and the subscription that keeps an open editor tab in step with the panel.
   if (hasChrome) {
     chrome.storage.local.get(KEY)
       .then((got) => adopt(got && got[KEY]))
@@ -77,8 +69,7 @@ const Theme = (() => {
     set,
     get: () => mode,
 
-    // For the one caller that must hand a CONCRETE scheme to something that cannot
-    // resolve one: the on-page overlay, which can read neither store above.
+    // A concrete scheme for the on-page overlay, which can read neither store above.
     resolved: () => (mode === 'system'
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : mode),

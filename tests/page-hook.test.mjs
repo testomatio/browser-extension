@@ -1,19 +1,5 @@
 #!/usr/bin/env node
-// What extension/evidence/page-hook.js owes the tester (#172): while they reproduce a bug it rides
-// inside the page under test and writes down what the page's own code does — every console error,
-// every failed request, and, when the tester allowed it, the first 16 KB of the failing response.
-// It is the half of the evidence log Chrome's own network events cannot see.
-// Its FIRST duty is to be invisible. It replaces the page's console.error, fetch and XMLHttpRequest
-// with wrappers, so a wrapper that throws, swallows a rejection or hands back a different response
-// breaks the site the tester is testing — and they will blame the site, not us. Its second duty is
-// not to say the same thing twice: a thrown error is usually both logged by the page and reported by
-// the browser, and the tester should see one line, not two.
-// The 16 KB body cap lives HERE, in the page — the worker stores whatever arrives with no cap of its
-// own (tests/evidence-recorder.test.mjs rows 21-23), so these rows are the only thing holding it.
-// The rows are the ticket's 62, numbered in their names. Companion rows carry a letter suffix and
-// drive the same path the other way, so a row asserting "nothing happened" cannot pass against a
-// dead stub.
-// Run: node --test tests/page-hook.test.mjs
+// The 16 KB body cap lives only here: the worker stores whatever arrives uncapped.
 import { runInContext } from 'node:vm';
 import { isNativeError } from 'node:util/types';
 import test from 'node:test';
@@ -26,14 +12,10 @@ const TEXT_CAP = 4000;
 const NOW = 1_700_000_000_000;
 const SITE = 'https://shop.example.com';
 const PAGE = `${SITE}/cart`;
-// SHARED_SRC / SHARED_MODULES=page-hook.js=<path> point sharedPath at a mutated copy, so a
-// falsification run never has to edit the shipped file and risk leaving it edited.
+// SHARED_SRC/SHARED_MODULES point sharedPath at a mutated copy, so the shipped file stays untouched.
 const HOOK = 'evidence/page-hook.js';
 
-// ---- the page's own XMLHttpRequest -----------------------------------------
-
-// The prototype the hook patches. `responseText` throws for a non-text responseType exactly as a
-// browser does, so a row can prove the hook never touched the page's own blob.
+// `responseText` throws for a non-text responseType, as in a browser.
 class FakeXHR {
   constructor() {
     this.status = 0;
@@ -70,8 +52,6 @@ class FakeXHR {
 
   emit(type) { for (const fn of (this.__ls.get(type) || []).slice()) fn(); }
 }
-
-// ---- the page's own Response -----------------------------------------------
 
 /** A believable `fetch` response plus the counters readCapped() is judged by. */
 function response(opts = {}) {
@@ -110,11 +90,7 @@ function response(opts = {}) {
   return { res, state };
 }
 
-// ---- the load --------------------------------------------------------------
-
-// The hook is a bare IIFE: it publishes nothing but a double-init flag and declares no top-level
-// function, so there is no export to grab. Every row drives it through the globals it patched and
-// the listeners it registered.
+// A bare IIFE with no export: rows drive it through the globals it patched and its listeners.
 function load(opts = {}) {
   const {
     now = NOW,
@@ -134,13 +110,12 @@ function load(opts = {}) {
   const posts = [];             // every window.postMessage, in order
   const winListeners = [];      // {type, fn, capture}
   const docListeners = [];
-  const consoleCalls = [];      // every call that reached the page's OWN console
-  const origFetchCalls = [];    // every call that reached the page's OWN fetch
+  const consoleCalls = [];      // every call that reached the page's own console
+  const origFetchCalls = [];    // every call that reached the page's own fetch
   let reentered = 0;
   let fetchAnswer = () => Promise.resolve(response({ status: 200 }).res);
 
-  // `new Error()` with no arguments is only ever callSite() asking where it is; a synthetic stack is
-  // the only stable one, since Node's frames read nothing like Chrome's.
+  // A synthetic stack is the only stable one: Node's frames read nothing like Chrome's.
   class PageError extends Error {
     constructor(...args) {
       super(...args);
@@ -199,8 +174,7 @@ function load(opts = {}) {
   if (!noXHR) sandbox.XMLHttpRequest = FakeXHR;
 
   const { context } = loadInto(sandbox, [HOOK]);
-  // node hands the vm its own global proxy for `window`, not the raw sandbox object, and both
-  // `e.source !== window` (:52) and `el !== window` (:205) compare against exactly that.
+  // The vm's `window` is its global proxy, not the sandbox, and the hook compares against that.
   const win = runInContext('globalThis', context);
 
   const fireMs = (ms) => {
@@ -256,10 +230,6 @@ function load(opts = {}) {
 const element = (tagName, props = {}) => ({ nodeType: 1, tagName, ...props });
 /** An Error with the stack a row wants; `instanceof Error` still answers true inside the vm. */
 const erroring = (message, stack) => Object.assign(new Error(message), stack === undefined ? {} : { stack });
-
-// ============================================================================
-// Batching and the control channel
-// ============================================================================
 
 test('1: a page logging all afternoon does not post a message per line — 39 rows wait for the window', async () => {
   const h = load();
@@ -378,10 +348,6 @@ test('11: once the answer has landed the next read does not wait again', async (
   assert.equal((await h.drain()).find((e) => e.t === 'net').bodySkipped, true);
 });
 
-// ============================================================================
-// The text the tester reads
-// ============================================================================
-
 test('12: a whole stack dump on one console line is cut to 4000 characters with an ellipsis', async () => {
   const h = load();
   h.sandbox.console.error('x'.repeat(5000));
@@ -474,10 +440,6 @@ test('20a: a stack the engine refused to build leaves the row without a location
   assert.equal(row.url, null);
 });
 
-// ============================================================================
-// One failure, one line: the dedup
-// ============================================================================
-
 test('21: the three ways a browser announces the same throw all collapse to the same first line', async () => {
   for (const stack of ['Uncaught TypeError: x', 'Uncaught (in promise) TypeError: x']) {
     const h = load();
@@ -527,10 +489,6 @@ test('25: an empty console line is not a failure worth remembering, so it evicts
   assert.equal((await h.drain()).filter((e) => e.t === 'exception').length, 0,
     'the five empties did not push the oldest head out of the window');
 });
-
-// ============================================================================
-// Never break the page's console
-// ============================================================================
 
 test('26: an argument that logs while we are reading it does not send the console into a spin', async () => {
   const h = load();
@@ -596,10 +554,6 @@ test('29a: console.warn is filed as a warning and console.error as an error', as
   assert.deepEqual((await h.drain()).slice(1).map((e) => [e.t, e.level]),
     [['console', 'warning'], ['console', 'error']]);
 });
-
-// ============================================================================
-// What the browser reports and the page swallows
-// ============================================================================
 
 test('30: an image the page could not load is one log row, not an exception', async () => {
   const h = load();
@@ -727,10 +681,6 @@ test('37a: the element listener is capture-phase, or a failed image would never 
   assert.deepEqual(h.docListeners(), [{ type: 'securitypolicyviolation', capture: undefined }]);
 });
 
-// ============================================================================
-// The capped body read
-// ============================================================================
-
 test('38: a hundred-kilobyte failure gives up sixteen kilobytes and lets the rest go', async () => {
   const h = load();
   h.control({ captureBodies: true });
@@ -807,10 +757,6 @@ test('42: a body that is not valid UTF-8 is decoded as best it can be, not throw
   assert.equal(net.bodySnippet, 'hi��!');
   assert.equal(net.bodyTruncated, false);
 });
-
-// ============================================================================
-// The fetch wrapper
-// ============================================================================
 
 test('43: a no-cors response the page cannot read is not recorded as a failure it never saw', async () => {
   const h = load();
@@ -989,10 +935,6 @@ test('53c: a page with no fetch at all still gets a hook, and still records its 
   assert.equal((await h.drain())[1].text, 'still here');
 });
 
-// ============================================================================
-// The XMLHttpRequest wrapper
-// ============================================================================
-
 test('54: a failed XHR gives up its response text, capped at sixteen kilobytes', async () => {
   const h = load();
   h.control({ captureBodies: true });
@@ -1157,10 +1099,6 @@ test('58f: a request the tester watched is timed, from the send to the last byte
   assert.equal(net.durationMs, 180);
   assert.equal(net.ts, NOW, 'stamped when the page sent it, not when it came back');
 });
-
-// ============================================================================
-// Load-time behaviour
-// ============================================================================
 
 test('59: a frame torn down under us swallows the post instead of throwing into the page', async () => {
   const h = load({ postThrows: true });

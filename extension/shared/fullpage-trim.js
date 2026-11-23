@@ -1,14 +1,11 @@
-// The full-page shot's double-compose guard (IIFE global `FullpageTrim`): `overshoot` is the
-// arithmetic on its own, `trimToDocument` the re-encode that acts on it.
+// A misbehaving Chrome composes the full page twice, stacked; this cuts it back to the document.
 
 const FullpageTrim = (() => {
-  // #158 belt to the clip's braces: a misbehaving Chrome composes the page TWICE, stacked — cut
-  // back to the document height. Scale from the WIDTH ratio, not devicePixelRatio, so zoom is absorbed.
+  // Scale from the width ratio, not devicePixelRatio, so page zoom is absorbed.
   const FULLPAGE_SLACK = 4;     // px of rounding we forgive outright
   const FULLPAGE_TOLERANCE = 1.1; // ...and the share of the document beyond it
 
-  // How tall one page SHOULD be at the bitmap's scale, how tall it may be before it is two, and
-  // whether this bitmap is over that. An unusable clip leaves `trims` false, never a NaN cut.
+  // An unusable clip leaves `trims` false, never a NaN cut.
   function overshoot(bmpW, bmpH, clip) {
     const scale = bmpW / clip.width;
     const expected = Math.round(clip.height * scale);

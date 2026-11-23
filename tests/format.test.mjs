@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/format.js — how a duration reads to a tester. Rows 18-25 of #164,
-// moved here unchanged when the function left screens/test-view.js (#197): they were always
-// pure, and this file proves it — no document, no chrome, no state, no stub of any kind.
-// The exact strings are a parity contract with the web (helpers/duration-to-human), so a
-// wording change here is a change the tester sees in the run list and the result card at once.
-// Run: node --test tests/format.test.mjs
+// The strings must match the web's duration-to-human helper word for word.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,8 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// CORE_SRC points the suite at a mutated COPY of core/, so a falsification run never edits
-// the shipped file. `Fmt` is a top-level const: lexical, so only the completion value reaches us.
+// `Fmt` is a lexical const, so the trailing `Fmt;` completion value is how it leaves the vm.
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const Fmt = runInNewContext(`${readFileSync(join(CORE_SRC, 'format.js'), 'utf8')}\nFmt;`, {});
 const dur = (v) => Fmt.humanDuration(v);
@@ -53,7 +47,6 @@ test('23: minutes and seconds', () => {
 
 test('24: one millisecond under the hour reads "59m 60s" — the rounding artifact, pinned', () => {
   assert.equal(dur(3599999), '59m 60s');
-  // The neighbouring second, where the same arithmetic is unremarkable.
   assert.equal(dur(3599000), '59m 59s');
 });
 
@@ -63,8 +56,7 @@ test('25: hours, with the minutes dropped when there are none', () => {
   assert.equal(dur(7260000), '2h 1m');
 });
 
-// The run list hands SECONDS off the run serializer, so it multiplies before it asks — the one
-// call in the panel that converts, and the reason both screens must share this function.
+// The run list gets seconds from the run serializer and multiplies them before calling this.
 test('the run list\'s seconds-to-ms conversion lands on the same wording', () => {
   assert.equal(dur(95 * 1000), '1m 35s');
 });

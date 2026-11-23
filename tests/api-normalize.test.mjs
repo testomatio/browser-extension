@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// extension/api.js: the pure normalisers between a server payload and what the panel draws — who a
-// person is, what a page of a list means, which suite comes first. Rows 60-81 and 84-87 of #145,
-// with no fetch anywhere in the file. Run: node --test tests/api-normalize.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, plain } from './helpers/api-harness.mjs';
@@ -13,8 +10,6 @@ const { normSuiteNode, orderSuiteTree, testrunExampleOf } = inner;
 
 const doc = (attributes, over = {}) => ({ data: { attributes }, ...over });
 const ASSIGN = /assign/i;
-
-// ---- personOf: a person out of whatever the payload calls one ----
 
 test('60: blank, absent and numeric values are nobody', () => {
   assert.equal(personOf('  '), null);
@@ -37,8 +32,6 @@ test('63: a JSON:API resource is read through its attributes', () => {
 test('64: a flat record falls back to the username', () => {
   assert.deepEqual(plain(personOf({ username: 'ann' })), { name: 'ann', email: '' });
 });
-
-// ---- peopleByKey: a name-shaped key holding something that is not a person ----
 
 test('65: a SETTING whose key merely matches draws nobody', () => {
   assert.deepEqual(plain(peopleByKey(doc({ 'assign-mode': 'none' }), ASSIGN)), []);
@@ -75,8 +68,6 @@ test('71: a payload naming nobody says nothing — undefined, never an empty lis
   assert.deepEqual(plain(runAssigneesOf(doc({ 'assigned-to': 'Ann' }))), [{ name: 'Ann', email: '' }]);
 });
 
-// ---- runInfoOf: the fields v2 does not serialize ----
-
 test('72: zero, non-numeric and empty-key substatus counters are dropped', () => {
   const info = mod.runInfoOf(doc({ 'substatuses-counts': { a: 2, b: 0, c: 'x', '': 5 } }));
   assert.deepEqual(plain(info.substatusCounts), { a: 2 });
@@ -95,8 +86,7 @@ test('75: an unreadable duration is zero seconds', () => {
   assert.equal(mod.runInfoOf(doc({ duration: 'x' })).duration, 0);
 });
 
-// The run card reads these by name, so a field quietly dropped from the shape shows as a blank
-// card rather than a failure. The whole mapping is pinned, not only the three tricky ones.
+// The run card reads these by name, so a dropped field shows as a blank card, not a failure.
 test('75b: every field the run card reads is mapped from its own attribute', () => {
   const info = mod.runInfoOf(doc({
     status: 'failed',
@@ -116,8 +106,6 @@ test('75b: every field the run card reads is mapped from its own attribute', () 
   const bare = mod.runInfoOf(doc({}));
   assert.deepEqual([bare.status, bare.ciBuildUrl, bare.launchedAt, bare.finishedAt], [null, null, null, null]);
 });
-
-// ---- the dashboard shapes ----
 
 test('76: an env list is joined, and anything else is an empty string', () => {
   assert.equal(normEnv(['Chrome', 'Linux']), 'Chrome, Linux');
@@ -140,8 +128,6 @@ test('79: a meta page of 0 falls back to the page we asked for', () => {
   assert.equal(pageResult([], 3, { page: 0 }, DASH_KEYS).page, 3);
 });
 
-// ---- the suite tree ----
-
 test('80: a tree node is normalised whole, children included', () => {
   const node = normSuiteNode({ id: 1, fileType: 'folder', testCount: null, children: [{ id: 2 }] });
   assert.deepEqual(plain(node), {
@@ -159,8 +145,6 @@ test('81: position orders the level, an unknown id sorts as 0, and ties keep ser
   const positions = new Map([['a', 3], ['b', 1], ['d', 1]]);
   assert.deepEqual(plain(orderSuiteTree(nodes, positions)).map((n) => n.id), ['c', 'b', 'd', 'a']);
 });
-
-// ---- parametrized run rows ----
 
 test('84: an example array keeps its cells, positional to the test params', () => {
   const out = testrunExampleOf({ example: ['a', '', 'b'], test: { params: ['x', 'y', 'z'] } });

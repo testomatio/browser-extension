@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-// #148: a desktop app launches this browser for the tester and leaves a small file next to the
-// extension saying which Testomat.io instance and project to use, plus a live session — so the
-// tester never pastes a token. extension/shared/handoff.js decides what it accepts from that file,
-// what it persists, and what it quietly ignores. The tester can decline, and the same file can push
-// a run into a panel that is already open.
-// Run: node --test tests/handoff.test.mjs
+// A desktop app leaves a handoff file next to the extension so the tester never pastes a token.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, chromeFake, plain } from './helpers/shared-harness.mjs';
@@ -67,8 +62,7 @@ function loadHandoff(opts = {}) {
     renderProjectBar: () => { bars += 1; },
     openRunFromUrl: async (url) => { calls.openRun.push(url); return openRunFromUrl(url); },
     openRunsView: () => { runsViews += 1; },
-    // A stub, not the real screens/runs-url.js: rows H34 and H35 hand back a kind and an id the real
-    // parser would never read out of that URL, and what they pin is handoff.js's OWN guard (#195).
+    // A stub, not screens/runs-url.js: H34 and H35 pin handoff.js's own guard, not the parser.
     RunsUrl: { parseParts: (raw) => { calls.parse.push(raw); return runParts(raw); } },
   };
   if (withWindow) sandbox.window = {};
@@ -87,7 +81,6 @@ test('H1: no host file next to the extension means no offer, and nothing breaks'
   assert.equal(await h.Handoff.ready(), null);
   assert.equal(h.fetches.length, 1);
   assert.equal(await loadHandoff({ file: null }).Handoff.ready(), null);
-  // The same panel with a file present does get one.
   assert.equal((await loadHandoff().Handoff.ready()).projectId, 'p1');
 });
 
@@ -139,15 +132,13 @@ test('H8: a push with no readable timestamp counts as zero, and is then never of
   assert.equal((await loadHandoff({ file: { ...FULL, at: 1 } }).Handoff.ready()).at, 1);
 });
 
-// A-P1-3: a file may not name a plain-http instance either — the same refusal Save gives a typed
-// address ('Instance URL must be https://'), so the session token never goes out in clear text.
+// The same https-only rule Save applies, so the session token never goes out in clear text.
 test('H9: a host file naming an http instance is refused', async () => {
   const h = loadHandoff({ file: { ...FULL, baseUrl: 'http://app.testomat.io' } });
   assert.equal(await h.Handoff.ready(), null);
   assert.equal(h.Handoff.offer(), null);
   // A self-hosted instance on the tester's own machine is refused on the same terms.
   assert.equal(await loadHandoff({ file: { ...FULL, baseUrl: 'http://localhost:3000' } }).Handoff.ready(), null);
-  // The same instance over https is the offer it always was.
   assert.equal((await loadHandoff({ file: FULL }).Handoff.ready()).baseUrl, 'https://app.testomat.io');
 });
 
@@ -227,7 +218,6 @@ test('H20: with no offer there is nothing to adopt and nothing is saved', async 
   await h.Handoff.ready();
   assert.equal(await h.Handoff.connect(), null);
   assert.equal(h.calls.commit.length, 0);
-  // The same panel with a file does save.
   const h2 = loadHandoff();
   await h2.Handoff.ready();
   assert.notEqual(await h2.Handoff.connect(), null);
@@ -253,8 +243,7 @@ test('H21: adopting the offer keeps the tester\'s own token and their settings f
   assert.deepEqual(h.calls.session, [JWT]); // and the API is pointed at the host's session
 });
 
-// A-P1-3: PRIVACY.md says project keys are memory-only, so the one a host sent is kept out of what
-// commitSettings writes to chrome.storage.local and merged back into the API config instead.
+// PRIVACY.md says project keys are memory-only, so a host's key never reaches storage.local.
 test('H22: a project key a host sent stays in memory and never reaches the disk', async () => {
   const h = loadHandoff({ file: { ...FULL, projectToken: TOKEN } });
   await h.Handoff.ready();
@@ -285,7 +274,6 @@ test('H24: a push that names no run opens nothing and marks nothing as consumed'
   assert.equal(await h.Handoff.openRun(), false);
   assert.equal(h.session.sets.length, 0);
   assert.equal(h.calls.openRun.length, 0);
-  // The same panel, with a run named, does open it and does write.
   const h2 = loadHandoff({ file: { ...FULL, runUrl: 'https://app.testomat.io/projects/p1/runs/55' } });
   await h2.Handoff.ready();
   assert.equal(await h2.Handoff.openRun(), true);
@@ -416,8 +404,7 @@ test('H39: the host\'s entry point is published on the page, and a page without 
 });
 
 test('H40: a project key the host sent is named with its own project, so a switch cannot send it', async () => {
-  // api.js sends the key only while `projectTokenFor` is the open project, so the name travels
-  // with it through configure() — a switch elsewhere mints that project's key instead.
+  // api.js sends the key only while `projectTokenFor` is the open project, so the name travels too.
   const h = loadHandoff({ file: { ...FULL, projectToken: TOKEN } });
   await h.Handoff.ready();
   await h.Handoff.connect();
@@ -441,7 +428,6 @@ test('H41: a store install never asks for the file, so its console stays clean',
   assert.equal(h.local.data.handoffDeclinedAt, undefined);
 });
 
-// The control, green before the fix and after it: Testeiya's unpacked copy reads the file as before.
 test('H42: an unpacked copy, or one whose manifest cannot be read, still reads the host file', async () => {
   for (const manifest of [{ version: '0.2.0' }, 'throws', null]) {
     const h = loadHandoff({ manifest });

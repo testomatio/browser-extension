@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// The contract of extension/editor/rec-session.js (#192): what the recorder writes into the body,
-// the order it talks to the worker in, and what the AI polish may and may not overwrite.
-// Cases numbered as in #192. Run: node --test tests/rec-session.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,22 +7,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// RECSESS_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// RECSESS_SRC lets a falsification run test a mutated copy without editing the shipped module.
 const SRC = process.env.RECSESS_SRC || join(repoRoot, 'extension/editor/rec-session.js');
 const read = (rel) => readFileSync(join(repoRoot, rel), 'utf8');
 
-// md-sections.js and rec-format.js are the REAL files, evaluated into the same context
-// editor.html loads them into. They are what cases 72-73 are about — a stub of the section
-// arithmetic is exactly the thing that could not prove the tester's own markdown survives.
+// The real section and format files: a stub could not prove the tester's own markdown survives.
 const REAL = ['extension/editor/md-sections.js', 'extension/editor/rec-format.js'];
 const SOURCE = [...REAL.map(read), readFileSync(SRC, 'utf8'), 'RecSession;'].join('\n');
 
 // Values built inside the vm realm carry that realm's prototypes: compare them as plain JSON.
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// The 500ms poll and the 30s polish deadline are both the point of a case below, so the sandbox
-// gets its own clock: nothing fires by itself, and `fireTimeouts()` is the deadline going off.
+// The poll and the polish deadline are under test: nothing fires until fireTimeouts() is called.
 function makeClock() {
   let seq = 0;
   const timeouts = new Map();
@@ -40,8 +33,7 @@ function makeClock() {
   };
 }
 
-// One sandbox and one session per case: the session keeps every rec* field, and a shared one would
-// let a case read the recording the previous one left behind.
+// One session per case: a shared one would let a case read the recording the previous one left.
 function open({
   body = '# T\n',
   title = 'A test',
@@ -56,7 +48,7 @@ function open({
   const clock = makeClock();
   const state = { body };
   const toasts = [];
-  const sent = [];        // every message type, in the order it went out — case 86 is this list
+  const sent = [];        // every message type, in the order it went out
   const recViews = [];
   const polishViews = [];
   const rowHidden = [];
@@ -143,8 +135,7 @@ function open({
 
 const step = (text, ctx = null) => ({ kind: 'step', text, ctx });
 
-// A recording that really went through the worker. The polish cases all start here: `written` has
-// to match the body byte for byte, or `replaceItems` treats every item as hand-edited and skips it.
+// `written` must match the body byte for byte, or replaceItems treats every item as hand-edited.
 async function record(env, texts, over = {}) {
   await env.session.start();
   const entries = texts.map((t) => (typeof t === 'string' ? step(t) : t));
@@ -159,8 +150,6 @@ async function recordAndStop(env, texts) {
 const POLISHED = (...lines) => ({
   steps: `<!-- ![START polished_steps]! -->\n${lines.join('\n')}\n<!-- ![END polished_steps]! -->`,
 });
-
-// ---- 72-73: what the tester wrote is never re-emitted (D P0-1, fixed in #136) ----
 
 test('72: a bullet-list Steps section keeps its bullets and takes the recorded step as a third', async () => {
   const env = open({ body: '# T\n\n### Steps\n\n- open the app\n- log in\n' });
@@ -177,16 +166,13 @@ test('73: prose, a fence and an image in Steps all survive, and the step lands a
   assert.ok(env.body().startsWith(body));
 });
 
-// ---- 74-77: where a recording's items are, and the body write that puts them there ----
-
 test('74: the first insert pins recStart at the item count BEFORE it, and both inserted flags flip', async () => {
   const env = open({ body: '# T\n\n### Steps\n\n1. by hand one\n2. by hand two\n' });
   await record(env, ['Click Save']);
   const d = env.session.draftShape();
   assert.equal(d.start, 2);  // two items were already there
   assert.equal(d.count, 1);
-  // recStepInserted: the next expected-only batch attaches to the step, instead of opening
-  // its own `### Expected` section.
+  // recStepInserted: the next expected-only batch attaches to the step, not a new `### Expected`.
   env.pull({ recording: true, count: 2, entries: [{ kind: 'expected', text: 'a toast' }] });
   await env.session.poll();
   assert.ok(env.body().includes('3. Click Save\n   - Expected: a toast'));
@@ -204,7 +190,6 @@ test('75: an expected result with no step of its own opens `### Expected` and st
   assert.equal(env.body(), '# T\n\n### Expected\n\n- ok');
   assert.equal(env.session.draftShape().start, -1);
   assert.equal(env.session.hasRecording(), false);
-  // …so there is nothing for the polish button to act on, switch on or not.
   env.session.setPolishOn(true);
   assert.equal(env.lastPolish().hidden, true);
 });
@@ -227,7 +212,6 @@ test('77: a live insert puts the caret back where the tester left it', async () 
   const env = open({ body: '# T\n', caret: 4 });
   await record(env, ['Click Save']);
   assert.deepEqual(env.caretSet, [[4, 4]]);
-  // …and with the caret elsewhere on the page there is nothing to restore.
   const away = open({ body: '# T\n' });
   await record(away, ['Click Save']);
   assert.deepEqual(away.caretSet, []);
@@ -235,14 +219,12 @@ test('77: a live insert puts the caret back where the tester left it', async () 
   assert.ok(away.edits.includes(away.body()));
 });
 
-// ---- #246: a body written in Ukrainian is ONE recording, not a second section ----
-
 test('a recording joins the ### Кроки the tester already wrote (#246)', async () => {
   const env = open({ body: '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n' });
   await record(env, ['Click Save']);
   assert.equal(env.body(), '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n2. Click Save\n');
   assert.ok(!env.body().includes('### Steps')); // no second, English list numbering from 1 again
-  // The span is read off THAT section: the hand-written step is context, the recorded one is ours.
+  // The span is read off that section: the hand-written step is context, the recorded one is ours.
   const d = plain(env.session.draftShape());
   assert.equal(d.start, 1);
   assert.equal(d.count, 1);
@@ -257,8 +239,7 @@ test('a recording joins the ### Кроки the tester already wrote (#246)', asy
 test('polish and undo reach the steps recorded into a ### Кроки body (#246)', async () => {
   const env = open({ body: '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n' });
   await recordAndStop(env, ['Click Save']);
-  // Teaching the insert the heading but not the bookkeeping is the silent failure: recCount lands
-  // on 0, hasRecording() goes false, and the polish button simply is not offered.
+  // Teaching the insert the heading but not the bookkeeping fails silently: no polish button.
   assert.equal(env.session.hasRecording(), true);
   env.session.setPolishOn(true);
   assert.equal(env.lastPolish().hidden, false);
@@ -271,8 +252,6 @@ test('polish and undo reach the steps recorded into a ### Кроки body (#246)
   assert.equal(env.body(), '# Вхід\n\n### Кроки\n\n1. Відкрити сайт\n2. Click Save\n');
   assert.equal(env.session.isPolished(), false);
 });
-
-// ---- 78-81: the record button's words. The module decides them; renderEditor paints them ----
 
 test('78: while polishing the record button says so, is disabled, and hides Continue', async () => {
   const env = open({ recorded: null });
@@ -327,8 +306,6 @@ test('81: blind AND at the cap — the warning wins the label, and Continue stay
   assert.ok(v.tip.startsWith('Chrome doesn’t allow extensions on this page'));
 });
 
-// ---- 82-88: the worker transport ----
-
 test('82: the blind warning is toasted once per blind stretch, not once per poll', async () => {
   const env = open();
   await env.session.start();
@@ -338,7 +315,6 @@ test('82: the blind warning is toasted once per blind stretch, not once per poll
   await env.session.poll();
   const blind = env.toastText().filter((m) => m.startsWith('Chrome doesn’t allow extensions'));
   assert.equal(blind.length, 1);
-  // …and it comes back when the recorder goes blind a second time.
   env.pull({ recording: true, count: 1, blind: false });
   env.pull({ recording: true, count: 1, blind: true });
   await env.session.poll();
@@ -411,8 +387,6 @@ test('88: a new recording replaces the polished one this editor was holding, fie
   assert.deepEqual(env.clock.intervals(), [500]);
 });
 
-// ---- 89: one lane, so Save and a leave have exactly one promise to wait on ----
-
 test('89: the second job waits for the first to settle, even when the first rejects', async () => {
   const env = open();
   const order = [];
@@ -433,8 +407,6 @@ test('89: the second job waits for the first to settle, even when the first reje
   assert.deepEqual(order, ['a-start', 'a-end', 'b-start']);
   assert.equal(env.session.isBusy(), false);
 });
-
-// ---- 90-96: the polish round trip ----
 
 test('90: a model that never answers loses to the deadline, and the raw steps stand', async () => {
   const env = open();
@@ -572,13 +544,11 @@ test('94: a polish keeps the recorder\'s own texts, so Undo has somewhere to go 
   assert.ok(env.body().includes('1. Save the form'));
   assert.ok(env.body().includes('2. Sign in as admin'));
   assert.equal(env.apiCalls[0][1], 't1'); // editing, so the request names the test
-  // …and Undo puts the recorder's sentences back, word for word.
   env.session.undo();
   assert.ok(env.body().includes('1. Click the Save button'));
   assert.equal(env.session.isPolished(), false);
 });
 
-// D P2-10, fixed in #253.
 test('95 (#253): undo with every step hand-edited says so instead of silently relabelling', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button']);
@@ -595,23 +565,19 @@ test('95 (#253): undo with every step hand-edited says so instead of silently re
   // The polish did not come undone, so neither the flag nor the button pretends it did.
   assert.equal(env.session.isPolished(), true);
   assert.equal(env.lastPolish().label, 'Undo polish');
-  // …and the draft a reopen restores says the same, with the recorder's sentence still in it.
   const d = plain(env.session.draftShape());
   assert.equal(d.polished, true);
   assert.deepEqual(d.rawItems.map((i) => i.text), ['Click the Save button']);
 });
 
-// D P2-11, fixed in #253 (same issue as 95).
 test('96 (#253): polish → undo → polish → undo still reaches the recorder\'s original wording', async () => {
   const env = open();
   await recordAndStop(env, ['Click the Save button', 'Type admin into Login']);
   env.answerWith(() => Promise.resolve(POLISHED('1. Save the form', '2. Sign in as admin')));
   await env.session.polish();
-  // The tester rewrites one of the two polished steps by hand, then undoes the polish.
   env.setBody(env.body().replace('2. Sign in as admin', '2. Log in as the admin user'));
   env.session.undo();
-  // `recRawItems` is the recorder's own wording for the life of the recording — the skipped
-  // item's edit is in the body, not filed away as something the recorder wrote.
+  // `recRawItems` keeps the recorder's own wording; the skipped item's edit lives only in the body.
   assert.deepEqual(
     plain(env.session.draftShape()).rawItems.map((i) => i.text),
     ['Click the Save button', 'Type admin into Login'],
@@ -624,13 +590,10 @@ test('96 (#253): polish → undo → polish → undo still reaches the recorder\
   await back.session.polish();
   back.session.undo();
   assert.ok(back.body().includes('Type admin into Login'));
-  // …and in this session too, without ever closing it.
   await env.session.polish();
   env.session.undo();
   assert.ok(env.body().includes('Type admin into Login'));
 });
-
-// ---- 97-101: the prompt that goes out ----
 
 test('97: steps written before the recording are listed as context, and the recording starts at 1', async () => {
   const env = open({ body: '# T\n\n### Steps\n\n1. by hand one\n2. by hand two\n', title: '  Sign\nin  ' });
@@ -687,8 +650,7 @@ test('100 (#254): the Open step is the only place a url is written down, and the
   const msg = env.apiCalls[0][0];
   assert.ok(msg.includes('after: url="https://x.io/reset"'));
   assert.ok(!msg.includes('token='));
-  // A P0-1: `srOpenUrl` (shared/step-rec-core.js, #116) trims what is RECORDED, in the worker, and
-  // honours the full-URL setting — never change that here. The outbound prompt trims regardless.
+  // srOpenUrl trims the recorded url per the full-URL setting; the outbound prompt trims regardless.
   const full = open();
   await recordAndStop(full, [step('Open https://x.io/reset?token=abc#f')]);
   full.answerWith(() => Promise.resolve({}));
@@ -696,7 +658,7 @@ test('100 (#254): the Open step is the only place a url is written down, and the
   const out = full.apiCalls[0][0];
   assert.ok(out.includes('after: url="https://x.io/reset"'));
   assert.ok(!out.includes('token='));
-  // …and the setting still governs the body: the step keeps the url the tester asked to record.
+  // The setting still governs the body: the step keeps the url the tester asked to record.
   assert.ok(full.body().includes('Open https://x.io/reset?token=abc#f'));
 });
 
@@ -727,15 +689,12 @@ test('101: no packet carried a page, so the prompt has no PAGE line to write', a
   env.answerWith(() => Promise.resolve({}));
   await env.session.polish();
   assert.ok(!env.apiCalls[0][0].includes('PAGE:'));
-  // …and one that did carry a page puts it on line two.
   const withPage = open();
   await recordAndStop(withPage, [step('Click Save', { action: 'click', page: { title: 'Login', url: 'https://x.io/in' } })]);
   withPage.answerWith(() => Promise.resolve({}));
   await withPage.session.polish();
   assert.equal(withPage.apiCalls[0][0].split('\n')[1], 'PAGE: Login | https://x.io/in');
 });
-
-// ---- 102: the polish button is offered in exactly one situation ----
 
 test('102: six ways the polish button is not offered, and the two words it wears when it is', async () => {
   // The shown case first, so each leg below is the same session minus one condition.
@@ -755,20 +714,18 @@ test('102: six ways the polish button is not offered, and the two words it wears
     env.session.undo();
     assert.equal(env.lastPolish().label, 'Polish recorded steps');
   }
-  // 1: nothing recorded yet.
   {
     const env = open();
     env.session.setPolishOn(true);
     assert.equal(env.lastPolish().hidden, true);
   }
-  // 2: the switch is off.
   {
     const env = open();
     await recordAndStop(env, ['Click Save']);
     env.session.setPolishOn(false);
     assert.equal(env.lastPolish().hidden, true);
   }
-  // 3: basic mode — no session to ask, so the row is not offered at all.
+  // Basic mode: no session to ask, so the row is not offered at all.
   {
     const env = open({ jwt: false });
     await recordAndStop(env, ['Click Save']);
@@ -777,7 +734,6 @@ test('102: six ways the polish button is not offered, and the two words it wears
     assert.equal(env.rowHidden[env.rowHidden.length - 1], true);
     assert.equal(env.lastPolish().hidden, true);
   }
-  // 4: a recording is running — Stop first.
   {
     const env = open();
     await recordAndStop(env, ['Click Save']);
@@ -785,7 +741,6 @@ test('102: six ways the polish button is not offered, and the two words it wears
     await env.session.start();
     assert.equal(env.lastPolish().hidden, true);
   }
-  // 5: a request is already out.
   {
     const env = open();
     await recordAndStop(env, ['Click Save']);
@@ -797,7 +752,7 @@ test('102: six ways the polish button is not offered, and the two words it wears
     env.clock.fireTimeouts();
     await p;
   }
-  // 6: saved — the read-only view has taken the page over.
+  // Saved: the read-only view has taken the page over.
   {
     const env = open();
     await recordAndStop(env, ['Click Save']);
@@ -807,8 +762,6 @@ test('102: six ways the polish button is not offered, and the two words it wears
     assert.equal(env.lastPolish().hidden, true);
   }
 });
-
-// ---- the pref the switch remembers, read once when the editor opens ----
 
 test('the polish switch comes back the way it was left, off by default', async () => {
   const on = open({ local: { polishSteps: true } });

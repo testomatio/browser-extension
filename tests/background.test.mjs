@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// extension/background.js: which line goes first when a click and the page it opened arrive out of
-// order, which twins a double-click leaves behind, and when a line is too late to move.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { load, mkSt, plain, settle, DEFAULT_TAB } from './helpers/worker-harness.mjs';
@@ -16,8 +14,6 @@ const expected = (text, over = {}) => ({ kind: 'expected', text, at: T0, ...over
 const texts = (st) => (st.entries || []).map((e) => e.text);
 const kinds = (st) => (st.entries || []).map((e) => e.kind);
 const sender = { tab: { id: 7 } };
-
-// =========================== the append rule (srPush) ========================
 
 test('W1: the first entry lands at index 0, stamped with the moment it arrived', () => {
   const h = load();
@@ -69,10 +65,7 @@ test('W5: the cap is 50 unless storage.session names a positive number', async (
   }
 });
 
-// ===================== the 900 ms navigation lead (srPlace) ==================
-
-// The recorder holds an action ~400ms to see what it caused, so the navigation that action
-// triggered can reach the worker FIRST. A step landing right behind an auto nav line goes in front.
+// The recorder holds an action ~400ms, so the nav it caused can reach the worker first.
 const navThenStep = (h, { gap = 200, prev = expected(PAGE), sent = 0, kind = 'step' } = {}) => {
   const st = mkSt({ sent, lastNavIdx: 0 });
   h.setNow(T0);
@@ -123,8 +116,6 @@ test('W10: an expectation never overtakes anything; the same slot, a step, does'
   assert.deepEqual(texts(control.st), [CLICK, PAGE]);
 });
 
-// ==================== the double-click twins (srPopTwins) ===================
-
 test('W11: a double-click pops the two clicks that produced it, and no more', () => {
   const h = load();
   const st = mkSt({ entries: [step('Open https://shop.example.com'), step(CLICK), step(CLICK)] });
@@ -162,8 +153,7 @@ test('W14: popping past the last navigation forgets which line that was', () => 
   assert.equal(st.lastNavIdx, -1); // nothing left to refine a title onto
 });
 
-// The frame contract, from the worker's side: tests/step-recorder-outbox.test.mjs H4/H5 pin that a
-// double-click inside a frame EMITS `replaces` with the frame clause on it; this is the match.
+// The worker's half of the frame contract; step-recorder-outbox.test.mjs pins the emitting half.
 test('W15: a double-click inside a frame pops its twins, frame clause and all', async () => {
   const inFrame = 'Click the "Pay" button in the "checkout.example.com" frame';
   const dbl = 'Double-click the "Pay" button in the "checkout.example.com" frame';
@@ -172,8 +162,6 @@ test('W15: a double-click inside a frame pops its twins, frame clause and all', 
   assert.equal(r.ok, true);
   assert.deepEqual(texts(h.st()), [dbl]);
 });
-
-// ================= the entry copy and its `replaces` firewall ===============
 
 test('W16: `replaces` is a wire instruction and never enters the recording', () => {
   const h = load();
@@ -189,8 +177,6 @@ test('W17: `manual` marks an expectation the tester typed, and nothing else', ()
   assert.equal(h.api.srEntry('step', 'x', { manual: true }).manual, undefined);
 });
 
-// ====================== navigation dedup (srPushNav) ========================
-
 test('W18: an identical auto navigation is the same line; a manual one is the tester\'s', () => {
   const h = load();
   assert.equal(h.api.srDupNavIdx(mkSt({ entries: [expected(PAGE)] }), PAGE), 0);
@@ -205,8 +191,6 @@ test('W19: one SPA navigation firing url and title collapses onto the first line
   assert.equal(h.api.srPushNav(st, 'The "Checkout" page opens', 50), 1); // the control: a real move
   assert.deepEqual(texts(st), [PAGE, 'The "Checkout" page opens']);
 });
-
-// ============================ title trimming ================================
 
 test('W20: a title is one line of whitespace-collapsed text', () => {
   assert.equal(load().api.srTrimTitle('  Check   out  '), 'Check out');
@@ -227,8 +211,7 @@ test('W22: a long title is cut at a word boundary, not mid-word', () => {
   assert.equal(out.length, 77);
 });
 
-// Pinned as it stands: with no boundary in the first 80 the ellipsis is added to a full 80, so the
-// output is 81 characters — one past SR_TITLE_MAX. Today's contract, and the reason it is here.
+// Pinned as is: the ellipsis goes after a full 80, so the output is 81, one past SR_TITLE_MAX.
 test('W23: a title with no boundary in it comes back one character over the maximum', () => {
   const out = load().api.srTrimTitle('x'.repeat(81));
   assert.equal(out, `${'x'.repeat(80)}…`);
@@ -254,21 +237,17 @@ test('W26: a page with no title is named by its host', () => {
   assert.equal(load().api.srCleanTitle('', 'https://shop.example.com/cart'), 'shop.example.com');
 });
 
-// The ugly row, pinned as it is: with neither title nor parsable URL the sentence reads
-// `The "the" page opens`. Written down so a change to it is a decision, not an accident.
+// Pinned as is, so changing `The "the" page opens` is a decision, not an accident.
 test('W27: with nothing to go on the page is called by the URL, or literally "the"', () => {
   const { srCleanTitle } = load().api;
   assert.equal(srCleanTitle(null, 'not-a-url'), 'not-a-url');
   assert.equal(srCleanTitle('', ''), 'the');
 });
 
-// ==================== Chrome's placeholder title (srIsUrlTitle) =============
-
 test('W28: host+path is Chrome\'s placeholder, not a title', () => {
   assert.equal(load().api.srIsUrlTitle('shop.example.com/cart', 'https://shop.example.com/cart'), true);
 });
 
-// The other shape Chrome shows while a page loads: the host with no path behind it.
 test('W28b: the host on its own is Chrome\'s placeholder too', () => {
   const { srIsUrlTitle } = load().api;
   assert.equal(srIsUrlTitle('shop.example.com', 'https://shop.example.com/cart'), true);
@@ -279,8 +258,7 @@ test('W29: a real title is kept', () => {
   assert.equal(load().api.srIsUrlTitle('Cart', 'https://shop.example.com/cart'), false);
 });
 
-// A placeholder IS the address; a one-word section name the address happens to contain, and a
-// title that carries the domain inside it, are the page's own words and are kept.
+// A placeholder is the address; words the address merely contains are the page's own.
 test('W30b: a real title that the URL merely contains is still a title', () => {
   const { srIsUrlTitle } = load().api;
   assert.equal(srIsUrlTitle('cart', 'https://shop.example.com/cart'), false);
@@ -323,8 +301,6 @@ test('W32c: a page named by Chrome\'s placeholder is named by its host, so no qu
   assert.equal(srCleanTitle('Reset your password', url), 'Reset your password');
 });
 
-// ======================= the title refine (srRefineNav) =====================
-
 const navSt = (over = {}) => mkSt({
   entries: [expected('The "shop.example.com/cart" page opens')], lastNavIdx: 0, ...over,
 });
@@ -365,8 +341,6 @@ test('W36: when the rewrite creates a twin of the line above it, the twin goes',
   assert.deepEqual(texts(st), ['The "Your cart" page opens']);
 });
 
-// ========================= the recorded URL (srOpenUrl) =====================
-
 test('W37: the query string is cut — a reset token is not part of the step', () => {
   assert.equal(load().api.srOpenUrl('https://a.com/p?token=x#frag', false), 'https://a.com/p');
 });
@@ -391,8 +365,6 @@ test('W42: something that is not a URL is written down as it is', () => {
   assert.equal(load().api.srOpenUrl('not a url', false), 'not a url');
 });
 
-// ==================== the hand-over window (srFinalEnd) =====================
-
 test('W43: the hand-over stops at the first line still young enough to change', () => {
   const h = load();
   const st = mkSt({ entries: [step('a', { at: 0 }), step('b', { at: 0 }), step('c', { at: 900 })] });
@@ -405,8 +377,6 @@ test('W44: a navigation line gets three seconds to grow its real title', () => {
   assert.equal(h.api.srFinalEnd(st, 1500), 0);
   assert.equal(h.api.srFinalEnd(st, 3500), 1); // the control: past the nav window it is final
 });
-
-// ========================= the live pull and Stop ===========================
 
 test('W45: a second poll with nothing new hands over nothing and writes nothing', async () => {
   const h = load({ session: { stepRec: mkSt({ entries: [step('a', { at: T0 - 1000 })] }) } });
@@ -431,8 +401,6 @@ test('W46: Stop drains only the tail the poll had not taken, and is idempotent',
   assert.equal(h.session.stepRec, undefined);
   assert.deepEqual(plain((await h.api.srStop()).entries), []);
 });
-
-// ============================ srAdd, the gate ===============================
 
 test('W47: a stale frame from another tab writes nothing', async () => {
   const h = load({ session: { stepRec: mkSt({ entries: [step('a')] }) } });
@@ -481,8 +449,6 @@ test('W51: start then stop records nothing, and the Open it deferred is a trimme
   assert.deepEqual(plain((await h.api.srStop()).entries), []);
 });
 
-// ===================== after a blind stretch (srCatchUpNav) =================
-
 test('W52: coming back from a blind stretch records the page open NOW, not the hops', async () => {
   const h = load();
   const st = mkSt({ blind: true, lastUrl: 'https://shop.example.com/cart' });
@@ -505,8 +471,6 @@ test('W53: manually paused, the catch-up follows the tab and records nothing', a
   assert.deepEqual(texts(st), ['The "Thank you" page opens']);
 });
 
-// ==================== who owns the recording (srOrphaned) ===================
-
 test('W54: with no owner to check, a live recording is never ended on a guess', async () => {
   const h = load();
   h.hooks.getContexts = () => [];
@@ -528,8 +492,6 @@ test('W56: an editor that is gone ends the recording and keeps every entry', asy
   assert.deepEqual(texts(h.st()), ['a', 'b']);
 });
 
-// ===================== one chain for the appends (srSerial) =================
-
 test('W57: three actions fired in the same tick all land, in the order they were fired', async () => {
   const h = load({ session: { stepRec: mkSt() } });
   const { srSerial, srAdd } = h.api;
@@ -546,8 +508,6 @@ test('W58: one queued step failing does not take the chain down with it', async 
   await srSerial(() => srAdd({ kind: 'step', text: CLICK }, sender));
   assert.deepEqual(texts(h.st()), [CLICK]);
 });
-
-// ======================== Stop's flush of the caret ========================
 
 test('W59: a tab that never answers the flush stops the recording anyway, after 700 ms', async () => {
   const h = load({ session: { stepRec: mkSt() } });
@@ -569,8 +529,6 @@ test('W60: a blind tab is not asked to flush at all', async () => {
   assert.deepEqual(plain(h.named('tabs.sendMessage')), [[7, { type: 'STEPREC_FLUSH_NOW' }]]);
 });
 
-// ====================== Continue is not Resume =============================
-
 test('W61: Continue grants another cap and clears the cap pause only', async () => {
   const h = load({ session: { stepRec: mkSt({ paused: true, manualPause: true }) } });
   assert.deepEqual(plain(await h.api.srContinue()), { ok: true });
@@ -588,8 +546,6 @@ test('W62: Pause survives Continue — Resume is the tester\'s own button', asyn
   await h.api.srPause(false); // the control: Resume is what clears it
   assert.equal(h.st().manualPause, false);
 });
-
-// ==================== the debugger's refusals, classified ==================
 
 test('W63: Chrome\'s foreign-frame wording is recognised', () => {
   assert.equal(load().api.dbgIsForeignFrame(FOREIGN), true);
@@ -615,8 +571,6 @@ test('W66: the refusal a toolbar click fixes is told apart from the ones it does
   assert.equal(capNeedsGrant('The <all_urls> permission is missing'), true);
   assert.equal(capNeedsGrant(null), false);
 });
-
-// ======================= the viewport capture ==============================
 
 test('W67: a background tab is reported, never thrown', async () => {
   const out = await load().api.captureVisibleNow({ active: false, windowId: 1 });
@@ -655,8 +609,6 @@ test('W71: a build that throws the refusal instead of reporting it lands in the 
   });
 });
 
-// ========================= the full-page clip ==============================
-
 test('W72: the clip is the document, floored, at scale 1', async () => {
   const h = load();
   h.hooks.dbgSend = () => ({ res: { cssContentSize: { width: 1280.7, height: 4000.2 } } });
@@ -679,8 +631,7 @@ test('W74: a refused metrics call is no clip, and no throw', async () => {
   assert.equal(await h.api.fullPageClip(7), null);
 });
 
-// #112: past Chromium's 16384px texture ceiling the compose cannot succeed, so an unbounded clip
-// asks for a shot that comes back as a generic failure. Cut it, and say the shot was cut.
+// Past Chromium's 16384px texture ceiling the compose fails with a generic error, so the clip is cut.
 test('W74b: a page taller than a screenshot can be is cut at the ceiling, and the clip says so', async () => {
   const h = load();
   h.hooks.dbgSend = () => ({ res: { cssContentSize: { width: 1280, height: 40000 } } });
@@ -705,14 +656,11 @@ test('W74d: the cut reaches the panel the way the viewport downgrade does, and C
   tall(h, 40000);
   assert.equal((await h.api.captureShot({ beyondViewport: true })).heightClipped, true);
   const shot = h.named('debugger.sendCommand').find((a) => a[1] === 'Page.captureScreenshot');
-  // The whole point: the clip Chrome is handed stops at the ceiling, and carries nothing else.
   assert.deepEqual(plain(shot[2].clip), { x: 0, y: 0, width: 1280, height: 16384, scale: 1 });
   const control = load(); // the same shot of a page inside the ceiling is not reported as cut
   tall(control, 4000);
   assert.equal((await control.api.captureShot({ beyondViewport: true })).heightClipped, false);
 });
-
-// ================== the double-compose trim (trimToDocument) ================
 
 const trim = async (h, bmp, clip) => {
   h.hooks.bitmap = () => ({ width: bmp[0], height: bmp[1], close() {} });
@@ -773,8 +721,6 @@ test('W80: the original shot is never lost to the guard that was meant to protec
   const control = load(); // the control: with all three working, the trim does happen
   assert.equal((await trim(control, bmp, clip)).trimmed, true);
 });
-
-// ========================== the capture ladder =============================
 
 const shotOf = async (setup, opts = {}) => {
   const h = load();
@@ -861,8 +807,7 @@ test('W88: a cast recording already holds the attach, so the shot shares it and 
   assert.equal(h.named('debugger.sendCommand').length, 2); // the control: it did shoot
 });
 
-// After a worker restart the mirror is null until the cast's tab is re-seeded from session
-// storage; the shot waits for that answer rather than attaching on top of the cast's own session.
+// After a worker restart the mirror is null until re-seeded; the shot must not attach over the cast's.
 test('W89: a shot right after a worker restart still shares the cast\'s attach', async () => {
   const h = load({ session: { screenRec: { recording: true, mode: 'cast', tabId: 7, paused: false } } });
   h.hooks.castOwns = () => false; // the mirror: the re-seed has not landed yet
@@ -873,8 +818,6 @@ test('W89: a shot right after a worker restart still shares the cast\'s attach',
   assert.equal(res.data, 'shot'); // the control: it shared the attach and did shoot
 });
 
-// The control on W89: with no cast in session storage there is nothing to share, so the shot
-// opens its own attach and closes it again.
 test('W89b: with no recording to share, the shot attaches and detaches as it always did', async () => {
   const h = load();
   h.hooks.castOwns = () => false;
@@ -883,8 +826,6 @@ test('W89b: with no recording to share, the shot attaches and detaches as it alw
   assert.deepEqual(plain(h.named('debugger.detach')), [[{ tabId: 7 }]]);
   assert.equal(res.data, 'shot');
 });
-
-// ================= the injected frame surgery, run on a page ===============
 
 const framePage = (h) => {
   const doc = makeDocument();
@@ -932,8 +873,6 @@ test('W86b: putting them back restores the position, not just the node', async (
   assert.equal(win.__testomatFramesOut, null);
 });
 
-// ==================== the panel-document registry ==========================
-
 test('W90: the last panel document closing ends an evidence recording, once', () => {
   const h = load();
   const port = h.connect('panel-doc');
@@ -949,7 +888,7 @@ test('W91: a surface switch replaces the document inside the grace, and nothing 
   h.connect('panel-doc').disconnect();
   h.advance(1500);
   h.connect('panel-doc'); // the replacement lands
-  assert.deepEqual(h.pending(), []); // the grace is CANCELLED here, not merely outvoted when it fires
+  assert.deepEqual(h.pending(), []); // the grace is cancelled here, not merely outvoted when it fires
   h.advance(5000);
   assert.deepEqual(h.named('evStopIfRecording'), []);
   const reclosed = load(); // a close, a reopen and a second close each get the full grace
@@ -967,8 +906,7 @@ test('W91: a surface switch replaces the document inside the grace, and nothing 
   assert.deepEqual(control.named('evStopIfRecording'), [['panel-closed']]);
 });
 
-// The grace is a setTimeout in a worker Chrome may recycle at any moment, and chrome.alarms is not
-// in the manifest — so a panel closed just before a recycle never stops the evidence recording.
+// The grace is a setTimeout and chrome.alarms is not in the manifest, so a recycle loses the timer.
 test('W92: a worker recycled inside the grace wakes up holding nothing, and never stops it', () => {
   const dying = load();
   dying.connect('panel-doc').disconnect();
@@ -996,8 +934,6 @@ test('W94: a hello with no window id maps to null, the value the registry compar
   assert.ok(Object.is(values[0], null)); // null, never undefined
 });
 
-// ===================== the staged-shot sweep ===============================
-
 test('W95: only an editor draft counts as a live owner of a staged shot', async () => {
   const h = load({ session: { 'editorDraft:7': { id: 7 }, siteTarget: 3, stepRec: mkSt() } });
   await h.api.sweepStagedShots();
@@ -1010,8 +946,6 @@ test('W96: a sweep that cannot read the session is dropped, not thrown', async (
   await h.api.sweepStagedShots(); // resolves: a missed sweep runs again next startup
   assert.deepEqual(h.named('ShotStore.sweep'), []);
 });
-
-// ======================= the presence marker ===============================
 
 test('W97: a self-hosted instance is marked on its own origin', () => {
   assert.equal(load().api.presenceMatch('https://self.example.com/'), 'https://self.example.com/*');
@@ -1061,8 +995,6 @@ test('W102: a host that changed is updated in place; a first one is registered',
   assert.equal(first.named('scripting.registerContentScripts').length, 1); // the control
   assert.deepEqual(first.named('scripting.updateContentScripts'), []);
 });
-
-// ========================== the file overlay ===============================
 
 test('W103: the viewer URL carries the file through URLSearchParams, encoded', () => {
   const h = load();

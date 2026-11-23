@@ -1,14 +1,10 @@
-// File viewer drawn OVER the page under test, injected on demand (NOT a declared
-// content_script). background.js hands the file over in a storage.session key.
-
 /* global chrome */
 (() => {
   'use strict';
 
   const HOST_ID = '__testomat_file_overlay';
   const KEY = 'fileOverlay';
-  // One overlay per document: a re-inject while it stands is a no-op (the storage listener
-  // below swaps the file instead), while a host the page tore out is built again.
+  // A re-inject while it stands is a no-op; a host the page tore out is built again.
   if (window.__testomatFileOverlayInited && document.getElementById(HOST_ID)) return;
   if (!chrome?.storage?.session || !chrome.runtime?.getURL) return;
   window.__testomatFileOverlayInited = true;
@@ -26,8 +22,7 @@
       background: #1a1a1a; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
     }
     iframe { display: block; width: 100%; height: 100%; border: 0; }
-    /* Pinned to the viewport, not to the frame: the viewer's own bar already carries
-       the "Open in a new tab" link exactly where a corner ✕ would sit. */
+    /* Pinned to the viewport: the viewer's own bar has its "Open in a new tab" link in that corner. */
     .close {
       position: absolute; top: 16px; right: 16px;
       width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
@@ -39,7 +34,7 @@
 
   const host = document.createElement('div');
   host.id = HOST_ID;
-  // Max positive 32-bit z-index; fixed + full viewport, above all page content.
+  // Max 32-bit z-index: above all page content.
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483647;';
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
@@ -94,7 +89,6 @@
     teardown();
   }
 
-  // Esc pressed INSIDE the frame reaches us as a message — that document has its own keyboard.
   // Only our own iframe may ask: any script on the page can post here.
   function onMessage(e) {
     if (e.source === iframe.contentWindow && e.data && e.data.type === 'TESTOMAT_VIEWER_CLOSE') teardown();

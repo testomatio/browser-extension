@@ -1,19 +1,13 @@
-// Local-file attachments on a test result (#107). A picked File IS a Blob, so it
-// rides TestomatAPI.uploadAttachment; the button's gate lives in test-gates.js.
+// Local-file attachments on a test result; the button's gate lives in test-gates.js.
 
 /* global TestomatAPI, state, recordFor, RunLock, $, toast, setStatusLine, progressToast,
    TestGates, Tooltip, ImgHydrate, TestSummary,
    ConfirmDialog, paintCounter, StatusIcons */
 
-// Uploads this PANEL SESSION made, keyed by record id: the server list refreshes
-// only on reopen, so a just-picked file would otherwise vanish from it.
+// This panel session's uploads by record id: the server list refreshes only on reopen.
 const attUploaded = new Map();
 
-// ---- the list -----------------------------------------------------------
-
-// Uploads surface on the JSON:API detail's `attachments`; the v2 `artifacts` field
-// stays empty for them. probeSession prefetched it, so this costs no request.
-// #21: runner artifacts share that array — they render in the summary's own section.
+// Uploads live on the JSON:API detail's `attachments`; v2 `artifacts` stays empty for them.
 function attServerList() {
   const list = state.testrunDetail?.data?.attributes?.attachments;
   return Array.isArray(list) ? list.filter((a) => !(a && a.artifact === true)) : [];
@@ -26,9 +20,7 @@ function attRemember(recordId, entry) {
   attUploaded.set(key, list);
 }
 
-// What a DELETE has to address. The server row carries an id; a session upload's response is
-// `{url}` alone, so the instance-hosted form of that url (`<instance>/attachments/<uid>.ext`)
-// is read for one. No id ⇒ the row is not addressable and its bin says so rather than lying.
+// A session upload's response is `{url}` alone, so the id is read from `/attachments/<uid>.ext`.
 function attId(a) {
   const raw = a && (a.id != null ? a.id : a.attachment_id);
   if (raw != null && raw !== '') return String(raw);
@@ -36,8 +28,7 @@ function attId(a) {
   return m ? m[1] : '';
 }
 
-// Server rows first (canonical name/url), de-duplicated by url. A session upload's
-// response is `{url}` alone, so its name's extension decides the type (#205).
+// Server rows first (canonical name and url), de-duplicated by url.
 function attRows() {
   const rows = [];
   const seen = new Set();
@@ -60,9 +51,7 @@ function attRows() {
   return rows;
 }
 
-// #21 draws every file the panel lists as the same tile, so an attachment is that tile plus
-// the one thing a MANUAL upload has that a runner artifact does not: it can be taken off the
-// result. The bin is a SIBLING of the tile, never a child — .file-tile is itself a <button>.
+// The bin is a sibling of the tile, never a child: .file-tile is itself a <button>.
 function attTileItem(a) {
   const li = TestSummary.fileTileItem(a, TestSummary.IMG_GROUP_ATTS);
   li.className = 'file-tile-item';
@@ -70,11 +59,7 @@ function attTileItem(a) {
   return li;
 }
 
-// ---- removing one ---------------------------------------------------------
-
-// The bin in a tile's corner. Present on every tile, so the tester never hunts for it, and
-// disabled with the reason in its place when this particular file cannot be deleted — a lock,
-// or a row the server gave no id to (a delete has nothing to name then).
+// On every tile, disabled with the reason when this file cannot be deleted.
 function attDeleteBtn(a) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -88,12 +73,10 @@ function attDeleteBtn(a) {
   return btn;
 }
 
-// One place both the button and the click re-ask: the second time is what counts, because the
-// confirm dialog is interactive and the run can finish under it (#187, the upload's rule).
+// Asked again after the confirm: the run can finish while the dialog is open.
 function attDeleteLock(a) {
   const record = recordFor(state.currentRecordId);
-  // The sentences are shared (screens/test-gates.js); the ORDER is this path's own — a result that
-  // does not exist yet is answered before a lock, and the missing id after both.
+  // Shared sentences (test-gates.js), own order: no result before a lock, the missing id after both.
   const copy = TestGates.gateReason({ need: 'delete' });
   if (!record || !record.id) return copy.noResult;
   const lock = RunLock.recordWriteLock(record);
@@ -103,7 +86,7 @@ function attDeleteLock(a) {
   return '';
 }
 
-// Dropped from BOTH sources the list merges, or the next repaint brings it straight back.
+// Dropped from both sources the list merges, or the next repaint brings it straight back.
 function attForget(recordId, a) {
   const key = String(recordId);
   const same = (x) => (a.url ? (x && x.url) === a.url : (x && x.name) === a.name);
@@ -115,8 +98,7 @@ function attForget(recordId, a) {
   }
 }
 
-// Server-side and for everyone — hence the confirm. The row stays put on a refusal: the panel
-// only forgets what the server said it dropped.
+// Deletes for everyone, hence the confirm; the panel forgets only what the server dropped.
 async function onDeleteAttachment(a) {
   const record = recordFor(state.currentRecordId);
   const lock = attDeleteLock(a);
@@ -136,32 +118,25 @@ async function onDeleteAttachment(a) {
   }
 }
 
-// ---- the empty state: a drop target ---------------------------------------
-
-// '' = a file can be attached right now, else why not. The SAME three reasons the
-// Attach file button is gated on (screens/test-gates.js owns that copy) — the dropzone
-// must never invite a drop the upload would then refuse.
+// Same reasons as the Attach file button: the dropzone must never invite a drop the upload refuses.
 function attUploadLock() {
   const record = recordFor(state.currentRecordId);
   const copy = TestGates.gateReason({ need: 'file' });
   if (!record?.id) return copy.noResult;
   const lock = RunLock.recordWriteLock(record);
   if (lock) return lock;
-  // 'unknown' is still probing and must never gate (#107).
+  // 'unknown' is still probing and must never gate.
   if (TestomatAPI.jwtAvailable() === false) return copy.degraded;
   return '';
 }
 
-// An empty list is the ONE place the tester is already looking for "where does the file
-// go", so it answers with somewhere to put it rather than a sentence. Click opens the
-// same native picker the button does; a drop rides the same upload path.
+// An empty list answers "where does the file go" with a place to drop it.
 function attDropzone() {
   const li = document.createElement('li');
   li.className = 'attachment-empty';
   const lock = attUploadLock();
 
-  // A <button> when it acts (keyboard + focus ring for free), a plain <div> when the
-  // gate holds — a focusable control that refuses itself is a trap.
+  // A plain <div> when locked: a focusable control that refuses itself is a trap.
   const zone = document.createElement(lock ? 'div' : 'button');
   zone.className = `attachment-dropzone${lock ? ' is-locked' : ''}`;
   if (!lock) zone.type = 'button';
@@ -185,8 +160,7 @@ function attDropzone() {
 
   zone.addEventListener('click', onAttachFileClick);
 
-  // dragleave fires on every CHILD the pointer crosses, so the highlight is counted in
-  // and out rather than toggled — otherwise it flickers off over the icon and the text.
+  // dragleave fires on every child crossed, so the highlight is counted, not toggled, or it flickers.
   let depth = 0;
   const paint = (on) => zone.classList.toggle('is-over', on);
   zone.addEventListener('dragenter', (ev) => {
@@ -207,9 +181,9 @@ function attDropzone() {
     depth = 0;
     paint(false);
     const files = Array.from(ev.dataTransfer?.files || []);
-    // Dragged TEXT or a link carries no files: say so instead of failing silently.
+    // Dragged text or a link carries no files: say so instead of failing silently.
     if (!files.length) { setStatusLine('test-status', 'That drop carried no file', 'error'); return; }
-    // Re-checked at drop time: the drag outlives the render that drew this zone (#187).
+    // Re-checked at drop time: the drag outlives the render that drew this zone.
     const stopped = attUploadLock();
     if (stopped) { setStatusLine('test-status', stopped, 'error'); return; }
     attUploadFiles(files);
@@ -217,8 +191,7 @@ function attDropzone() {
   return li;
 }
 
-// An empty list never collapses — a list that disappears leaves "did that upload
-// land?" unanswered — and while it is empty it doubles as the drop target.
+// An empty list never collapses: a vanished list leaves "did that upload land?" unanswered.
 function renderAttachmentList() {
   const ul = $('attachment-list');
   if (!ul) return;
@@ -231,8 +204,7 @@ function renderAttachmentList() {
   paintAttachmentCount(rows.length);
 }
 
-// Beside the fold's name, the way every other head counts what it holds. Zero shows NOTHING —
-// an empty result has no count to report, and the dropzone below already says so.
+// Zero shows nothing: the dropzone below already says the result is empty.
 function paintAttachmentCount(n) {
   const chip = $('attachments-count');
   if (!chip) return;
@@ -241,8 +213,6 @@ function paintAttachmentCount(n) {
   else chip.textContent = '';
 }
 
-// ---- picking + uploading -------------------------------------------------
-
 function onAttachFileClick() {
   const btn = $('btn-attach-file');
   if (btn?.disabled) return; // gated (no result record / basic mode) or an upload in flight
@@ -250,8 +220,7 @@ function onAttachFileClick() {
   if (input) input.click(); // the native picker; multi-select is on the element
 }
 
-// The input is cleared IMMEDIATELY: a same-value input fires no `change`, so this
-// is what lets the same file be picked twice, and voids a duplicate event.
+// Cleared at once: a same-value input fires no `change`, so the same file can be picked twice.
 function onAttachFilePicked(ev) {
   const input = ev.target;
   const files = Array.from(input.files || []);
@@ -259,8 +228,7 @@ function onAttachFilePicked(ev) {
   if (files.length) attUploadFiles(files);
 }
 
-// One file at a time: a failure toasts THAT file and the loop carries on. The
-// endpoint de-duplicates by MD5 per record, so a repeat pick is cheap.
+// The endpoint de-duplicates by MD5 per record, so a repeat pick is cheap.
 async function attUploadFiles(files) {
   const record = recordFor(state.currentRecordId);
   if (!record?.id) return; // the gate should have caught this; never upload blind
@@ -270,7 +238,7 @@ async function attUploadFiles(files) {
   let stopped = ''; // the lock reason that ended the loop early, if one landed
   try {
     for (let i = 0; i < files.length; i++) {
-      // #187: the picker outlives the click-time gate, and a slow pick the lock itself.
+      // The picker outlives the click-time gate, so the lock is re-asked per file.
       stopped = RunLock.recordWriteLock(recordFor(record.id) || record); // by id: a structural sync apply replaces the row
       if (stopped) break; // at a file boundary — never half-way through an upload
       const f = files[i];
@@ -290,15 +258,13 @@ async function attUploadFiles(files) {
     TestGates.update(); // restore the gate-driven disabled state
   }
   const noun = files.length === 1 ? 'file' : 'files';
-  // A lock that landed mid-pick reports BOTH halves.
+  // A lock that landed mid-pick reports both halves.
   if (stopped && done) setStatusLine('test-status', `${done} of ${files.length} files attached — ${stopped}`, 'error');
   else if (stopped) setStatusLine('test-status', stopped, 'error');
   else if (done === files.length) setStatusLine('test-status', `${done} ${noun} attached ✓`, 'ok');
   else if (done) setStatusLine('test-status', `${done} of ${files.length} files attached`, 'error');
   else setStatusLine('test-status', '', '');
 }
-
-// ---- wiring --------------------------------------------------------------
 
 function initAttachments() {
   const btn = $('btn-attach-file');

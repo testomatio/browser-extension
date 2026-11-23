@@ -1,25 +1,16 @@
-// Screen recording (#68) in the worker: the tab's picture goes to the offscreen document, the
-// controls to the page, and the finished file to the panel, which owns every upload.
-//
-// Two capture routes, one recording. tabCapture is the good one, but Chrome hands its stream
-// over only where the extension was INVOKED on the tab (activeTab; <all_urls> buys nothing).
-// Where that grant is missing the recording falls back to CDP screencast over chrome.debugger,
-// which needs no gesture at all, at the price of Chrome's "…is debugging" bar for its duration.
+// tabCapture works only where the extension was invoked on the tab; elsewhere CDP screencast is used.
 
 /* global resolveSiteTab, SiteTab, dbgIsForeignFrame, foreignFramesOut, foreignFramesBack,
    SrecParked, SrecClaim */
 
-// The parked take's record and its transitions live in screenrec/parked.js; the bare names keep this
-// file's call sites and its worker surface — srecName has no caller here, but stays reachable.
+// srecName has no caller here, but stays reachable on the worker surface.
 const { srecName, buildParked, applyReviewed, applyTrimmed } = SrecParked;
-// Who owns the upload lives in screenrec/claim.js, along with the queue its writes take turns in;
 // SREC_CLAIM_MS has no caller here either, but stays reachable the same way.
 const { SREC_CLAIM_MS, claimOk, applyClaim, dropClaim, serialize } = SrecClaim;
 
 const SREC_KEY = 'screenRec';           // live session; storage.session dies with the browser
 const SREC_FILE_KEY = 'screenRecFile';  // a finished file waiting for a panel to attach it
-// What a FRAMED screenrec/review.html has to show to act: any page can frame that page, and only
-// our own overlay is ever handed this. Its own key — the parked record is broadcast, this is not.
+// A framed review.html must show this to act; its own key, since the parked record is broadcast.
 const SREC_RKEY_KEY = 'screenRecReviewKey';
 const SREC_TARGET_KEY = 'screenRecTarget';
 const SREC_DOC = 'offscreen/recorder.html';
@@ -28,12 +19,11 @@ const SREC_COMMAND = 'toggle-screen-recording';
 // Enforced in offscreen/recorder.js; kept here for what the bar and the panel say out loud.
 const SREC_TIME_CAP_MS = 5 * 60 * 1000;
 
-// The cast attach, mirrored in a module var so the frame pump filters without an await;
-// re-seeded from storage on a worker restart (the debugger session survives one).
+// Mirrored so the frame pump filters without an await; re-seeded after a worker restart.
 let castTab = null;
 let castSeeded = Promise.resolve(); // the re-seed below, so a caller can wait for the mirror
 const srecCastOwns = (tabId) => castTab != null && tabId === castTab;
-// The answer worth acting on: a caller that CAN await gets the truth, not a mirror mid-re-seed.
+// A caller that can await gets the truth, not a mirror mid-re-seed.
 const srecCastOwnsReady = async (tabId) => { await castSeeded; return srecCastOwns(tabId); };
 
 const srecGet = async () => (await chrome.storage.session.get(SREC_KEY))[SREC_KEY] || null;
@@ -44,8 +34,6 @@ const srecParked = async () => (await chrome.storage.session.get(SREC_FILE_KEY))
 // Both hops are broadcasts: the offscreen document and the panel hold no port of their own.
 const srecOff = (msg) => chrome.runtime.sendMessage({ type: 'SCREENREC_OFF', ...msg }).catch(() => null);
 const srecTell = (msg) => chrome.runtime.sendMessage(msg).catch(() => {});
-
-// ---- the offscreen document ------------------------------------------------
 
 let srecCreating = null;
 async function srecEnsureDoc() {
@@ -64,14 +52,11 @@ async function srecEnsureDoc() {
   try { await srecCreating; } finally { srecCreating = null; }
 }
 
-// Never while a file is parked: the blob: URL — the original's or the trimmed swap's — dies
-// with the document that made it.
+// Never while a file is parked: its blob: URL dies with the document that made it.
 async function srecCloseDoc() {
   if (await srecParked()) return;
   try { await chrome.offscreen.closeDocument(); } catch { /* none open */ }
 }
-
-// ---- the cast route (CDP screencast) ---------------------------------------
 
 const CAST_PARAMS = { format: 'jpeg', quality: 60, maxWidth: 1920, maxHeight: 1920, everyNthFrame: 1 };
 
@@ -93,8 +78,7 @@ const castDetach = (tabId) => new Promise((resolve) => {
   chrome.debugger.detach({ tabId }, () => { void chrome.runtime.lastError; resolve(); });
 });
 
-// The offscreen document's own pipe for frames: a broadcast would copy every JPEG, several a
-// second, into every extension page. Opened on cast-start, dropped when the recording ends.
+// A port, since a broadcast would copy every JPEG, several a second, into every extension page.
 let castPort = null;
 chrome.runtime.onConnect.addListener((port) => {
   if (!port || port.name !== 'screenrec-frames') return;
@@ -127,15 +111,11 @@ chrome.debugger.onDetach.addListener(async (source) => {
 });
 
 async function srecStartCast(target, recordId) {
-  // The debugger cannot touch chrome://, the Web Store or another extension's pages, and a tab
-  // whose url the worker cannot even read is one of those — say what every capture path says
-  // instead of aiming the attach at it and relaying Chrome's cryptic refusal.
+  // The debugger cannot touch restricted pages; say so plainly rather than relay Chrome's refusal.
   if (!SiteTab.originOf(target.url)) {
     return { ok: false, reason: SiteTab.restrictedCopy('recorded') };
   }
-  // #101's disease strikes here too: a chrome-extension:// frame in the page — typically a DEAD
-  // one left by a disabled or updated extension — makes Chrome refuse the attach. Same cure as
-  // the full-page shot: frames out, one more try, and back where they were when the recording ends.
+  // A dead chrome-extension:// frame makes Chrome refuse the attach: move such frames out, retry.
   let framesOut = false;
   try {
     await castAttach(target.id);
@@ -175,8 +155,7 @@ async function srecStartCast(target, recordId) {
   return { ok: true, tabId: target.id };
 }
 
-// The one way out of a cast: Chrome's "…is debugging" bar goes with the debugger session, and
-// every end of a recording passes here — twice on the stop path, where the second call is a no-op.
+// Every recording end passes here; twice on the stop path, where the second call is a no-op.
 async function srecTeardownCast(st) {
   if (!st || st.mode !== 'cast' || castTab == null) return;
   const tabId = castTab;
@@ -187,13 +166,10 @@ async function srecTeardownCast(st) {
   if (st.framesOut) await foreignFramesBack(tabId);
 }
 
-// ---- start / stop ----------------------------------------------------------
-
 async function srecStart({ recordId = null, tab = null } = {}) {
   const live = await srecGet();
   if (live && live.recording) return { ok: false, reason: 'A screen recording is already running' };
-  // Refused before any tab is resolved or attached: a parked take is a recording the tester has
-  // not finished with, and starting over would drop it on the floor.
+  // A parked take is unfinished work: starting over would drop it.
   if (await srecParked()) {
     return {
       ok: false,
@@ -201,9 +177,7 @@ async function srecStart({ recordId = null, tab = null } = {}) {
       parked: true,
     };
   }
-  // A hotkey or the menu hands the tab it fired on, which can be a page no extension may
-  // touch (chrome://, another extension's page) — those fall through to the resolver, which
-  // knows how to stand the bound site tab in instead.
+  // A hotkey or menu may fire on a restricted page; the resolver stands the bound site tab in.
   let target = tab && tab.id != null && SiteTab.originOf(tab.url) ? tab : null;
   if (!target) {
     const site = await resolveSiteTab({ verb: 'recorded', activate: true });
@@ -257,12 +231,10 @@ async function srecDocOpen() {
   try {
     const open = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
     return !!(open && open.length);
-  } catch { return true; } // no way to tell: keep the take, as before
+  } catch { return true; } // no way to tell: keep the take
 }
 
-// Everything that ends a recording funnels through here: state cleared, file parked — and the
-// REVIEW opened over the page (#68 preview+trim). Nothing is attached until the tester says so
-// there; the panel only hears 'file' once the review answers.
+// Every recording end funnels here; nothing is attached until the review answers.
 async function srecFinish(file, st, reason) {
   // A cap ends the recording inside the offscreen document, with no stop to detach the cast.
   await srecTeardownCast(st);
@@ -275,8 +247,7 @@ async function srecFinish(file, st, reason) {
   // A parked take is the tester's: the newcomer's bytes go instead, and its document stays open.
   const held = await srecParked();
   if (held && held.url) {
-    // …but the take already parked is no newcomer. A tab closing while the worker asks to stop
-    // hands the SAME file through both doors, and revoking it would kill the review's own blob.
+    // The same file can arrive through both doors; revoking it would kill the review's own blob.
     if (held.url === file.url) return;
     await srecOff({ cmd: 'revoke', url: file.url });
     srecTell({ type: 'SCREENREC_EVENT', event: 'ended', reason: reason || 'user' });
@@ -289,11 +260,9 @@ async function srecFinish(file, st, reason) {
   await srecOpenReview((st && st.tabId) != null ? st.tabId : null);
 }
 
-// The review overlay, over the recorded tab when it still lives, over the site tab otherwise,
-// in a tab of its own when Chrome keeps extensions off both.
+// Over the recorded tab, else the site tab, else a tab of its own.
 async function srecOpenReview(tabId) {
-  // The overlay goes in FIRST, and the tab comes forward only once it is in: fronting a tab for an
-  // inject that then fails moves the tester to a page with no review on it, and the next one again.
+  // Inject first, front the tab after: fronting for a failed inject strands the tester on it.
   const inject = async (id) => {
     if (id == null) return false;
     try {
@@ -326,8 +295,7 @@ async function srecPause(on) {
   return { ok: true, paused: st.paused };
 }
 
-// The single source of truth for the bar and the panel alike. A session whose offscreen
-// document is gone (browser restart, a crash) is stale and reported as idle.
+// A session whose offscreen document is gone (restart, crash) is stale and reported as idle.
 async function srecStatus() {
   const st = await srecGet();
   const parked = await srecParked();
@@ -350,8 +318,6 @@ async function srecStatus() {
   };
 }
 
-// ---- the bar on the page ---------------------------------------------------
-
 async function srecInjectBar(tabId) {
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ['content/rec-bar.js'] });
@@ -359,8 +325,7 @@ async function srecInjectBar(tabId) {
   } catch { return false; } // a page Chrome keeps extensions off records without its controls
 }
 
-// A full load kills the bar; the script re-runs and replaces its own host, so this is idempotent.
-// A cross-process navigation can also silence the screencast, re-asking is a no-op otherwise.
+// A full load kills the bar and may silence the screencast; both re-asks are idempotent.
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.status !== 'complete') return;
   const st = await srecGet();
@@ -371,8 +336,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   }
 });
 
-// A worker restart drops the module mirror; the debugger session it filters for survives one.
-// Held in `castSeeded`, and never rejecting, so a shot landing mid-seed waits for an answer.
+// A restart drops the mirror, not the debugger session; never rejects, so waiters get an answer.
 castSeeded = srecGet()
   .then((st) => { if (st && st.recording && st.mode === 'cast') castTab = st.tabId; })
   .catch(() => {});
@@ -382,8 +346,6 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const st = await srecGet();
   if (st && st.recording && st.tabId === tabId) await srecStop('tab-gone');
 });
-
-// ---- the two entries that also grant the capture ---------------------------
 
 function srecMenu() {
   try {
@@ -417,8 +379,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 chrome.commands.onCommand.addListener((cmd, tab) => {
   if (cmd === SREC_COMMAND) srecToggle(tab);
 });
-
-// ---- protocol --------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   switch (msg && msg.type) {
@@ -454,7 +414,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true });
       });
       return true;
-    // The review approved the file AS RECORDED — only now may the panel attach it.
+    // The review approved the file as recorded; only now may the panel attach it.
     case 'SCREENREC_REVIEWED':
       srecParked().then(async (parked) => {
         if (!parked) return sendResponse({ ok: false });
@@ -464,8 +424,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true });
       });
       return true;
-    // The review cut it: the offscreen page has already swapped the trimmed bytes in and
-    // revoked the original's URL — only the cut version exists from here on.
+    // The offscreen page already swapped the trimmed bytes in and revoked the original's URL.
     case 'SCREENREC_TRIMMED':
       srecParked().then(async (parked) => {
         if (!parked || !msg.url) return sendResponse({ ok: false });
@@ -475,8 +434,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true });
       });
       return true;
-    // Only the worker may read storage.session; content/review-overlay.js needs this to prove to
-    // the review page that the extension framed it and the page under test did not.
+    // Only the worker reads storage.session; with this key the overlay proves we framed the review.
     case 'SCREENREC_REVIEW_KEY':
       chrome.storage.session.get(SREC_RKEY_KEY)
         .then((r) => sendResponse({ key: r[SREC_RKEY_KEY] || '' }));

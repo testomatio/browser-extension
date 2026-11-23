@@ -1,30 +1,15 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/gates.js (#202, the third seam out of core/views.js): the two walls that
-// take the panel away from the tester — the lockout a read-only project raises in front of every
-// screen, and the basic-mode strip that names the web login the panel is missing.
-// The module needs `state`, `capabilities`, `views`, `$`, `hostOf`, a `jwtAvailable` probe and a
-// document, plus the two painters it reaches back into core/views.js for — updateContextBar and
-// setImmersive, spied here rather than run. That is the seam's value: the sentence, the host it
-// names — or refuses to — and the sweep over
-// eight sections can be falsified without a tab bar, a navigation model or eight screen openers.
-// tests/views.test.mjs keeps its own rows (V52-V60) over the same behaviour as the panel performs it,
-// through the bare delegates every screen calls. The duplication is deliberate: those say the panel
-// still behaves, these say what the two walls actually are.
-// TRAP: `URL` is NOT a vm-realm global — panel-harness.mjs splices it in. Without it baseUrlHost
-// silently takes its catch branch and every host row would pass for the wrong reason, so G6 pins a
-// real hostname coming back rather than only pinning the fallback.
-// Run: node --test tests/gates.test.mjs
+// URL is not a vm global (panel-harness adds it); without it every host row passes via the catch.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, makeDocument, el } from './helpers/panel-harness.mjs';
 
-// core/state.js:7, verbatim — the eight sections the lockout sweeps, in the order it walks them.
+// Verbatim from core/state.js: the eight sections in the order the lockout walks them.
 const VIEWS = ['settings', 'pick', 'runs', 'tcstudio', 'tclist', 'promote', 'run', 'test'];
 
 const SETTINGS = { baseUrl: 'https://app.testomat.io', projectId: 'p1' };
 
-// index.html:149 for the blocking panel, :158 for the eight sections, :117-135 for the header row
-// and the strip — cut to the nodes these two walls touch and nothing else.
+// index.html cut down to the nodes the two walls touch.
 function load(opts = {}) {
   const o = {
     settings: SETTINGS, readonly: false, jwt: true, view: 'runs', banner: true, ...opts,
@@ -56,11 +41,10 @@ function load(opts = {}) {
       capabilities: { readonly: o.readonly, jwt: o.jwt },
       views: VIEWS,
       $: (id) => doc.getElementById(id),
-      // core/state.js:97, verbatim — the panel's own "can this base URL name a host" answer.
+      // Verbatim from core/state.js.
       hostOf: (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } },
       TestomatAPI: { jwtAvailable: () => o.jwt },
-      // core/views.js's two painters. They load AFTER this file and are only ever reached at paint
-      // time, so the forward reference is what the load order makes safe — spied, never run.
+      // core/views.js loads after gates.js, but these run only at paint time, so spies stand in.
       updateContextBar: (view) => { calls.context.push(view); },
       setImmersive: (on) => { calls.immersive.push(on); },
     },
@@ -73,13 +57,10 @@ function load(opts = {}) {
     state,
     calls,
     gates: h.screen,
-    // Which of the eight sections a tester can actually see right now.
     shown: () => VIEWS.filter((v) => !node[`view-${v}`].hidden),
     text: () => node['degraded-banner'].querySelector('.degraded-banner-text').textContent,
   };
 }
-
-// ---------- the seam itself ----------
 
 test('G1 (#202): the two walls load with state, capabilities, views, $ and a jwt probe — nothing else', () => {
   const h = load();
@@ -88,8 +69,6 @@ test('G1 (#202): the two walls load with state, capabilities, views, $ and a jwt
   h.gates.applyReadonlyBlock();
   assert.deepEqual(h.shown(), ['runs'], 'an unlocked project shows the view it is standing on');
 });
-
-// ---------- the read-only lockout ----------
 
 test('G2 (#202): the lockout leaves not one of the eight screens standing behind it', () => {
   const h = load({ readonly: true, view: 'run' });
@@ -128,8 +107,6 @@ test('G5 (#202): unlocking hands the open screen and its header row straight bac
   assert.deepEqual(h.calls.context, ['run'], 'the header row was repainted on the way out');
 });
 
-// ---------- where the tester has to sign in ----------
-
 test('G6 (#202): the host is the saved base URL cut to its hostname — scheme, port and path gone', () => {
   assert.equal(load({ settings: { baseUrl: 'https://a.io' } }).gates.baseUrlHost(), 'a.io');
   assert.equal(load({ settings: { baseUrl: 'https://staging.testomat.io:8443/app?x=1' } })
@@ -143,8 +120,6 @@ test('G7 (#202): nothing saved, or nothing parseable, and the answer is "the web
   }
   assert.equal(load({ settings: null }).gates.baseUrlHost(), 'the web app', 'and with no settings at all');
 });
-
-// ---------- the basic-mode strip ----------
 
 test('G8 (#202): the strip says exactly what basic mode costs, and where to go and undo it', () => {
   const h = load({ jwt: false, settings: { baseUrl: 'https://a.io' } });
@@ -160,8 +135,6 @@ test('G9 (#336): with nothing saved there is nowhere to sign in, so the strip st
   shown.gates.updateDegradedBanner();
   assert.equal(shown.node['degraded-banner'].hidden, false, 'a named instance still gets the strip');
 
-  // It used to read "need an active the web app web login" and send the tester to a site the
-  // panel cannot name — a doubled sentence, and advice with no "there" in it.
   for (const settings of [null, { baseUrl: '' }, { baseUrl: 'app.testomat.io' }, { baseUrl: 'not a url' }]) {
     const h = load({ jwt: false, settings });
     h.gates.updateDegradedBanner();

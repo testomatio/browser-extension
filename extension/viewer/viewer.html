@@ -7,8 +7,7 @@
     <link rel="stylesheet" href="../shared/tokens.css" />
     <!-- Same head script as the panel: the saved colour scheme is pinned before the first paint. -->
     <script src="../shared/theme.js"></script>
-    <!-- This page's whole chrome is a title bar and a stage, so its CSS lives here rather than in a
-         fourth stylesheet; every value below comes from tokens.css. -->
+    <!-- Just a title bar and a stage, so the CSS lives here; every value comes from tokens.css. -->
     <style>
       * { box-sizing: border-box; }
       html, body { height: 100%; }
@@ -77,8 +76,7 @@
     </style>
   </head>
   <body>
-    <!-- ONE file, named by the query string (?url&name&type) and built by viewer.js. No inline
-         scripts (MV3 extension-page CSP), extension files only. -->
+    <!-- No inline scripts: the MV3 extension-page CSP allows extension files only. -->
     <div class="viewer-bar">
       <h1 id="viewer-name"></h1>
       <a id="viewer-open" class="viewer-open" target="_blank" rel="noopener noreferrer" hidden>Open in a new tab</a>

@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/write-status.js — the one place "the tester marked this test" becomes a
-// request. Rows 76-87 of #164, moved here when the core left screens/test-view.js (#197).
-//
-// Three surfaces call it and each would otherwise be asserting the same thing through its own
-// screen: the test view's verdict buttons, the run list's inline rows and the offline queue's
-// replay. Four things are easy to get quietly wrong and this file is about them. A landed write
-// has to spend the draft it came from AND drop the queue entry it supersedes, or the next replay
-// writes an older status back over it. A queueable failure keeps the optimistic status and says
-// nothing — a rollback or a toast there would tell the tester their click was lost when it was
-// not. A replay must rethrow instead of re-queueing, or its entry is written twice. And livesync
-// is paused exactly once and released exactly once, throw or no throw.
-//
-// The stub list is the whole point of the extraction: TestomatAPI, OfflineQueue, `state.runId`,
-// four cross-file functions and a CommentDrafts that only records. No document, no mini-DOM, no
-// capabilities, no Dropdown — the screen needed all of those and this does not.
-// Run: node --test tests/write-status.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,8 +8,7 @@ import assert from 'node:assert/strict';
 import { ApiError, plain, settle, rejection } from './helpers/panel-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// CORE_SRC points the suite at a mutated COPY of core/, so a falsification run never edits the
-// shipped file. `WriteCore` is a top-level const: lexical, so only the completion value reaches us.
+// CORE_SRC points at a mutated copy of core/ so a falsification run never edits the shipped file.
 const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 const source = readFileSync(join(CORE_SRC, 'write-status.js'), 'utf8');
 
@@ -36,7 +19,7 @@ function load(opts = {}) {
   const o = {
     records: null,        // default: one pending record, id 7
     runId: 'r1',
-    lock: '',             // RunLock.recordWriteLock()'s answer for a record in the OPEN run
+    lock: '',             // RunLock.recordWriteLock()'s answer for a record in the open run
     jwtAvailable: true,   // true | false | 'unknown'
     now: 1700000000000,
     ...opts,
@@ -51,8 +34,7 @@ function load(opts = {}) {
     dropped: [], meta: [], envMeta: [], logUploads: [], toasts: [],
     beginWrites: 0, endWrites: 0,
   };
-  // Every one of these is replaceable per row: several rows are about what the core does with an
-  // answer it cannot control, so the answer is the input.
+  // Replaceable per row: several rows are about an answer the core cannot control.
   const on = {
     setStatus: async () => ({ id: 7, status: 'passed' }),
     qualifies: (e) => e?.kind === 'network' || e?.kind === 'auth',
@@ -68,7 +50,7 @@ function load(opts = {}) {
     URL,
     Date: new Proxy(Date, { get: (t, k) => (k === 'now' ? () => o.now : Reflect.get(t, k)) }),
     state,
-    // Scoped to the OPEN run: a record the open run does not carry is a replay into another one.
+    // Scoped to the open run: a record the open run does not carry is a replay into another one.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)) || null,
     RunLock: { recordWriteLock: () => o.lock },
     syncBeginWrite: () => { calls.beginWrites += 1; calls.order.push('beginWrite'); },
@@ -113,7 +95,7 @@ test('76: the write carries the four ids the server needs, and the merge keeps t
   assert.deepEqual(h.calls.setStatus, [{
     testrunId: 7, runId: 'r1', testId: 700, status: 'passed', message: 'note',
   }]);
-  assert.equal(record.test_id, 700); // the row was opened BY id and keeps the test it belongs to
+  assert.equal(record.test_id, 700); // the row was opened by id and keeps the test it belongs to
   assert.equal(record.status, 'passed');
   assert.equal(record.message, 'note');
   assert.equal(record['finished-at'], 'T');
@@ -162,8 +144,7 @@ test('78: a queue removal that throws does not fail a status that is already sav
   assert.equal(h.calls.endWrites, 1);
 });
 
-// What the row showed BEFORE the click travels with the queued entry: Discard puts it back, and
-// nothing else knows it once the optimistic paint has landed on the record.
+// Discard puts the pre-click status back, and nothing else knows it once the paint lands.
 test('79z (#108): the queued entry carries the status the row showed before the click', async () => {
   const h = load();
   h.on.setStatus = async () => { throw new h.ApiError('network', 0, 'offline'); };
@@ -180,8 +161,8 @@ test('79: a network failure queues the click, keeps the optimistic status and sa
   assert.deepEqual(plain(res), { queued: true, reason: 'network' });
   assert.deepEqual(h.calls.enqueued, [{
     recordId: 7, runId: 'r1', status: 'passed', comment: 'note', queuedAt: 1700000000000, reason: 'network',
-    envMeta: [], // the environment as it was, snapshotted here — rows 87-87d are about it
-    prevStatus: 'pending', // what the row showed before the click — row 79z is about it
+    envMeta: [], // the environment as it was, snapshotted here
+    prevStatus: 'pending', // what the row showed before the click
   }]);
   assert.equal(h.state.records[0].status, 'passed'); // no rollback
   assert.deepEqual(h.calls.toasts, []);
@@ -324,11 +305,6 @@ test('86b: …and the log alone is still worth a request when env-info is off', 
   assert.deepEqual(h.calls.meta, [{ id: 7, entries: [['Console & network log', 'https://files.test/log.txt']] }]);
 });
 
-// #107: an offline replay used to be written from whatever tab was open NOW, so the environment and
-// the console log attached to it described the drain and not the test. The environment is
-// snapshotted at enqueue and handed back through `opts`; the log is not parked at all (the ring
-// buffer outgrows storage.local), so the replay attaches none.
-
 test('87 (#107): a replay writes the environment PARKED with the entry, not the tab open now', async () => {
   const h = load();
   h.on.collectEnvMeta = async () => [['URL', 'https://unrelated.test/inbox']]; // where the tester is now
@@ -351,8 +327,7 @@ test('87b (#107): the snapshot is taken at ENQUEUE, off the tab the tester marke
   assert.deepEqual(plain(res), { queued: true, reason: 'network' });
   assert.deepEqual(h.calls.envMeta, [{ baseUrl: 'https://app.testomat.io' }]); // collected once, here
   assert.deepEqual(h.calls.enqueued[0].envMeta, [['URL', 'https://shop.test/cart']]);
-  // The log is NOT parked with it: the recorder's window can outgrow storage.local and take the
-  // queue down with it, and a result the tester already marked is worth more than the evidence.
+  // The log is not parked: it can outgrow storage.local and take the queue down with it.
   assert.deepEqual(h.calls.logUploads, []);
 });
 
@@ -362,7 +337,7 @@ test('87c (#107): an entry from an older build has no snapshot, so it writes no 
   await h.fn.writeEnvMeta({ id: 42 }, 'failed', { replay: true }); // no envMeta key on it
   assert.deepEqual(h.calls.envMeta, []);
   assert.deepEqual(h.calls.meta, []); // wrong evidence is worse than none
-  // env-info switched OFF at enqueue parks an empty list, and lands in the same place.
+  // env-info switched off at enqueue parks an empty list, and lands in the same place.
   await h.fn.writeEnvMeta({ id: 42 }, 'failed', { replay: true, envMeta: [] });
   assert.deepEqual(h.calls.meta, []);
 });

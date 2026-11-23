@@ -1,20 +1,15 @@
-// Run view: the run tests list with progress, status chips, search, suite
-// sections, the Finish run button, and the run session probe.
+// Run view: the tests list with progress, status chips, search, suite sections and Finish run.
 
 /* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, PriorityIcons,
    CommentDrafts, WriteCore, byRecordId, Roving, StatusIcons, RunLock, RunInfo */
 
-// ---------- run view ----------
-
 async function openRunView(runId, title) {
-  // #155: a read-only project is locked whole — gated before any state is touched.
+  // A read-only project is locked whole, gated before any state is touched.
   if (await readonlyGate()) { show('run'); return; }
   const runChanged = state.runId !== runId;
-  // Back from a test, or the panel-wide Refresh with this run open: it is already
-  // painted and its records are in memory, so nothing here is torn down — the screen
-  // stays as the tester left it and the re-read below lands in place.
+  // Back from a test, or Refresh on this run: it is already painted, so the re-read lands in place.
   const quiet = !runChanged && state.records.length > 0;
-  // Suite prefs are per run for the session — reset only when a DIFFERENT run opens.
+  // Suite prefs are per run for the session, reset only when a different run opens.
   if (runChanged) state.expandedSuites = {};
   state.runId = runId;
   if (title) state.runTitle = title;
@@ -22,8 +17,8 @@ async function openRunView(runId, title) {
   if (!quiet) {
     state.runStatus = null;
     state.runKind = null;
-    state.substatusCounts = {}; // filled by the JSON:API read below (#109)
-    state.runInfo = {};         // #112: v2 detail below, JSON:API extras over it
+    state.substatusCounts = {}; // filled by the JSON:API read below
+    state.runInfo = {};         // v2 detail below, JSON:API extras over it
     state.runFilter = 'all';
     state.runSearch = '';
     if ($('run-search')) $('run-search').value = '';
@@ -36,11 +31,10 @@ async function openRunView(runId, title) {
     if ($('run-meta-note')) $('run-meta-note').hidden = true;
     $('run-tests').replaceChildren();
     $('run-progress').replaceChildren(); // clear progress only — the Finish button is a sibling
-    // Neither pill may describe the PREVIOUS run while the new one loads.
+    // Neither pill may describe the previous run while the new one loads.
     if ($('run-kind')) $('run-kind').hidden = true;
     if ($('run-state')) $('run-state').hidden = true;
-    // Nor may Run info or the status chips: under the new title they read as this
-    // run's own numbers. Only for another run — reloading THIS one keeps them up.
+    // Nor Run info or the chips, which would read as the new run's numbers; a reload keeps them.
     if (runChanged) {
       if ($('run-info')) $('run-info').hidden = true;
       if ($('run-info-body')) $('run-info-body').replaceChildren();
@@ -49,9 +43,6 @@ async function openRunView(runId, title) {
   }
   try {
     // Independent legs: a failed meta fetch must not blank a fetchable checklist.
-    // Only the test-list leg is essential. The JSON:API read rides along whenever the
-    // session is already proven, so the run paints ONCE with everything it will show
-    // — Started, Duration and Executed by used to insert themselves a paint later.
     const readInfo = capabilities.jwt === true;
     const [detailRes, recordsRes, infoRes, examplesRes] = await Promise.allSettled([
       TestomatAPI.getRun(runId),
@@ -74,15 +65,14 @@ async function openRunView(runId, title) {
       state.runKind = detail.kind || null;     // v2 run detail carries `kind`
       state.runInfo = RunInfo.fromDetail(detail);
     }
-    // Merged OVER the v2 base, the order the probe applied these in when it was the
-    // one reading them (#112). null whenever the read was not part of the batch.
+    // Merged over the v2 base; null whenever the read was not part of the batch.
     const info = infoRes.status === 'fulfilled' ? infoRes.value : null;
     if (info) applyRunInfo(info);
     // show() painted the header off the passed-in title — repaint with the real one.
     refreshContextBar();
     // v2 returns newest-first; run order = creation order = id ASC.
     state.records = recordsRes.value.sort(byRecordId);
-    // #52: best-effort like the info leg — a failed read leaves the parametrized rows bare.
+    // Best-effort like the info leg: a failed read leaves the parametrized rows bare.
     state.runExamples = (examplesRes.status === 'fulfilled' && examplesRes.value) || {};
     renderRunView();
     if ($('run-meta-note')) $('run-meta-note').hidden = !metaFailed;
@@ -90,38 +80,30 @@ async function openRunView(runId, title) {
     startLiveSync();         // (re)start polling; also clears an auth-stop
     if (typeof OfflineQueue !== 'undefined') OfflineQueue.replay(); // run-open is a replay trigger
     loadSuiteEmoji(runId);   // fire-and-forget
-    CommentDrafts.prune(runId); // …and so is dropping the drafts of results THIS run no longer has
-    // Kept though fire-and-forget: a row write waits on it for the archived flag (#186).
+    CommentDrafts.prune(runId); // …and so is dropping the drafts of results this run no longer has
+    // Kept though fire-and-forget: a row write waits on it for the archived flag.
     runStateProbe = probeRunSession(runId, { infoRead: !!info });
   } catch (e) {
     handleApiError(e, 'run-status');
   } finally {
     if (sk) {
       Skeleton.hide(sk);
-      // The card painted while the placeholder held it hidden, and both Run info measures
-      // need layout to read — so they are taken again now that it is back on screen.
+      // Both Run info measures need layout, so they are retaken now the card is back on screen.
       RunInfo.paint();
     }
   }
 }
 
-// #186: without a proven session the archived flag lands one round-trip AFTER the
-// run renders — openRunView's batch carries it whenever there IS one, but the first
-// run of a panel session still has none. The paint stays truthful either way and the
-// WRITE waits for the answer instead.
+// Without a proven session the archived flag lands after the render, so a write awaits this probe.
 let runStateProbe = null;
 
-// Bounded: nothing here sets a fetch timeout, so a probe that HANGS rather than
-// fails would park the write forever, with no error for the offline queue to catch.
+// Bounded: no fetch here has a timeout, and a hung probe would park the write forever.
 const PROBE_WAIT_MS = 2000;
 const awaitRunState = () => (runStateProbe
   ? Promise.race([runStateProbe, sleep(PROBE_WAIT_MS)]).catch(() => {})
   : Promise.resolve());
 
-// Best-effort; degrades silently. Resolves as soon as the run detail has landed —
-// assignee names are detached below, because a write must not wait on cosmetics.
-// `infoRead`: the open batch already carried the JSON:API read (a session was known
-// to work), so the run is painted whole and there is nothing here to re-read.
+// Resolves once the run detail lands; assignee names are detached, as a write must not wait on them.
 async function probeRunSession(runId, { infoRead = false } = {}) {
   await loadProjectInfo();
   if (state.runId !== runId) return;
@@ -129,26 +111,23 @@ async function probeRunSession(runId, { infoRead = false } = {}) {
   applyCapabilities();
   updateRunActions();
   if (!capabilities.jwt) return;
-  // #52: the example values are a JWT read too, so a late-proven session still has to make it —
-  // awaited before the paint below, which is the ONE repaint both it and the substatuses get.
+  // Awaited before the paint below, the one repaint the examples and substatuses share.
   const gotExamples = infoRead ? false : await refreshRunExamples(runId);
   if (state.runId !== runId) return;
-  // Row marks are JWT-gated, so the first (pre-probe) paint carried none (#109/#52).
+  // Row marks are JWT-gated, so the first (pre-probe) paint carried none.
   if ((gotExamples || state.records.some((r) => r.substatus)) && state.view === 'run') renderRunSections();
   if (!infoRead && await refreshRunInfo(runId)) { paintRunProgress(); RunInfo.render(); RunLock.applyRunLock(); }
   if (state.runId !== runId) return;
-  probeRunAssignees(runId); // detached — see above
+  probeRunAssignees(runId); // detached: a write must not wait on it
 }
 
-// Split off the probe so the #186 write gate waits for the run detail only. The
-// read is unconditional (#200): the viewer's profile timezone rides the same record.
+// Unconditional: the viewer's profile timezone rides the same record as the assignees.
 async function probeRunAssignees(runId) {
   await loadProjectUsers();
   if (state.runId === runId && state.view === 'run') { renderRunSections(); RunInfo.render(); }
 }
 
-// One JSON:API read for both the counters (#109) and the four Run info fields v2
-// does not serialize (#112). Best-effort: a failure leaves the last painted values.
+// One JSON:API read for the counters and the Run info fields v2 omits; a failure keeps the last paint.
 async function refreshRunInfo(runId) {
   if (!capabilities.jwt) return false;
   try {
@@ -161,8 +140,7 @@ async function refreshRunInfo(runId) {
   }
 }
 
-// #52: the example values behind the row chips. Best-effort like the read above; true only when
-// the map came back with something in it — i.e. there is a chip for the caller to paint.
+// True only when the map came back non-empty, i.e. there is a chip for the caller to paint.
 async function refreshRunExamples(runId) {
   if (!capabilities.jwt) return false;
   try {
@@ -175,8 +153,7 @@ async function refreshRunExamples(runId) {
   }
 }
 
-// BASIC mode only (#152): the token-only panel makes no JSON:API read, so it would
-// never learn a colleague finished the run. v2 `/runs/{id}` status IS terminal after.
+// Basic mode only: with no JSON:API read, the panel would never learn a colleague finished the run.
 async function refreshRunFinished(runId) {
   if (capabilities.jwt) return;
   try {
@@ -187,8 +164,7 @@ async function refreshRunFinished(runId) {
   } catch { /* keep what we had */ }
 }
 
-// Replaced only when the payload actually carried them — a write response that
-// omits them must not blank them. null = didn't say; an un-archive (false) lands.
+// Replaced only when the payload carried them: null = didn't say, while an un-archive (false) lands.
 function applyRunInfo({ substatusCounts, isArchived, ...extras }) {
   if (substatusCounts) state.substatusCounts = substatusCounts;
   if (isArchived != null) state.runInfo.isArchived = isArchived;
@@ -197,16 +173,14 @@ function applyRunInfo({ substatusCounts, isArchived, ...extras }) {
 
 const RUN_LIVE_STATUSES = new Set(['running', 'launching']);
 
-// JWT-gated; `jwtAvailable` is 'unknown' until a probe runs, so it stays hidden then.
-// #186: a rerun-ed archived run is 'running' again, so the finished check alone fails.
+// A rerun archived run is 'running' again, so the archived check is needed beside the finished one.
 function updateRunActions() {
   const btn = $('btn-finish-run');
   if (!btn) return;
   const jwt = TestomatAPI.jwtAvailable(); // 'unknown' | true | false
-  // `launching` is a running run here as it is in the panel's status vocabulary — a run that is
-  // still starting is exactly the one a tester wants to be able to stop.
+  // `launching` counts as running: a run still starting is exactly one a tester may want to stop.
   const running = RUN_LIVE_STATUSES.has(state.runStatus) && !RunLock.runFinished() && !RunLock.runArchived();
-  // Degraded stays VISIBLE but disabled-with-reason, so the lost capability is legible.
+  // Degraded stays visible but disabled with a reason, so the lost capability is legible.
   btn.hidden = !running || jwt === 'unknown';
   const degraded = running && jwt === false;
   btn.disabled = degraded;
@@ -232,7 +206,7 @@ function progressNodes() {
   }
   const done = counts.passed + counts.failed + counts.skipped;
 
-  // Only the tallies that HAPPENED; the done/total figure always stands, zero included.
+  // Only the tallies that happened; the done/total figure always stands, zero included.
   const line = document.createElement('div');
   line.className = 'hint counts';
   const fraction = document.createElement('span');
@@ -257,8 +231,7 @@ function progressNodes() {
   return [line, bar];
 }
 
-// Run header ONLY — the test view reuses progressNodes(). Sorted count DESC then
-// name ASC: the server's grouping order is not guaranteed and a jump reads as flicker.
+// Sorted count desc, then name: the server's grouping order is not guaranteed and a jump flickers.
 function appendSubstatusCounts(line) {
   if (!capabilities.jwt) return;
   const entries = Object.entries(state.substatusCounts || {})
@@ -293,8 +266,7 @@ function paintRunKind() {
   el.hidden = !badge;
 }
 
-// Two sources, the fresher first: the JSON:API detail's `status`, then the v2 run
-// status basic mode has. Hidden when neither answered, so the row keeps its shape.
+// The fresher source first (JSON:API status, then v2); hidden when neither answered.
 const RUN_STATE_TINT = { passed: 'passed', failed: 'failed', skipped: 'skipped' };
 function paintRunState() {
   const el = $('run-state');
@@ -314,8 +286,7 @@ function renderRunHeader() {
   paintRunKind();
   paintRunState();
   paintRunProgress();
-  // NOT `show('run')`, which is a view SWITCH: a poll tick or a late fetch would
-  // throw the tester out of the test they were reading (#215).
+  // Not show('run'), which switches views: a poll tick would throw the tester out of their test.
   refreshContextBar();
 }
 
@@ -323,9 +294,7 @@ function renderTestProgress() {
   $('test-progress').replaceChildren(...progressNodes());
 }
 
-// ---- run-view navigation: status chips + search + suite sections ----
-
-// Single-select; the counts are over the WHOLE run, never narrowed by the search.
+// Single-select; the counts are over the whole run, never narrowed by the search.
 const RUN_STATUS_FILTERS = [
   ['all', 'All'],
   ['passed', 'Passed'],
@@ -334,11 +303,10 @@ const RUN_STATUS_FILTERS = [
   ['untested', 'Pending'],
 ];
 const RUN_FILTER_KEYS = new Set(RUN_STATUS_FILTERS.map(([k]) => k));
-// Only the three that ARE a result are coloured; All and Pending stay neutral.
+// Only the three that are a result are coloured; All and Pending stay neutral.
 const RUN_FILTER_TINT = { passed: 'passed', failed: 'failed', skipped: 'skipped' };
 
-// A row the runner is still executing answers `running`, which has no chip: counted nowhere, it made
-// the chips add up to less than All and left the row reachable only from All.
+// A row still executing answers `running`, which has no chip, so it counts as Pending.
 const chipStatusOf = (r) => {
   const s = displayStatus(r);
   return RUN_FILTER_KEYS.has(s) ? s : 'untested';
@@ -352,12 +320,10 @@ function runStatusCounts() {
 
 const matchesRunFilter = (r) => state.runFilter === 'all' || chipStatusOf(r) === state.runFilter;
 
-// #52: the row's `{ values, params }`, keyed by RECORD id — a v2 record's numeric id indexes the
-// JSON:API map's string keys unchanged. null for a plain test, and for every row in basic mode.
+// Keyed by record id: a v2 numeric id indexes the JSON:API map's string keys unchanged.
 const exampleOf = (r) => state.runExamples[r.id] || null;
 
-// Case-insensitive substring over test + suite titles — and a parametrized row's example values,
-// which are the only thing separating N rows sharing one title (#52).
+// A parametrized row's example values are searched too: they alone separate rows sharing a title.
 function matchesRunSearch(r) {
   const q = state.runSearch.trim().toLowerCase();
   if (!q) return true;
@@ -368,12 +334,10 @@ function matchesRunSearch(r) {
 
 const rowVisible = (r) => matchesRunFilter(r) && matchesRunSearch(r);
 
-// Suite key for grouping: the title, or the "No suite" sentinel for bare rows.
 const NO_SUITE = '__none__';
 const suiteKeyOf = (r) => (r.suite_title ? r.suite_title : NO_SUITE);
 
-// Sections by suite_title in first-appearance order, run order (id ASC) within.
-// Structure is built from ALL records; callers filter rows per section.
+// Structure is built from all records in first-appearance order; callers filter rows per section.
 function suiteSections() {
   const order = [];
   const map = new Map();
@@ -385,12 +349,7 @@ function suiteSections() {
   return order.map((k) => map.get(k));
 }
 
-// ---- custom suite emoji, for the sections above ----
-// `/testruns` carries `suite_title` only — no suite id, no emoji (verified live) —
-// so the mark comes off the SUITE TREE, indexed title → emoji; duplicates: first wins.
-//
-// NULL prototype: a suite called "constructor" would otherwise answer the lookup
-// below with something off Object.prototype.
+// /testruns carries suite_title only, so marks come off the suite tree by title; first one wins.
 function indexSuiteEmoji(nodes, into) {
   for (const n of nodes || []) {
     if (n.title && n.emoji && !(n.title in into)) into[n.title] = n.emoji;
@@ -401,13 +360,12 @@ function indexSuiteEmoji(nodes, into) {
 
 const suiteEmojiOf = (title) => (title && state.suiteEmoji ? state.suiteEmoji[title] || null : null);
 
-// Wholesale replacement, not a merge: a mark the project TOOK AWAY must disappear.
+// Replaced wholesale so a removed mark disappears; a null prototype keeps "constructor" a plain key.
 function rememberSuiteEmoji(roots) {
   state.suiteEmoji = indexSuiteEmoji(roots, Object.create(null));
 }
 
-// Stale-while-revalidate: the mark is the project's to change mid-session. Painted
-// in place — a full repaint would throw away the row a tester is part-way through.
+// Painted in place: a full repaint would throw away the row a tester is part-way through.
 async function loadSuiteEmoji(runId) {
   // The Tests tab may already hold the same tree — draw from it rather than wait.
   if (!state.suiteEmoji && state.tcSuites?.length) rememberSuiteEmoji(state.tcSuites);
@@ -419,8 +377,7 @@ async function loadSuiteEmoji(runId) {
   paintSuiteEmoji();
 }
 
-// `dataset.suite` IS the suite title. The icon that would be drawn now is compared
-// with the one standing there, so a repaint that changes nothing leaves the DOM alone.
+// A repaint that changes no icon leaves the DOM alone.
 function paintSuiteEmoji() {
   for (const sec of document.querySelectorAll('#run-tests .suite-section')) {
     const slot = sec.querySelector('.suite-head .file-icon');
@@ -437,9 +394,8 @@ function orderedRecords() {
   return seq;
 }
 
-// The visible sequence: render order with the filter + search applied.
 const visibleRecords = () => orderedRecords().filter(rowVisible);
-// The pager's sequence: the visible one plus the open test, which its own new status may have filtered out.
+// The pager's sequence: the visible one plus the open test, which its new status may filter out.
 const pagerRecords = () => orderedRecords()
   .filter((r) => rowVisible(r) || String(r.id) === String(state.currentRecordId));
 
@@ -474,7 +430,6 @@ function renderRunFilterChips() {
   fitFilterChips(bar);
 }
 
-// Single-select the chip and re-render the sections (in-memory; not persisted).
 function setRunFilter(key) {
   if (!RUN_FILTER_KEYS.has(key)) key = 'all';
   if (state.runFilter === key) return;
@@ -491,8 +446,7 @@ function syncRunSearch() {
   if (clear) clear.hidden = state.runSearch === '';
 }
 
-// The list is rebuilt whole, so a run of a few hundred tests cannot afford one rebuild per keystroke.
-// The clear button stays immediate — that part is cheap and the field must not feel unresponsive.
+// The list is rebuilt whole, so a run of hundreds cannot afford one rebuild per keystroke.
 const RUN_SEARCH_MS = 250;
 let runSearchTimer = null;
 
@@ -524,14 +478,14 @@ const ROW_BTN_LABEL = Object.fromEntries(ROW_STATUS_BTNS.map(([status, , label])
 function rowStatusButtons(r, li) {
   const group = document.createElement('span');
   group.className = 'row-actions';
-  // #152/#154: a finished run — or an automated result — renders read-only.
+  // A finished run, or an automated result, renders read-only.
   const lock = RunLock.recordWriteLock(r);
   for (const [status, icon, label] of ROW_STATUS_BTNS) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn icon size-xs row-st';
     btn.dataset.status = status;
-    // Three tab stops per row is what made a 200-test run 600 of them; ←→ from the row reach these.
+    // Out of the tab order, or a 200-test run has 600 stops; ←→ from the row reach these.
     btn.setAttribute('tabindex', '-1');
     btn.append(StatusIcons.svgIcon(icon, 14));
     btn.disabled = !!lock;
@@ -555,8 +509,7 @@ function statusTip(r) {
   ].filter(Boolean).join(' · ');
 }
 
-// The type mark is the row's own `automated` flag — the same one #154 locks on.
-// Priority is drawn on EVERY row: no priority still RUNS at `normal`, not unknown.
+// Priority is drawn on every row: no priority still runs at `normal`, not unknown.
 function testRow(r) {
   const li = document.createElement('li');
   li.className = 'test-row';
@@ -579,9 +532,7 @@ function testRow(r) {
   return Roving.item(li);
 }
 
-// ---- the row's own cells ----
-// Roving walks this list vertically and never sees ←→, so the step from a row INTO its three status
-// buttons — and back out — is a second delegated listener on the same <ul>.
+// Roving never sees ←→, so stepping into a row's status buttons is a second delegated listener.
 const RUN_ROW_SELECTOR = 'li.test-row, .suite-head';
 
 // A write lock kills all three, and a row with nothing live has nothing to step into.
@@ -612,8 +563,7 @@ function onRunRowArrow(ev) {
   else cells[at - 1].focus();
 }
 
-// The <ul> outlives every replaceChildren(), so the walk is delegated to it once — a per-render
-// wiring would stack one listener per draw.
+// The <ul> outlives every replaceChildren(), so the walk is delegated once; per render it would stack.
 const cellsWired = new WeakSet();
 
 function wireRunRowCells(ul) {
@@ -622,8 +572,7 @@ function wireRunRowCells(ul) {
   ul.addEventListener('keydown', onRunRowArrow);
 }
 
-// The values one example row was run with (#52); the names ride the tooltip, positional to them.
-// Not the status mark: flashRowSaved flashes THAT on every write, and this is not a result.
+// A chip, not the status mark: flashRowSaved flashes the mark on every write, and this is no result.
 function exampleChip(r) {
   const example = exampleOf(r);
   if (!example?.values?.length) return null;
@@ -636,10 +585,9 @@ function exampleChip(r) {
   return span;
 }
 
-// Swapped, not recoloured: starting/finishing swaps the FORM (a glyph for a loader).
+// Swapped, not recoloured: starting/finishing swaps the form (a glyph for a loader).
 function statusMark(r) {
-  // The LABEL, not the internal key: `untested` is this file's word, `pending` is
-  // what a person sees — including `data-status`, which the CSS and the e2e read.
+  // The label, not the key: `pending` is what a person sees, and what the CSS and the e2e read.
   const mark = StatusIcons.statusIcon(statusLabel(displayStatus(r)));
   mark.classList.add('row-status');
   Tooltip.set(mark, statusTip(r)); // the word behind the colour (+ the custom status)
@@ -650,7 +598,7 @@ function repaintRow(li, r) {
   const mark = li.querySelector('.row-status');
   if (mark) mark.replaceWith(statusMark(r));
   li.querySelectorAll('.row-actions .row-st').forEach((b) => b.classList.toggle('active', r.status === b.dataset.status));
-  RunLock.applyRowLock(li); // #152: a repaint (own write or livesync) re-asserts the lock
+  RunLock.applyRowLock(li); // a repaint (own write or livesync) re-asserts the lock
   repaintRowSubstatus(li, r);
   if (typeof OfflineQueue !== 'undefined') OfflineQueue.decorateRow(li, r.id); // «queued» marker follows the queue
 }
@@ -692,18 +640,16 @@ function refreshSuiteFraction(li) {
   frac.textContent = `${done}/${rows.length}`;
 }
 
-// Same-status click is a no-op; success updates in place, failure restores the record.
 async function writeRowStatus(record, status, li) {
-  if (!record || record.status === status) return; // same status → no-op
+  if (!record || record.status === status) return;
   const btn = li.querySelector(`.row-actions .row-st[data-status="${status}"]`);
-  // Claim the row BEFORE any await: two fast clicks inside the probe window would
-  // otherwise both get through. A disabled button fires no click.
+  // Claim the row before any await: two fast clicks inside the probe window would both get through.
   setRowButtonsBusy(li, true);
-  // #194: paint in the click's own turn — behind the probe await it lagged up to 2s.
+  // Paint in the click's own turn: behind the probe await it would lag up to 2s.
   if (btn) btn.classList.add('busy');
-  // #186: wait for the archived answer rather than write into a run we were about to lock.
+  // Wait for the archived answer rather than write into a run we were about to lock.
   if (runStateProbe) await awaitRunState();
-  // #152/#154: catches the race where the lock landed between the render and the click.
+  // Catches the race where the lock landed between the render and the click.
   const lock = RunLock.recordWriteLock(record);
   if (lock) {
     if (btn) btn.classList.remove('busy'); // RunLock.applyRunLock repaints in place, so the spinner would strand
@@ -721,7 +667,7 @@ async function writeRowStatus(record, status, li) {
     refreshSuiteFraction(li);
   } catch (e) {
     if (btn) btn.classList.remove('busy');
-    Object.assign(record, prev); // row unchanged on failure
+    Object.assign(record, prev);
     handleApiError(e, 'run-status', { inlineAuth: true }); // stay in the run on an expired session
     if (!isAuthError(e)) toast(`Status not saved: ${e.message}`, { error: true });
   } finally {
@@ -730,8 +676,7 @@ async function writeRowStatus(record, status, li) {
   }
 }
 
-// Default COLLAPSED (a huge run must not open as a wall of rows); a single-suite
-// run expands, a filter/search auto-expands its matches, an explicit toggle wins.
+// Collapsed by default so a huge run is not a wall of rows; one suite, a filter or a toggle opens.
 function suiteSection(sec, rows, single) {
   const li = document.createElement('li');
   li.className = 'suite-section tree-node';
@@ -742,7 +687,7 @@ function suiteSection(sec, rows, single) {
   if (!expanded) li.classList.add('collapsed');
   const head = document.createElement('div');
   head.className = 'list-row list-head suite-head tree-row has-chevron';
-  // A head that folds a section has to SAY whether it is open — the chevron is a picture.
+  // A head that folds a section has to say whether it is open: the chevron is a picture.
   head.setAttribute('aria-expanded', String(expanded));
   const title = document.createElement('div');
   title.className = 'title';
@@ -759,8 +704,7 @@ function suiteSection(sec, rows, single) {
   li.append(Roving.item(head));
   const rowsUl = document.createElement('ul');
   rowsUl.className = 'suite-rows tree-children';
-  // The class alone hides them in CSS; `hidden` is what also takes a folded suite's rows out of
-  // the arrow walk and out of a reader's way.
+  // The class hides the rows; `hidden` also takes them out of the arrow walk and a reader's way.
   rowsUl.hidden = !expanded;
   for (const r of rows) rowsUl.append(testRow(r));
   li.append(rowsUl);
@@ -787,8 +731,7 @@ function runNoTestsEmpty() {
     a.href = `${s.baseUrl}/projects/${encodeURIComponent(s.projectId)}/runs/${encodeURIComponent(state.runId)}`;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    // The label is a <span>, not a bare text node: the leading-icon padding rule
-    // asks whether the ICON is the first child, and a selector cannot see a text node.
+    // A <span> label, not a text node: the leading-icon padding rule cannot see a text node.
     const label = document.createElement('span');
     label.textContent = 'Open in Testomat';
     a.append(label, StatusIcons.svgIcon('north_east', 16));
@@ -835,8 +778,7 @@ function runNoMatchEmpty() {
 
 function renderRunSections() {
   const ul = $('run-tests');
-  // Ahead of the empty-state return below: an empty run is one a tester adds to, and the keyboard
-  // must not depend on which draw came first.
+  // Before the empty-state return: the keyboard must not depend on which draw came first.
   Roving.attach(ul, { selector: RUN_ROW_SELECTOR });
   wireRunRowCells(ul);
   ul.replaceChildren();
@@ -860,5 +802,5 @@ function renderRunView() {
   renderRunFilterChips();
   syncRunSearch();
   renderRunSections();
-  RunLock.applyRunLock({ force: true }); // #152 — the run-level note + the Finish/test-view gates
+  RunLock.applyRunLock({ force: true }); // the run-level note and the Finish/test-view gates
 }

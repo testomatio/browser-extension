@@ -1,11 +1,9 @@
-// Evidence page hook (#123): the MAIN-world half of the recorder — patches the page's own
-// fetch/XHR/console, posts out to relay.js, and must never break the site it runs inside.
+// MAIN-world half of the evidence recorder: patches fetch/XHR/console and must never break the site.
 
 (() => {
   'use strict';
 
-  // A same-document re-inject (the worker retries when a registration is missing) must
-  // be a no-op, or the wrappers would nest.
+  // A same-document re-inject (a worker retry) must be a no-op, or the wrappers would nest.
   if (window.__testomatEvHooked) return;
   window.__testomatEvHooked = true;
 
@@ -14,7 +12,7 @@
   const TEXT_CAP = 4000;        // one console line can be a whole stack dump
   const FLUSH_MS = 200;         // batch window (a busy page fires hundreds of rows)
   const FLUSH_MAX = 40;
-  const STACK_LINES = 6;        // message + the frames that place the throw (#163)
+  const STACK_LINES = 6;        // message + the frames that place the throw
   const DEDUP_MS = 1000;        // window in which a console.error owns the same failure
 
   let tok = null;               // the relay's per-document token; without it our batches are page noise
@@ -25,8 +23,6 @@
   let queue = [];
   let flushTimer = null;
   let inConsole = false;        // re-entrancy guard around the console patch
-
-  // ---- channel -----------------------------------------------------------
 
   function send(payload) {
     const msg = { source: CHANNEL, ...payload };
@@ -49,22 +45,19 @@
     else if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
   }
 
-  // Both the config and the worker's "stop" arrive on the same DOM channel, which a page
-  // CAN forge — its worst case is muting its OWN evidence log, so it is accepted.
+  // A page can forge this channel, but at worst it mutes its own evidence log, so it is accepted.
   window.addEventListener('message', (e) => {
     if (e.source !== window) return;
     const d = e.data;
     if (!d || d.source !== CHANNEL || !d.control) return;
     if (typeof d.tok === 'string') tok = d.tok;
-    // `off` is a two-way switch, not a kill: a NEW recording on a never-navigated
-    // document has to un-mute this hook, since the double-init guard eats a re-inject.
+    // `off` is two-way: a new recording on this document must un-mute it, since re-injects are no-ops.
     if (typeof d.off === 'boolean') {
       off = d.off;
       if (off) { queue = []; return; }
       reAnnounced = false; // a fresh recording wants a fresh hello
     }
-    // The relay may have loaded AFTER us, so our `ready` went into a document nobody was
-    // listening in; its unprompted config is the proof it is there now.
+    // The relay may have missed our `ready` by loading late; its unprompted config proves it is here.
     if (!reAnnounced) { reAnnounced = true; send({ events: [{ t: 'ready', ts: Date.now(), url: location.href }] }); }
     if (typeof d.captureBodies === 'boolean') {
       captureBodies = d.captureBodies;
@@ -73,8 +66,7 @@
     }
   });
 
-  // Body capture is a privacy switch (#95), so a read NEVER guesses: it waits for the
-  // relay's answer and gives up if it never comes.
+  // Body capture is a privacy switch, so a read never guesses: it waits for the relay or gives up.
   function wantBody() {
     if (captureBodies != null) return Promise.resolve(captureBodies);
     return new Promise((resolve) => {
@@ -84,8 +76,6 @@
       setTimeout(() => settle(false), 3000);
     });
   }
-
-  // ---- shared helpers ----------------------------------------------------
 
   const abs = (u) => { try { return new URL(String(u), document.baseURI).href; } catch { return String(u); } };
   const cap = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -107,8 +97,7 @@
 
   const argsText = (args) => cap(Array.prototype.map.call(args, argText).join(' ').trim(), TEXT_CAP);
 
-  // The first stack frame that is NOT this file: our own frames carry a
-  // chrome-extension:// url even though we run in the page's world.
+  // Our own frames carry a chrome-extension:// url even though we run in the page's world.
   function callSite() {
     let stack = '';
     try { stack = new Error().stack || ''; } catch { return {}; }
@@ -123,8 +112,7 @@
   // A snippet, not a dump: the message plus the frames that place the throw.
   const trimStack = (s) => cap(String(s || '').split('\n').slice(0, STACK_LINES).join('\n').trim(), TEXT_CAP);
 
-  // What two rows of the SAME failure share: the first line, minus the prefix the
-  // browser (or we) put in front of it.
+  // Two rows of the same failure share the first line, minus the browser's (or our) prefix.
   const headLine = (text) => String(text || '').split('\n')[0]
     .replace(/^Uncaught\s*(?:\(in promise\)\s*)?/, '')
     .replace(/^Unhandled promise rejection:\s*/, '')
@@ -138,8 +126,7 @@
     if (errorHeads.length > 50) errorHeads.splice(0, errorHeads.length - 50);
   }
 
-  // Dedup rule (#163): drop the uncaught row when a console.error with the same first
-  // line arrived within DEDUP_MS — frameworks log the error, then rethrow it.
+  // Frameworks log the error, then rethrow it: a matching console.error owns the uncaught row.
   function loggedAlready(text) {
     const head = headLine(text);
     if (!head) return false;
@@ -148,8 +135,7 @@
     return errorHeads.some((r) => r.head === head);
   }
 
-  // A rejection carries no filename/lineno of its own — the reason's stack is the only
-  // place its location survives.
+  // A rejection has no filename/lineno; the reason's stack is the only place its location survives.
   function stackLoc(err) {
     const stack = err && typeof err.stack === 'string' ? err.stack : '';
     const m = stack.match(/(https?:\/\/[^\s)]+?):(\d+):(\d+)/);
@@ -162,14 +148,12 @@
       url: (loc && loc.url) || null, line: (loc && loc.line) || null, col: (loc && loc.col) || null });
   }
 
-  // An uncaught exception / unhandled rejection (#163) gets its own kind, so the panel
-  // labels it `uncaught.error` instead of blaming console.error for it.
+  // Its own kind, so the panel labels it `uncaught.error` instead of blaming console.error.
   const pushException = (text, loc) =>
     post({ t: 'exception', ts: Date.now(), level: 'error', text,
       url: (loc && loc.url) || null, line: (loc && loc.line) || null, col: (loc && loc.col) || null });
 
-  // A row the BROWSER would have produced (a failed resource load, a CSP refusal), kept
-  // as kind 'log' so the panel labels it `log.error` and not `console.error`.
+  // A browser-made row (failed load, CSP refusal), kind 'log' so the panel labels it `log.error`.
   const pushLog = (level, text, url) => post({ t: 'log', ts: Date.now(), level, text: cap(text, TEXT_CAP), url: url || null });
 
   function pushNet(e) {
@@ -181,8 +165,6 @@
 
   // Only a failure carries a body: >= 400, or a network-level error.
   const isFailure = (status, errorText) => !!errorText || (status != null && status >= 400);
-
-  // ---- console -----------------------------------------------------------
 
   function patchConsole(name, level) {
     const orig = console[name];
@@ -200,8 +182,7 @@
   try { patchConsole('error', 'error'); } catch { /* noop */ }
   try { patchConsole('warn', 'warning'); } catch { /* noop */ }
 
-  // CAPTURE phase: a failed <img>/<script>/<link> fires an `error` event on the ELEMENT
-  // that does not bubble, and it is the only way to see "Failed to load resource".
+  // Capture phase: a failed <img>/<script>/<link> fires a non-bubbling `error` on the element.
   window.addEventListener('error', (e) => {
     if (off) return;
     try {
@@ -211,8 +192,7 @@
         pushLog('error', `Failed to load resource: ${abs(src) || el.tagName.toLowerCase()}`, abs(src) || null);
         return;
       }
-      // Chrome already says "Uncaught …" in `message` and other engines do not, so the
-      // row reads like DevTools either way (#163).
+      // Chrome puts "Uncaught" in `message` and other engines do not; read like DevTools either way.
       const err = e.error;
       const body = err ? trimStack(err.stack || `${err.name}: ${err.message}`) : (e.message || 'Uncaught error');
       const text = /^Uncaught\b/.test(body) ? body : `Uncaught ${body}`;
@@ -241,10 +221,7 @@
     } catch { /* noop */ }
   });
 
-  // ---- fetch -------------------------------------------------------------
-
-  // Read at most BODY_CAP bytes off a CLONE, then cancel: a 200 MB failed download must
-  // not be pulled into memory to log 16 KB of it.
+  // At most BODY_CAP off a clone, then cancel: a 200 MB failed download must not be pulled in.
   async function readCapped(res) {
     try {
       const clone = res.clone();
@@ -271,8 +248,7 @@
   }
 
   async function finishFetch(entry, res) {
-    // A no-cors response reports status 0 with nothing readable — recording that as
-    // "status 0" would invent an error the page never saw.
+    // A no-cors response reports status 0; logging that would invent an error the page never saw.
     if (res.type === 'opaque' || res.type === 'opaqueredirect') {
       entry.status = null;
       pushNet(entry);
@@ -314,8 +290,7 @@
         throw e;
       }
       return p.then(
-        // finishFetch is deliberately NOT awaited (the page must get its response now),
-        // so its rejection dies here or the page sees an unhandledrejection we recorded.
+        // Not awaited, so the page gets its response now; its rejection must die here.
         (res) => { try { finishFetch(entry, res).catch(() => {}); } catch { /* noop */ } return res; },
         (err) => {
           try {
@@ -328,8 +303,6 @@
       );
     };
   }
-
-  // ---- XMLHttpRequest ----------------------------------------------------
 
   const XHR = window.XMLHttpRequest;
   if (XHR && XHR.prototype) {
@@ -361,8 +334,7 @@
               wantBody().then((yes) => {
                 try {
                   if (!yes) { entry.bodySkipped = true; pushNet(entry); return; }
-                  // Only a text-ish responseType reads back without touching the page's
-                  // own copy of a blob/arraybuffer.
+                  // Only a text-ish responseType reads back without touching the page's blob/buffer.
                   const rt = xhr.responseType;
                   let text = null;
                   if (rt === '' || rt === 'text') text = xhr.responseText;
@@ -382,8 +354,7 @@
     };
   }
 
-  // The handshake tells the worker this frame's fetch/XHR is ours and asks the relay for
-  // the config. Sent immediately, not batched — the answer gates every body read.
+  // Sent at once, not batched: the relay's config answer gates every body read.
   send({ events: [{ t: 'ready', ts: Date.now(), url: location.href }] });
 
   // A failed request right before a navigation is exactly the one the tester wants.

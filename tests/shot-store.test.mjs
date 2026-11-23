@@ -1,15 +1,10 @@
 #!/usr/bin/env node
-// The pictures a tester pastes into a draft they have not saved yet: what extension/shared/shot-store.js
-// keeps, what it refuses to keep, what it hands back when the browser refuses IndexedDB, and the two
-// rules it throws pictures away by. The database underneath is tests/helpers/fake-idb.mjs, written
-// from the IndexedDB contract and not from a browser run. Run: node --test tests/shot-store.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, plain } from './helpers/shared-harness.mjs';
 import { makeIdb } from './helpers/fake-idb.mjs';
 
-// The answer is handed over on COMMIT, so a fake that forgot to commit would hang, not fail: a
-// timeout on every row turns that silence into a red test.
+// The answer lands on commit, so a fake that forgot to commit would hang; the timeout makes it red.
 const T = { timeout: 5000 };
 
 const NOW = 1_760_000_000_000;
@@ -31,8 +26,6 @@ const ops = (calls) => calls.map((c) => c.op);
 const argsFor = (calls, op) => calls.filter((c) => c.op === op).map((c) => c.args);
 const keys = (records) => records.map((r) => r.key);
 const staged = (key, at = NOW) => ({ key, shots: [SHOT], at });
-
-// ---- A: what a draft stages, and what it refuses to stage -------------------
 
 test('1: the picture a tester pasted comes back out of the database exactly as it went in', T,
   async () => {
@@ -79,8 +72,6 @@ test('5: a draft with no key never reaches the database at all', T, async () => 
   assert.deepEqual(s.calls, [], 'a keyless draft must not even open the database');
 });
 
-// ---- B: reading them back ---------------------------------------------------
-
 test('6: a draft nobody staged pictures for comes back with an empty list', T, async () => {
   const s = load({ records: [staged('other')] });
   assert.deepEqual(plain(await s.shots.get('missing')), []);
@@ -100,8 +91,6 @@ test('8: asking for the pictures of an empty key opens no database', T, async ()
   assert.deepEqual(plain(await s.shots.get('')), []);
   assert.deepEqual(s.calls, []);
 });
-
-// ---- C: the three ways a browser refuses the database ------------------------
 
 test('9: a browser with IndexedDB switched off loses the pictures, never the editor', T, async () => {
   const s = load({ failOpen: true });
@@ -162,7 +151,7 @@ test('14: the connection is handed back after every call, the ones that blew up 
     for (const s of [read, write, swept, aborted, broken]) {
       assert.equal(ops(s.calls).at(-1), 'close', `close is in a finally: ${ops(s.calls).join(',')}`);
     }
-    // The counterpoint: no database was ever handed over, so there is nothing to hand back.
+    // No database was ever handed over, so there is nothing to hand back.
     const none = load({ failOpen: true });
     await none.shots.get('k');
     assert.equal(ops(none.calls).includes('close'), false);
@@ -177,8 +166,6 @@ test('15: the very first open creates the shots store; the next open leaves it s
     assert.deepEqual(ops(s.calls), ['open', 'createObjectStore', 'transaction', 'get', 'close',
       'open', 'transaction', 'get', 'close']);
   });
-
-// ---- D: the sweep, and its two rules ----------------------------------------
 
 test('16: a draft that is gone takes its pictures with it, the live ones stay', T, async () => {
   const s = load({ records: [staged('A'), staged('B'), staged('C')] });

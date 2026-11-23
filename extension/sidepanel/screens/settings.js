@@ -4,8 +4,7 @@
    SettingsForm, SettingsErase, capabilities, OfflineQueue, syncPollMs, syncAuthStopped,
    syncFetching */
 
-// One-line delegates onto screens/settings-form.js. app.js wires the first five to static
-// markup by these bare names, and the erase paths below repaint the form through the last two.
+// Delegates onto settings-form.js, kept as bare names because app.js and the erase paths call them.
 function updateTokenHelpLink() { SettingsForm.updateTokenHelpLink(); }
 function initSettingsSections() { SettingsForm.initSections(); }
 function initThemeSwitch() { SettingsForm.initThemeSwitch(); }
@@ -14,21 +13,16 @@ function toggleSettingsAdvanced() { SettingsForm.toggleAdvanced(); }
 function setSettingsFields(s) { SettingsForm.setFields(s); }
 function populateHostHistory() { SettingsForm.populateHostHistory(); }
 
-// The same onto screens/settings-erase.js. app.js wires the first three to the destructive buttons
-// by these bare names, and screens/project-pick.js offers the same Disconnect on its own line.
+// The same onto settings-erase.js: app.js and project-pick.js call these bare names.
 function disconnectInstance(opts) { return SettingsErase.disconnect(opts); }
 function forgetInstance(opts) { return SettingsErase.forget(opts); }
 function signOut() { return SettingsErase.signOut(); }
 function takeRecorderWarning() { SettingsErase.takeWarning(); }
 
-// ---------- first-run connect screen ----------
-// The SAME form (same ids, same handler) in a presentational switch — CSS keys off
-// `data-mode` and `data-connect`. Keyed on `state.settings`, NOT isConfigured().
+// Connect mode is the same form, restyled off data-mode; keyed on state.settings, not isConfigured().
 
 let connectMode = null; // last applied — entering the screen focuses the field once
 
-// The connected instance as a card; it stands where the token box used to be
-// (syncTokenField says why that box is gone).
 function renderConnection() {
   const card = $('connection-card');
   if (!card) return;
@@ -37,8 +31,7 @@ function renderConnection() {
   renderConnectionSource(on);
   if (!on) return;
   $('connection-host').textContent = hostOf(state.settings.baseUrl) || state.settings.baseUrl;
-  // Connected but no project yet is a half-done first run (#11) — the pill says which,
-  // and the card's tick goes grey with it rather than calling the run done.
+  // Connected with no project yet is a half-done first run: the pill says so and the tick goes grey.
   const ready = !!state.settings.projectId;
   card.dataset.state = ready ? 'ready' : 'pending';
   const pill = $('connection-state');
@@ -48,8 +41,7 @@ function renderConnection() {
   }
 }
 
-// A handed-over connection: whose it is, and what leaving it costs. Testers who never pasted a
-// token here would otherwise read the card as their own sign-in.
+// Testers who never pasted a token here would otherwise read a handed-over card as their own sign-in.
 function renderConnectionSource(on) {
   const line = $('connection-source');
   if (!line) return;
@@ -62,27 +54,23 @@ function renderConnectionSource(on) {
       + 'open the run from there to come back.';
     return;
   }
-  // The file is gone, so that browser was closed — and nothing of its was written down, so
-  // there is no project left that it still opens.
+  // The offer file is gone, so its browser closed; nothing of it was saved, so no project still opens.
   const ended = `${app[0].toUpperCase()}${app.slice(1)} has closed its session`;
   line.textContent = state.settings.apiToken
     ? `${ended}. Everything now uses your own sign-in.`
     : `${ended}. Authorize above to keep working.`;
 }
 
-// ---------- Diagnostics ----------
-// The first questions a "it does not work" report opens with, answered off state the panel already
-// holds: nothing is fetched, nothing is sent, and Copy reads the painted rows back out.
+// Diagnostics answer off state the panel already holds: nothing is fetched, nothing is sent.
 
-// A value this build of Chrome, or this worker, cannot answer for. One row's text, never the section.
+// A value this Chrome build or worker cannot answer for; it costs one row, never the section.
 const DIAG_MISSING = 'unavailable';
 
 function diagnosticsVersion() {
   try { return chrome.runtime.getManifest().version || DIAG_MISSING; } catch { return DIAG_MISSING; }
 }
 
-// WHICH credential the v2 leg is holding, named — mirrors v2TokenInHand() in api.js off the
-// settings the panel handed it. `eyJ` is a session token, which v2 itself cannot use.
+// Mirrors v2TokenInHand() in api.js; an `eyJ` token is a session token, which v2 cannot use.
 function diagnosticsCredential(s) {
   const handed = Handoff.offer();
   if (s.projectToken && s.projectTokenFor === s.projectId) return 'a handed-over project token';
@@ -101,7 +89,7 @@ function diagnosticsAuth(s) {
   return `${session}, ${diagnosticsCredential(s)}`;
 }
 
-// Both of these live in scripts index.html loads AFTER this one, so they really can be missing.
+// Both live in scripts index.html loads after this one, so they really can be missing.
 function diagnosticsQueue() {
   if (typeof OfflineQueue === 'undefined') return DIAG_MISSING;
   const n = OfflineQueue.count();
@@ -122,8 +110,7 @@ async function diagnosticsStorage() {
   } catch { return DIAG_MISSING; }
 }
 
-// A reply — any reply — is the proof: the worker had to be awake to send one. The screen recorder's
-// door, and only it: the step recorder's ends an orphaned recording, which is no way to ask a question.
+// Any reply proves the worker is awake; the step recorder's status message would end its recording.
 async function diagnosticsWorker() {
   try {
     if (await chrome.runtime.sendMessage({ type: 'SCREENREC_STATUS' })) return 'answering';
@@ -131,8 +118,7 @@ async function diagnosticsWorker() {
   return 'not answering';
 }
 
-// Label/value pairs in the order a report reads them. Every getter answers a string, so an
-// unreachable value costs its own row and leaves the other eight standing.
+// Every getter answers a string, so an unreachable value costs its own row only.
 async function diagnosticRows() {
   const s = state.settings || {};
   return [
@@ -163,8 +149,7 @@ async function renderDiagnostics() {
   list.replaceChildren(...cells);
 }
 
-// Read BACK off the painted rows, deliberately: a text built from the settings object would leak the
-// next credential key somebody adds, and a token has to be rendered before it can be copied.
+// Read back off the painted rows: a text built from settings would leak the next credential key added.
 function diagnosticsText() {
   const list = $('diagnostics-rows');
   if (!list) return '';
@@ -185,8 +170,7 @@ async function copyDiagnostics() {
   }
 }
 
-// The full form has NO token field — a saved credential can be neither edited nor
-// verified. It returns for one case: a host we hold no token for.
+// The token field shows only for a host we hold no token for: a saved one is never edited.
 function syncTokenField() {
   const section = $('view-settings');
   if (!section) return;
@@ -206,7 +190,6 @@ function applyConnectMode() {
   // `hidden`, so the hero never flashes in the full form between two repaints.
   const hero = $('connect-hero');
   if (hero) hero.hidden = !on;
-  // The same form either way — only the button's word changes.
   const save = $('btn-save-settings');
   if (save) save.textContent = on ? 'Connect' : 'Save & validate';
   const entering = on && connectMode !== true;
@@ -218,36 +201,31 @@ function applyConnectMode() {
 function fillSettingsForm() {
   SettingsForm.setFields(state.settings || {});
   SettingsForm.populateHostHistory();
-  SettingsForm.paintThemeSwitch(); // which of System / Light / Dark is on
-  SettingsForm.syncAdvanced();     // #146: open Advanced only for a self-hosted instance
-  SettingsForm.updateTokenHelpLink(); // reflect the (saved) base URL onto the token-help link
-  renderConnection();    // the connected-instance card
-  syncTokenField();      // …and whether the token box is needed at all
+  SettingsForm.paintThemeSwitch();
+  SettingsForm.syncAdvanced();
+  SettingsForm.updateTokenHelpLink();
+  renderConnection();
+  syncTokenField();
   renderDiagnostics();   // async: the worker round trip and the storage size land a tick later
-  takeRecorderWarning(); // #183/#192: an erase whose recorder wipe failed says so here
+  takeRecorderWarning();
 }
 
 async function saveSettings() {
   const settings = {
     baseUrl: $('set-baseurl').value.trim().replace(/\/+$/, ''),
     apiToken: $('set-token').value.trim(),
-    projectId: '', // resolved below from the token's own project list (#103)
+    projectId: '', // resolved below from the token's own project list
     envInfoOnFail: $('set-env-info').checked,
-    // Send the URL untrimmed (#177).
     envFullUrl: $('set-env-full-url').checked,
     // Blank -> 60; null when what was typed is out of range, refused below.
     evidenceWindowSec: SettingsForm.evidenceWindowFromField(),
-    // Start the recorder on entering a testrun, bound to it (absent -> OFF).
     evidenceAutoStart: $('set-evidence-autostart').checked,
     evidenceAutoAttach: $('set-evidence-autoattach').checked,
-    // Read response bodies of failed requests (#95).
     evidenceCaptureBodies: $('set-evidence-bodies').checked,
-    // Drop every value the step recorder sees (#176).
     stepRecNeverValues: $('set-rec-never-values').checked,
   };
   if (!settings.baseUrl || !settings.apiToken) {
-    // #146: only an empty INSTANCE is an Advanced problem — a missing token is
-    // in Connection, and unfolding Advanced for it would point at the wrong row.
+    // Only an empty instance is an Advanced problem: the token row lives in Connection.
     if (!settings.baseUrl) SettingsForm.openAdvanced();
     setStatusLine('settings-status', 'Instance and access token are required', 'error');
     return;
@@ -257,13 +235,13 @@ async function saveSettings() {
     const u = new URL(settings.baseUrl);
     // Instance is https-only (host access is granted per https origin).
     if (u.protocol !== 'https:') {
-      SettingsForm.openAdvanced(); // #146: show the field the error is about
+      SettingsForm.openAdvanced(); // show the field the error is about
       setStatusLine('settings-status', 'Instance URL must be https://', 'error');
       return;
     }
     host = u.hostname;
   } catch {
-    SettingsForm.openAdvanced(); // #146: show the field the error is about
+    SettingsForm.openAdvanced(); // show the field the error is about
     setStatusLine('settings-status', 'Instance is not a valid URL', 'error');
     return;
   }
@@ -272,18 +250,15 @@ async function saveSettings() {
     setStatusLine('settings-status', 'Log window must be between 10 and 600 seconds', 'error');
     return;
   }
-  // Preserve per-host prefs not shown in this form (e.g. fullPageCapture) across
-  // a re-save.
+  // Keep per-host prefs this form does not show (e.g. fullPageCapture) across a re-save.
   const prior = state.hostSettings[host]
     || ((state.settings && hostOf(state.settings.baseUrl) === host) ? state.settings : null);
   if (prior && prior.fullPageCapture != null) settings.fullPageCapture = prior.fullPageCapture;
-  // The project THIS host was last on — kept if the token can still reach it.
+  // The project this host was last on, kept if the token can still reach it.
   const previousProject = (prior && prior.projectId) || '';
-  // #198: `<all_urls>` covers whatever instance the tester types, so there is no
-  // host grant left to ask for before the network validate.
+  // `<all_urls>` covers any instance typed, so no host grant is asked for before validating.
   progressToast('Validating…');
-  // Two-step validation (#103). The token's own project list first — that route
-  // carries no slug, so it IS the token check an "invalid token" must report.
+  // Project list first: that route carries no slug, so it is the token check "invalid token" reports.
   Handoff.configure({ baseUrl: settings.baseUrl, apiToken: settings.apiToken, projectId: previousProject });
   let projects = null;
   try {
@@ -300,8 +275,7 @@ async function saveSettings() {
     state.projects = projects;
     settings.projectId = SettingsForm.resolveProjectId(projects, previousProject);
   } else {
-    // Never leave the previous host's projects in the switcher — it would offer
-    // slugs that do not exist where we now point.
+    // Never leave the previous host's projects in the switcher: their slugs do not exist here.
     state.projects = [];
     settings.projectId = previousProject;
     if (!settings.projectId) {
@@ -311,7 +285,7 @@ async function saveSettings() {
       return;
     }
   }
-  // Several projects and no previous one: the token is in, the project is the tester's pick (#11).
+  // Several projects and no previous one: the token is in, the project is the tester's pick.
   if (!settings.projectId) {
     await commitSettings(settings, host);
     askForProject();
@@ -322,8 +296,7 @@ async function saveSettings() {
   try {
     await TestomatAPI.validate();
   } catch (e) {
-    // #155: v2 answers 403 for read-only access — a VALID config the panel must
-    // save, so it can say so instead of reporting a failed validation.
+    // v2 answers 403 for read-only access: a valid config, saved so the panel can say so.
     if (!isReadonlyError(e)) {
       setStatusLine('settings-status', `Validation failed: ${e.message}`, 'error');
       return;
@@ -331,22 +304,19 @@ async function saveSettings() {
   }
   await commitSettings(settings, host);
   renderProjectBar(); // the header switcher now carries this host's project list
-  // The verdict belongs to the Connection card (#connection-state), not to a line
-  // under Save — clear whatever this save put there on its way through.
+  // The verdict belongs to the Connection card, not a line under Save, so clear that line.
   setStatusLine('settings-status', '');
   renderConnection();
   openRunsView(); // a first save lands on a fresh runs view (and enables the tabs)
 }
 
-// What Save persists once the token is in — with or without a project chosen yet (#11).
+// What Save persists once the token is in, with or without a project chosen yet.
 async function commitSettings(settings, host) {
-  // Landing on another project is a project switch — drop everything scoped to
-  // the one we are leaving, same as the header switcher does.
+  // Landing on another project is a project switch: drop everything scoped to the one being left.
   const wasOn = state.settings && state.settings.projectId;
   if (wasOn && wasOn !== settings.projectId) resetProjectScopedState();
   state.settings = settings;
-  // Per-host map + history (most-recent-first, deduped) so an instance switch
-  // needs no re-entry.
+  // Per-host map and recent-first history, so an instance switch needs no re-entry.
   state.hostSettings = { ...state.hostSettings, [host]: settings };
   state.hostHistory = [host, ...state.hostHistory.filter((h) => h !== host)];
   if (!hasChrome) return;
@@ -354,9 +324,9 @@ async function commitSettings(settings, host) {
     settings,
     hostSettings: state.hostSettings,
     hostHistory: state.hostHistory,
-    // Mirrored top-level so the in-page relay never reads `settings` (#175).
+    // Mirrored top-level so the in-page relay never reads `settings`.
     evidenceCaptureBodies: settings.evidenceCaptureBodies,
-    // Same reason for the step recorder's content script (#176).
+    // Same reason for the step recorder's content script.
     stepRecNeverValues: settings.stepRecNeverValues,
   });
 }

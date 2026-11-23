@@ -1,32 +1,18 @@
 #!/usr/bin/env node
-// extension/screenrec/review.js: the window that opens over the page after the tester stops
-// recording. They watch the take, drag on the timeline to cut the fumbling off either end, and
-// press Attach. Two numbers have to be true — the "after cuts" length they are shown, and the
-// seconds that actually reach the file — or they attach a clip that is not the one they watched.
-//
-// The file is a BARE IIFE: it publishes nothing, exports nothing and has no completion value, so
-// every row here drives the listeners it registered and reads the DOM it painted. `duration` and
-// `cuts` are closure variables; the only ways in are init's storage read and the pointer gestures.
-//
-// Cases numbered as in issue 176. Run: node --test tests/screenrec-review.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument, fire } from './helpers/mini-dom.mjs';
 import { loadInto, chromeFake, plain, settle } from './helpers/shared-harness.mjs';
 
-// loadInto() resolves this through sharedPath(), so SHARED_SRC=<dir> or SHARED_MODULES=review.js=…
-// runs the whole suite against a mutated copy without the shipped file ever being edited.
+// SHARED_SRC or SHARED_MODULES runs the suite against a mutated copy, never editing the shipped file.
 const REVIEW = 'screenrec/review.js';
 
-// Every id review.html carries. init() reads all fourteen before the IIFE registers a listener,
-// so a missing one throws at load and takes the whole file with it.
+// init() reads every id before registering a listener, so a missing one throws at load.
 const IDS = ['video#player', 'div#timeline', 'div#playhead', 'div#review-status', 'div#chips',
   'div#after-label', 'button#btn-attach', 'button#btn-discard', 'button#btn-play',
   'div#file-meta', 'span#t-cur', 'span#t-total', 'div#export-veil', 'div#export-bar'];
 
-// The timeline's box. A browser measures it; here the fixture states it, and this left/width pair
-// makes every quarter-second land on an EXACT double — the 0.25 s and 0.05 s thresholds below sit
-// on their own boundary, and a float that drifted would test the drift instead of the rule.
+// This box puts every quarter-second on an exact double, so the thresholds test rules, not drift.
 const BOX = { left: 40, width: 1000 };
 
 // The parked record the worker leaves in chrome.storage.session (screenrec/parked.js buildParked).
@@ -47,10 +33,7 @@ const defaultReply = (msg) => (msg && msg.cmd === 'trim-swap'
 
 const bytes = (n) => { const u = new Uint8Array(n); for (let i = 0; i < n; i += 1) u[i] = i % 251; return u; };
 
-// ---- the pieces a vm realm has none of --------------------------------------
-
-// No Blob in a vm context, and without one the trimmed file lands in a silent catch and the whole
-// export path passes for the wrong reason. This one really concatenates, so `size` is the truth.
+// No Blob in a vm realm, so the export would pass via a silent catch; this one really concatenates.
 class FakeBlob {
   constructor(parts = [], opts = {}) {
     const chunks = parts.map((p) => (p instanceof FakeBlob ? p.bytes : p)).filter((p) => p && p.length);
@@ -64,8 +47,7 @@ class FakeBlob {
   async arrayBuffer() { return this.bytes.slice().buffer; }
 }
 
-// setTimeout is not in a vm realm either, and the two waits that matter (a seek that never answers,
-// the 3 000 ms metadata fallback) are only assertable against a clock a row turns by hand.
+// No setTimeout in a vm realm; the seek and metadata waits are asserted on a hand-turned clock.
 function makeClock() {
   const delays = [];
   let seq = 0;
@@ -84,21 +66,17 @@ function makeClock() {
   };
 }
 
-// ---- the harness -------------------------------------------------------------
-
 async function load(opts = {}) {
   const {
     file = TAKE, framed = true, duration = 10, metadata = 'fires', presetDuration,
     probeMs = null, answersSeeks = true, playRejects = false, confirmAnswer = true,
     reply = defaultReply, payload = bytes(1024), mimes = ['video/webm;codecs=vp9'],
     sessionFail = {},
-    // The one-time key the worker mints when it parks a take, and the one this document was framed
-    // with — the same string on every legitimate row, and the whole of issue 105 when they differ.
+    // The worker's one-time key and the one this document was framed with; equal on every legitimate row.
     key = 'rk-1', hashKey = key,
     // The key read left hanging: init() has not yet established who framed this document.
     stallKey = false,
-    // The seconds the 1000px timeline ends up covering, so a gesture can state a TIME. A row whose
-    // take is measured some other way than `duration` says so; the box itself is 1000px regardless.
+    // The seconds the 1000px timeline covers, so a gesture can state a time.
     span = Number.isFinite(duration) && duration > 0 ? duration : 10,
   } = opts;
 
@@ -127,10 +105,7 @@ async function load(opts = {}) {
     },
   });
   video.duration = NaN; // a MediaRecorder webm reports nothing until metadata lands — real behaviour
-  // The element's own account of itself, which is the only one that survives a missed event. Measured
-  // in Chrome: a revoked blob URL, an empty blob, undecodable bytes and a bogus mime ALL park at
-  // readyState 0 / networkState 3 / error.code 4 / videoWidth 0, while a real MediaRecorder webm sits
-  // at readyState ≥ 1 with videoWidth set even while its duration still reads Infinity.
+  // Measured in Chrome: dead blobs park at readyState 0 / error 4; a real webm has readyState ≥ 1.
   video.readyState = 0;   // HAVE_NOTHING
   video.networkState = 0; // NETWORK_EMPTY
   video.error = null;
@@ -207,23 +182,20 @@ async function load(opts = {}) {
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
   }, [REVIEW]);
 
-  // init() runs at load and is async: the storage read, then the metadata wait, then the
-  // Infinity workaround. Boot it the way a browser would before any row touches the screen.
+  // init() is async: boot it the way a browser would before any row touches the screen.
   await settle();
   if (metadata === 'fires') {
     video.duration = duration; video.readyState = 4; video.networkState = 1; video.videoWidth = 320;
     fire(video, 'loadedmetadata');
   }
   if (metadata === 'error') { video.error = { code: 4 }; video.networkState = 3; fire(video, 'error'); }
-  // Metadata arrived, then the decode gave out — the corrupt-tail case, where the element is past
-  // HAVE_NOTHING and only `error` says the take is dead.
+  // Metadata arrived, then the decode gave out: past HAVE_NOTHING, only `error` says the take is dead.
   if (metadata === 'decode') {
     video.duration = duration; video.readyState = 4; video.networkState = 1; video.videoWidth = 320;
     fire(video, 'loadedmetadata');
     video.error = { code: 3 }; // MEDIA_ERR_DECODE
   }
-  // `presetDuration` is the metadata that landed while nobody was listening — a duration a player
-  // knows is a player past HAVE_NOTHING, so the element says so even though the event went unheard.
+  // Metadata that landed unheard: a player that knows its duration is past HAVE_NOTHING anyway.
   if (metadata === 'never' && presetDuration !== undefined) {
     video.duration = presetDuration; video.readyState = 1; video.networkState = 1; video.videoWidth = 320;
   }
@@ -231,7 +203,7 @@ async function load(opts = {}) {
   await settle();
 
   const $ = (id) => doc.getElementById(id);
-  // The pixel a given second sits at, so a gesture states a TIME and the module does the mapping.
+  // The pixel a given second sits at, so a gesture states a time and the module does the mapping.
   const x = (t) => BOX.left + (t / span) * BOX.width;
 
   const h = {
@@ -269,7 +241,6 @@ async function load(opts = {}) {
     tick(t) { video.currentTime = t; fire(video, 'timeupdate'); },
     mark: () => seeks.length,
     since: (at0) => seeks.slice(at0),
-    // The export is a real-time replay; a row hands it the instants a player would have reported.
     // The flush is for the seek watchdog: a row whose player answers no seek still moves forward.
     async replay(...ends) {
       for (const end of ends) { await settle(3); clock.flush(); await settle(2); h.tick(end); }
@@ -279,8 +250,7 @@ async function load(opts = {}) {
   return h;
 }
 
-// Drive one Attach-with-cuts to completion: `ends` are the instants a player would have reported
-// at the end of each kept range, one tick per range. Fewer ends than ranges and the export parks.
+// `ends`: the instant each kept range ends, as a player reports it; too few and the export parks.
 async function attach(h, { ends }) {
   h.press('btn-attach');
   await h.replay(...ends);
@@ -289,8 +259,6 @@ async function attach(h, { ends }) {
 const swap = (h) => plain(h.sent.find((m) => m.cmd === 'trim-swap'));
 const trimmed = (h) => plain(h.sent.find((m) => m.type === 'SCREENREC_TRIMMED'));
 
-// ---- A: the cut arithmetic ---------------------------------------------------
-
 test('1: a drag pulled leftwards cuts the same seconds as one pulled right', async () => {
   const h = await load();
   h.drag(7, 3);
@@ -298,8 +266,7 @@ test('1: a drag pulled leftwards cuts the same seconds as one pulled right', asy
   assert.equal(h.after(), '0:10 → 0:06 after cuts');
 });
 
-// The only gesture that can hand normalizeCuts a cut whose end is before its start: the drag
-// itself orders a new cut, a handle does not. This is the row the ordering at :46 is for.
+// Only a handle can hand normalizeCuts a cut that ends before it starts; a fresh drag orders itself.
 test('1b: pulling the right handle back past the left one keeps the seconds between them', async () => {
   const h = await load();
   h.drag(2, 5);
@@ -321,8 +288,7 @@ test('2b: a quarter of a second is the smallest cut the screen keeps', async () 
   assert.deepEqual(h.cuts(), [{ start: 3, end: 3.25 }]);
 });
 
-// Every other cut row drags left to right. A tester who trims the END first and the BEGINNING
-// second hands normalizeCuts an unsorted list, and the merge only ever looks at the last entry.
+// The merge only looks at the last entry, so an unsorted cut list is the case to pin.
 test('2c: trimming the end first and the beginning second keeps both cuts', async () => {
   const h = await load();
   h.drag(5, 6);
@@ -431,8 +397,7 @@ test('10: two cuts in the middle leave three pieces, and the export seeks over e
   assert.equal(swap(h).ms, 8000);
 });
 
-// keptRanges walks the cuts once, carrying the second it has reached. Mid-drag the list is neither
-// sorted nor merged yet, so a cut drawn INSIDE another must not wind that marker backwards.
+// Mid-drag the cuts are unsorted and unmerged, so a nested one must not rewind keptRanges.
 test('10b: drawing a second cut inside the first does not hand the tester back seconds twice', async () => {
   const h = await load();
   h.drag(1, 6);
@@ -465,8 +430,6 @@ test('15: the header names the file and its size in megabytes', async () => {
   assert.equal(h.$('file-meta').textContent, 'screen-recording-2026-09-05-1204.webm · 50.0 MB');
 });
 
-// ---- B: what the tester is shown ---------------------------------------------
-
 test('12: four cut seconds are shown as the length that is left, on the label and on the button', async () => {
   const h = await load();
   h.drag(1, 3);
@@ -497,8 +460,6 @@ test('12c: the ✕ on a chip gives those seconds back', async () => {
   assert.equal(h.after(), '0:10 → 0:08 after cuts');
 });
 
-// 12c takes the FIRST chip away, where "remove this one" and "remove the first one" look alike.
-// This is the row that tells them apart — the tester's ✕ has to hit the cut it is drawn on.
 test('12d: the ✕ takes away the cut it sits on, not whichever came first', async () => {
   const h = await load();
   h.drag(1, 3);
@@ -507,8 +468,6 @@ test('12d: the ✕ takes away the cut it sits on, not whichever came first', asy
   assert.deepEqual(h.cuts(), [{ start: 1, end: 3 }]);
   assert.equal(h.after(), '0:10 → 0:08 after cuts');
 });
-
-// ---- C: the gestures ----------------------------------------------------------
 
 test('16: a click on the timeline moves the playhead, it does not start a cut', async () => {
   const h = await load();
@@ -566,8 +525,6 @@ test('18: while the trim is exporting the timeline, Play, Attach, Discard and Es
   assert.deepEqual(h.posts.map((p) => p.data), [{ type: 'TESTOMAT_REVIEW_BUSY', busy: true }]);
 });
 
-// ---- D: playback that skips the cuts ------------------------------------------
-
 test('19: playback that reaches a cut jumps over it instead of showing it', async () => {
   const h = await load();
   h.drag(3, 7);
@@ -622,8 +579,6 @@ test('19d: Play from the end of the take rewinds instead of sitting on the last 
   assert.equal(h.$('btn-play').textContent, '▶ Play');
 });
 
-// ---- E: the export, and the bytes that leave ----------------------------------
-
 test('26: a five-megabyte trim reaches the recorder page in three chunks and nothing is lost', async () => {
   const h = await load({ payload: bytes(5 * 1024 * 1024) });
   h.drag(2, 4);
@@ -635,8 +590,7 @@ test('26: a five-megabyte trim reaches the recorder page in three chunks and not
   assert.deepEqual(swap(h), { type: 'SCREENREC_OFF', cmd: 'trim-swap', oldUrl: 'blob:take-1', ms: 8000 });
 });
 
-// 18 pins that the screen is frozen WHILE the export runs. This is the other half: it has to thaw.
-// Without the reset the tester's review is dead after one attach — every control ignored, forever.
+// Without the reset the review is dead after one attach, every control ignored.
 test('18b: once the export is over the screen answers the tester again', async () => {
   const h = await load();
   h.drag(2, 4);
@@ -748,8 +702,6 @@ test('26d: the export records the player through the codec the browser admits to
   assert.deepEqual(h.recLog[1], { call: 'start', slice: 250 });
 });
 
-// ---- F: discard, and getting out ----------------------------------------------
-
 test('23: a discard the tester backs out of throws nothing away', async () => {
   const h = await load({ confirmAnswer: false });
   h.press('btn-discard');
@@ -789,8 +741,6 @@ test('21c: any other key leaves the review alone', async () => {
   assert.equal(h.closes.length, 0);
 });
 
-// ---- G: boot -------------------------------------------------------------------
-
 test('29: a recording that did not survive the browser restart says so and offers no buttons', async () => {
   const h = await load({ file: null });
   assert.equal(h.status(), 'The recording is gone — it does not survive a browser restart.');
@@ -825,8 +775,7 @@ test('30c: a video that reports a length of zero falls back to the stopwatch too
   assert.equal(h.$('t-total').textContent, '0:09');
 });
 
-// The other side of the coin below: this player IS loaded, its `loadedmetadata` simply landed before
-// anyone listened. Reading the element rather than counting events is what keeps it playable.
+// Its `loadedmetadata` landed before anyone listened; reading the element is what keeps it playable.
 test('31: metadata that never arrives is waited out for three seconds, not forever', async () => {
   const h = await load({ metadata: 'never', presetDuration: 9 });
   assert.equal(h.clock.delays.includes(3000), true);
@@ -836,9 +785,6 @@ test('31: metadata that never arrives is waited out for three seconds, not forev
   assert.notEqual(h.$('btn-attach').disabled, true);
 });
 
-// A dead blob URL used to be indistinguishable from slow metadata: nothing watched the video, both
-// 3 000 ms timers ran out, and `file.ms` — always set, because the worker stores the stopwatch —
-// drew a full timeline over a video that will never play. Attach then uploads that nothing.
 test('32 (#337): a recording whose bytes are gone says so and will not let the tester attach it', async () => {
   const h = await load({ metadata: 'error', file: { ...TAKE, ms: 8000 } });
   assert.match(h.status(), /will not play/);
@@ -848,8 +794,7 @@ test('32 (#337): a recording whose bytes are gone says so and will not let the t
   assert.deepEqual(h.clock.delays, [3000]);     // and no second three-second probe is sat through
 });
 
-// Discard is the one thing that must still work: the bytes are gone, but the record in
-// chrome.storage.session is not, and only Discard clears it.
+// The bytes are gone but the record in chrome.storage.session is not, and only Discard clears it.
 test('32a (#337): the tester can still throw away a take whose video is dead', async () => {
   const h = await load({ metadata: 'error', file: { ...TAKE, ms: 8000 } });
   assert.notEqual(h.$('btn-discard').disabled, true);
@@ -858,12 +803,7 @@ test('32a (#337): the tester can still throw away a take whose video is dead', a
   assert.deepEqual(h.types(), ['SCREENREC_DONE']);
 });
 
-// The lesson the neighbouring fix paid for: an event is not a state. This player never says `error`
-// and never says `loadedmetadata` — it just sits at HAVE_NOTHING. The screen has to ask it outright,
-// or a take that silently failed still gets the stopwatch's timeline and a live Attach.
-// The other half of the guard, and the only reason `video.error` is read at all: a take whose
-// metadata loaded and whose picture then gave out. The element is past HAVE_NOTHING, so readyState
-// alone calls it healthy — and the tester attaches a clip that will not play.
+// Past HAVE_NOTHING, readyState alone calls this take healthy; only `video.error` catches the decode.
 test('32c (#337): a take that loaded and then failed to decode is refused too, not just an empty one', async () => {
   const h = await load({ metadata: 'decode', file: { ...TAKE, ms: 8000 } });
   assert.match(h.status(), /will not play/);
@@ -880,12 +820,7 @@ test('32b (#337): a video that never loaded is not dressed in the stopwatch’s 
   assert.equal(h.$('t-total').textContent, '');
 });
 
-// ---- H: who framed this document (issue 105) -----------------------------------
-// review.html sits in web_accessible_resources with matches <all_urls> and the manifest pins the
-// extension id, so ANY page can compute this URL and frame it invisibly under the cursor. An origin
-// check cannot tell that framing from ours: content/review-overlay.js runs in the page's own origin,
-// so both parents look identical. The one thing a page cannot have is the key the worker minted when
-// it parked the take — the overlay is handed it, the page is not.
+// Any page can frame review.html invisibly; only the worker-minted key tells our frame from theirs.
 
 test('34 (#105): a page that framed the review itself gets no buttons and is told who opened it', async () => {
   const h = await load({ hashKey: null });
@@ -903,8 +838,7 @@ test('34a (#105): a framed review carrying a guessed key is refused the same way
   assert.equal(h.video.src, undefined);
 });
 
-// The clickjack itself. A disabled button is the browser's guard against the harvested click; this
-// row is ours, and it is the one that says the refusal is a refusal to ACT, not a greyed-out look.
+// A disabled button is the browser's guard; this row proves the refusal is a refusal to act.
 test('34b (#105): a click harvested on a refused review attaches nothing and discards nothing', async () => {
   const h = await load({ hashKey: null });
   h.press('btn-discard');
@@ -925,10 +859,7 @@ test('34c (#105): the frame our own overlay opened, with the key it was handed, 
   assert.deepEqual(h.types(), ['SCREENREC_REVIEWED']);
 });
 
-// The top-level exemption, and why it is not a hole: a page can frame us invisibly, but it cannot
-// open an invisible TAB — a tab is on screen, so there is no click to steal. Both keyless flows the
-// extension already has land here: the worker's third placement (chrome.tabs.create) and the
-// overlay's "Open the review in a new tab" when a page's CSP refuses the frame.
+// A page can frame us invisibly but cannot open an invisible tab, so a tab needs no key.
 test('34d (#105): a review opened in a tab of its own needs no key at all', async () => {
   const h = await load({ framed: false, key: null });
   assert.equal(h.status(), '');
@@ -939,8 +870,7 @@ test('34d (#105): a review opened in a tab of its own needs no key at all', asyn
   assert.deepEqual(h.types(), ['SCREENREC_REVIEWED']);
 });
 
-// The state 34e leaves untested: nothing parked AND nothing in the hash, where a bare `!==` reads
-// '' against '' as a match and waves the page's own frame straight through.
+// With nothing parked and no hash, a bare `!==` reads '' against '' as a match.
 test('34g (#105): a framed review with no key on either side refuses — an empty hash matches nothing', async () => {
   const h = await load({ framed: true, key: null, hashKey: null });
   assert.match(h.status(), /opened by the page/i);
@@ -957,8 +887,7 @@ test('34e (#105): with no key parked at all, a framed review refuses rather than
   assert.equal(h.$('btn-discard').disabled, true);
 });
 
-// The gate is asked at boot, and until it has answered this document does not know who framed it.
-// A refusal that only lands afterwards leaves that window open to exactly the click being harvested.
+// Until the boot-time key check answers, the document does not know who framed it.
 test('34f (#105): a click harvested before the key check has answered acts on nothing', async () => {
   const h = await load({ stallKey: true });
   h.press('btn-discard');
@@ -967,8 +896,6 @@ test('34f (#105): a click harvested before the key check has answered acts on no
   assert.deepEqual(h.types(), []);
   assert.deepEqual(h.posts, []);
 });
-
-// ---- the erase ---------------------------------------------------------------
 
 test('an erase that threw the take away closes the review, framed or in a tab of its own', async () => {
   const framed = await load();

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// The icon vocabulary of extension/sidepanel/core/status-icons.js (#161 rows 1 and 46 plus this
-// file's own 85-88, moved out of tests/run-view.test.mjs by #194): the glyph a status draws as, the
-// ring a running test draws instead, the marks a tree row wears, and the run-kind badge. Nine files
-// draw with it; the screen it came from is only one of them, and tests/run-view.test.mjs keeps the
-// rows about the checklist those glyphs land in.
-// Two rules here are the reason the module is worth reading twice. `skipped` has to differ from
-// `pending` by SHAPE, or a colour-blind tester reads two states as one; and svgIcon passes its
-// classes on one per argument, because classList.add throws on a token holding a space.
-// Rows 132-133 are new: the falsification run behind the move found that four of the six icon names
-// and svgIcon's whole arity were pinned nowhere — every caller's suite stubs them.
-// Run: node --test tests/status-icons.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,12 +18,11 @@ function load() {
     made.dataset.ns = ns;
     return made;
   };
-  const marks = []; // every TestType.mark call, so a badge row can assert what was ASKED for
-  const icons = []; // every Icons.el call as it arrived — row 133 is about the ARGUMENTS
+  const marks = []; // every TestType.mark call, so a badge row can assert what was asked for
+  const icons = []; // every Icons.el call as it arrived, so a row can assert the arguments
 
   const globals = {
-    // shared/icons.js's own el: `cls` is handed to classList.add one token per argument, and the
-    // real one throws on a token with a space — the arity is the contract, so the stub keeps it.
+    // Like the real el, one classList token per argument: the real one throws on a token with a space.
     Icons: {
       el: (name, size = 16, ...cls) => {
         icons.push({ name, size, cls: [...cls] });
@@ -45,8 +33,7 @@ function load() {
         }
         return n;
       },
-      // shared/icons.js:229's own rule: an empty value or an unresolved `:shortcode:` draws
-      // nothing, so the caller falls back to the glyph.
+      // As in shared/icons.js: an empty value or an unresolved `:shortcode:` draws nothing.
       emoji: (value, cls = '') => {
         const s = String(value || '').trim();
         if (!s || /^:[a-z0-9_+-]+:$/i.test(s)) return null;
@@ -56,8 +43,7 @@ function load() {
         return span;
       },
     },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -73,20 +59,16 @@ function load() {
   };
 
   const h = loadScreen('status-icons', { dir: CORE_SRC, document: doc, globals, exported: 'StatusIcons' });
-  // StatusIcons is a lexical const: invisible as a sandbox property, reachable only off the
-  // completion value, the same seam tests/md-sections.test.mjs uses.
+  // StatusIcons is a lexical const, reachable only off the completion value, not as a sandbox property.
   return { i: h.screen, doc, marks, icons, globals };
 }
 
-// The REAL glyph table out of shared/icons.js, for row 132: a name that resolves to nothing draws
-// an empty box, and no fixture in this repo would notice.
+// The real glyph table: a name that resolves to nothing draws an empty box no fixture would notice.
 const PATHS = (() => {
   const win = {};
   runInNewContext(readFileSync(join(repoRoot, 'extension/shared/icons.js'), 'utf8'), { window: win });
   return win.Icons.PATHS;
 })();
-
-// ---------- the status word (row 1) ----------
 
 test('1: a launching run reads as running, and nothing at all reads as unknown', () => {
   const h = load();
@@ -96,22 +78,17 @@ test('1: a launching run reads as running, and nothing at all reads as unknown',
   assert.equal(h.i.normStatus('passed'), 'passed');
 });
 
-// ---------- the glyphs (rows 46, 85) ----------
-
-// 46: STATUS_ICON.skipped WAS NEUTRAL_ICON's own ring, so skipped and pending differed by colour
-// alone — unreadable to a colour-blind tester and invisible in a greyscale screenshot.
 test('46 (#115): skipped and pending are told apart by their shape, not only their colour', () => {
   const h = load();
   const skipped = h.i.statusIcon('skipped');
   assert.notEqual(skipped.dataset.icon, h.i.statusIcon('pending').dataset.icon);
   assert.equal(skipped.dataset.icon, 'block');
-  // The crossed ring fills the same 16px slot the plain one did, and the tint keys on data-status.
+  // The crossed ring fills the same 16px slot as the plain ring; the tint keys on data-status.
   assert.equal(skipped.dataset.size, '16');
   assert.equal(skipped.dataset.status, 'skipped');
   assert.ok(skipped.classList.contains('status-icon'));
 
-  // The ring stays for the four that genuinely have not been run — and stays ONE ring for all
-  // four, so separating skipped out has not quietly told THEM apart from each other.
+  // The four never-run states share one ring; splitting skipped out must not tell them apart.
   const ring = ['pending', 'scheduled', 'queued', 'unknown'].map((s) => h.i.statusIcon(s).dataset.icon);
   assert.deepEqual(ring, Array(4).fill('status_record'));
   assert.ok(!ring.includes(skipped.dataset.icon), 'skipped fell back to the ring');
@@ -126,14 +103,12 @@ test('85: a running test draws the two-circle ring, not a glyph — and both mea
   assert.deepEqual(spinner.children.map((c) => c.className), ['spinner-track', 'spinner-head']);
   assert.equal(spinner.children[1].getAttribute('stroke-dasharray'), '25 75');
   assert.equal(spinner.children[0].getAttribute('stroke-dasharray'), null);
-  // Every other status IS a glyph, so the branch above is a decision and not the only path.
+  // Every other status is a glyph, so the ring branch is a decision, not the only path.
   const glyph = h.i.statusIcon('passed');
   assert.equal(glyph.dataset.icon, 'status_passed');
   assert.ok(glyph.classList.contains('status-icon'));
   assert.equal(glyph.dataset.status, 'passed');
 });
-
-// ---------- the tree marks (rows 87, 88) ----------
 
 test('87: a project emoji replaces the suite glyph and says so through data-emoji', () => {
   const h = load();
@@ -157,8 +132,6 @@ test('88: an unfoldable row keeps the empty slot, so its title lines up with a f
   assert.deepEqual(slot.childNodes, []);
 });
 
-// ---------- the run kind (row 86) ----------
-
 test('86: three kinds are a run kind; a rungroup\'s own kind draws no badge', () => {
   const h = load();
   for (const k of ['manual', 'AUTOMATED', 'Mixed']) assert.equal(h.i.runKind(k), k.toLowerCase());
@@ -170,11 +143,6 @@ test('86: three kinds are a run kind; a rungroup\'s own kind draws no badge', ()
   assert.equal(h.i.kindBadge('multienv'), null);
 });
 
-// ---------- what nothing else pinned (rows 132-133) ----------
-
-// 132: FOLDER, FILE, CHEVRON and ACCOUNT reach five screens that each stub them in their own suite,
-// so before this row the panel could have asked shared/icons.js for a name it does not carry — and
-// Icons.el answers an unknown name with an empty box, which no fixture in this repo would notice.
 test('132: the vocabulary is these eight names, and every one resolves to a real glyph', () => {
   const h = load();
   assert.deepEqual(plain(h.i.STATUS), {
@@ -190,8 +158,7 @@ test('132: the vocabulary is these eight names, and every one resolves to a real
   assert.deepEqual(names.filter((n) => !PATHS[n]), []);
 });
 
-// 133: runs-list.js hands two class tokens at once. Joining them into one string is invisible in
-// every suite that stubs this, and throws in the browser: classList.add refuses a spaced token.
+// Joined tokens pass every stubbing suite but throw in the browser: classList.add refuses a space.
 test('133: svgIcon passes each class on as its own argument, never one joined token', () => {
   const h = load();
   const icon = h.i.svgIcon('add', 14, 'spin', 'load-more-spinner');

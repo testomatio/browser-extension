@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// The panel's memory (#154): what a project switch has to forget, whether this connection may
-// write at all, and what a failed request looks like to the tester. Run: node --test tests/state.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadState, plain, settle } from './helpers/core-harness.mjs';
@@ -21,8 +19,6 @@ function deferred() {
   return { promise, resolve };
 }
 
-// ---- A: who is who ---------------------------------------------------------
-
 test('#154-1: a row is found whether its id arrived as a number or as text', () => {
   const h = loadState();
   h.state.records = [{ id: 7, test_title: 'Login' }];
@@ -38,8 +34,7 @@ test('#154-2: asking for no row at all finds a row whose id is literally the wor
   assert.equal(plain(h.recordFor(null)).test_title, 'Odd one');
 });
 
-// byRecordId is the ONE comparator the three sort sites share (run-view open, run-view finish,
-// livesync poll). Ids reach it as numbers or as text, so every row below mixes the two.
+// byRecordId is the one comparator all three sort sites share; ids reach it as numbers or as text.
 const order = (...ids) => {
   const { byRecordId } = loadState();
   return ids.map((id) => ({ id })).sort(byRecordId).map((r) => r.id);
@@ -113,8 +108,6 @@ test('#154-7: rows that started loading for the project we have left are stale',
   assert.equal(h.staleProject(3), true);
   assert.equal(h.staleProject(4), false);
 });
-
-// ---- B: the project's own lists --------------------------------------------
 
 const withReplies = async (groups) => {
   const h = loadState({ api: { getProjectInfo: async () => ({ data: { attributes: { 'run-replies': groups } } }) } });
@@ -205,10 +198,7 @@ test('#154-B1: a members read that failed is tried again, and clears what it had
   assert.equal(h.api.count('listProjectUsers'), 2);
 });
 
-// ---- C: switching project must leave nothing behind -------------------------
-
-// What every field is worth once the switch is done. Named one by one on purpose: the bug this
-// guards against is exactly "one field was forgotten".
+// Named one by one on purpose: the bug this guards against is "one field was forgotten".
 const AFTER_RESET = {
   runId: null, runTitle: '', testTitle: '', runStatus: null, records: [], runExamples: {},
   substatusCounts: {}, runInfo: {}, currentRecordId: null, stepTicks: {}, runFilter: 'all',
@@ -220,10 +210,9 @@ const AFTER_RESET = {
   tcSuites: [], tcExpanded: {}, tcSuiteId: null, tcSuiteTitle: '', tcSuiteEmoji: null,
   tcTests: [], tcSearch: '', tcTreeSearch: '', suiteEmoji: null, tabViews: {},
 };
-// Counters, not values: they go UP so anything still in flight can tell it was left behind.
+// Counters, not values: they go up so anything still in flight can tell it was left behind.
 const BUMPED = ['projectEpoch', 'descLoadToken'];
-// Deliberately survives a project switch — the connection itself, the screen furniture, and the
-// two in-flight write counters a switch has no business zeroing.
+// Survives a switch on purpose: the connection, the screen furniture, two in-flight write counters.
 const KEPT = ['settings', 'hostSettings', 'hostHistory', 'projects', 'view', 'activeTab', 'booting',
   'runKind', 'testDetailPending', 'saving', 'inlineWrites', 'listMode'];
 
@@ -340,8 +329,6 @@ test('#154-22: results waiting to be sent are NOT thrown away by a project switc
   assert.equal(h.state.runId, null);
   assert.equal(h.spies.syncStop.count(), 1);
 });
-
-// ---- D: may this connection write? -----------------------------------------
 
 test('#154-23: a panel that has not proven anything yet shows no warning', () => {
   const h = connected({ api: { jwtAvailable: () => 'unknown' } });
@@ -465,8 +452,6 @@ test('#154-D2: a re-check that still finds the account read-only changes nothing
   assert.equal(h.spies.refreshCurrentView.count(), 0);
 });
 
-// ---- E: the session probe --------------------------------------------------
-
 test('#154-40: with no test to prefetch the panel just repaints itself', async () => {
   const h = connected({ api: { jwtAvailable: () => true } });
   await h.fn.probeSession(null);
@@ -494,8 +479,6 @@ test('#154-E1: a prefetch that works stores the detail and marks the session ava
   assert.equal(plain(h.state.testrunDetail).data.id, '12');
   assert.equal(h.capabilities.jwt, true);
 });
-
-// ---- F: what a failed request looks like to the tester ---------------------
 
 // Every route the tester can land on, as one readable object.
 const routed = (h) => ({

@@ -1,5 +1,4 @@
-// Images in test CONTENT (#205): `img-src` carries no `https:` BY DESIGN (#175/#179), so the
-// bytes are fetched instead (connect-src allows https:) and the <img> is given a `blob:` URL.
+// `img-src` carries no `https:` by design, so image bytes are fetched and shown via a `blob:` URL.
 
 /* global TestomatAPI, Icons */
 /* exported ImgHydrate */
@@ -24,8 +23,7 @@
   // The e2e reads it to prove a teardown released them; the panel never needs it.
   const held = (group) => (groups.get(group) || []).length;
 
-  // A 200 is not an image: the attachment route answers a signed-out fetch with the sign-in
-  // PAGE. Empty and `application/octet-stream` still pass — artifact hosts serve images so.
+  // Signed out, the attachment route answers 200 with the sign-in page; octet-stream still passes.
   function looksLikeImage(type) {
     const t = String(type || '').toLowerCase().split(';')[0].trim();
     return !t || t === 'application/octet-stream' || t.startsWith('image/');
@@ -41,15 +39,14 @@
       const objectUrl = URL.createObjectURL(blob);
       track(group, objectUrl);
       img.src = objectUrl;
-      img.dataset.loaded = 'true'; // what the e2e waits on (#202)
+      img.dataset.loaded = 'true'; // what the e2e waits on
       return true;
     } catch {
       return false;
     }
   }
 
-  // A way OUT, never a silent blank. Inside an existing link it is a span — an <a> inside
-  // an <a> is not markup any browser keeps.
+  // Inside an existing link the fallback is a span: browsers drop an <a> nested in an <a>.
   function fallback(img, url) {
     const inLink = !!img.closest('a');
     const el = document.createElement(inLink || !url ? 'span' : 'a');
@@ -65,20 +62,18 @@
     return el;
   }
 
-  // Call it on the DETACHED container, between sanitizeHtml() and the append: a raw src that
-  // reaches the document resolves root-relative against `chrome-extension://` or trips the CSP.
+  // Run it detached, after sanitizeHtml(): a raw src in the document misresolves or trips the CSP.
   function hydrate(group, container) {
     if (!container) return;
     for (const img of [...container.querySelectorAll('img[src]')]) {
       const raw = img.getAttribute('src');
       if (/^(blob|data):/i.test(raw)) continue; // already ours to draw
       img.removeAttribute('src');
-      // `![]()` names nothing, and resolving it lands on the instance ROOT.
+      // `![]()` names nothing, and resolving it lands on the instance root.
       if (!raw.trim()) { img.replaceWith(fallback(img, '')); continue; }
       img.dataset.img = 'loading'; // a placeholder box, not a zero-height nothing
       const url = TestomatAPI.assetUrl(raw);
-      // Off-instance images in AUTHORED markdown are a tracking beacon: never fetched
-      // (`instanceOnly`), shown as the link instead. Constitution IV, single egress.
+      // Off-instance images in authored markdown are tracking beacons: never fetched, shown as a link.
       load(group, url, img, { instanceOnly: true }).then((ok) => {
         if (ok) delete img.dataset.img;
         else img.replaceWith(fallback(img, url));

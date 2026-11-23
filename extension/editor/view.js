@@ -1,12 +1,9 @@
-// The read-only view of a test case (IIFE global `EditorView`): its header, the rendered
-// description and the parameters table under it. Its own file — one screen, its own test file.
+// The read-only view of a test case: header, rendered description and parameters table.
 
 /* global EditorIcons, ParamsGrid, TestomatAPI, Icons, PriorityIcons, TestType, EmptyState, Sk, Tooltip */
 const EditorView = (() => {
-  // The same icon names editor.js uses, resolved by shared/icons.js.
   const { icon, ICON_BACK, ICON_OPEN_IN_NEW, ICON_EDIT } = EditorIcons;
-  // The grid's own cell-to-string rule, so the read-only table prints a value the way the
-  // editable one does.
+  // The grid's own cell-to-string rule, so both tables print a value the same way.
   const { paramText } = ParamsGrid;
 
   // Silent to screen readers: the sentence they get is on the heading that holds it (renderView).
@@ -16,9 +13,7 @@ const EditorView = (() => {
     return b;
   }
 
-  // The read-only table under a test's description. Optional by contract: no session, no parameters,
-  // a failed read or a BDD project (#32 — the body's Examples already show this data) draw nothing.
-  // `projectLang` is editor.js's memoised probe, handed in so this never starts a second one.
+  // No session, no params, a failed read or a BDD project (its Examples show them) draw nothing.
   async function appendParamsTable(pane, uid, { projectLang }) {
     if (!uid || TestomatAPI.jwtAvailable() === false) return;
     if ((await projectLang()) === 'gherkin') return;
@@ -66,11 +61,7 @@ const EditorView = (() => {
     pane.append(section);
   }
 
-  // ---- the read-only view of an existing TC (#115) -------------------------
-  // `loading` is this same screen with only the title and body as grey bars — and no
-  // arming delay (unlike sidepanel/core/skeleton.js): a fresh document has no warm path.
-  // `shell` is editor.js: the chrome the editor screen shares, plus the three members that read
-  // module state over there (`testWebUrl`, `projectLang`, `onSettings`) and are called, not copied.
+  // `loading` has no arming delay, unlike core/skeleton.js: a fresh document has no warm path.
   function renderView({
     ctx, uid, title, markdown, priority, test, loading = false,
     shell: { rootEl, barMain, buildCrumbs, toTestsRoot, renderPreviewInto, paneHasContent,
@@ -102,13 +93,11 @@ const EditorView = (() => {
     const h = document.createElement('h1');
     h.id = 'tc-view-title';
     h.className = 'context-title tc-view-title';
-    // The test's own marks before its name, in the order every row naming a test opens
-    // with (core/views.js contextTitleMarks): how much it matters, then what it is.
+    // Marks before the name in the order every test row uses (core/views.js contextTitleMarks).
     if (loading) {
       // The bars say nothing a screen reader can use, so the heading carries the sentence.
       h.setAttribute('aria-label', 'Loading test case…');
-      // The priority keeps its BOX while the read is out, or the title steps 24px sideways
-      // when the mark lands; `.skeleton` is a block, hence the row wrapper around the two.
+      // The priority keeps its box while loading, or the title jumps 24px when the mark lands.
       const row = document.createElement('span');
       row.className = 'tc-view-title-sk';
       const slot = document.createElement('span');
@@ -117,11 +106,10 @@ const EditorView = (() => {
       row.append(slot, skBar('line', '58%'));
       h.append(row);
     } else {
-      // An absent or unknown priority IS `normal` — shared/priority-icons.js falls back to it.
+      // An absent or unknown priority is `normal`: shared/priority-icons.js falls back to it.
       const prioMark = PriorityIcons.mark(priority);
       if (prioMark) { prioMark.id = 'tc-view-priority'; h.append(prioMark); }
-      // Its custom emoji if the project gave it one, else the type-of-test square the
-      // panel's lists open a test row with. Absent record → just the name.
+      // The project's custom emoji, else the type-of-test square the panel's lists use.
       const mark = test && typeof TestType !== 'undefined'
         ? (Icons.emoji(test.emoji, 'type-mark') || TestType.forRecord(test))
         : null;
@@ -133,8 +121,7 @@ const EditorView = (() => {
       ? barMain(buildCrumbs({ onRoot: toTestsRoot, onSuite: leave }), h)
       : h);
 
-    // Re-opens THIS page with `&edit`, so the editor keeps the uid, the trail and the tab
-    // it was opened in. Drawn while `loading` too: its address is known from the uid.
+    // Re-opens this page with `&edit` so the editor keeps uid, trail and tab; drawn while loading too.
     const editBtn = document.createElement('button');
     editBtn.id = 'tc-edit';
     editBtn.type = 'button';
@@ -151,8 +138,7 @@ const EditorView = (() => {
     });
     bar.append(editBtn);
 
-    // "Open in Testomat ↗" (#113): an anchor wearing the icon-button skin. The href is
-    // rebuilt from the active settings; with nothing to link to it hides, not 404s.
+    // With nothing to link to, the link hides rather than 404s.
     const openLink = document.createElement('a');
     openLink.id = 'tc-open-web';
     openLink.className = 'icon-btn tc-open-web';
@@ -174,11 +160,9 @@ const EditorView = (() => {
     const body = document.createElement('div');
     body.className = 'tc-body';
     const pane = document.createElement('div');
-    // The id goes on the pane that HAS the steps: a placeholder answering to it would be
-    // an empty body the e2e harness reads as a loaded one.
+    // Only the pane with the steps gets the id: e2e would read an empty placeholder as loaded.
     if (!loading) pane.id = 'tc-view-body';
-    // `sections` (shared/components.css) prints `### Steps` / `### Expected` as muted
-    // labels rather than chapters — the same way the panel prints the same body.
+    // `sections` prints `### Steps` / `### Expected` as muted labels, as the panel does.
     pane.className = loading
       ? 'tc-preview-pane markdown sections skeleton-rows'
       : 'tc-preview-pane markdown sections';
@@ -211,8 +195,7 @@ const EditorView = (() => {
     // A placeholder is not a loaded page: `__tc.ready` is what the e2e harness waits on.
     if (loading) { wrap.setAttribute('aria-busy', 'true'); return; }
 
-    // The parameters table lands INSIDE the scrolling pane, under the description it belongs to
-    // (#5). It arrives a round trip late, and says nothing at all when there is nothing to say.
+    // Lands inside the scrolling pane under the description, a round trip late.
     appendParamsTable(pane, uid, { projectLang });
 
     // e2e hooks — same global as the create editor, distinguished by mode().
@@ -225,8 +208,7 @@ const EditorView = (() => {
       getMarkdown: () => markdown,
       getPriority: () => priority,
       webUrl: () => testWebUrl(uid),
-      // e2e hook (35-open-in-testomat): repoint at another instance/project the way a
-      // settings change would, then re-render the link.
+      // e2e hook: repoint the way a settings change would, then re-render the link.
       applySettings: (s) => { onSettings(s); refreshWebLink(); },
     };
   }

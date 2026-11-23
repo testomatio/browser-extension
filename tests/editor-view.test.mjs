@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// The contract of extension/editor/view.js (#192): the read-only screen mounts and publishes
-// `window.__tc` in the shape the e2e suite reads, the server link hides when there is no address,
-// and the parameters table stays optional. A smoke contract, not a case sweep — cases V1-V3 of
-// #192. Run: node --test tests/editor-view.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,19 +8,16 @@ import assert from 'node:assert/strict';
 import { makeDocument } from './helpers/mini-dom.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// VIEW_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// VIEW_SRC points the file at a mutated copy, so a falsification run never edits the shipped module.
 const SRC = process.env.VIEW_SRC || join(repoRoot, 'extension/editor/view.js');
 const read = (rel) => readFileSync(join(repoRoot, rel), 'utf8');
 
-// The real modules the view draws through, evaluated into the same context editor.html loads them
-// into: a stub of the glyph table or of the grid's cell rule would let the two drift unnoticed.
+// Real modules, as editor.html loads them: a stub of the glyph table or cell rule could drift unseen.
 const REAL = ['extension/shared/skeleton.js', 'extension/shared/priority-icons.js',
   'extension/shared/empty-state.js', 'extension/shared/test-type.js',
   'extension/editor/editor-icons.js', 'extension/editor/params-grid.js'];
 
-// Only the SVG builder is stubbed: shared/icons.js is a path table behind createElementNS, and
-// nothing here asserts a glyph's geometry.
+// Only the SVG builder is stubbed: nothing here asserts a glyph's geometry.
 function makeIcons(document) {
   return {
     markup: (name, size = 16, o = {}) => `<svg data-name="${name}" data-size="${size}" data-rotate="${o.rotate || 0}"></svg>`,
@@ -44,8 +37,7 @@ function makeIcons(document) {
   };
 }
 
-// One sandbox per test: the view writes `window.__tc` and `document.title`, so a shared page would
-// let one case read the previous one's render.
+// One sandbox per test: the view writes window.__tc and document.title, which would leak across cases.
 function load({ jwt = true, params = null, paramsError = null } = {}) {
   const document = makeDocument(['root']);
   const window = {};
@@ -75,8 +67,7 @@ function load({ jwt = true, params = null, paramsError = null } = {}) {
   return { EditorView: runInContext(source, ctx), document, window, calls };
 }
 
-// The page members the view is handed rather than given a copy of. `testWebUrl` and `projectLang`
-// are the two that read editor.js module state, so both are recorded here.
+// testWebUrl and projectLang read editor.js module state, so both are recorded here.
 function makeShell(document, calls, over = {}) {
   return {
     rootEl: () => document.getElementById('root'),
@@ -112,8 +103,7 @@ const render = (env, opts = {}, shell = {}) => env.EditorView.renderView({
   shell: makeShell(env.document, env.calls, shell),
 });
 
-// The pending appendParamsTable() is fire-and-forget inside renderView; two ticks is past both of
-// its awaits, which is where a test can see whether the table arrived.
+// renderView fires appendParamsTable() and forgets it; two ticks is past both of its awaits.
 const settle = () => new Promise((r) => setImmediate(r));
 
 test('the module publishes exactly the surface editor.js destructures', () => {
@@ -173,8 +163,7 @@ test('V1: a loading placeholder is not a loaded page — no __tc, no body id', (
   assert.ok(wrap.querySelector('#tc-edit')); // its address is known from the uid alone
 });
 
-// V2 — the only branch in the block worth pinning, and the proof that the module CALLS editor.js's
-// testWebUrl rather than rebuilding the address: the link carries whatever that function returned.
+// Proves the module calls editor.js's testWebUrl: the link carries whatever that function returned.
 test('V2: no address means the link hides, an address means it shows', () => {
   const env = load();
   render(env, {}, { testWebUrl: () => null });
@@ -205,7 +194,7 @@ test('V2: applySettings hands the settings back to editor.js and re-renders the 
   assert.equal(link.getAttribute('href'), 'https://second.test/t1');
 });
 
-// V3 — the table is optional by contract. Nothing appended, nothing thrown, nothing said.
+// The table is optional by contract: nothing appended, nothing thrown, nothing said.
 test('V3: no session appends no table, and never starts the language probe', async () => {
   const env = load({ jwt: false });
   const pane = env.document.createElement('div');

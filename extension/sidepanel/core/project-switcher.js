@@ -1,5 +1,4 @@
-// Project switcher (#103). Options come from the ACTIVE instance token's own list
-// (JWT `GET /api/projects`, `id` = the slug every v2 route carries).
+// Options come from the active instance token's list (`GET /api/projects`, `id` = the v2 slug).
 
 /* global TestomatAPI, Handoff, $, state, hasChrome, hostOf, show, toast,
    openRunsView, openTcStudioView, fillSettingsForm, resetProjectScopedState,
@@ -8,9 +7,7 @@
 // Title plus the slug when they differ — two teams name projects alike.
 const projectLabel = (p) => (p.title && p.title !== p.id ? `${p.title} (${p.id})` : p.id);
 
-// Any session reaches every project the tester can see — it reads their keys as it goes. Only a
-// connection left with nothing but ONE project's stored token is pinned, which is a handoff whose
-// host has closed its browser and taken the session with it.
+// Only a connection left with one project's stored token is pinned: a handoff whose host is gone.
 function projectPinned() {
   const s = state.settings;
   if (!s || !s.handoff || s.apiToken) return false;
@@ -21,8 +18,7 @@ function projectPinned() {
 let projectFilter = '';
 let projectActiveId = null;
 
-// The saved project is always among the rows, even before (or without) a list. With no project
-// chosen yet, the rows are the token's list as it stands — the picker's (#11).
+// The saved project is always among the rows, even before (or without) a list.
 function projectRows() {
   const current = state.settings && state.settings.projectId;
   if (!current) return state.projects;
@@ -30,8 +26,7 @@ function projectRows() {
   return list.some((p) => p.id === current) ? list : [{ id: current, title: '' }, ...list];
 }
 
-// Matched on title AND slug — either is what a tester remembers about a project. Shared with the
-// choose-a-project screen (screens/project-pick.js), so both surfaces filter the same way.
+// Matched on title and slug: either is what a tester remembers; screens/project-pick.js shares it.
 function matchProjects(rows, filter) {
   const q = String(filter || '').trim().toLowerCase();
   if (!q) return rows;
@@ -40,8 +35,7 @@ function matchProjects(rows, filter) {
 
 function filteredProjectRows() { return matchProjects(projectRows(), projectFilter); }
 
-// The trigger carries the active project: label + `dataset.projectId`, which is
-// what the panel's own e2e reads.
+// `dataset.projectId` on the trigger is what the panel's own e2e reads.
 function renderProjectBar() {
   const bar = $('project-bar');
   const trigger = $('project-trigger');
@@ -56,18 +50,15 @@ function renderProjectBar() {
     renderProjectOpenLink();
     return;
   }
-  // No project yet but a list to pick from: the trigger IS the picker (#11); `dataset.projectId`
-  // (what the e2e reads) stays absent until a pick.
+  // No project yet but a list: the trigger is the picker, and `dataset.projectId` stays absent.
   const row = current ? projectRows().find((p) => p.id === current) : null;
   label.textContent = current ? (row ? projectLabel(row) : current) : 'Choose a project';
   if (current) trigger.dataset.projectId = current; else delete trigger.dataset.projectId;
-  // aria-disabled, never `disabled`: a disabled button swallows the hover, and the tooltip is
-  // the only place the reason fits.
+  // aria-disabled, never `disabled`: a disabled button swallows the hover the tooltip needs.
   trigger.setAttribute('aria-disabled', projectPinned() ? 'true' : 'false');
   let hint = current ? `Active project: ${label.textContent}` : 'Choose a project';
   if (projectPinned()) {
-    // A pin is by definition an offer that is gone, so the name comes from what connect() wrote
-    // down beside the session — `handoffApp`, the same source the connection card names.
+    // A pin is an offer that is gone, so the name comes from `handoffApp`, written by connect().
     const app = state.settings.handoffApp || 'the app that opened this browser';
     hint = `Project chosen by ${app} — switch it there`;
   }
@@ -78,8 +69,7 @@ function renderProjectBar() {
   if ($('project-menu') && !$('project-menu').hidden) renderProjectOptions();
 }
 
-// The active project's page in the web app, `<active host>/projects/<slug>`. With
-// nothing to link to it HIDES rather than point at a 404.
+// With nothing to link to, the link hides rather than point at a 404.
 function renderProjectOpenLink() {
   const a = $('project-open');
   if (!a) return;
@@ -93,13 +83,9 @@ function renderProjectOpenLink() {
   }
 }
 
-// ---- the dropdown (#126) -------------------------------------------------
-// A native <select> is unusable here: Chrome renders its popup at OS level, which in
-// a narrow side panel lands as a huge misplaced menu. Custom listbox instead (#34).
+// Not a native <select>: Chrome draws its popup at OS level, huge and misplaced in a narrow panel.
 
-// ONE project row, for either surface — the popup's `.menu-option` here, the whole-screen picker's
-// list row there (screens/project-pick.js). Only the SKIN differs: same two lines, same trailing
-// count, same `dataset.projectId` the panel's own e2e reads.
+// One project row for either surface; only the skin differs, same `dataset.projectId` the e2e reads.
 function projectRowEl(p, { current, activeId, idPrefix, className, onPick }) {
   const li = document.createElement('li');
   li.id = `${idPrefix}${p.id}`;
@@ -108,7 +94,7 @@ function projectRowEl(p, { current, activeId, idPrefix, className, onPick }) {
   li.setAttribute('aria-selected', p.id === current ? 'true' : 'false');
   li.dataset.projectId = p.id;
   li.classList.toggle('active', p.id === activeId);
-  // Two lines — title over slug — so neither clips the other (#10); the slug always renders, even when it equals the title, so no row comes up short (#30). The count rides at the trailing edge.
+  // Two lines so neither clips the other; the slug always renders, so no row comes up short.
   const lines = document.createElement('div');
   lines.className = 'project-option-lines';
   const title = document.createElement('span');
@@ -120,7 +106,7 @@ function projectRowEl(p, { current, activeId, idPrefix, className, onPick }) {
   slug.textContent = p.id;
   lines.append(slug);
   li.append(lines);
-  // Shared trailing figure (`.row-count`, ROW TAIL in shared/components.css); a real 0 shows, an unknown count draws nothing.
+  // A real 0 count shows; an unknown count draws nothing.
   if (p.testsCount != null && Number.isFinite(Number(p.testsCount))) {
     const count = document.createElement('span');
     count.className = 'row-count';
@@ -152,8 +138,7 @@ function renderProjectOptions() {
   syncProjectActiveOption();
 }
 
-// The filter input owns focus while the popup is open, so it is what carries
-// aria-activedescendant.
+// The filter input owns focus while open, so it carries aria-activedescendant.
 function syncProjectActiveOption() {
   const input = $('project-filter');
   if (!input) return;
@@ -191,15 +176,13 @@ function closeProjectMenu({ focus = false } = {}) {
   document.removeEventListener('keydown', onProjectMenuKey, true);
 }
 
-// The menu hangs off the bar, not off the trigger, so BOTH boxes count as inside — otherwise a click on
-// the filter or the list's scrollbar would read as outside and close the popup (full-width picker).
+// Both boxes count as inside, or a click on the filter or the scrollbar would close the popup.
 function onProjectDocClick(e) {
   const inside = ['project-dropdown', 'project-menu'].some((id) => $(id) && $(id).contains(e.target));
   if (!inside) closeProjectMenu();
 }
 
-// Handled at document level (capture) so they work wherever focus sits, and so the
-// panel's own arrow/Enter handlers never see them.
+// Document-level capture, so the panel's own arrow/Enter handlers never see these keys.
 function onProjectMenuKey(e) {
   const menu = $('project-menu');
   if (!menu || menu.hidden) return;
@@ -218,7 +201,7 @@ function onProjectMenuKey(e) {
   }
 }
 
-// ±1 through the VISIBLE rows, clamped at the edges (no wrap).
+// Through the visible rows only, clamped at the edges (no wrap).
 function moveProjectActive(delta) {
   const rows = filteredProjectRows();
   if (!rows.length) return;
@@ -242,8 +225,7 @@ function onProjectTriggerClick(e) {
   if ($('project-menu').hidden) openProjectMenu(); else closeProjectMenu({ focus: true });
 }
 
-// Closed-state keys open the popup; preventDefault also stops Enter/Space from
-// firing the button's click (which would close it again).
+// preventDefault also stops Enter/Space firing the button's click, which would close it again.
 function onProjectTriggerKey(e) {
   if (!$('project-menu').hidden) return;
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
@@ -265,8 +247,7 @@ function initProjectDropdown() {
   $('project-filter').addEventListener('input', onProjectFilterInput);
 }
 
-// Best-effort: a failure (no session, offline) leaves the saved project as the only
-// option and the panel keeps working — Settings' Save reports a bad token.
+// Best-effort: a failure leaves the saved project as the only option; Save reports a bad token.
 async function refreshProjects() {
   if (!Handoff.credentialed(state.settings)) return [];
   let projects;
@@ -283,8 +264,7 @@ async function persistActiveSettings(settings) {
   if (!hasChrome) return;
   try {
     await chrome.storage.local.set({ settings, hostSettings: state.hostSettings });
-    // The stored session points at a run of the OLD project — drop it, or a reload
-    // restores a run this project does not have.
+    // The stored session points at a run of the old project; a reload must not restore it.
     await chrome.storage.local.remove('session');
   } catch { /* best effort — a storage hiccup must not strand the switch */ }
 }
@@ -292,9 +272,8 @@ async function persistActiveSettings(settings) {
 async function switchProject(projectId) {
   const prev = state.settings;
   if (!prev || !projectId || projectId === prev.projectId) return;
-  const first = !prev.projectId; // this connection's first pick — it lands on Runs (#11)
-  // Drain first: a queued status carries a testrun id that means nothing in the next
-  // project — replayed there it 404s and is dropped as unrecoverable.
+  const first = !prev.projectId; // this connection's first pick — it lands on Runs
+  // Drain first: a queued status's testrun id 404s in the next project and is dropped.
   if (typeof OfflineQueue !== 'undefined' && OfflineQueue.count()) {
     try { await OfflineQueue.replay(); } catch { /* nothing more we can do here */ }
   }
@@ -305,29 +284,23 @@ async function switchProject(projectId) {
   await persistActiveSettings(settings);
   renderProjectBar();
   // Stay on the tab the tester is on, but at its root: the open run/test is gone.
-  // The connect verdict lives in the Connection card now (renderConnection), so the
-  // first pick only clears the line the save left behind.
   if (first) { setStatusLine('settings-status', ''); await openRunsView(); }
   else if (state.activeTab === 'settings') { fillSettingsForm(); show('settings'); }
   else if (state.activeTab === 'tests') await openTcStudioView();
   else await openRunsView();
-  // Count the OTHER tab too — a blank chip reads as "empty project", not "not looked
-  // at yet". Not awaited: the switch is done, the chips fill in behind it.
+  // Count the other tab too: a blank chip reads as an empty project. Not awaited.
   prefetchTabCounts();
   const p = state.projects.find((x) => x.id === projectId);
   toast(`${first ? 'Connected to' : 'Switched to'} ${p ? (p.title || p.id) : projectId}`);
 }
 
-// Token in, project not: its own screen (screens/project-pick.js). The header popup used to stand in
-// for it, which put the one thing there is to do on that screen inside a menu, over an empty panel.
+// Token in, project not: its own screen (screens/project-pick.js), not a menu over an empty panel.
 function askForProject() {
   fillSettingsForm(); // the full form is what a Disconnect from there leaves behind
   openProjectPickView();
 }
 
-// Boot: paint the saved project, then fill the list in the background. A config without a project
-// resolves one the way Save does — a lone project is taken, several are the tester's pick (#11).
-// 'ready' | 'choose' | 'none' — none means nothing to run against, so init lands on Settings.
+// A config without a project takes a lone one, else the tester picks; 'none' lands on Settings.
 async function initProjectSwitcher() {
   renderProjectBar();
   if (state.settings && state.settings.projectId) {

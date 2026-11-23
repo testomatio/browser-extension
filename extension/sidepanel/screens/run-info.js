@@ -1,40 +1,32 @@
-// The Run info card: the model behind it, the rows it prints and its disclosure. Its own file, not
-// the run screen's — livesync repaints it, app.js toggles it and core/storage.js saves the choice.
+// The Run info card, shared by livesync (repaint), app.js (toggle) and core/storage.js (save).
 
 /* global state, $, Fmt, Tooltip, UserCell, StatusIcons, viewerTimezone, assigneeUser,
    assigneeName, persistSession, paintRunState */
 
-// ---- Run info (#112) ----
-// Two sources, no extra fetch: Status/Tests/Created/Description ride the v2 detail
-// (so they survive basic mode); Duration/Executed/Started/Build URL are JWT-only.
+// v2 detail feeds Status/Tests/Created/Description; Duration/Executed/Started/Build URL are JWT-only.
 
-// A matching key counts only if what it holds is person-shaped: `assignee_ids: [3,7]`
-// contributes nobody, and "assign_mode": "none" is a setting, not a tester called none.
+// "assign_mode": "none" is a setting, not a tester called none; only person-shaped values count.
 const FLAT_SETTING_KEY = /(strategy|mode|policy|method|kind|type|option|enabled|state|status|auto|allow)/i;
 const FLAT_NOBODY = /^(none|nobody|no[-_\s]?one|unassigned|not[-_\s]?assigned|n\/?a|null|nil|false|true|any|all|auto|everyone|manual)$/i;
 
-// Open by default; the toggle persists the choice (core/storage.js, restored at
-// boot). Only an explicit close reads as closed, so a profile predating the key opens.
+// Open by default: only an explicit close reads as closed, so an older profile opens.
 let runInfoOpen = true;
 
 const RunInfo = {
-  // A real accessor, not a data property: app.js writes it at boot and core/storage.js reads it
-  // on every save, while the paint below reads the module `let` those two have to reach.
+  // An accessor, not a data property: app.js and core/storage.js must reach the module `let`.
   get open() { return runInfoOpen; },
   set open(value) { runInfoOpen = value; },
 
-  // The v2 half of the fields. Kept verbatim; formatting/skipping happens at render.
+  // Kept verbatim; formatting and skipping happen at render.
   fromDetail(detail) {
     const info = {
       status: detail.status || null,
-      // v2 show merges response_test_counts — `total_tests` is the authoritative
-      // count there (`tests_count` is the pre-merge value on the same payload).
+      // v2 show merges response_test_counts: `total_tests` is authoritative, `tests_count` is pre-merge.
       testsCount: Number(detail.total_tests ?? detail.tests_count),
       createdAt: detail.created_at || null,
       description: typeof detail.description === 'string' ? detail.description.trim() : '',
     };
-    // The spellings seen first, then any key that MEANS the same thing; a key that
-    // says nothing is left off — never written as null over what a read already found.
+    // A key that says nothing is left off, never written as null over what a read already found.
     const executedBy = UserCell.normalize(detail.executed_by ?? detail.launched_by ?? detail.user)
       || RunInfo.flatPeople(detail, /^(executed|launched|started|ran)(_by)?$/)[0];
     const createdBy = UserCell.normalize(detail.created_by ?? detail.author ?? detail.owner)
@@ -43,8 +35,7 @@ const RunInfo = {
     if (executedBy) info.executedBy = executedBy;
     if (createdBy) info.createdBy = createdBy;
     if (assignees.length) info.assignees = assignees;
-    // Both are v2's own fields (`to_response_hash` serves env + plans, verified live),
-    // so they survive basic mode. Written only when the payload said something.
+    // v2's own fields (`to_response_hash` serves env + plans), so they survive basic mode.
     const envs = RunInfo.envList(detail.env);
     const plans = RunInfo.planList(detail.plans ?? detail.plan ?? detail.test_plans ?? detail.test_plan);
     if (envs.length) info.envs = envs;
@@ -58,8 +49,7 @@ const RunInfo = {
     return raw.map((one) => String(one ?? '').trim()).filter(Boolean);
   },
 
-  // Nothing pins the plan shape on the flat payload — a title, a record, or a bare
-  // id — so an entry that does not NAME a plan contributes nothing, not "4831".
+  // The plan shape is unpinned (title, record or bare id): an entry that names no plan adds nothing.
   planList(plans) {
     const out = [];
     for (const one of Array.isArray(plans) ? plans : (plans == null ? [] : [plans])) {
@@ -86,8 +76,7 @@ const RunInfo = {
     return out;
   },
 
-  // Web parity (#200): the ACCOUNT PROFILE timezone, not the machine's. `lll` is
-  // `MMM D, YYYY h:mm A` — en-US adds a comma before the hour, so parts are assembled.
+  // The web's `lll` format, assembled from parts since en-US puts a comma before the hour.
   formatTimeIn(iso, timeZone) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return null;
@@ -123,7 +112,7 @@ const RunInfo = {
     a.href = raw;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    Tooltip.set(a, raw);       // the raw URL is a tooltip, never the label (#112)
+    Tooltip.set(a, raw);       // the raw URL is a tooltip, never the label
     a.append('Open CI build ', StatusIcons.svgIcon('open_in_new', 14, 'link-out-icon'));
     return a;
   },
@@ -154,8 +143,7 @@ const RunInfo = {
     return span;
   },
 
-  // Resolved through the project's members: only that read carries the AVATAR (the
-  // run payload names people, it does not describe them). What the payload said wins.
+  // Members fill in the avatar the run payload lacks; what the payload said wins.
   user(person) {
     const u = UserCell.normalize(person);
     if (!u) return null;
@@ -167,8 +155,7 @@ const RunInfo = {
     });
   },
 
-  // The union of both places the answer lives: a run can be handed to a tester who
-  // holds no row, and a row to somebody the run itself never named. Keyed by address.
+  // Union of run and row assignees: either can name someone the other never did.
   assignees() {
     const people = [...(state.runInfo?.assignees || []), ...state.records.map((r) => r.assigned_to)];
     const seen = new Set();
@@ -189,8 +176,7 @@ const RunInfo = {
     return box;
   },
 
-  // A MEASUREMENT, not a head count (the panel is resizable): the list wraps, so a
-  // box taller than one of its cells is one that did not fit. Needs a VISIBLE body.
+  // Measured, not counted (the panel resizes): a box taller than one cell has wrapped.
   measurePeople() {
     const body = $('run-info-body');
     if (!body || body.hidden) return;
@@ -203,7 +189,7 @@ const RunInfo = {
     }
   },
 
-  // #159: a reporter can write a whole session report here, so the value renders clamped.
+  // A reporter can write a whole session report here, so the value renders clamped.
   description(text) {
     const el = document.createElement('div');
     el.className = 'run-info-desc-text is-clamped';
@@ -244,7 +230,7 @@ const RunInfo = {
     const finished = RunInfo.time(info.finishedAt);
     const rows = [];
     if (info.status) rows.push(['Status', RunInfo.statusCell(info.status)]);
-    // Duration is SECONDS here (RunSerializer), ms in Fmt.humanDuration; 0 while unfinished.
+    // Duration is seconds here (RunSerializer), ms in Fmt.humanDuration; 0 while unfinished.
     if (info.duration > 0) rows.push(['Duration', Fmt.humanDuration(info.duration * 1000)]);
     // Never below the checklist: the server's count trails the rows after a run is created.
     const tests = Math.max(Number(info.testsCount) || 0, state.records.length);
@@ -308,7 +294,7 @@ const RunInfo = {
     const body = $('run-info-body');
     if (head) head.setAttribute('aria-expanded', runInfoOpen ? 'true' : 'false');
     if (body) body.hidden = !runInfoOpen;
-    // Both measures need a VISIBLE body — a hidden one has no layout to read.
+    // Both measures need a visible body, so they run after the toggle above.
     RunInfo.measurePeople();
     RunInfo.measureDesc();
   },
@@ -316,6 +302,6 @@ const RunInfo = {
   toggle() {
     runInfoOpen = !runInfoOpen;
     RunInfo.paint();
-    persistSession(); // the user's choice outlives this panel (#112)
+    persistSession(); // the user's choice outlives this panel
   },
 };

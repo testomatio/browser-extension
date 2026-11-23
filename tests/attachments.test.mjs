@@ -1,18 +1,10 @@
 #!/usr/bin/env node
-// What extension/sidepanel/screens/attachments.js puts on a test result and takes back off (#156): a
-// file picked, dropped or screenshotted stays on screen without reopening the test, the bin on every
-// tile either works or says why it cannot, and no gate is asked only once — the delete re-asks after
-// the confirm dialog, the upload re-asks between files and at drop time, because the run can finish
-// while the tester is still in the picker.
-// Run: node --test tests/attachments.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, makeDocument, el, fire, plain, settle, rejection } from './helpers/panel-harness.mjs';
 
 const HOST = 'app.testomat.io';
-// The four gate sentences, spelled here exactly as the tester reads them. The screen no longer keeps
-// its own copies — it asks screens/test-gates.js, loaded for real below — so these literals are what
-// says the shared helper still answers this caller with the wording it had.
+// Spelled exactly as the tester reads them, so drift in the shared helper's wording fails here.
 const NO_RESULT_DEL = 'No saved result yet';
 const NO_RESULT_UP = 'No saved result yet — files attach to a test result';
 const NO_JWT_DEL = `Deleting needs an active ${HOST} web login — sign in there, then Refresh`;
@@ -23,8 +15,7 @@ const RUN_LOCK = 'This run has finished — reopen it to write';
 const file = (name, body = 'x') => new File([body], name, { type: 'text/plain' });
 const fail = (message) => async () => { throw new Error(message); };
 
-// The panel globals attachments.js reads, all of them real enough to be driven. They live here and
-// not in the harness: every screen has its own set, and the screens beside this one land in parallel.
+// The panel globals attachments.js reads; they live here because every screen needs its own set.
 function load(opts = {}) {
   const o = {
     view: 'test',
@@ -36,8 +27,7 @@ function load(opts = {}) {
     ...opts,
   };
 
-  // index.html's shape, cut to the four nodes this screen touches: the file grid, the count chip
-  // beside the fold's name, the Attach button and the hidden <input type=file> behind it.
+  // index.html cut to the four nodes this screen touches.
   const doc = makeDocument([]);
   const list = el('ul', { id: 'attachment-list', className: 'attachment-list file-grid', hidden: true });
   const chip = el('span', { id: 'attachments-count', className: 'counter', hidden: true });
@@ -51,26 +41,24 @@ function load(opts = {}) {
     progress: [],    // the progress-toast sentences, in order
     lines: [],       // { id, text, cls }
     confirms: [],    // { message, label }
-    uploads: [],     // { recordId, name, file, btnDisabled } — the button's state AS the call ran
+    uploads: [],     // { recordId, name, file, btnDisabled } — the button's state as the call ran
     deletes: [],     // { recordId, attId }
-    releases: [],    // { group, kept } — the list's children AS ImgHydrate.release ran
+    releases: [],    // { group, kept } — the list's children as ImgHydrate.release ran
     tiles: [],       // { att, group } handed to fileTileItem
     counters: [],    // the numbers paintCounter painted
     actionsState: 0,
     picker: 0,       // input.click() — the native file dialog
-    // Only the acts whose ORDER a row asserts; every other stub records into its own list above.
+    // Only the acts whose order a row asserts; every other stub records into its own list above.
     order: [],
   };
   const tips = new Map();
 
-  // Keyed by the fixture's record id, not by the row's own: replaceRecord() puts a DIFFERENT object
-  // at the same key, which is what a structural sync does under an upload loop.
+  // Keyed by the fixture id: replaceRecord() puts a different object there, as a sync does mid-upload.
   const key = String(o.recordId);
   const records = new Map(o.records.map((r) => [String(r.id), r]));
   const record = () => records.get(key) || null;
 
-  // Reassignable after load(), so a test can flip the gate from inside a stub — the confirm dialog
-  // and the upload are exactly where the run finishes under the tester.
+  // Reassignable, so a stub can flip the gate: the run can finish during the confirm or the upload.
   const on = {
     confirm: async () => true,
     upload: async (recordId, f) => ({ url: `https://h/attachments/${f.name}` }),
@@ -95,8 +83,7 @@ function load(opts = {}) {
   });
 
   const globals = {
-    // The vm realm has neither, and the module never constructs one — but the files a pick or a
-    // drop carries are real ones, so the realm has to know the names.
+    // The module never constructs these, but picked and dropped files are real ones from this realm.
     File,
     Blob,
     state,
@@ -116,9 +103,7 @@ function load(opts = {}) {
         calls.releases.push({ group, kept: list.children.map((n) => n.className) });
       },
     },
-    // attTileItem overwrites li.className immediately, so the stub needs nothing clever — but it
-    // records what it was handed, because the image group is the argument that matters.
-    // The tile and its group both come from screens/test-summary.js now (its own suite owns them).
+    // The stub records what it was handed: the image group is the argument that matters.
     TestSummary: {
       fileTileItem: (att, group) => {
         calls.tiles.push({ att: plain(att), group });
@@ -129,8 +114,7 @@ function load(opts = {}) {
     StatusIcons: {
       svgIcon: (name, size) => el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } }),
     },
-    // Stubbed on purpose: these rows are about the gate re-asked AFTER the answer, so the answer
-    // has to be settable per row. The dialog's own contract is tests/dialog.test.mjs (#194).
+    // Stubbed so each row can set the answer: these rows test the gate re-asked after it.
     ConfirmDialog: {
       ask: async (message, label) => {
         calls.order.push('confirm');
@@ -154,10 +138,7 @@ function load(opts = {}) {
     },
   };
 
-  // The REAL screens/test-gates.js, which owns the copy both lock functions below refuse with: a
-  // stub repeating the same strings could not tell a shared sentence from a copy that drifted back.
-  // `update` stays the fixture's, because what matters here is that it puts the Attach button back —
-  // a stub that only counted could not tell a restored button from one left disabled for good.
+  // The real test-gates.js: a stub repeating its strings could not catch a drifted copy.
   const gates = loadScreen('test-gates', {
     globals: { baseUrlHost: () => HOST }, document: makeDocument([]), exported: 'TestGates',
   }).screen;
@@ -180,13 +161,10 @@ function load(opts = {}) {
     tipOf: (node) => tips.get(node),
     rows: () => plain(h.fn.attRows()),
     serverRows: () => plain(state.testrunDetail?.data?.attributes?.attachments),
-    // The zone inside the <li> attDropzone() builds — every drag row drives this node.
     zone: () => h.fn.attDropzone().querySelector('.attachment-dropzone'),
     names: () => list.children.map((li) => li.textContent.trim()),
   };
 }
-
-// ---------- the id a delete has to work with (rows 1-8) ----------
 
 test('1: a numeric server id becomes the string a delete can send', () => {
   assert.equal(load().fn.attId({ id: 42 }), '42');
@@ -195,7 +173,6 @@ test('1: a numeric server id becomes the string a delete can send', () => {
 test('2: a row that names its id attachment_id is read just the same', () => {
   const h = load();
   assert.equal(h.fn.attId({ attachment_id: 'x' }), 'x');
-  // The `id` key wins when both are there — the fallback is a fallback.
   assert.equal(h.fn.attId({ id: 'first', attachment_id: 'second' }), 'first');
 });
 
@@ -203,7 +180,6 @@ test('3: an empty id is no id — the url is asked instead', () => {
   const h = load();
   assert.equal(h.fn.attId({ id: '', url: 'https://h/attachments/fromurl.png' }), 'fromurl');
   assert.equal(h.fn.attId({ id: '' }), '');
-  // …and a real id short-circuits the url, so the two cannot be confused.
   assert.equal(h.fn.attId({ id: 9, url: 'https://h/attachments/fromurl.png' }), '9');
 });
 
@@ -234,8 +210,6 @@ test('8: no row at all, and a row with nothing on it, are both unaddressable', (
   assert.equal(h.fn.attId({}), '');
 });
 
-// ---------- the server fold and the row merge (rows 9-15) ----------
-
 test('9: a runner artifact is not an attachment — it belongs to the summary card', () => {
   const h = load({ server: [{ name: 'a' }, { name: 'b', artifact: true }, { name: 'c', artifact: false }] });
   assert.deepEqual(plain(h.fn.attServerList()).map((a) => a.name), ['a', 'c']);
@@ -244,7 +218,6 @@ test('9: a runner artifact is not an attachment — it belongs to the summary ca
 test('10: with no detail fetched the server list is empty rather than absent', () => {
   assert.deepEqual(plain(load().fn.attServerList()), []);
   assert.deepEqual(plain(load({ server: [] }).fn.attServerList()), []);
-  // A detail whose attachments field is not an array is the same nothing, not a crash.
   const odd = load({ server: [] });
   odd.state.testrunDetail.data.attributes.attachments = 'nope';
   assert.deepEqual(plain(odd.fn.attServerList()), []);
@@ -255,7 +228,7 @@ test('11: a file uploaded this session and its server row are one row — the se
   h.fn.attRemember(7, { name: 'local-copy.png', url: 'https://h/attachments/z9.png' });
   const rows = h.rows();
   assert.equal(rows.length, 1);
-  // Name AND id: the server row is canonical, and the session copy carries neither.
+  // Name and id: the server row is canonical, and the session copy carries neither.
   assert.equal(rows[0].name, 'shot.png');
   assert.equal(rows[0].id, '55');
 });
@@ -295,12 +268,9 @@ test('15: that memory is per result — opening another test does not inherit it
   assert.equal(h.rows().length, 1);
   h.state.currentRecordId = 8;
   assert.deepEqual(h.rows(), []);
-  // …and coming back to 7 still finds it: nothing was consumed on the way out.
   h.state.currentRecordId = 7;
   assert.equal(h.rows().length, 1);
 });
-
-// ---------- the delete gate (rows 16-21) ----------
 
 const ROW = { name: 'a.png', id: 'u1', url: 'https://h/attachments/u1.png' };
 
@@ -311,8 +281,7 @@ test('16: with no saved result there is nothing to delete from', () => {
   assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
   h.replaceRecord({ name: 'a row with no result id yet' });
   assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
-  // …and it is asked BEFORE the lock, the opposite order to the attach buttons': a run that finished
-  // without ever giving this row a result has nothing to delete from, whatever else is also true.
+  // Asked before the lock, unlike the attach buttons: with no result there is nothing to delete from.
   h.replaceRecord({ name: 'no result id yet', lock: RUN_LOCK });
   assert.equal(h.fn.attDeleteLock(ROW), NO_RESULT_DEL);
 });
@@ -356,7 +325,6 @@ test('21: a bin that cannot act is disabled, wears the reason and takes no click
   await settle();
   assert.deepEqual(locked.calls.confirms, []);
 
-  // The same bin with the gate open: enabled, the tooltip says what it does, and it acts.
   const open = load();
   const live = open.fn.attDeleteBtn(ROW);
   assert.equal(live.disabled, false);
@@ -366,8 +334,6 @@ test('21: a bin that cannot act is disabled, wears the reason and takes no click
   await settle();
   assert.equal(open.calls.confirms.length, 1);
 });
-
-// ---------- the delete flow (rows 22-28) ----------
 
 test('22: a gate that still holds at click time is a toast, not a dialog', async () => {
   const h = load({ jwt: false });
@@ -403,8 +369,7 @@ test('24: a run that finishes under the open dialog stops the delete on the far 
 });
 
 test('25: a confirmed delete names the id attRows derived, forgets the row and repaints', async () => {
-  // No `id` field on the server row at all: the only name the delete has is the one dug out of
-  // the url, so a test that hand-built its row would never exercise it.
+  // No id on the server row: the delete has to dig its name out of the url.
   const h = load({ server: [{ name: 'a.png', url: 'https://h/attachments/u1.png' }] });
   const a = h.rows()[0];
   assert.equal(a.id, 'u1');
@@ -453,8 +418,6 @@ test('28: a row with no url is forgotten by name', () => {
   assert.deepEqual(byUrl.serverRows().map((a) => a.url), ['U']);
 });
 
-// ---------- the upload gate (rows 29-31) ----------
-
 test('29: with no saved result there is nothing for a file to attach to', () => {
   const h = load();
   assert.equal(h.fn.attUploadLock(), '');
@@ -462,7 +425,7 @@ test('29: with no saved result there is nothing for a file to attach to', () => 
   assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
   h.replaceRecord({ name: 'no id yet' });
   assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
-  // Before the lock here too — row 30 is the same pair the other way round, on a row that HAS one.
+  // Asked before the lock here too, like the delete gate.
   h.replaceRecord({ name: 'no id yet', lock: RUN_LOCK });
   assert.equal(h.fn.attUploadLock(), NO_RESULT_UP);
 });
@@ -480,8 +443,6 @@ test('31: a proven-gone web session gates uploads; one still being probed does n
   assert.equal(load({ jwt: 'unknown' }).fn.attUploadLock(), '');
   assert.equal(load({ jwt: true }).fn.attUploadLock(), '');
 });
-
-// ---------- the empty state as a drop target (rows 32-37) ----------
 
 test('32: a locked dropzone is a plain div — a focusable control that refuses itself is a trap', () => {
   const h = load({ jwt: false });
@@ -505,7 +466,6 @@ test('33: an open dropzone is a button that says what to do with it', () => {
   assert.equal(zone.classList.contains('is-locked'), false);
   assert.equal(li.querySelector('.dropzone-title').textContent, 'Drop a file here');
   assert.equal(li.querySelector('.dropzone-hint').textContent, 'or click to browse — screenshots, logs, anything');
-  // Clicking it opens the same native picker the Attach button does.
   fire(zone, 'click');
   assert.equal(h.calls.picker, 1);
 });
@@ -536,8 +496,7 @@ test('35: a gate that closes mid-drag stops the drop — it is re-asked at drop 
   assert.deepEqual(h.calls.lines, [{ id: 'test-status', text: RUN_LOCK, cls: 'error' }]);
   assert.deepEqual(h.calls.uploads, []);
 
-  // A session that expired mid-drag is the half only THIS gate catches: the upload loop re-asks
-  // RunLock.recordWriteLock alone, so without the drop-time attUploadLock() the file would go up regardless.
+  // Only this gate catches a session that expired mid-drag: the upload loop re-asks only the run lock.
   const gone = load();
   const zone2 = gone.zone();
   gone.jwt(false);
@@ -589,8 +548,6 @@ test('37: a drop resets the count and clears the highlight even when it uploads 
   assert.equal(fire(zone, 'drop', { dataTransfer: { files: [] } }).defaultPrevented, true);
 });
 
-// ---------- the list and the count chip (rows 38-42) ----------
-
 test('38: off the test screen the list is emptied and hidden, with no dropzone built for it', () => {
   const h = load({ view: 'run', server: [{ name: 'a.png', url: 'U' }] });
   h.list.append(el('li', { className: 'stale' }));
@@ -600,7 +557,6 @@ test('38: off the test screen the list is emptied and hidden, with no dropzone b
   assert.equal(h.list.querySelector('.attachment-dropzone'), null);
   assert.deepEqual(h.calls.counters, []); // paintAttachmentCount(0) shows nothing
 
-  // On the test screen the very same rows are drawn and the list comes back.
   const shown = load({ server: [{ name: 'a.png', url: 'U' }] });
   shown.fn.renderAttachmentList();
   assert.deepEqual(shown.names(), ['a.png']);
@@ -616,7 +572,6 @@ test('39: an empty result never collapses — the list becomes the drop target i
   assert.equal(h.list.hidden, false);
   assert.equal(h.chip.hidden, true);
 
-  // One real file and the dropzone is gone — the tiles take its place.
   h.fn.attRemember(7, { name: 'a.png', url: 'https://h/attachments/u1.png' });
   h.fn.renderAttachmentList();
   assert.equal(h.list.querySelector('.attachment-dropzone'), null);
@@ -636,7 +591,6 @@ test('40: the previews are released before the children they belong to are dropp
   assert.deepEqual(h.calls.releases[0].kept, ['stale']);
   assert.deepEqual(h.list.children.map((li) => li.className), ['file-tile-item']);
 
-  // A panel with no list at all returns before touching the group.
   const bare = load();
   bare.list.remove();
   bare.fn.renderAttachmentList();
@@ -654,7 +608,6 @@ test('41: an empty result has no count to report — the chip goes away and empt
   assert.equal(h.chip.textContent, '');
   assert.deepEqual(h.calls.counters, [3]); // zero never reaches the counter paint
 
-  // A fold with no chip on it does not throw.
   h.chip.remove();
   h.fn.paintAttachmentCount(2);
 });
@@ -664,14 +617,11 @@ test('42: a count the fold can show is painted the way every other head counts',
   h.fn.paintAttachmentCount(3);
   assert.deepEqual(h.calls.counters, [3]);
   assert.equal(h.chip.hidden, false);
-  // Rendering three rows paints the same three.
   const rendered = load({ server: [{ name: 'a', url: 'A' }, { name: 'b', url: 'B' }, { name: 'c', url: 'C' }] });
   rendered.fn.renderAttachmentList();
   assert.deepEqual(rendered.calls.counters, [3]);
   assert.equal(rendered.chip.hidden, false);
 });
-
-// ---------- picking a file (rows 43-45) ----------
 
 test('43: a disabled Attach button does not open the picker behind it', () => {
   const h = load();
@@ -683,7 +633,6 @@ test('43: a disabled Attach button does not open the picker behind it', () => {
   h.fn.onAttachFileClick();
   assert.equal(h.calls.picker, 1);
 
-  // Neither node present: no button to read, no input to click, and no throw.
   const bare = load({ controls: false });
   bare.fn.onAttachFileClick();
   assert.equal(bare.calls.picker, 0);
@@ -715,11 +664,9 @@ test('45: a picker closed with nothing chosen uploads nothing', async () => {
 
   assert.deepEqual(h.calls.uploads, []);
   assert.deepEqual(h.calls.lines, []);
-  // The handler DID run both times — the clear is the proof, so this is not an empty assertion.
+  // The handler did run both times: the clear is the proof, so this is not an empty assertion.
   assert.deepEqual(h.calls.order, ['value:', 'value:']);
 });
-
-// ---------- the upload loop (rows 46-54) ----------
 
 test('46: one file uploads, is remembered against the result and lands on screen at once', async () => {
   const h = load();
@@ -730,7 +677,7 @@ test('46: one file uploads, is remembered against the result and lands on screen
   assert.equal(h.calls.uploads.length, 1);
   assert.equal(h.calls.uploads[0].recordId, 7);
   assert.equal(h.calls.uploads[0].name, 'a.png');
-  assert.equal(h.calls.uploads[0].file, f); // the File itself rides the call — it IS the Blob
+  assert.equal(h.calls.uploads[0].file, f); // the File itself rides the call: it is the Blob
   assert.deepEqual(h.rows(), [{
     name: 'a.png', url: 'https://h/attachments/u1.png', id: 'u1', type: '', display_url: '',
   }]);
@@ -768,7 +715,7 @@ test('48: a run finishing between two files stops at the boundary and reports bo
   const h = load();
   h.on.upload = async () => { h.record().lock = RUN_LOCK; return { url: 'https://h/attachments/u1.png' }; };
   await h.fn.attUploadFiles([file('a.png'), file('b.png')]);
-  // The gate is re-asked before EACH file, so the second one is never started.
+  // The gate is re-asked before each file, so the second one is never started.
   assert.deepEqual(h.calls.uploads.map((u) => u.name), ['a.png']);
   assert.deepEqual(h.calls.progress, ['Uploading a.png (1/2)…']);
   assert.deepEqual(h.calls.lines, [{
@@ -833,7 +780,6 @@ test('53: the Attach button is held down for the whole batch and always handed b
   assert.equal(h.attachBtn.disabled, false);
   assert.equal(h.calls.actionsState, 1);
 
-  // The same on the failing path: the button must not stay dead because an upload was refused.
   const bad = load();
   bad.on.upload = fail('nope');
   await bad.fn.attUploadFiles([file('a.png')]);
@@ -841,14 +787,12 @@ test('53: the Attach button is held down for the whole batch and always handed b
   assert.equal(bad.attachBtn.disabled, false);
   assert.equal(bad.calls.actionsState, 1);
 
-  // And with no button in the DOM at all the batch still runs to the end.
   const bare = load({ controls: false });
   await bare.fn.attUploadFiles([file('a.png')]);
   assert.equal(bare.calls.uploads.length, 1);
   assert.equal(bare.calls.actionsState, 1);
 
-  // The `finally` is not decoration. A throw from OUTSIDE the per-file catch — here the toast layer
-  // itself — still hands the button back, and is not swallowed into a success sentence on the way.
+  // The finally matters: a throw outside the per-file catch still hands the button back.
   const thrown = load();
   thrown.on.progress = () => { throw new Error('toast layer gone'); };
   const e = await rejection(thrown.fn.attUploadFiles([file('a.png')]));
@@ -863,7 +807,7 @@ test('54: a structural sync replacing the record mid-loop is still the row the g
   const h = load();
   const original = h.record();
   h.on.upload = async () => {
-    // What a poll's apply does: the row is REPLACED, not mutated — the loop's own reference goes stale.
+    // What a poll's apply does: the row is replaced, not mutated, so the loop's own reference goes stale.
     h.replaceRecord({ id: 7, lock: RUN_LOCK });
     return { url: 'https://h/attachments/u1.png' };
   };
@@ -874,8 +818,6 @@ test('54: a structural sync replacing the record mid-loop is still the row the g
     id: 'test-status', text: `1 of 2 files attached — ${RUN_LOCK}`, cls: 'error',
   }]);
 });
-
-// ---------- the wiring (row 55) ----------
 
 test('55: the two listeners are registered, and a panel missing either node does not throw', async () => {
   const h = load();

@@ -1,4 +1,4 @@
-// Presence marker (#14): the web app reads this to tell whether the extension is installed.
+// Presence marker: the web app reads it to tell whether the extension is installed.
 
 /* global chrome */
 (() => {

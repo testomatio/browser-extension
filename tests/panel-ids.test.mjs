@@ -1,6 +1,4 @@
-// The panel's scripts reach their markup by id, and only the browser notices when an id has nothing
-// behind it: `$()` answers null and the screen quietly paints nothing. Read the shipped index.html
-// and every script it loads, and hold the two together.
+// `$()` answers null for an id with nothing behind it, and the screen quietly paints nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';

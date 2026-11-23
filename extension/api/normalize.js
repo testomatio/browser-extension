@@ -1,9 +1,5 @@
-// The API client's pure normalisers (IIFE global `ApiNormalize`): the row shapes the panel draws,
-// out of the three payload dialects the server answers in. Depends on nothing.
-
 const ApiNormalize = (() => {
-  // GET /suites/tree (JWT) answers a BARE ARRAY of roots — no `data` envelope, camelCase keys, children
-  // nested inline, leaves without a `children` key. A raw v2 token on this route answers 403.
+  // /suites/tree answers a bare array: camelCase, children inline, leaves without a `children` key.
   function normSuiteNode(n) {
     return {
       id: n.id,
@@ -15,7 +11,7 @@ const ApiNormalize = (() => {
     };
   }
 
-  // Every level in the web's order — `position` ascending, ties and unknown ids as the server sent them (#26).
+  // Every level in the web's order: `position` ascending, ties and unknown ids as the server sent them.
   function orderSuiteTree(nodes, positions) {
     const pos = (n) => {
       const p = positions.get(String(n.id));
@@ -26,9 +22,7 @@ const ApiNormalize = (() => {
       .sort((a, b) => pos(a) - pos(b));
   }
 
-  // ---- dashboard parity (JWT, project base) — Phase 3 ----
-  // The web endpoint unions top-level runs + root rungroups and applies the `.branched` scope v2
-  // lacks. Attributes are dasherized; `env` on children arrives as an array (["Chrome"]).
+  // Attributes are dasherized; `env` on children arrives as an array (["Chrome"]).
   const normEnv = (env) => (Array.isArray(env) ? env.filter(Boolean).join(', ') : env || '');
 
   function normDashRun(node) {
@@ -49,8 +43,7 @@ const ApiNormalize = (() => {
     };
   }
 
-  // `attributes.example` is the ARRAY of values, positional to `attributes.test.params`. A plain
-  // OBJECT (param → value) is taken defensively, its own keys being the names then. null = not one.
+  // `example` is an array positional to `test.params`; a plain object (param → value) is also taken.
   function testrunExampleOf(attrs) {
     const raw = attrs?.example;
     if (Array.isArray(raw)) {

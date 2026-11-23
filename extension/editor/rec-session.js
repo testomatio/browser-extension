@@ -1,6 +1,4 @@
-// The editor's recording session (IIFE global `RecSession`): the transport to the worker, where a
-// recording's items sit in the body, and the AI polish that rewrites them once, at Stop. No DOM of
-// its own — it decides what the two controls say and hands that to `ui`, which paints it.
+// The editor's recording session and its AI polish at Stop; no DOM, `ui` paints what it decides.
 
 /* global MdSections, RecFormat, ensureSiteAccess */
 const RecSession = (() => {
@@ -9,22 +7,19 @@ const RecSession = (() => {
     polishedSection, parsePolishedItems, serverMessage, aiRefused,
   } = RecFormat;
 
-  // BLIND: the recorded tab moved to a page Chrome keeps extensions off (chrome://, the
-  // Web Store, another extension); the worker revives the recording when it comes back.
+  // Blind: the tab is on a page Chrome keeps extensions off; the worker revives the recording later.
   const REC_BLIND = 'Chrome doesn’t allow extensions on this page — steps are not being recorded. '
     + 'Go back to the site under test and recording resumes by itself.';
 
-  // A manual pause (indicator Pause) is NOT the cap pause: Continue stays hidden, since
-  // the way out is Resume on the page and it must not also hand out another cap.
+  // A manual pause hides Continue: the way out is Resume on the page, which must not add another cap.
   const REC_MANUAL_PAUSE = 'Paused from the page indicator — click Resume there to carry on recording.';
 
   const REC_TIP_OFF = 'Record what you do on the page as numbered steps';
   const REC_TIP_ON = 'Stop recording — the steps go into this test';
   const REC_TIP_POLISHING = 'Testomat AI is rewriting the steps you just recorded';
 
-  const POLISH_KEY = 'polishSteps';   // its OWN storage.local key, like stepRecNeverValues
+  const POLISH_KEY = 'polishSteps';   // its own storage.local key, like stepRecNeverValues
   const AI_OFF_MSG = 'AI isn’t available for your company: it needs a plan with AI, switched on by the company owner in the company settings';
-  // One button, two jobs — and no button at all when there is no recording to do them to.
   const POLISH_DO = 'Polish recorded steps';
   const POLISH_UNDO = 'Undo polish';
   const POLISH_TIP_DO = 'Rewrite the steps you recorded with your Testomat.io AI';
@@ -37,13 +32,11 @@ const RecSession = (() => {
   });
   const reasonOf = (e) => (e && e.status ? `HTTP ${e.status}` : (e && e.message) || 'failed');
 
-  // The deferred first step is `Open <url>` and carries no packet — its own sentence is
-  // the only place that url is written down.
+  // The deferred `Open <url>` step has no packet, so its sentence is the only place the url lives.
   const OPEN_STEP = /^(Open\s+)(\S+)/;
   const openUrl = (raw) => (String(raw).match(OPEN_STEP) || [])[2] || '';
 
-  // The prompt leaves the browser, so a url in it is cut to origin + path whatever the recorded
-  // step kept — queries carry reset tokens. A `#/…` route is the page, not a fragment.
+  // The prompt leaves the browser: urls are cut to origin + path (queries carry tokens), `#/` kept.
   const trimUrl = (raw) => {
     let u;
     try { u = new URL(raw); } catch { return raw; }
@@ -51,13 +44,10 @@ const RecSession = (() => {
   };
   const trimOpen = (raw) => String(raw).replace(OPEN_STEP, (m, head, url) => head + trimUrl(url));
 
-  // The wire format the prompt expects. Values are double-quoted with inner quotes escaped
-  // and newlines collapsed, so one fact is always one line.
+  // Quoted, inner quotes escaped, newlines collapsed: one fact is always one line in the prompt.
   const pq = (v) => `"${String(v == null ? '' : v).replace(/\s*[\r\n]+\s*/g, ' ').replace(/"/g, '\\"')}"`;
 
-  // ---- step recorder (message-driven; background owns the canonical state) --
-  // `editor` is the body (`getValue`/`setValue`); `ui` paints what the decisions below produce —
-  // `rec`, `polish`, `polishRow`, `polishSwitch`, plus `caret` and `edited`, the two the page owns.
+  // The background owns the canonical recorder state; `caret` and `edited` are owned by the page.
   function createRecSession({ editor, getTitle, showToast, api, chrome, testUid = null, recorded = null, onPersist, ui }) {
     const canRecord = !!(chrome && chrome.runtime && chrome.runtime.sendMessage);
     const hasLocal = () => !!(chrome && chrome.storage && chrome.storage.local);
@@ -66,12 +56,11 @@ const RecSession = (() => {
     let recPollTimer = null;
     let recEnding = false;   // guards the drain against a poll/stop race
     let recBlind = false;    // recorder lost host access to the recorded tab (see REC_BLIND)
-    let recManualPause = false; // tester paused it from the on-page indicator (#71)
-    let recStepInserted = false; // a step of THIS recording is already in the body (#160)
+    let recManualPause = false; // tester paused it from the on-page indicator
+    let recStepInserted = false; // a step of this recording is already in the body
     let recAnyInserted = false;  // …anything at all, so Stop knows it recorded something
     let handedOver = false;  // the read-only view took over the page — no controls left to offer
 
-    // ---- AI polish (#23) — off by default, ONE request when the recording stops ----
     let polishOn = false;
     let polishAvailable = true;  // a session to ask; basic mode has none, so the row goes away
     let aiOff = false;           // the company has no AI: the switch stays in view, explains, sends nothing
@@ -80,8 +69,7 @@ const RecSession = (() => {
     let lastPolishMessage = '';         // e2e reads the exact message that went out
     let recPolishing = false;           // a request is out — the record button says so
     let recBusy = null;                 // …that request, or a Stop: Save and a leave wait on it
-    // The recording this editor holds: its entries (packets and all), where its items sit in
-    // the Steps list, and both texts every item has had — raw as recorded, polished if it was.
+    // The recording this editor holds: entries, its span in Steps, and raw and polished texts.
     let recEntries = (recorded && recorded.entries) || [];
     let recStart = recorded && recorded.start >= 0 ? recorded.start : -1;
     let recCount = (recorded && recorded.count) || 0;
@@ -91,8 +79,7 @@ const RecSession = (() => {
     // What we last wrote into those items — the only texts a replacement is allowed to touch.
     const recWritten = () => (recPolished ? recPolishedItems : recRawItems);
 
-    // The words and the flags the record button wears — the markup that carries them is the
-    // page's business, so only this shape crosses over.
+    // Only this shape crosses over; the markup that carries it is the page's business.
     function updateRecUi(count, paused, blind, manualPaused) {
       // The polish is the tail of the recording: nothing may start a second one over it.
       if (recPolishing) {
@@ -108,8 +95,7 @@ const RecSession = (() => {
       } else if (manualPaused && !blind) {
         ui.rec({ label: `Stop recording (${n}) — paused`, tip, disabled: false, active: true, continueHidden: true });
       } else if (blind) {
-        // A blind recorder can ALSO be at the cap — Continue stays reachable so both
-        // blockers can clear in any order.
+        // A blind recorder can also be at the cap: Continue stays so both clear in any order.
         ui.rec({ label: `Stop (${n}) — page not recordable`, tip, disabled: false, active: true, continueHidden: !paused });
       } else if (paused) {
         ui.rec({ label: 'Stop', tip, disabled: false, active: true, continueHidden: false });
@@ -119,7 +105,7 @@ const RecSession = (() => {
     }
 
     function setMarkdown(md) {
-      // A live insert (#160) lands while the editor is open — keep the caret put.
+      // A live insert lands while the editor is open, so keep the caret put.
       const ta = ui.caret();
       const at = ta ? ta.selectionStart : -1;
       editor.setValue(md);
@@ -127,9 +113,7 @@ const RecSession = (() => {
       ui.edited(md);
     }
 
-    // The recording's single insertion point — the live poll and Stop's tail flush both come
-    // through here. The sentences go in RAW, switch or no switch: polishing happens at Stop,
-    // over the whole recording, and what it needs is kept alongside the body.
+    // Single insertion point for poll and Stop; always raw, since polishing runs at Stop.
     function insertEntries(entries) {
       for (const e of entries) {
         if (!e || !e.text) continue;
@@ -140,12 +124,11 @@ const RecSession = (() => {
 
     function insertRaw(entries) {
       const md = editor.getValue();
-      // Looked up ONCE and handed to every step below: the count taken before the insert has to
-      // name the same section the insert then writes into, whatever this body calls it.
+      // Looked up once: the count before the insert must name the section the insert writes into.
       const heading = stepsHeading(md);
       const parts = splitRecorded(entries, recStepInserted && MdSections.hasItems(md, heading, STEPS_OPTS));
       if (!parts.steps.length && !parts.expected.length && !parts.leadSubs.length) return false;
-      // #23: where this recording's own items begin — counted in the list BEFORE the insert.
+      // Where this recording's items begin, counted before the insert.
       if (recStart === -1 && parts.steps.length) recStart = MdSections.items(md, heading, STEPS_OPTS).length;
       setMarkdown(insertRecorded(md, parts, heading));
       if (parts.steps.length) recStepInserted = true;
@@ -154,8 +137,7 @@ const RecSession = (() => {
       return true;
     }
 
-    // The recording's items as they now stand: its span in the list, and the raw texts a
-    // replacement is allowed to overwrite (nothing else in the body is ever touched).
+    // The raw texts a replacement may overwrite; nothing else in the body is ever touched.
     function readRecItems(heading) {
       if (recStart === -1) return;
       const existing = MdSections.items(editor.getValue(), heading, STEPS_OPTS);
@@ -163,7 +145,6 @@ const RecSession = (() => {
       recRawItems = existing.slice(recStart).map((it) => ({ text: it.text, subs: (it.subs || []).slice() }));
     }
 
-    // ---- polishing: one request, at Stop, over the whole recording -----------
     const hasRecording = () => recEntries.length > 0 && recStart >= 0 && recCount > 0;
 
     async function polishRecording() {
@@ -180,7 +161,7 @@ const RecSession = (() => {
         if (aiRefused(res)) throw { kind: 'ai-off' };
         const items = parsePolishedItems(polishedSection(res));
         if (!items.length) throw new Error('nothing came back');
-        // The raw texts are captured BEFORE the write, so Undo has somewhere to go back to.
+        // Raw texts are captured before the write, so Undo has somewhere to go back to.
         const raw = recRawItems.map((it) => (it ? { text: it.text, subs: it.subs.slice() } : null));
         const body = editor.getValue();
         const done = MdSections.replaceItems(body, stepsHeading(body), STEPS_OPTS, {
@@ -201,15 +182,13 @@ const RecSession = (() => {
       }
     }
 
-    // Back to the sentences the recorder wrote — item by item, and never over one the tester
-    // has since rewritten.
+    // Item by item, never over one the tester has since rewritten.
     function undoPolish() {
       const body = editor.getValue();
       const done = MdSections.replaceItems(body, stepsHeading(body), STEPS_OPTS, {
         start: recStart, count: recCount, next: recRawItems, written: recWritten(),
       });
-      // Every item is the tester's own now: nothing went back, so nothing about the polish moves.
-      // `recRawItems` is never re-derived here — a skipped item would file the edit away as ours.
+      // `recRawItems` is not re-derived: a skipped item would file the tester's edit away as ours.
       if (!done.touched) { showToast('Nothing to put back — these steps were edited by hand'); return; }
       if (done.md !== body) setMarkdown(done.md);
       recPolished = false;
@@ -217,8 +196,7 @@ const RecSession = (() => {
       onPersist();
     }
 
-    // 401/403: this instance has no such prompt (or no session for it), so the switch goes
-    // away rather than failing again on the next recording.
+    // 401/403: no such prompt or session here, so the switch goes away instead of failing again.
     function polishFailed(e) {
       if (e && (e.kind === 'auth' || e.status === 401 || e.status === 403)) { disablePolish(); return; }
       if (e && (e.kind === 'ai-off' || aiRefused(null, e))) { turnAiOff(true); return; }
@@ -236,8 +214,7 @@ const RecSession = (() => {
       showToast('Polishing isn’t enabled on this server yet');
     }
 
-    // The recording's steps, each carrying the manual note that followed it. The worker's own
-    // nav line adds nothing: its url/title change is already in the packet's `after`.
+    // The worker's nav line adds nothing: its url/title change is already in the packet's `after`.
     function recActions() {
       const acts = [];
       for (const e of recEntries) {
@@ -300,8 +277,7 @@ const RecSession = (() => {
         : { hidden: true, label: null, tip: null });
     }
 
-    // Stop (drain + polish) and the button's own polish both run through here — one after the
-    // other, never side by side — so Save and a leave have exactly ONE promise to wait on.
+    // Stop and the polish button run one after another, so Save and a leave wait on one promise.
     function runExclusive(fn) {
       const prev = recBusy;
       const p = (async () => {
@@ -313,7 +289,7 @@ const RecSession = (() => {
     }
     async function settleRec() { while (recBusy) await recBusy.catch(() => {}); }
 
-    // Its OWN storage.local key (never `settings`), read once when the editor opens.
+    // Its own storage.local key (never `settings`), read once when the editor opens.
     function writePolishPref(on) {
       if (!hasLocal()) return;
       try { chrome.storage.local.set({ [POLISH_KEY]: !!on }); } catch { /* best effort */ }
@@ -357,8 +333,7 @@ const RecSession = (() => {
 
     async function startRecording() {
       if (!canRecord) { showToast('Recording needs the extension context'); return; }
-      // The SW resolves the same active tab. Never a prompt: the only "no" left is a
-      // restricted page.
+      // The SW resolves the same active tab; never a prompt, so the only "no" is a restricted page.
       const access = await ensureSiteAccess();
       if (!access.ok) { showToast(access.error); return; }
       const resp = await chrome.runtime.sendMessage({ type: 'STEPREC_START' }).catch(() => null);
@@ -369,7 +344,6 @@ const RecSession = (() => {
       recManualPause = false;
       recStepInserted = false;
       recAnyInserted = false;
-      // A new recording replaces the one this editor was holding — polished or not.
       recEntries = [];
       recStart = -1;
       recCount = 0;
@@ -382,9 +356,7 @@ const RecSession = (() => {
       recPollTimer = setInterval(pollRec, 500);
     }
 
-    // Ends the recording and inserts the tail the live poll had not pulled yet (#160 —
-    // the steps before it are in the body already). Then, with the switch on, the whole
-    // recording goes out for polishing in ONE request; Save waits on the same latch.
+    // Inserts the tail the live poll missed, then polishes the whole recording in one request.
     async function finishRecording(toastMsg) {
       if (recEnding) return;
       recEnding = true;
@@ -393,8 +365,7 @@ const RecSession = (() => {
       recBlind = false;
       recManualPause = false;
       updateRecUi(0, false, false, false);
-      // Stopping from here blurs nothing on the page, so the field still under the caret has yet to
-      // become a step — it is asked for before the stop below reads the entries and clears them (#62).
+      // Stopping here blurs nothing on the page, so flush the focused field before the stop reads entries.
       if (canRecord) await chrome.runtime.sendMessage({ type: 'STEPREC_FLUSH' }).catch(() => {});
       const resp = canRecord ? await chrome.runtime.sendMessage({ type: 'STEPREC_STOP' }).catch(() => null) : null;
       const inserted = insertEntries((resp && resp.entries) || []);
@@ -404,8 +375,7 @@ const RecSession = (() => {
       updatePolishBtn();
     }
 
-    // One message per tick: it carries the status AND the entries that are final,
-    // which land in the open test right away (#160).
+    // One message per tick carries the status and the final entries, which land right away.
     async function pollRec() {
       if (!canRecord || !recording) return;
       const s = await chrome.runtime.sendMessage({ type: 'STEPREC_PULL' }).catch(() => null);
@@ -413,8 +383,7 @@ const RecSession = (() => {
       if (s.entries && s.entries.length) insertEntries(s.entries);
       // stopped on the page / tab closed — the same exclusive lane Stop takes
       if (s.recording === false) { runExclusive(() => finishRecording()); return; }
-      // Toast once per blind stretch (the poll runs every 500ms); the button label and
-      // its tooltip carry the warning for as long as it lasts.
+      // Toast once per blind stretch (polled every 500ms); the button carries the warning meanwhile.
       if (s.blind && !recBlind) showToast(REC_BLIND);
       recBlind = !!s.blind;
       recManualPause = !!s.manualPause;

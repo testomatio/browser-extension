@@ -1,22 +1,16 @@
-// Choose-a-project screen: step two of the first run — the token is in, no project is
-// resolved yet. The header switcher's popup used to stand in for this pick, which put the
-// one thing there is to do inside a menu, floating over an empty panel. Same rows and the
-// same filter as that popup (core/project-switcher.js owns both), given the whole screen.
+// First-run project pick: same rows and filter as the switcher popup (core/project-switcher.js).
 
 /* global $, state, hostOf, show, setStatusLine, matchProjects, projectRowEl,
    switchProject, disconnectInstance */
 
-// Screen-only state; the list itself is always `state.projects`. Deliberately NOT the
-// popup's two variables: the two surfaces filter independently, and this one resets on entry.
+// Not the popup's variables: the two surfaces filter independently and this one resets on entry.
 let pickFilter = '';
 let pickActiveId = null;
 
-// No saved project to fold in here — that is what this screen is for — so the rows are the
-// token's list as it stands.
+// No saved project to fold in here, so the rows are the token's list as it stands.
 const pickRows = () => matchProjects(state.projects, pickFilter);
 
-// The keyboard cursor is the ROW's `.active`, and the filter owns focus for the whole
-// screen, so it is what carries aria-activedescendant.
+// The filter owns focus for the whole screen, so it carries aria-activedescendant for the rows.
 function syncPickActive() {
   const input = $('pick-filter');
   if (!input) return;
@@ -42,7 +36,7 @@ function renderPickRows() {
   syncPickActive();
 }
 
-// ±1 through the VISIBLE rows, clamped at the edges (no wrap) — the popup's deal.
+// Clamped at the edges (no wrap), matching the popup.
 function movePickActive(delta) {
   const rows = pickRows();
   if (!rows.length) return;
@@ -71,8 +65,7 @@ function clearPickFilter() {
   $('pick-filter').focus();
 }
 
-// Bound on the INPUT rather than at document level: this screen has no other control the
-// arrows could mean, and the panel's own hotkeys are inert outside the test view.
+// Bound on the input, not the document: no other control here could mean the arrows.
 function onPickFilterKey(e) {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
@@ -85,8 +78,7 @@ function onPickFilterKey(e) {
   }
 }
 
-// Entered fresh every time: a filter left over from a previous connection would hide rows
-// the tester never typed at.
+// Reset on every entry: a filter left from a previous connection would hide rows.
 function openProjectPickView() {
   pickFilter = '';
   pickActiveId = null;
@@ -102,8 +94,7 @@ function openProjectPickView() {
   if (input) input.focus();
 }
 
-// Wire it once, from app init (the markup is static). The Disconnect writes to THIS
-// screen's status line: the Connection card's own is on a page nobody can reach from here.
+// Disconnect writes to this screen's status line: the Connection card's is unreachable from here.
 function initProjectPick() {
   $('pick-filter').addEventListener('input', onPickFilterInput);
   $('pick-filter').addEventListener('keydown', onPickFilterKey);

@@ -1,19 +1,11 @@
 #!/usr/bin/env node
-// extension/shared/theme.js (#180): dark mode, mirrored across the panel, the editor and the viewer.
-// Two stores hold the answer — a localStorage mirror that paints the page in the same tick it opens,
-// and chrome.storage, which is the authority and arrives a moment later. This file reconciles them.
-// Both halves fail quietly when they break: lose the synchronous paint and a tester on dark mode
-// gets a white flash on every open; lose the echo guard in adopt() and the panel and the editor
-// rewrite each other's storage forever, each announcing a change that never happened.
-// Run: node --test tests/theme.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto, chromeFake, settle } from './helpers/shared-harness.mjs';
 
 const KEY = 'theme';
 
-// theme.js does real work AT LOAD — it reads the mirror and paints before it returns — so the whole
-// sandbox has to be standing before the script is evaluated, not patched in afterwards.
+// theme.js paints at load, so the whole sandbox must stand before the script is evaluated.
 function loadTheme(opts = {}) {
   const {
     seed = null,          // what localStorage holds when the page opens
@@ -25,7 +17,7 @@ function loadTheme(opts = {}) {
     chromeMode = 'full',  // 'full' | 'none' (no chrome at all) | 'storageless' (chrome, no storage.local)
   } = opts;
 
-  // Every colorScheme write in order: the echo guard is asserted by the writes that DON'T happen.
+  // Every colorScheme write in order: the echo guard is asserted by the writes that don't happen.
   const paints = [];
   let scheme = 'untouched';
   const style = {
@@ -71,20 +63,17 @@ function loadTheme(opts = {}) {
     h,
     onChanged,
     scheme: () => scheme,
-    // What Chrome does when the OTHER page writes: the value has already changed when this fires.
+    // As Chrome does when the other page writes: the value has already changed when this fires.
     fire: (changes, area = 'local') => onChanged.listeners.forEach((fn) => fn(changes, area)),
   };
 }
 
-// A recorded listener plus the modes it was handed, in order.
 function watcher(impl = () => undefined) {
   const seen = [];
   const fn = (mode) => { seen.push(mode); return impl(mode); };
   fn.seen = seen;
   return fn;
 }
-
-// ---------- the mirror, painted before the page draws ----------
 
 test('a tester on dark mode sees dark in the same tick the page opens, not after a round trip', () => {
   const t = loadTheme({ seed: 'dark' });
@@ -105,8 +94,6 @@ test('a browser with localStorage blocked opens on system instead of failing to 
   assert.equal(t.Theme.get(), 'system');
   assert.equal(t.scheme(), '');
 });
-
-// ---------- the authority, and the echo guard ----------
 
 test('storage overrules a stale mirror, repaints, and rewrites the mirror', async () => {
   const t = loadTheme({ seed: 'dark', stored: 'light' });
@@ -136,8 +123,6 @@ test('storage that never answers leaves the mirror’s colour in place', async (
   assert.equal(t.Theme.get(), 'dark');
   assert.deepEqual(t.paints, ['dark']);
 });
-
-// ---------- the other page changing it ----------
 
 test('the editor switching to light follows through to this page without a reload', async () => {
   const t = loadTheme({ seed: 'dark', stored: 'dark' });
@@ -178,8 +163,6 @@ test('a theme cleared out of storage falls back to system', async () => {
   assert.equal(t.scheme(), '');
 });
 
-// ---------- the tester making the change here ----------
-
 test('the page paints first and persists after, so a failed write still shows the choice', async () => {
   const t = loadTheme({ localFail: { set: true } });
   await settle();
@@ -219,8 +202,6 @@ test('a mirror that refuses the write does not stop the tester changing the them
   assert.equal(t.scheme(), 'dark');
 });
 
-// ---------- the subscribers ----------
-
 test('one listener that throws does not silence the ones after it', async () => {
   const t = loadTheme();
   await settle();
@@ -247,8 +228,6 @@ test('unsubscribing really stops the callbacks', async () => {
   assert.deepEqual(heard.seen, ['dark']);
 });
 
-// ---------- the concrete answer the on-page overlay needs ----------
-
 test('on system, the answer is whatever the OS says right now', async () => {
   assert.equal(loadTheme({ dark: true }).Theme.resolved(), 'dark');
   assert.equal(loadTheme({ dark: false }).Theme.resolved(), 'light');
@@ -268,8 +247,6 @@ test('the OS is asked the one query tokens.css is written against', () => {
   t.Theme.resolved();
   assert.deepEqual(t.media, ['(prefers-color-scheme: dark)']);
 });
-
-// ---------- pages the extension APIs are not available on ----------
 
 test('a page with no chrome at all still opens in the tester’s colour', () => {
   const t = loadTheme({ seed: 'dark', chromeMode: 'none' });

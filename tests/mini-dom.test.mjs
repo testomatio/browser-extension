@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// The contract of tests/helpers/mini-dom.mjs: if the fake over-matches or reorders, every test
-// written on top of it passes for the wrong reason. Run: node --test tests/mini-dom.test.mjs
+// If this fake over-matches or reorders, every test built on it passes for the wrong reason.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,8 +9,6 @@ import assert from 'node:assert/strict';
 import { makeDocument, el, text, fire, NodeFilter } from './helpers/mini-dom.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-
-// ---------- building and moving nodes ----------
 
 test('M1: el() makes an empty, parentless element', () => {
   const div = el('div');
@@ -154,8 +151,6 @@ test('M15: the `while (li.firstChild)` move loop terminates and keeps order', ()
   assert.equal(li.firstChild, null);
 });
 
-// ---------- text ----------
-
 test('M16: textContent concatenates the subtree in document order', () => {
   const li = el('li', null, 'a', el('span', null, 'b', el('i', null, 'c')), 'd');
   assert.equal(li.textContent, 'abcd');
@@ -182,8 +177,6 @@ test('M19: writing an empty textContent leaves no children at all', () => {
   assert.deepEqual(li.childNodes, []);
   assert.equal(li.textContent, '');
 });
-
-// ---------- selectors ----------
 
 // <ul id="run-tests"><li class="test-row">a<ul><li class="sub">b</li></ul></li></ul>
 function nested() {
@@ -305,8 +298,6 @@ test('M32: contains() covers descendants and the node itself, not a detached nod
   assert.equal(root.contains(el('li')), false);
 });
 
-// ---------- attributes, classes, data ----------
-
 test('M33: an absent attribute answers null, never undefined or an empty string', () => {
   const row = el('div');
   row.setAttribute('aria-expanded', 'true');
@@ -388,8 +379,6 @@ test('M39: any other property assignment sticks and reads back unchanged', () =>
   assert.equal(input.src, 'x.png');
 });
 
-// ---------- events ----------
-
 test('M40: a listener runs once with the event and its target', () => {
   const node = el('button');
   const seen = [];
@@ -448,8 +437,6 @@ test('M44: a document listener runs and its capture flag is recorded', () => {
   assert.equal(doc.listeners.get('keydown')[0].capture, false);
 });
 
-// ---------- the document ----------
-
 test('M45: makeDocument pre-creates the ids, and answers with the same node every time', () => {
   const doc = makeDocument(['test-status', 'test-comment', 'ul#tc-tree']);
   const status = doc.getElementById('test-status');
@@ -475,18 +462,14 @@ test('M47: body and documentElement are real nodes, and queries run under docume
   assert.deepEqual(doc.querySelectorAll('li'), [li]);
 });
 
-// ---------- one real screen, loaded through the helper ----------
-
 test('a real screen: tc-studio draws a folder row through mini-dom, and the row folds', () => {
   const source = readFileSync(join(repoRoot, 'extension/sidepanel/screens/tc-studio.js'), 'utf8');
   const doc = makeDocument(['ul#tc-tree']);
   // The real helper, not a stub: the row below is drawn by whatever it stamps on a tree row.
   const rovingSrc = readFileSync(join(repoRoot, 'extension/shared/roving.js'), 'utf8');
-  // Real too, and free to be: core/suite-tree.js decides the order these rows come out in and
-  // takes no stub of its own — a bare `{}` is the whole sandbox it needs.
+  // Real too: core/suite-tree.js decides the row order and needs only a bare `{}` sandbox.
   const treeSrc = readFileSync(join(repoRoot, 'extension/sidepanel/core/suite-tree.js'), 'utf8');
-  // Real as well: the folder row below wears the Suite/Folder pair this module builds, and the row
-  // order it is drawn in reads the id array this module owns (#196).
+  // Real as well: the folder row wears its Suite/Folder pair and the row order reads its id array.
   const createSrc = readFileSync(join(repoRoot, 'extension/sidepanel/screens/tc-suite-create.js'), 'utf8');
   const drawing = {
     document: doc,
@@ -549,8 +532,7 @@ test('a real screen: tc-studio draws a folder row through mini-dom, and the row 
   assert.equal(row.classList.contains('expanded'), true);
 });
 
-// `attributes` and `getAttribute` have to describe the same node: the sanitizer only ever sees one
-// through `attributes`, and the two views disagreeing is how a fake lies quietly.
+// The sanitizer sees a node only through `attributes`, so it must agree with getAttribute.
 test('M48: a property set through el() is visible to an attributes walk', () => {
   const a = el('a', { href: 'javascript:alert(1)', title: 'Open' });
   assert.deepEqual(a.attributes, [
@@ -580,8 +562,6 @@ test('M49: id and class reflect between property and attribute in both direction
   assert.equal(other.className, '');
   assert.equal(other.matches('.test-row'), false);
 });
-
-// ---------- what the step recorder reads (tests/helpers/recorder-harness.mjs) ----------
 
 test('M50: [attr*=value] matches a substring, [attr=value] still demands the whole string', () => {
   const toast = el('div', { className: 'app-toast is-open' });
@@ -737,8 +717,7 @@ test('M62: a computed member can be overwritten, and the override is neither att
   assert.equal(copy.rows.length, 1); // the copy computes its own, it does not inherit the override
 });
 
-// The raw-tree view: what a worker's injected script uses to park a node and put it back exactly
-// where it stood (tests/background.test.mjs, the foreign-frame rows).
+// The raw-tree view a worker's injected script uses to park a node and put it back exactly.
 test('M63: parentNode is the parent, nextSibling counts the text between two elements', () => {
   const doc = makeDocument();
   const first = el('iframe');

@@ -1,32 +1,18 @@
 #!/usr/bin/env node
-// The project the panel is pointed at — extension/sidepanel/core/project-switcher.js — and the
-// whole-screen version of the same list, extension/sidepanel/screens/project-pick.js, which shares
-// this file's row builder and its filter (#183, part of the test epic).
-// Three things are easy to get quietly wrong here.
-// The ROW MODEL: the saved project is a row even before (or without) a list, and it goes in FRONT of
-// the token's own list — a tester who cannot see the project they are on cannot switch off it.
-// The LISTBOX: this control is NOT the shared Roving helper (extension/shared/roving.js). Focus never
-// leaves the filter box, so the cursor is a `.active` class plus aria-activedescendant, and every key
-// is caught at DOCUMENT level in the CAPTURE phase so the panel's own arrow/Enter handlers never see
-// it. Nothing else in the panel is wired that way, so none of it is covered by tests/roving.test.mjs.
-// The SWITCH ORDERING: a switch that writes the new project before it has finished draining and
-// tearing down the old one lands the tester's next result on the wrong project. The rows below assert
-// the SEQUENCE — what the world looked like at each step — not merely the storage it ends with.
-// Run: node --test tests/project-switcher.test.mjs
+// Not the Roving helper: focus stays in the filter, and keys are caught on the document at capture.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, CORE_SRC, SCREENS_SRC, makeDocument, el, event, fire, plain, settle }
   from './helpers/panel-harness.mjs';
 
-// index.html's own two projects, near enough: a title that differs from the slug, and one that does not.
+// Two projects: a title that differs from the slug, and one that does not.
 const CHECKOUT = { id: 'p1', title: 'Checkout', testsCount: 12 };
 const BILLING = { id: 'p2', title: 'Billing', testsCount: 4 };
 const PLAIN = { id: 'p3', title: 'p3' };
 
 const SETTINGS = { baseUrl: 'https://a.io', projectId: 'p1', apiToken: 'TOKEN' };
 
-// A promise this file resolves by hand: the ordering rows are about what has NOT happened yet while
-// one step of the switch is still on the wire.
+// Resolved by hand: the ordering rows look at what has not happened while a step is on the wire.
 function deferred() {
   let resolve;
   let reject;
@@ -36,9 +22,7 @@ function deferred() {
 
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// index.html's shell (:26-71 for the header popup, :399-430 for the choose-a-project screen), cut to
-// the nodes these two files touch. `#project-menu` is a SIBLING of `#project-dropdown` inside the bar,
-// not a child of the trigger — which is the whole reason onProjectDocClick has to ask both.
+// `#project-menu` is a sibling of `#project-dropdown`, so onProjectDocClick has to ask both.
 function makePage() {
   const doc = makeDocument([]);
   const node = {};
@@ -64,8 +48,7 @@ function makePage() {
   return { doc, node };
 }
 
-// core/state.js:97, verbatim — the switch writes per-host settings, so a bad address has to fall out
-// of the host lookup the same way it does in the panel.
+// Verbatim from core/state.js: a bad address must fall out of the host lookup as in the panel.
 const hostOf = (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } };
 
 function load(opts = {}) {
@@ -76,13 +59,12 @@ function load(opts = {}) {
     activeTab: 'runs',
     hasChrome: true,
     offer: null,      // Handoff.offer() — a live host connection, or none
-    queue: null,      // null = no OfflineQueue global AT ALL, which is what the typeof guard is for
+    queue: null,      // null = no OfflineQueue global at all, which is what the typeof guard is for
     ...opts,
   };
   const { doc, node } = makePage();
 
-  // mini-dom has no layout, and the cursor scrolls the row it lands on — through syncProjectActiveOption,
-  // which reaches a row this file built rather than one the fixture owns.
+  // mini-dom has no layout, but the cursor scrolls the row it lands on via syncProjectActiveOption.
   const create = doc.createElement.bind(doc);
   const scrolls = [];
   doc.createElement = (tag) => {
@@ -93,21 +75,20 @@ function load(opts = {}) {
   for (const n of Object.values(node)) n.scrollIntoView = () => {};
 
   const calls = {
-    order: [],        // ONE ordered trace — the switch rows are about sequence, not totals
+    order: [],        // one ordered trace — the switch rows are about sequence, not totals
     scrolls,
     toasts: [],
     shows: [],
     lines: [],        // { id, text }
     tips: [],         // { id, tip } — Tooltip.set
     configured: [],   // Handoff.configure(settings)
-    resets: [],       // what the world looked like AT teardown
-    repaints: [],     // what the world looked like AT the bar repaint
+    resets: [],       // what the world looked like at teardown
+    repaints: [],     // what the world looked like at the bar repaint
     listProjects: 0,
     prefetches: 0,
   };
 
-  // Reassignable after load(), so a row can hold one step of the switch open and look at the world
-  // while it is still there.
+  // Reassignable after load(), so a row can hold one step of the switch open and look around.
   const on = {
     listProjects: async () => o.projects,
     replay: async () => {},
@@ -136,11 +117,9 @@ function load(opts = {}) {
     openRunsView: step('openRunsView', () => on.openRunsView()),
     openTcStudioView: step('openTcStudioView', () => on.openTcStudioView()),
     fillSettingsForm: step('fillSettingsForm'),
-    // No openProjectPickView stub: screens/project-pick.js declares the real one, and its function
-    // declaration lands on this same sandbox — which is the seam askForProject() runs on in the panel.
+    // No openProjectPickView stub: project-pick.js declares the real one on this same sandbox.
     disconnectInstance: step('disconnectInstance', (arg) => { calls.lines.push({ disconnect: plain(arg) }); }),
-    // The teardown's own snapshot: what a queued result flushing right here would be stamped with,
-    // and whether anything had already been written down.
+    // The teardown's snapshot: what a queued result flushing right here would be stamped with.
     resetProjectScopedState: step('resetProjectScopedState', () => {
       calls.resets.push({
         projectId: state.settings && state.settings.projectId,
@@ -152,11 +131,10 @@ function load(opts = {}) {
     Handoff: {
       offer: () => o.offer,
       configure: step('Handoff.configure', (s) => { calls.configured.push(plain(s)); }),
-      // shared/handoff.js:39, verbatim — a token of the account's own, or a host that handed one over.
+      // Verbatim from shared/handoff.js: an account token, or a host that handed one over.
       credentialed: (s) => !!(s && s.baseUrl && (s.apiToken || s.handoff)),
     },
-    // shared/tooltip.js writes onto the node it is handed; a bare recorder could not tell a tip that
-    // landed on the right element from one that went nowhere.
+    // A bare recorder could not tell a tip on the right element from one that went nowhere.
     Tooltip: {
       set: (n, tip) => { if (n && n.dataset) { calls.tips.push({ id: n.id || n.className, tip }); n.dataset.tip = String(tip); } },
     },
@@ -164,8 +142,7 @@ function load(opts = {}) {
       listProjects: step('listProjects', () => { calls.listProjects += 1; return on.listProjects(); }),
     },
   };
-  // Deliberately absent unless a row asks for it: switchProject's drain sits behind `typeof
-  // OfflineQueue !== 'undefined'`, and `undefined` would not reproduce a context that genuinely lacks it.
+  // Absent unless asked: the drain sits behind a typeof guard that undefined would not reproduce.
   if (o.queue !== null) {
     globals.OfflineQueue = {
       count: step('OfflineQueue.count', () => o.queue),
@@ -173,15 +150,13 @@ function load(opts = {}) {
     };
   }
 
-  // index.html's order: core/project-switcher.js (:897) before screens/project-pick.js (:903), one
-  // context, so the screen's `matchProjects` and `projectRowEl` are the real ones.
+  // index.html's order, one context, so the screen's matchProjects and projectRowEl are the real ones.
   const h = loadScreen('project-pick', {
     dir: SCREENS_SRC,
     before: [['project-switcher', CORE_SRC]],
     document: doc,
     globals,
-    // Both files' module state is LEXICAL — never a sandbox property — so the completion value is
-    // how it crosses back. Every row that can is still driven through behaviour instead.
+    // Both files' module state is lexical, so the completion value is how it crosses back.
     exported: `({
       projectLabel,
       pickRows,
@@ -190,8 +165,7 @@ function load(opts = {}) {
   });
   const { store } = h;
 
-  // The panel's own functions, traced in place: a call from inside switchProject is a global lookup,
-  // so a wrapper on the sandbox is what switchProject actually reaches.
+  // switchProject reaches these by global lookup, so a wrapper on the sandbox is what it calls.
   for (const name of ['renderProjectBar', 'renderProjectOptions', 'persistActiveSettings',
     'closeProjectMenu', 'pickProject', 'switchProject', 'refreshProjects']) {
     const orig = h.sandbox[name];
@@ -203,8 +177,7 @@ function load(opts = {}) {
       return orig(...args);
     };
   }
-  // Focus is a step of its own in two rows: it must come back to the trigger on Escape and never on
-  // Tab, and the pick screen must not focus a field the view switch has not unhidden yet.
+  // Focus is a traced step: back to the trigger on Escape, never on Tab, never into a hidden field.
   for (const id of ['project-filter', 'project-trigger', 'pick-filter']) {
     const n = node[key(id)];
     const f = n.focus.bind(n);
@@ -216,14 +189,12 @@ function load(opts = {}) {
     mod: h.screen,
     state, calls, on, node, doc, store, o,
     peek: () => h.screen.peek(),
-    // Replace one module function with a recorder — the only way to ask "which callback did the row
-    // get?" without letting the real one repaint the panel underneath the assertion.
+    // The only way to ask which callback a row got without the real one repainting the panel.
     stub: (name, impl = () => undefined) => {
       const got = [];
       h.sandbox[name] = (...args) => { got.push(plain(args)); calls.order.push(name); return impl(...args); };
       return got;
     },
-    // What the tester sees in the popup and on the screen.
     optionIds: () => node.projectList.children.map((li) => li.dataset.projectId),
     activeId: () => node.projectList.children.find((li) => li.classList.contains('active'))?.dataset.projectId ?? null,
     pickIds: () => node.pickList.children.map((li) => li.dataset.projectId),
@@ -231,8 +202,6 @@ function load(opts = {}) {
     at: (name) => calls.order.indexOf(name),
   };
 }
-
-// ---------- 1-11: the row model, which is pure ----------
 
 test('1: a project reads as its title with the slug behind it, and as the slug alone when they agree', () => {
   const h = load();
@@ -318,8 +287,6 @@ test('11b: the popup’s own filter box narrows the rows through the same two fu
   assert.equal(h.activeId(), 'p2'); // the first match takes the cursor
 });
 
-// ---------- 12-18: the bar the tester reads the project off ----------
-
 test('12: no project and nothing to pick from hides the whole bar and leaves no stale slug behind', () => {
   const h = load({ settings: null, projects: [] });
   h.node.projectTrigger.dataset.projectId = 'stale';
@@ -357,8 +324,7 @@ test('13c: a saved project the list does not carry is still named, by its slug',
 });
 
 test('14 (#334): pinned, the tooltip names the app that pinned it — and stays hoverable, aria-disabled, never disabled', () => {
-  // projectPinned() IS `!Handoff.offer()`, so a pinned bar has no offer left to read a name off. The
-  // name has to come from what connect() wrote down instead — `handoffApp`, shared/handoff.js:123.
+  // projectPinned() is `!Handoff.offer()`, so the name comes from `handoffApp`, which connect() wrote.
   const h = load({
     settings: { baseUrl: 'https://a.io', projectId: 'p1', handoff: true, handoffApp: 'Testeiya' },
     offer: null,
@@ -431,18 +397,11 @@ test('17: with nothing to link to the link HIDES rather than point at a 404', ()
 });
 
 test('18: the link echoes the instance address verbatim — the scheme is gated where the address is set', () => {
-  // #183 called an http:// href here an open bug on the handoff path. It does not reproduce: a host
-  // file naming an http instance is refused outright (shared/handoff.js:56-58, pinned by
-  // tests/handoff.test.mjs H9) and Save refuses a typed one (screens/settings.js:323-327), so no
-  // http baseUrl reaches state.settings. What this function owes is a link to the instance the
-  // tester is actually on, which is what is asserted here.
   const h = load({ settings: { baseUrl: 'http://localhost:3000', projectId: 'p1', apiToken: 'TOKEN' } });
   h.fn.renderProjectOpenLink();
   assert.equal(h.node.projectOpen.href, 'http://localhost:3000/projects/p1');
   assert.equal(h.node.projectOpen.hidden, false);
 });
-
-// ---------- 19-23: one row, shared by both surfaces ----------
 
 const rowOf = (h, p, over = {}) => h.fn.projectRowEl(p, {
   current: 'p1', activeId: null, idPrefix: 'project-opt-', className: 'menu-option project-option',
@@ -506,8 +465,6 @@ test('23: pressing the mouse on a row keeps the caret in the filter box, and rel
   assert.deepEqual(picked, ['p2']);
 });
 
-// ---------- 24-27: the cursor ----------
-
 test('24: a cursor the filter has just hidden moves to the first row still visible', () => {
   const h = load({ projects: [CHECKOUT, BILLING] });
   h.fn.openProjectMenu();
@@ -550,7 +507,6 @@ test('26: the arrows STOP at the last row — no wrap back to the top', () => {
   h.fn.moveProjectActive(1);
   assert.equal(h.peek().projectActiveId, 'p3');
   assert.equal(h.activeId(), 'p3');
-  // …and at the first row on the way back.
   h.fn.moveProjectActive(-1);
   h.fn.moveProjectActive(-1);
   h.fn.moveProjectActive(-1);
@@ -559,8 +515,7 @@ test('26: the arrows STOP at the last row — no wrap back to the top', () => {
 });
 
 test('27: an arrow pressed with the cursor on nothing lands on the first row, whichever way it points', () => {
-  // The cursor is on nothing whenever the last render had no rows; a list landing behind an open
-  // popup is how rows come back under it. Up, from there, must not walk off the top.
+  // A list landing behind an open popup comes back with the cursor on nothing; Up must not walk off.
   const empty = { baseUrl: 'https://a.io', apiToken: 'TOKEN' };
   const h = load({ settings: empty, projects: [] });
   h.fn.openProjectMenu();
@@ -590,8 +545,6 @@ test('27c: the cursor scrolls itself into view — the row below the fold is sti
   h.fn.moveProjectActive(1);
   assert.deepEqual(h.calls.scrolls, [{ id: 'project-opt-p2', arg: { block: 'nearest' } }]);
 });
-
-// ---------- 28-37: the keys, and opening and closing ----------
 
 test('28: Escape closes the popup and hands the caret back to the trigger, and no one else sees the key', () => {
   const h = load();
@@ -733,8 +686,7 @@ test('36: a pinned connection cannot open the popup at all', () => {
 });
 
 test('37: opening clears the last filter, puts the cursor on the project in use and focuses the box', () => {
-  // The active project is deliberately NOT the first row: opening on rows[0] would answer this row
-  // by accident on any list where the two happen to agree.
+  // The active project is not the first row, so opening on rows[0] cannot pass by accident.
   const h = load({ projects: [BILLING, PLAIN, CHECKOUT] });
   h.fn.openProjectMenu();
   h.node.projectFilter.value = 'bill';
@@ -746,12 +698,12 @@ test('37: opening clears the last filter, puts the cursor on the project in use 
   assert.equal(h.peek().projectFilter, '');
   assert.equal(h.node.projectFilter.value, '');
   assert.deepEqual(h.optionIds(), ['p2', 'p3', 'p1']);
-  assert.equal(h.peek().projectActiveId, 'p1');    // the ACTIVE project, not the first row
+  assert.equal(h.peek().projectActiveId, 'p1');    // the active project, not the first row
   assert.equal(h.activeId(), 'p1');
   assert.equal(h.node.projectMenu.hidden, false);
   assert.equal(h.node.projectTrigger.getAttribute('aria-expanded'), 'true');
   assert.ok(h.calls.order.includes('focus:project-filter'));
-  // Focus lands AFTER the rows exist — a hidden, empty list cannot carry aria-activedescendant.
+  // Focus lands after the rows exist — a hidden, empty list cannot carry aria-activedescendant.
   assert.ok(h.calls.order.indexOf('renderProjectOptions') < h.calls.order.indexOf('focus:project-filter'));
   assert.equal(h.node.projectFilter.getAttribute('aria-activedescendant'), 'project-opt-p1');
 });
@@ -772,8 +724,6 @@ test('37c: an already-open popup is not re-opened — a second open would throw 
   assert.equal(h.peek().projectFilter, 'bill');
   assert.deepEqual(h.optionIds(), ['p2']);
 });
-
-// ---------- 38-39: filling the list ----------
 
 test('38: a connection with no credential asks for nothing and answers with an empty list', async () => {
   const h = load({ settings: { baseUrl: 'https://a.io' } });
@@ -798,8 +748,6 @@ test('39b: a list that lands replaces the projects and repaints the bar', async 
   assert.deepEqual(plain(h.state.projects), [PLAIN]);
   assert.ok(h.calls.order.includes('renderProjectBar'));
 });
-
-// ---------- 40-42: writing it down ----------
 
 test('40: the write puts the settings and the host map down, then DROPS the old project’s session', async () => {
   const h = load({ hostSettings: { 'b.io': { baseUrl: 'https://b.io' } } });
@@ -842,8 +790,6 @@ test('42: an instance address that is not an address writes no host entry, and s
   assert.deepEqual(h.store.calls.filter((c) => c.area === 'local').map((c) => c.op), ['set', 'remove']);
   assert.deepEqual(plain(h.store.ops('local', 'set')[0].arg), { settings, hostSettings: {} });
 });
-
-// ---------- 43-51: the switch, and the order it happens in ----------
 
 test('43: picking the project already in use does nothing whatsoever', async () => {
   const h = load();
@@ -924,15 +870,12 @@ test('47: the switch happens in ONE order — configure, tear down, write, repai
     'prefetchTabCounts',
     'toast',
   ]);
-  // …and the teardown ran before ANY of it was written down: a reload mid-switch cannot come back
-  // to a run of the old project against the slug of the new one.
+  // The teardown ran before any write: a reload mid-switch cannot pair the old run with the new slug.
   assert.deepEqual(h.calls.resets, [{ projectId: 'p2', writes: 0, removes: 0 }]);
   // The bar is repainted only once the write has landed, session drop and all.
   assert.deepEqual(h.calls.repaints, [{ writes: 1, removes: 1 }]);
 });
 
-// 47 pins the ORDER of the switch and 40 pins what persistActiveSettings writes when it is handed a
-// settings object. Neither says which object switchProject hands it — this does.
 test('47c: what the switch writes down is the project it switched TO, not the one it left', async () => {
   const h = load({ activeTab: 'runs' });
   await h.fn.switchProject('p2');
@@ -1016,7 +959,7 @@ test('51: a project the list has never heard of is named by its slug in the toas
   assert.deepEqual(h.calls.toasts, ['Switched to p9']);
   const g = load({ projects: [PLAIN] });
   await g.fn.switchProject('p3');
-  assert.deepEqual(g.calls.toasts, ['Switched to p3']); // a title that IS the slug reads the same
+  assert.deepEqual(g.calls.toasts, ['Switched to p3']); // a title that is the slug reads the same
 });
 
 test('51b: the switch carries every other setting across untouched, and configures the API with it', async () => {
@@ -1026,8 +969,6 @@ test('51b: the switch carries every other setting across untouched, and configur
     { baseUrl: 'https://a.io', projectId: 'p2', apiToken: 'TOKEN', evidenceWindowSec: 60 });
   assert.deepEqual(h.calls.configured, [plain(h.state.settings)]);
 });
-
-// ---------- 52-55: what boot resolves ----------
 
 test('52: a saved project is ready at once, and the list is fetched BEHIND the answer', async () => {
   const h = load();
@@ -1089,8 +1030,6 @@ test('55c: the dropdown is wired once, to the three controls it owns', () => {
   fire(h.node.projectFilter, 'input');
   assert.equal(h.peek().projectFilter, 'bill');
 });
-
-// ---------- P1-P15: the whole-screen version of the same list ----------
 
 test('P1: the choose-a-project screen folds in NO saved project — that pick is what it is there for', () => {
   const h = load({ settings: { ...SETTINGS, projectId: 'p9' } });

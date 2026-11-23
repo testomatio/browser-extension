@@ -1,5 +1,4 @@
-// Screen recording (#68), panel side: the button, what it says while a recording runs, and the
-// upload of the file the worker parks when it stops. The worker owns the capture, this owns the JWT.
+// Screen recording, panel side: the worker owns the capture, the panel owns the JWT and the upload.
 
 /* global TestomatAPI, state, recordFor, RunLock, $, toast, setStatusLine,
    TestGates, attRemember, renderAttachmentList, progressToast, hideToast */
@@ -29,8 +28,7 @@ function srecPaint(st) {
   const btn = $('btn-screen-rec');
   if (!btn) return;
   const on = !!(st && st.recording);
-  // ANY parked take: the button finishes that one — its review, or the attach that failed —
-  // never a new recording over it.
+  // Any parked take: the button finishes that one (review or failed attach), never records over it.
   const waiting = !on && !!(st && st.file);
   const label = $('screen-rec-label');
   if (label) {
@@ -65,8 +63,7 @@ async function srecStartHint(res) {
       + (res.error ? ` Chrome says: ${res.error}` : '');
   }
   if (!res || res.reason !== 'cast-attach') return (res && res.reason) || 'Chrome refused the capture';
-  // Both routes are taken: the debugger fallback is held by DevTools (or another debugger),
-  // and only a real gesture on the tab unlocks the tabCapture route.
+  // The debugger fallback is held by another debugger, and only a real gesture unlocks tabCapture.
   const key = await srecShortcut();
   return 'Another debugger holds that tab (DevTools open?). Close it, '
     + (key ? `or press ${key} on the tab, ` : '')
@@ -84,7 +81,7 @@ async function onScreenRecClick() {
     await srecRefresh();
     return;
   }
-  // A reviewed take is parked because its upload failed — the click retries THAT, not a new take.
+  // A reviewed take is parked because its upload failed: the click retries it, not a new take.
   if (st && st.file && st.file.reviewed) {
     await srecAttach(st.file);
     return;
@@ -102,9 +99,7 @@ async function onScreenRecClick() {
   srecRefresh();
 }
 
-// The blob: URL — the original's or the trimmed swap's — belongs to the offscreen document,
-// and this panel shares its origin, so the bytes come back with a plain fetch. A failed
-// upload KEEPS the file parked for the next try.
+// The offscreen document's blob: URL shares the panel's origin, so a plain fetch reads the bytes.
 async function srecAttach(file) {
   if (srecBusy || !file || !file.url || !file.reviewed) return;
   // The take names the result it was started for; the panel may have moved on since it stopped.
@@ -136,7 +131,7 @@ async function srecAttach(file) {
       renderAttachmentList();
       setStatusLine('test-status', 'Recording attached ✓', 'ok');
     } else {
-      // That list and that status line belong to the OPEN test — a landing elsewhere names itself.
+      // That list and status line belong to the open test; a landing elsewhere names itself in a toast.
       toast(`Recording attached to "${record.test_title || `Test ${record.test_id}`}"`);
     }
   } catch (e) {
@@ -150,8 +145,7 @@ async function srecAttach(file) {
   }
 }
 
-// A recording started from the page binds to whatever result is open here, so the worker is
-// told which one that is; a file parked for THIS result lands on arrival.
+// A recording started from the page binds to the result open here, so the worker is told which.
 async function srecOnTestOpen() {
   const record = recordFor(state.currentRecordId);
   await srecSend({ type: 'SCREENREC_TARGET', recordId: (record && record.id) || null });
@@ -159,7 +153,7 @@ async function srecOnTestOpen() {
   const parked = await srecSend({ type: 'SCREENREC_TAKE' });
   // Unreviewed stays parked — the button reads «Review recording…» and leads back to it.
   if (!parked || !parked.reviewed) return;
-  // A bound take waits for ITS test to be opened, not for the next one to come along.
+  // A bound take waits for its own test to be opened, not for the next one to come along.
   if (parked.recordId != null && String(parked.recordId) !== String(state.currentRecordId)) return;
   srecAttach(parked);
 }

@@ -1,19 +1,13 @@
 #!/usr/bin/env node
-// The contract of extension/shared/dropdown.js (#298): which element a screen reader reads the
-// highlight off, where the caret sits while the popup is open, and the keys the open control
-// swallows. The four callers' suites cover their own wiring, not the widget's announcement.
-// Run: node --test tests/dropdown.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadInto } from './helpers/shared-harness.mjs';
 import { makeDocument, fire } from './helpers/mini-dom.mjs';
 
-// One sandbox per test: the widget keeps a module-level registry keyed by trigger id, and every
-// open control hangs two capture listeners on the document.
+// One sandbox per test: the widget keeps a module-level registry and hangs listeners on the document.
 function load() {
   const document = makeDocument();
-  // scrollIntoView is the one member mini-dom does not have that this module calls, and the
-  // cursor rows go through it on every move.
+  // scrollIntoView is the one member this module calls that mini-dom lacks.
   const create = document.createElement.bind(document);
   document.createElement = (tag) => {
     const made = create(tag);
@@ -48,8 +42,7 @@ const OPTIONS = [
   { value: 'high', label: 'High' },
 ];
 
-// The control mounted into the document — focus() only records on an attached tree, and half of
-// these cases are about where the caret lands.
+// Mounted, because focus() only records on an attached tree.
 function mount(opts = {}) {
   const env = load();
   const changes = [];
@@ -83,8 +76,6 @@ function mount(opts = {}) {
   };
 }
 
-// ---- the announcement ------------------------------------------------------
-
 test('#298: with no filter box the open LIST carries aria-activedescendant, never the trigger', () => {
   const m = mount();
   fire(m.trigger, 'click');
@@ -113,7 +104,7 @@ test('#298: opening with no filter box puts the caret on the list', () => {
   fire(m.trigger, 'keydown', { key: 'ArrowDown' });
   assert.equal(m.open(), true);
   assert.equal(m.focused(), 'UL#dd-list');
-  // Named its active option BEFORE taking the caret, so the move announces the highlight with it.
+  // Named its active option before taking the caret, so the move announces the highlight with it.
   assert.equal(m.named(m.list), 'dd-opt-1');
   assert.equal(m.active(), 'normal');
 });
@@ -144,8 +135,6 @@ test('#298: a list emptied under an open control names nothing', () => {
   assert.equal(m.named(m.list), 'dd-opt-0'); // the cursor falls back to the first visible row
 });
 
-// ---- the open/close focus round trip ---------------------------------------
-
 test('#298: Escape clears the attribute off the list and hands the caret back to the trigger', () => {
   const m = mount();
   fire(m.trigger, 'click');
@@ -153,7 +142,6 @@ test('#298: Escape clears the attribute off the list and hands the caret back to
   const ev = m.key('Escape');
   assert.equal(m.open(), false);
   assert.equal(m.trigger.getAttribute('aria-expanded'), 'false');
-  // Cleared off the LIST — the element it was put on, not the one it used to be put on.
   assert.equal(m.named(m.list), null);
   assert.equal(m.named(m.trigger), null);
   assert.equal(m.focused(), 'BUTTON#dd');
@@ -197,8 +185,6 @@ test('#298: reopening announces again from the current value', () => {
   assert.equal(m.active(), 'normal');
 });
 
-// ---- the keyboard ----------------------------------------------------------
-
 test('#298: Home jumps to the first option and End to the last', () => {
   const m = mount({ value: 'normal' });
   fire(m.trigger, 'click');
@@ -230,7 +216,7 @@ test('#298: Tab hands the caret back to the trigger before closing, so the tab o
   const ev = m.key('Tab');
   assert.equal(m.open(), false);
   assert.equal(m.focused(), 'BUTTON#dd');
-  // NOT prevented: the browser still has to perform the move, from the trigger onwards.
+  // Not prevented: the browser still has to perform the move, from the trigger onwards.
   assert.equal(ev.defaultPrevented, false);
   assert.equal(ev.propagationStopped, false);
 });
@@ -238,8 +224,7 @@ test('#298: Tab hands the caret back to the trigger before closing, so the tab o
 test('#298: moving the caret changes nothing about which keys the open control swallows', () => {
   const m = mount();
   fire(m.trigger, 'click');
-  // Both listeners at CAPTURE, on the document: the keys work wherever focus sits, and the
-  // screen's own arrow handlers never see them.
+  // Capture listeners on the document: keys work wherever focus is, and screen handlers never see them.
   assert.deepEqual(m.docListeners('keydown'), [true]);
   assert.deepEqual(m.docListeners('click'), [true]);
   for (const key of ['ArrowDown', 'ArrowUp', ' ', 'Spacebar']) {
@@ -249,7 +234,6 @@ test('#298: moving the caret changes nothing about which keys the open control s
     assert.equal(ev.defaultPrevented, true, key);
     assert.equal(ev.propagationStopped, true, key);
   }
-  // A key the popup has no use for passes straight through to the screen.
   const other = m.key('a');
   assert.equal(other.defaultPrevented, false);
   assert.equal(other.propagationStopped, false);
@@ -269,8 +253,6 @@ test('#298: the caret sitting in the menu does not make the outside-click close 
   assert.equal(m.open(), false);
   assert.equal(m.named(m.list), null);
 });
-
-// ---- the filter-box path, which must not move ------------------------------
 
 test('#298: with a filter box the attribute stays on the input, and the list stays out of the way', () => {
   const m = mount({ filter: true });

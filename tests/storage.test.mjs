@@ -1,18 +1,13 @@
 #!/usr/bin/env node
-// What re-opening the panel puts back on screen (#155): the boot read, the one-time move to
-// per-host settings, the two dead secrets swept off the machine, and the exact ten fields the
-// session carries. Run: node --test tests/storage.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadStorage, plain, settle } from './helpers/core-harness.mjs';
 
 const LEGACY = { baseUrl: 'https://a.io', apiToken: 't', projectId: 'p1' };
 
-// Every write the module made, in order.
 const sets = (h) => h.store.ops('set');
 const removes = (h) => h.store.ops('remove').map((c) => c.arg);
 
-// A live run view: what the panel looks like when the tester has a run open.
 function live(h) {
   Object.assign(h.state, {
     settings: LEGACY,
@@ -29,8 +24,6 @@ function live(h) {
   });
   return h;
 }
-
-// ---- A: the boot read ------------------------------------------------------
 
 test('#155-1: with no browser storage behind it the panel boots from nothing and asks for nothing',
   async () => {
@@ -49,8 +42,6 @@ test('#155-2: the boot read asks for the four saved slices and nothing else', as
   assert.deepEqual(h.store.ops('get').map((c) => c.arg),
     [['settings', 'session', 'hostSettings', 'hostHistory']]);
 });
-
-// ---- B: the move to per-host settings --------------------------------------
 
 test('#155-3: an install already on the per-host map is left exactly as it is', async () => {
   const h = loadStorage();
@@ -114,8 +105,6 @@ test('#155-9: outside a browser the migration still happens in memory, it is jus
     assert.deepEqual(h.store.calls, [], 'no storage to write to');
   });
 
-// ---- C: the one dead secret ------------------------------------------------
-
 test('#155-10: a storage that refuses to delete does not break the boot', async () => {
   const h = loadStorage();
   h.store.fails.remove = new Error('storage is busy');
@@ -138,8 +127,6 @@ test('#155-11: every boot deletes the retired AI key, once, and nothing else', a
   await off.fn.dropAiApiKey();
   assert.deepEqual(off.store.calls, []);
 });
-
-// ---- D: what the session write carries -------------------------------------
 
 test('#155-12: nothing is saved while the panel is still starting up', async () => {
   const h = live(loadStorage());
@@ -213,7 +200,7 @@ test('#155-16: closing the Run info panel is remembered as closed', async () => 
 test('#155-17: without screens/run-info.js in the page the save throws instead of saving', () => {
   const h = live(loadStorage({ withRunInfo: false }));
   assert.throws(() => h.fn.persistSession(), (e) => e.name === 'ReferenceError');
-  // The same call with the module present goes through — the throw is the missing global, not the fixture.
+  // With the module present it goes through, so the throw is the missing global, not the fixture.
   const ok = live(loadStorage());
   assert.doesNotThrow(() => ok.fn.persistSession());
 });
@@ -231,9 +218,7 @@ test('#194-17a: the saved key is spelled `runInfoOpen`, off the module\'s own ac
   assert.equal('open' in session, false, 'the module\'s name for it is not the storage key');
 });
 
-// The five guards SessionRestore.fromStored() (core/session-restore.js) reads the saved session back
-// through — a second copy on purpose, so this round trip still fails if that module drifts.
-// FILTER_KEYS is screens/runs-list.js:18.
+// A deliberate copy of SessionRestore.fromStored()'s guards, so this round trip fails if that drifts.
 const FILTER_KEYS = new Set(['all', 'passed', 'failed', 'running', 'scheduled', 'terminated']);
 const restore = (session) => ({
   stepTicks: session?.stepTicks || {},

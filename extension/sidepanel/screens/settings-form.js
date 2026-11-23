@@ -1,27 +1,20 @@
-// The Settings FORM: what it paints from the saved config, the two numbers Save reads back out of
-// it, and the three controls that only rearrange it — instance history, theme switch, the folds.
-// screens/settings.js drives all of it; app.js wires four of these to static markup at init.
+// The Settings form: what it paints from saved config, the numbers Save reads back, and its folds.
 
 /* global $, state, hostOf, Dropdown, Theme, envInfoEnabled, envFullUrlEnabled,
    evidenceAutoStartEnabled, evidenceAutoAttachEnabled, evidenceCaptureBodiesEnabled,
    syncTokenField */
 
-// Prefilled into the Advanced Instance field when nothing is stored (#83) — a real
-// field value, not a placeholder, so Save works untouched.
+// A real field value, not a placeholder, so Save works untouched.
 const DEFAULT_BASE_URL = 'https://app.testomat.io';
 
-// The app name rides along so the tester can see, on Testomat.io's own page, what they are
-// authorizing — and so the grant is revocable by name later.
+// Shown on Testomat.io's page so the tester sees what they authorize, and can revoke it by name.
 const AUTH_APP_NAME = 'Testomat.io Extension';
 
-// ---------- Advanced collapse (#146) ----------
-// In-memory only: nothing is persisted, the state is recomputed from the saved
-// instance every time Settings is entered.
+// In-memory only: recomputed from the saved instance every time Settings is entered.
 let advancedOpen = false;
 
 const SettingsForm = {
-  // The origin comes from the Base URL FIELD (live, not the saved config), so the
-  // token-help link tracks what the user is typing.
+  // From the live field, not the saved config, so the token-help link tracks what the user types.
   tokenHelpBase() {
     const raw = ($('set-baseurl').value || '').trim().replace(/\/+$/, '');
     if (raw) {
@@ -39,31 +32,24 @@ const SettingsForm = {
     }
   },
 
-  // Does NOT touch the host dropdown or the header project switcher (#103).
+  // Leaves the host dropdown and the header project switcher alone.
   setFields(s) {
     s = s || {};
-    // Nothing stored -> show the default instance rather than an empty box (#83).
     $('set-baseurl').value = s.baseUrl || DEFAULT_BASE_URL;
     $('set-token').value = s.apiToken || '';
-    // Env-info toggle: absent -> ON.
     $('set-env-info').checked = envInfoEnabled(s);
-    // Full-URL opt-in (#177): absent -> OFF, i.e. the URL meta key is trimmed.
+    // Absent -> off: the URL meta key is trimmed unless the tester opts in.
     $('set-env-full-url').checked = envFullUrlEnabled(s);
     // Blank shows the 60s placeholder default.
     $('set-evidence-window').value = s.evidenceWindowSec != null ? s.evidenceWindowSec : '';
-    // Arm the recorder on opening a testrun: absent -> OFF, like the step recorder's row.
     $('set-evidence-autostart').checked = evidenceAutoStartEnabled(s);
-    // Auto-attach on FAIL: absent -> ON.
     $('set-evidence-autoattach').checked = evidenceAutoAttachEnabled(s);
-    // Response-body capture for failed requests (#95): absent -> ON.
     $('set-evidence-bodies').checked = evidenceCaptureBodiesEnabled(s);
-    // Never record entered values (#176): absent -> OFF, i.e. values ARE recorded
-    // (masked) — deliberately the inverse of the other toggles' default.
+    // Absent -> off, so values are recorded (masked): deliberately the inverse of the other defaults.
     $('set-rec-never-values').checked = SettingsForm.neverValuesEnabled(s);
   },
 
-  // Absent -> OFF, explicit `true` -> ON. Mirrored to a top-level key on save: the
-  // recorder is a content script, and `settings` holds the token (#175).
+  // Saved to a top-level key too: the recorder is a content script, and `settings` holds the token.
   neverValuesEnabled(settings) {
     return !!(settings && settings.stepRecNeverValues === true);
   },
@@ -84,7 +70,6 @@ const SettingsForm = {
     mount.append(dd.el);
   },
 
-  // Offered only when at least two hosts exist; the active host is preselected.
   populateHostHistory() {
     const dd = Dropdown.of('set-host-history');
     if (!dd) return;
@@ -95,8 +80,6 @@ const SettingsForm = {
     dd.hidden = false;
   },
 
-  // No save yet — Save commits it. The header switcher is NOT repainted: the active
-  // project only changes once the new host is saved.
   // The pick arrives as the argument: the trigger is a <button>, whose own `.value` is always ''.
   onInstanceHostPicked(host) {
     if (!host) return;
@@ -105,10 +88,6 @@ const SettingsForm = {
     SettingsForm.updateTokenHelpLink();
     syncTokenField(); // a host we hold no token for asks for one
   },
-
-  // ---------- appearance ----------
-  // Applying and persisting a theme is shared/theme.js's job (it runs on the editor
-  // page too); this is only the control that shows which of the three is on.
 
   paintThemeSwitch() {
     const group = $('theme-switch');
@@ -119,8 +98,7 @@ const SettingsForm = {
     }
   },
 
-  // Bound once on the GROUP (the buttons are static markup). The subscription keeps
-  // this in step when the theme is changed from the editor tab instead.
+  // The subscription keeps the switch in step when the theme changes from the editor tab.
   initThemeSwitch() {
     const group = $('theme-switch');
     if (!group) return;
@@ -132,15 +110,13 @@ const SettingsForm = {
     SettingsForm.paintThemeSwitch();
   },
 
-  // ---------- section folds ----------
-  // One delegated click keeps `aria-expanded` (head) and `hidden` (body) in step.
-  // Advanced is the ONE exception — its own handler writes a variable, not the DOM.
+  // One delegated click for every fold but Advanced, whose handler writes a variable, not the DOM.
   initSections() {
     const group = $('settings-sections');
     if (!group) return;
     group.addEventListener('click', (e) => {
       const head = e.target.closest('.settings-section-title > .disclosure-head');
-      if (!head || head.id === 'settings-advanced-head') return; // Advanced: see below
+      if (!head || head.id === 'settings-advanced-head') return;
       const body = document.getElementById(head.getAttribute('aria-controls'));
       if (!body) return;
       const open = head.getAttribute('aria-expanded') !== 'true';
@@ -167,15 +143,13 @@ const SettingsForm = {
     SettingsForm.paintAdvanced();
   },
 
-  // A saved non-default (self-hosted) instance opens the section; nothing saved yet
-  // counts as default.
+  // A saved self-hosted instance opens the section; nothing saved yet counts as default.
   syncAdvanced() {
     const saved = ((state.settings && state.settings.baseUrl) || '').trim().replace(/\/+$/, '');
     advancedOpen = saved !== '' && saved !== DEFAULT_BASE_URL;
     SettingsForm.paintAdvanced();
   },
 
-  // Read the evidence-window field: blank -> 60, out of 10-600 or non-numeric -> null (invalid).
   evidenceWindowFromField() {
     const raw = $('set-evidence-window').value.trim();
     if (raw === '') return 60;
@@ -184,8 +158,7 @@ const SettingsForm = {
     return n;
   },
 
-  // A still-reachable previous selection wins; a lone project needs no choosing; several with no
-  // previous one leave '' — the pick is the tester's (#11).
+  // Several projects and no previous pick leave '': the choice is the tester's.
   resolveProjectId(projects, previous) {
     if (previous && projects.some((p) => p.id === previous)) return previous;
     return projects.length === 1 ? projects[0].id : '';

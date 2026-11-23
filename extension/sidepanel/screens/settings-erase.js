@@ -1,27 +1,20 @@
-// The three erase paths — Forget instance, Disconnect, Sign out — and the warning a failed recorder
-// stop leaves for the next panel. screens/settings.js delegates; app.js wires three of them to buttons.
+// The three erase paths (Forget instance, Disconnect, Sign out) and the warning a failed stop leaves.
 
 /* global $, state, hasChrome, hostOf, setStatusLine, ConfirmDialog, Handoff, Theme, ViewMode,
    setSettingsFields, populateHostHistory, updateTokenHelpLink, syncTokenField */
 
-// ---------- forget / sign out (#177) ----------
-// Save writes the token three ways — `settings`, `hostSettings[host]` and a
-// `hostHistory` row — so an exit has to remove all three.
+// Save stores the token in settings, hostSettings[host] and hostHistory; an exit removes all three.
 
-// Cold boot after an erase: init() re-reads storage, so every in-memory copy of
-// the erased data dies with the document. A late `set({session})` holds no credential.
+// Cold boot after an erase, so every in-memory copy of the erased data dies with the document.
 const reloadPanel = () => location.reload();
 
-// Everything scoped to ONE instance — `offlineQueue` holds results (with the raw
-// tester comment) that never reached the server.
+// Everything scoped to one instance; offlineQueue holds unsent results with raw tester comments.
 const HOST_SCOPED_KEYS = ['settings', 'session', 'offlineQueue'];
 
-// A timeout is a FAILURE, not a success — the recorder may still be holding the
-// buffer we promised to erase.
+// A timeout is a failure: the recorder may still hold the buffer we promised to erase.
 const EVIDENCE_WIPE_MS = 5000;
 
-// PAGE sessionStorage, like `tcReturn`: not an area the erase claims to wipe, holds
-// no credential, and dies with the browser — which is when the buffer dies too.
+// Page sessionStorage: holds no credential and dies with the browser, which is when the buffer dies.
 const EVIDENCE_WIPE_WARN_KEY = 'signOutRecorderWarning';
 
 // The two recorders an erase stops, each in the words its warning uses.
@@ -42,16 +35,14 @@ const evidenceWipeWarning = (failed, lead) => {
 const SettingsErase = {
   HOST_SCOPED_KEYS,
 
-  // The host the FORM points at, else the active one. A NON-EMPTY field that does
-  // not parse resolves to nothing — a destructive control must never retarget.
+  // The host the form points at, else the active one; an unparsable field never retargets an erase.
   formHost() {
     const typed = ($('set-baseurl').value || '').trim();
     if (typed) return hostOf(typed);
     return (state.settings && hostOf(state.settings.baseUrl)) || null;
   },
 
-  // Storage is written FIRST and in-memory state follows only on success, so a
-  // rejected write leaves the panel unchanged — never a silent half-erase.
+  // Storage is written first and memory follows on success, so a rejected write is never a half-erase.
   failed(what, e, statusId = 'settings-forget-status') {
     state.booting = false; // no erase happened — the session writer may run again
     setStatusLine(statusId,
@@ -59,17 +50,13 @@ const SettingsErase = {
       'error');
   },
 
-  // Forgets the instance the panel is ON, whatever the Instance field is showing;
-  // it ends on the connect screen, since nothing is left to run.
-  // `statusId` is the caller's: the choose-a-project screen (screens/project-pick.js) offers the
-  // same Disconnect, and the Connection card's own line is on a page nobody can reach from there.
+  // The instance the panel is on, whatever the field shows; `statusId` lets project-pick.js reuse it.
   disconnect({ statusId = 'connection-status' } = {}) {
     const host = (state.settings && hostOf(state.settings.baseUrl)) || SettingsErase.formHost();
     return SettingsErase.forget({ host, verb: 'Disconnect', statusId });
   },
 
-  // `opts.host` targets an instance explicitly (Disconnect); with none, the host
-  // the FORM points at — what the Advanced button means by "this".
+  // With no `opts.host`, the host the form points at: what the Advanced button means by "this".
   async forget(opts = {}) {
     const verb = opts.verb || 'Forget';
     const statusId = opts.statusId || 'settings-forget-status';
@@ -81,8 +68,7 @@ const SettingsErase = {
         : 'No instance to forget', 'error');
       return;
     }
-    // A half-typed Instance field is not a saved instance — never report a host
-    // we never held as erased.
+    // A half-typed Instance field is not a saved instance: never report a host we never held as erased.
     const active = !!(state.settings && hostOf(state.settings.baseUrl) === host);
     if (!state.hostSettings[host] && !active) {
       setStatusLine(statusId, `Nothing saved for ${host}`, 'error');
@@ -99,8 +85,7 @@ const SettingsErase = {
     delete hostSettings[host];
     const hostHistory = (state.hostHistory || []).filter((h) => h !== host);
     if (active) state.booting = true; // quiet the session writer over the erase
-    // #192: forgetting the ACTIVE instance also drops the session-scoped data
-    // (steps, evidence buffer, drafts). The stop comes FIRST (#183); failure is HELD.
+    // The recorder stops before any clear, or it re-mirrors its buffer; its failure is held, not thrown.
     let wipeError = null;
     if (active) { try { await SettingsErase.wipeRecording(); } catch (e) { wipeError = e; } }
     try {
@@ -109,15 +94,14 @@ const SettingsErase = {
         if (active) {
           await chrome.storage.local.remove(HOST_SCOPED_KEYS);
           if (chrome.storage.session) await chrome.storage.session.clear();
-          // A host's offer is a file we cannot delete, and the reload below would take it straight
-          // back — so leaving one is what makes Disconnect stick.
+          // A host's offer is a file we cannot delete and the reload would take it back, so decline it.
           if (state.settings && state.settings.handoff) await Handoff.decline();
         }
       }
     } catch (e) { SettingsErase.failed(`forgetting ${host}`, e, statusId); return; }
     state.hostSettings = hostSettings;
     state.hostHistory = hostHistory;
-    // As before its first Save. A failed recorder stop rides the reload, like sign out's.
+    // A failed recorder stop rides the reload, like sign out's.
     if (active) {
       state.settings = null;
       if (wipeError) SettingsErase.leaveWarning(wipeError, 'Instance forgotten');
@@ -131,15 +115,14 @@ const SettingsErase = {
     setStatusLine(statusId, `${host} forgotten`, 'ok');
   },
 
-  // `e.failed` names each recorder that would not stop; a bare error is the log's, as before.
+  // `e.failed` names each recorder that would not stop; a bare error is the log recorder's.
   leaveWarning(e, lead) {
     const failed = (e && e.failed) || [{ ...RECORDER_WIPES[0], why: String((e && e.message) || e) }];
     try { sessionStorage.setItem(EVIDENCE_WIPE_WARN_KEY, evidenceWipeWarning(failed, lead)); }
     catch { /* sessionStorage unavailable — the erase still stands */ }
   },
 
-  // One-shot. The erase that left this DID happen — what the user still has to know
-  // is that the recording buffer may not be gone (`signOut` / `forgetInstance`).
+  // One-shot: the erase did happen, but the recording buffer may not be gone.
   takeWarning() {
     let msg = null;
     try {
@@ -149,8 +132,7 @@ const SettingsErase = {
     if (msg) setStatusLine('settings-forget-status', msg, 'error');
   },
 
-  // #183: `evidenceMirror` is only a copy of the worker's ring buffer — a RUNNING
-  // recording writes it back ~2 s after a clear. Throws on anything but a clean wipe.
+  // evidenceMirror only copies the worker's buffer: a running recording rewrites it ~2 s after a clear.
   async wipeOne(type) {
     const resp = await Promise.race([
       chrome.runtime.sendMessage({ type }).catch((e) => {
@@ -186,16 +168,13 @@ const SettingsErase = {
       + 'setting, under chrome://extensions → Details → Site access.', 'Sign out');
     if (!ok) return;
     state.booting = true; // quiet the session writer over the erase
-    // BEFORE either clear(), or a live recorder re-mirrors its buffer over the wipe.
-    // Its failure is HELD, not thrown — the token is the larger secret.
+    // Before either clear(), or a live recorder re-mirrors its buffer over the wipe.
     let wipeError = null;
     try { await SettingsErase.wipeRecording(); } catch (e) { wipeError = e; }
     try {
-      // clear(), not a key list: everything stored is a credential or scoped to one,
-      // and that stays true for the next key someone adds. `session` too.
+      // clear(), not a key list: everything stored is a credential or scoped to one, next keys included.
       if (hasChrome) {
-        // Theme and the chosen surface (#208) are the only two keys that are neither
-        // a credential nor scoped to one — carried ACROSS the wipe, not exempted.
+        // Theme and surface are neither credentials nor scoped to one, so they are carried across the wipe.
         const theme = Theme.get();
         const surface = await ViewMode.mode();
         await chrome.storage.local.clear();
@@ -203,8 +182,7 @@ const SettingsErase = {
         if (theme !== 'system') await Theme.set(theme);
         if (surface !== 'sidepanel') await ViewMode.setMode(surface);
       }
-    // A failed CLEAR still aborts, on Sign out's OWN status line — an error shown
-    // inside Advanced's collapsed fold is an error nobody sees.
+    // A failed clear aborts on Sign out's own line: an error inside Advanced's collapsed fold goes unseen.
     } catch (e) { SettingsErase.failed('signing out', e, 'signout-status'); return; }
     state.settings = null;
     // The warning rides the reload instead of being shown in a doomed document.

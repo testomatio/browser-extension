@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// extension/content/rec-mask.js on its own, read as a table: it loads with no stubs at all. The
-// sentences stay the business of tests/step-recorder-mask.test.mjs. Run: node --test tests/*.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,10 +7,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// REC_MASK_SRC runs the file against a mutated copy, so a falsification run never edits the shipped one.
+// REC_MASK_SRC points at a mutated copy, so a mutation run never edits the shipped one.
 const source = readFileSync(process.env.REC_MASK_SRC || join(repoRoot, 'extension/content/rec-mask.js'), 'utf8');
-// Injected files publish onto `window`, which in a page is the global itself — so the sandbox
-// has to be its own window before the module will hand anything back.
+// Injected files publish onto `window`, the page's global, so the sandbox must be its own window.
 const sandbox = {};
 sandbox.window = sandbox;
 runInContext(source, createContext(sandbox));
@@ -54,8 +51,7 @@ test('isCardNumber: "card" alone is a Kanban card, not a payment card', () => {
   assert.equal(RecMask.isCardNumber('card title'), false);
 });
 
-// The spread is not decoration: the array is built inside the sandbox, so a strict deepEqual
-// against one built here fails on the prototype alone.
+// The spread matters: a sandbox-built array fails a strict deepEqual on the prototype alone.
 test('acTokens: the spec prefixes are dropped so the field name is what is left', () => {
   assert.deepEqual([...RecMask.acTokens(field({ autocomplete: 'section-blue billing cc-number' }))], ['cc-number']);
   assert.deepEqual([...RecMask.acTokens(field({ autocomplete: 'shipping postal-code' }))], ['postal-code']);

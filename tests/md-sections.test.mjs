@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// The splice contract of extension/editor/md-sections.js (#84): recording into a section a
-// tester already wrote must add to it, never re-emit it. Run: node --test tests/md-sections.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,17 +7,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// MD_SRC runs the whole file against a mutated copy, so a falsification run never has to edit
-// the shipped module and risk leaving it edited.
+// MD_SRC points the file at a mutated copy, so a mutation run never edits the shipped module.
 const SRC = process.env.MD_SRC || join(repoRoot, 'extension/editor/md-sections.js');
 const source = readFileSync(SRC, 'utf8');
 
-// md-sections.js is a plain script with no dependencies, so the sandbox is bare; its
-// top-level `const` is lexical, not a global property — the script's completion value is it.
+// No dependencies, so the sandbox is bare; the lexical const comes back as the completion value.
 const MdSections = runInNewContext(`${source}\nMdSections;`, {});
 
-// Values cross back from the vm realm, where Array/Object have their own prototypes: compare
-// them as plain JSON rather than by identity.
+// Values from the vm realm carry its prototypes: compare them as plain JSON.
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const STEPS = { ordered: true };
 const md = (...lines) => lines.join('\n');
@@ -291,10 +286,7 @@ test('polish keeps a bullet list a bullet list', () => {
   assert.equal(done.md, md('### Steps', '', '- Click **Login**', '  - Expected: the form', ''));
 });
 
-// ---- #146: the edges the 16 cases above do not reach ----
-
-// A tester whose editor saves CRLF: the steps already in the section are read, so the recorder
-// numbers on from them. In the app OverType normalises CRLF; a file the module is handed does not.
+// OverType normalises CRLF in the app, but a body handed to the module may still carry it.
 test('a body saved with Windows line endings keeps the steps it already had (#146)', () => {
   const lf = md('### Steps', '', '1. Open the site', '');
   assert.equal(
@@ -305,7 +297,7 @@ test('a body saved with Windows line endings keeps the steps it already had (#14
   assert.equal(MdSections.hasItems(crlf, 'Steps', STEPS), true);
   assert.deepEqual(plain(MdSections.items(crlf, 'Steps', STEPS).map((it) => it.text)), ['Open the site']);
   assert.match(MdSections.insert(crlf, 'Steps', [step('Click Login')], STEPS), /2\. Click Login/);
-  // …and an expected result under a CRLF step is that step's, not a second step of its own.
+  // An expected result under a CRLF step is that step's, not a second step of its own.
   const subbed = '### Steps\r\n\r\n1. Open the site\r\n   - Expected: the home page\r\n';
   assert.deepEqual(plain(MdSections.items(subbed, 'Steps', STEPS).map((it) => it.subs)),
     [['Expected: the home page']]);
@@ -392,8 +384,6 @@ test('a heading underlined with dashes is not a section the recorder can find', 
   assert.equal(MdSections.slice(md('### Steps', '1. Open the site'), 'Steps', STEPS).hIdx, 0);
 });
 
-// ---- #246: the caller knows the steps section by pattern, not by name ----
-
 test('findHeading returns the name this body gives the steps section, in either language (#246)', () => {
   const H = MdSections.STEPS_HEADING;
   assert.equal(MdSections.findHeading(md('### Steps', '', '1. Open the site', ''), H), 'Steps');
@@ -418,8 +408,7 @@ test('findHeading has nothing to return for a body with no such section (#246)',
 
 test('a heading findHeading returns is exactly what slice then looks for (#246)', () => {
   const H = MdSections.STEPS_HEADING;
-  // Round trip: the `#`s, the padding and the `\r` a CRLF body leaves behind are all off it, and
-  // a bracket in the name is escaped by slice rather than read as a pattern.
+  // The `#`s, padding and a CRLF `\r` come off; a bracket in the name is escaped by slice.
   const bodies = [
     md('### Кроки', '', '1. Відкрити', ''),
     md('##   Steps  ', '', '1. Open the site', ''),
@@ -432,7 +421,7 @@ test('a heading findHeading returns is exactly what slice then looks for (#246)'
     assert.equal(cut.hIdx, 0, heading);
     assert.equal(cut.items.length, 1, heading);
   }
-  // …so the step lands in the section that was already there, and no second one is opened.
+  // The step lands in the section already there, and no second one is opened.
   assert.equal(
     MdSections.insert(bodies[0], MdSections.findHeading(bodies[0], H), [step('Клік')], STEPS),
     md('### Кроки', '', '1. Відкрити', '2. Клік', ''),
@@ -492,7 +481,7 @@ test('a # note inside a code fence does not end the section', () => {
 
 test('a recorded step with a newline inside it falls out of the list', () => {
   const body = md('### Steps', '', '1. Open the site', '');
-  // Today the tail becomes prose; it should be refused or escaped before it reaches here.
+  // The tail becomes prose; it should be refused or escaped before it reaches here.
   const out = MdSections.insert(body, 'Steps', [step('Type admin\nthen tab')], STEPS);
   assert.equal(out, md('### Steps', '', '1. Open the site', '2. Type admin', 'then tab', ''));
   assert.deepEqual(plain(MdSections.items(out, 'Steps', STEPS).map((it) => it.text)), ['Open the site', 'Type admin']);

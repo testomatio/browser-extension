@@ -1,12 +1,8 @@
-// Runs-list screen: dashboard/v2 runs plus rungroup folders, status-filter chips,
-// refresh, lazy nested loading, and run/group URL paste.
+// Runs-list screen: runs and rungroup folders, filter chips, refresh, lazy nesting, URL paste.
 
 /* global TestomatAPI, Skeleton, Tooltip, EmptyState, TestType, Roving, StatusIcons, RunsPaging, RunsUrl */
 
-// ---------- runs list ----------
-
-// Single-select; `launching` folds into Running. Order matters: fitFilterChips
-// (core/views.js) hides the RIGHTMOST chips first when the row runs out of room.
+// Order matters: fitFilterChips hides the rightmost chips first when the row runs out of room.
 const RUN_FILTERS = [
   ['all', 'All'],
   ['passed', 'Passed'],
@@ -22,15 +18,13 @@ const LOADING_ICON = 'progress_activity';
 const filterLabel = (key) => (RUN_FILTERS.find(([k]) => k === key) || [, key])[1];
 const matchesFilter = (status) => state.runsFilter === 'all' || StatusIcons.normStatus(status) === state.runsFilter;
 
-// Live title search over runs + group titles, ANDed with the status chip. A group
-// matching the SEARCH reveals all its status-passing contents.
+// A group matching the search reveals all its status-passing contents.
 const runsSearchActive = () => state.runsSearch.trim() !== '';
 const runsFilterActive = () => state.runsFilter !== 'all';
 const anyRunsConstraint = () => runsSearchActive() || runsFilterActive();
 const titleOf = (item) => (item.clean_title || item.title || '').toLowerCase();
 const searchNeedle = () => state.runsSearch.trim().toLowerCase();
-// #57: a run answers to its id as well as its title — pasted from a URL or a CI log.
-// Folders keep matching by title only; an id belongs to a run.
+// A run also answers to its id, pasted from a URL or a CI log; folders match by title only.
 const runMatchesSearch = (run) =>
   !runsSearchActive()
   || titleOf(run).includes(searchNeedle())
@@ -41,8 +35,7 @@ const groupSelfHit = (group) => matchesFilter(group.status) && groupTitleMatches
 const runsEmptyMessage = () =>
   (runsSearchActive() ? 'No runs match' : `No ${filterLabel(state.runsFilter).toLowerCase()} runs`);
 
-// Degraded fallback: page 1 of runs + rungroups. Both cursors are kept so the
-// shared "Load more" can advance whichever source still has a tail.
+// Degraded fallback: both cursors are kept so "Load more" can advance whichever source has a tail.
 async function fetchRunsData(page = 1) {
   const [runsRes, groupsRes] = await Promise.all([
     TestomatAPI.listRuns(page),
@@ -56,8 +49,7 @@ async function fetchRunsData(page = 1) {
   };
 }
 
-// Dashboard page 1 when a JWT session exists (single source, web order, branched
-// scope); falls back to the degraded v2 fetch only when it does not.
+// Dashboard page 1 under a JWT session (one source, web order); the v2 fetch only without one.
 async function loadRuns() {
   state.childrenCache = {};
   state.subgroupsCache = {};
@@ -80,9 +72,7 @@ async function loadRuns() {
     state.listPaging = { page: res.page, total: res.total, totalPages: res.totalPages, loading: false };
     capabilities.jwt = true;
     applyCapabilities();
-    // The session is proven right here, and both caches memoize on success — so a run
-    // opened a moment later paints the member names and the viewer's own timezone in
-    // its FIRST frame, instead of the probe repainting both a round trip later.
+    // Session proven: prefetch so a run opened next paints names and timezone in its first frame.
     loadProjectInfo();  // fire-and-forget; each swallows its own failure
     loadProjectUsers();
     loadDescendantRuns(); // best-effort
@@ -105,8 +95,7 @@ async function loadRuns() {
   }
 }
 
-// Every top-level group's descendant runs (any depth, nested=true), fetched up
-// front so the chip counts are complete before any folder is expanded.
+// Fetched up front so the chip counts are complete before any folder is expanded.
 function loadDescendantRuns() {
   const groups = state.dashItems
     .filter((it) => it.type === 'rungroup' && !state.descendantRuns[String(it.id)]);
@@ -139,12 +128,10 @@ function loadDescendantRuns() {
 function renderList() {
   if (state.listMode === 'dashboard') renderDashboard();
   else renderRuns(state.lastRuns, state.lastGroups);
-  // The tab count chip is NOT set here — loadRunsCount() owns it, so it never
-  // moves with "Load more", a search keystroke or a descendant settle.
+  // The tab count chip is not set here: loadRunsCount() owns it, so "Load more" never moves it.
 }
 
-// Runs tab chip (#127): the PROJECT's run total off /runs — no folder rows to
-// miscount and no JWT needed. Writes NOTHING into state; failure leaves it absent.
+// The project's run total off /runs: no folder rows to miscount, no JWT needed, nothing in state.
 async function loadRunsCount(epoch) {
   try {
     const total = await TestomatAPI.countRuns();
@@ -158,8 +145,7 @@ function resetRunsSearch() {
   syncRunsSearchInput();
 }
 
-// A project switch clears the query in state (resetProjectScopedState) behind the
-// input's back, so the field is read FROM state rather than trusted to hold it.
+// A project switch clears the query in state behind the input's back, so the field reads from state.
 function syncRunsSearchInput() {
   const input = $('runs-search');
   if (!input) return;
@@ -167,8 +153,7 @@ function syncRunsSearchInput() {
   if ($('runs-search-clear')) $('runs-search-clear').hidden = state.runsSearch.trim() === '';
 }
 
-// #157: the route is /runs/new — /runs/newrun is a dead web route that stacks the
-// run player under the list and POSTs a blank run on every visit.
+// Not /runs/newrun: that dead web route stacks the player under the list and POSTs a blank run.
 function renderNewRunLink() {
   const a = $('btn-new-run');
   if (!a) return;
@@ -183,30 +168,26 @@ function renderNewRunLink() {
 }
 
 async function openRunsView() {
-  // The rows this project already read are painted AT ONCE and re-read behind them.
-  // Coming back from a run they never left memory, and clearing the list to fetch the
-  // same ones again is what put an empty screen in front of the tester for 150ms.
+  // Rows already read paint at once and are re-read behind, so the tester never faces an empty screen.
   const inMemory = state.listMode === 'dashboard' ? state.dashItems?.length : state.lastRuns?.length;
   if (inMemory) {
     show('runs');
-    renderNewRunLink();         // href tracks the active host + project (#118)
+    renderNewRunLink();         // href tracks the active host + project
     syncRunsSearchInput();      // the query outlives leaving the screen, a project switch clears it
     renderFilterChips();
     renderList();
     loadRunsCount(state.projectEpoch); // tab chip only — never blocks the list
-    // #155: still gated, but the lockout REPLACES what is up — nothing is blanked for it.
+    // Still gated, but the lockout replaces what is up; nothing is blanked for it.
     if (await readonlyGate()) { applyReadonlyBlock(); return; }
     await refreshRuns();        // the re-read, behind the rows already on screen
     return;
   }
   show('runs');
-  // Nothing to show from memory (first open, or a project switch emptied it), so the
-  // placeholder is drawn — BEFORE the read-only probe, which is its own round trip.
+  // Nothing in memory, so the placeholder is drawn before the read-only probe, its own round trip.
   const sk = Skeleton.show('runs');
-  // #155: settle the read-only probe BEFORE any list request — a locked project
-  // must not flash a runs list it is about to replace with the blocking panel.
+  // Probe read-only before any list request: a locked project must not flash a list first.
   if (await readonlyGate()) { Skeleton.hide(sk); applyReadonlyBlock(); return; }
-  renderNewRunLink();           // href tracks the active host + project (#118)
+  renderNewRunLink();           // href tracks the active host + project
   syncRunsSearchInput();
   renderFilterChips();
   setStatusLine('runs-status', 'Loading runs…');
@@ -223,16 +204,14 @@ async function openRunsView() {
   }
 }
 
-// The runs list's HALF of a refresh — refreshAll() (core/views.js) owns the
-// button's disabled/spinning state. On failure the previous list stays.
+// refreshAll() owns the button's spinning state; on failure the previous list stays.
 async function refreshRuns() {
   try {
     await loadRuns();
     renderList();
     await ensureExpandedChildrenLoaded();
   } catch (e) {
-    // #155: access turning read-only mid-session is a lockout, not a failed
-    // refresh — repaint into the blocking panel instead of toasting.
+    // Read-only mid-session is a lockout, not a failed refresh: repaint into the blocking panel.
     if (isReadonlyError(e)) { applyCapabilities(); return; }
     setStatusLine('runs-status', `Refresh failed: ${e.message || e}`, 'error');
     toast(`Refresh failed: ${e.message || e}`, { error: true });
@@ -243,8 +222,7 @@ const childrenLoaded = (groupId) => Array.isArray(state.childrenCache[String(gro
 const groupContentsLoaded = (groupId) =>
   childrenLoaded(groupId) && Array.isArray(state.subgroupsCache[String(groupId)]);
 
-// Lazy first-expansion load, cached per refresh. A failed leg caches [] + toasts,
-// so the empty state shows and it is not retried until the next refresh.
+// Lazy, cached per refresh; a failed leg caches [] and toasts, so it is not retried until then.
 async function loadGroupContents(groupId) {
   const key = String(groupId);
   if (state.loadingGroup[key] || groupContentsLoaded(key)) return;
@@ -256,8 +234,7 @@ async function loadGroupContents(groupId) {
   ]);
   state.subgroupsCache[key] = subs?.items || [];
   state.childrenCache[key] = runs?.items || [];
-  // Both cursors in one record — the folder shows ONE "Load more" for all its
-  // contents, advancing whichever of the two still has a page (#110).
+  // Both cursors in one record: the folder shows one "Load more" for all its contents.
   state.groupPaging[key] = {
     subsPage: subs?.page || 1, subsTotal: subs?.total ?? null, subsTotalPages: subs?.totalPages ?? null,
     runsPage: runs?.page || 1, runsTotal: runs?.total ?? null, runsTotalPages: runs?.totalPages ?? null,
@@ -269,12 +246,9 @@ async function loadGroupContents(groupId) {
   renderList();
 }
 
-// ---------- "Load more" (#110) ----------
-// Deliberately not infinite scroll: the panel's one shared scroll container
-// (collapsed folders, paste-flash scrollIntoView) makes bottom-reach races.
+// Deliberately not infinite scroll: the one shared scroll container makes bottom-reach races.
 
-// Rows land first; the nested descendant counts for groups this page brought in
-// settle right after, repainting the chips.
+// Rows land first; the descendant counts for the page's new groups settle after, repainting chips.
 async function loadMoreRuns() {
   const cursor = RunsPaging.listCursor();
   if (!cursor || cursor.loading || !RunsPaging.hasNextPage(cursor)) return;
@@ -317,7 +291,7 @@ async function loadMoreRuns() {
   }
 }
 
-// Next page of ONE folder's contents — subgroups first, then runs (render order).
+// Next page of one folder's contents: subgroups first, then runs (render order).
 async function loadMoreGroup(groupId) {
   const key = String(groupId);
   const p = state.groupPaging[key];
@@ -354,8 +328,7 @@ async function loadMoreGroup(groupId) {
   }
 }
 
-// The "M of T loaded" note shows only under an active constraint — the filter
-// searched just the loaded rows, and must say so.
+// "M of T loaded" shows only under an active constraint: the filter searched just the loaded rows.
 function loadMoreRow({ remaining, loading, loaded, total, onClick, label = 'Load more' }) {
   const li = document.createElement('li');
   li.className = 'load-more';
@@ -369,7 +342,7 @@ function loadMoreRow({ remaining, loading, loaded, total, onClick, label = 'Load
   text.textContent = loading
     ? 'Loading…'
     : (remaining ? `${label} (${remaining} more)` : label);
-  // One class PER ARGUMENT: Icons.el feeds them to classList.add, which throws on a token holding a space (#215).
+  // One class per argument: classList.add throws on a token holding a space.
   if (loading) btn.append(StatusIcons.svgIcon(LOADING_ICON, 14, 'spin', 'load-more-spinner'));
   btn.append(text);
   btn.addEventListener('click', (ev) => { ev.stopPropagation(); onClick(); });
@@ -389,8 +362,7 @@ function reachableGroupIds() {
   return ids;
 }
 
-// Walks nested chains until no further progress, then prunes expansion state for
-// ids no longer anywhere in the tree.
+// Walks nested chains until no progress, then prunes expansion state for ids gone from the tree.
 async function ensureExpandedChildrenLoaded() {
   if (state.listMode !== 'dashboard') return;
   for (let guard = 0; guard < 20; guard++) {
@@ -413,8 +385,7 @@ async function expandGroupChain(ids) {
     persistSession();
     if (state.listMode === 'dashboard' && !groupContentsLoaded(id)) await loadGroupContents(id);
     else renderList();
-    // The next link may sit on a LATER subgroup page (#110) — pull pages until
-    // its row exists, else the paste target never renders.
+    // The next link may sit on a later subgroup page: pull pages until its row exists.
     if (ids[i + 1] != null) await ensureSubgroupLoaded(id, ids[i + 1]);
   }
   renderList();
@@ -429,7 +400,7 @@ async function ensureSubgroupLoaded(parentId, childId) {
   }
 }
 
-// A ROOT group pasted by URL may live past page 1 of the list.
+// A root group pasted by URL may live past page 1 of the list.
 async function ensureTopLevelGroupLoaded(groupId) {
   for (let guard = 0; guard < 20; guard++) {
     if (findGroupById(groupId)) return true;
@@ -466,15 +437,11 @@ function buildFilterChip(key, label) {
   return chip;
 }
 
-// The row is UPDATED, not rebuilt: rebuilding the six buttons per render (this
-// runs on every list render) re-measures the row and the chips visibly jump.
+// Updated, not rebuilt: rebuilding the six buttons per render re-measures the row, and chips jump.
 function renderFilterChips() {
   const bar = $('runs-filter');
   if (!bar) return;
-  // Until the nested fetches settle the loaded set is a lower bound that would count
-  // UP as folders land. A FIRST read has nothing better and rests at 0 (tab chips
-  // instead stay absent); a RE-read keeps the last settled numbers up — dropping them
-  // to zero and climbing back is the flicker every Back would otherwise show.
+  // Until nested fetches settle, a re-read keeps the last settled numbers rather than count up from 0.
   const pending = state.listMode === 'dashboard' && !state.descendantsSettled;
   // Failed legs: the loaded set is a lower bound, so counts get a trailing "+".
   const settledPartial = state.listMode === 'dashboard' && state.descendantsSettled && state.descendantsPartial;
@@ -482,8 +449,7 @@ function renderFilterChips() {
   const held = pending ? state.runsChipCounts : null; // null on a first read — nothing settled yet
   if (!pending) state.runsChipCounts = { counts: fresh, partial: settledPartial };
   const counts = held ? held.counts : fresh;
-  // The tooltip follows whatever the chips SHOW, so it is the snapshot's flag while
-  // the snapshot is the thing on screen.
+  // The tooltip follows what the chips show: the snapshot's flag while the snapshot is on screen.
   const partial = held ? held.partial : settledPartial;
   Tooltip.set(bar, partial ? 'Some run counts couldn’t load — Refresh to complete them' : '');
   for (const [key, label] of RUN_FILTERS) {
@@ -508,8 +474,7 @@ function setRunsFilter(key) {
   renderList();
 }
 
-// One input, two jobs (#106): title search, unless the value is URL-shaped. A
-// PASTED url opens at once; a typed one waits for Enter (half-typed ids).
+// Title search unless URL-shaped: a pasted url opens at once, a typed one waits for Enter.
 function onRunsSearch(e) {
   const raw = $('runs-search').value;
   const urlish = RunsUrl.looksLikeRunUrl(raw);
@@ -521,8 +486,7 @@ function onRunsSearch(e) {
   if (urlish && isPasteInput(e)) openRunsSearchUrl();
 }
 
-// Paste/drop arrive as one input event carrying inputType; typed characters and
-// synthetic Events carry none.
+// Paste and drop carry an inputType; typed characters and synthetic Events carry none.
 const isPasteInput = (e) =>
   e?.inputType === 'insertFromDrop' || String(e?.inputType || '').startsWith('insertFromPaste');
 
@@ -530,7 +494,7 @@ function onRunsSearchKeydown(e) {
   if (e.key !== 'Enter') return;
   const raw = $('runs-search').value;
   if (RunsUrl.looksLikeRunUrl(raw)) { e.preventDefault(); openRunsSearchUrl(); return; }
-  // #57: a bare id opens its run on Enter, exactly as a pasted link does.
+  // A bare id opens its run on Enter, exactly as a pasted link does.
   if (!RunsUrl.looksLikeRunId(raw)) return;
   e.preventDefault();
   openRunsSearchId(raw.trim());
@@ -544,12 +508,10 @@ function clearRunsSearch() {
   $('runs-search').focus();
 }
 
-// api.js joins v2's env array into ONE string; the split lives here, in the row
-// that draws the pills, so `env` stays one comparable string everywhere else.
+// api.js joins v2's env array into one string; split here so `env` stays one comparable string.
 const envTags = (env) => String(env || '').split(',').map((s) => s.trim()).filter(Boolean);
 
-// What the arrows walk: every run row (top-level or inside a folder) and every folder head. The
-// Load more row and the empty states are buttons of their own and stay ordinary tab stops.
+// Every run row and folder head; Load more and the empty states stay ordinary tab stops.
 const RUNS_ROW_SELECTOR = 'li[data-run-id], .group-head';
 
 function runRow(run, { child = false, showId = false } = {}) {
@@ -560,8 +522,7 @@ function runRow(run, { child = false, showId = false } = {}) {
   const head = document.createElement('div');
   head.className = 'list-head';
   head.append(StatusIcons.statusIcon(run.status));
-  // status icon → type → title is the web list's own order (list-runs.hbs). The
-  // shared `.type-mark` carries the word on its tooltip; unknown kind renders nothing.
+  // status icon → type → title is the web list's own order; an unknown kind renders nothing.
   const kind = typeof TestType !== 'undefined' ? TestType.mark(StatusIcons.runKind(run.kind)) : null;
   if (kind) head.append(kind);
   // `.list-lines`: the text block a head lays out beside its marks (shared/components.css).
@@ -585,7 +546,7 @@ function runRow(run, { child = false, showId = false } = {}) {
     }
     lines.append(meta);
   }
-  // #57: nothing else on the row names the id the by-id lookup was asked for.
+  // Nothing else on the row names the id the by-id lookup was asked for.
   if (showId) {
     const idLine = document.createElement('div');
     idLine.className = 'meta';
@@ -594,7 +555,7 @@ function runRow(run, { child = false, showId = false } = {}) {
   }
   head.append(lines);
   li.append(head);
-  // No status or kind on the second line — the glyph and the type mark say both (#111).
+  // No status or kind on the second line: the glyph and the type mark say both.
   li.addEventListener('click', () => openRunView(run.id, run.clean_title || run.title));
   return Roving.item(li);
 }
@@ -604,10 +565,9 @@ const isExpanded = (groupId) => state.expandedGroups.some((id) => String(id) ===
 // The trailing run count is drawn only when reliable — subgroup rows carry none.
 function groupHead(group) {
   const head = document.createElement('div');
-  // A real `.list-row` — its own rule, inset to the glyph column by
-  // `tree-row has-chevron`, and the library's padding rather than its own.
+  // A real `.list-row`: its own rule, inset to the glyph column, with the library's padding.
   head.className = 'list-row list-head group-head tree-row has-chevron';
-  // A head that folds a folder has to SAY whether it is open — the chevron is a picture.
+  // A head that folds a folder has to say whether it is open: the chevron is a picture.
   head.setAttribute('aria-expanded', String(isExpanded(group.id)));
   const chevron = StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron');
   // A v2 rungroup row may carry a project `emoji` that stands in for the folder mark.
@@ -628,8 +588,7 @@ function groupHead(group) {
   return Roving.item(head);
 }
 
-// Nesting needs no depth param — a subgroup <li> goes into its parent's children
-// container, so the `.tree-children` indent compounds on its own (style.css).
+// No depth param: a subgroup nests in its parent's children, so the indent compounds on its own.
 function groupShell(group) {
   const li = document.createElement('li');
   li.className = 'group tree-node';
@@ -642,16 +601,14 @@ function groupShell(group) {
   li.append(head);
   const kids = document.createElement('div');
   kids.className = 'group-children tree-children';
-  // The class alone hides them in CSS; `hidden` is what also takes a folded group's rows out of
-  // the arrow walk and out of a reader's way.
+  // The class hides the rows; `hidden` also takes them out of the arrow walk and a reader's way.
   kids.hidden = !isExpanded(group.id);
   li.append(kids);
   head.addEventListener('click', () => toggleGroup(group.id, li));
   return { li, kids };
 }
 
-// Compact: a block empty state indented under one folder would read as the whole
-// list collapsing. `.group-empty` is what carries the child-row indentation.
+// Compact: a block empty state under one folder would read as the whole list collapsing.
 function groupEmptyRow(loading) {
   const row = EmptyState.build({
     compact: true,
@@ -663,8 +620,7 @@ function groupEmptyRow(loading) {
   return row;
 }
 
-// v2 (degraded): a flat folder, v2 has no nested subgroups. `loading` is unused
-// here — kept for signature parity with the dashboard renderer.
+// v2 has no nested subgroups, so a flat folder; `loading` keeps signature parity with the dashboard.
 function groupRow(group, children, { loading = false } = {}) {
   const { li, kids } = groupShell(group);
   if (children.length) {
@@ -675,8 +631,7 @@ function groupRow(group, children, { loading = false } = {}) {
   return li;
 }
 
-// Top-level groups carry the full nested descendant list, so a COLLAPSED group
-// still matches a deep run; subgroups only have their lazily-loaded caches.
+// Top-level groups carry the full descendant list, so a collapsed group still matches a deep run.
 function groupPasses(group) {
   if (!anyRunsConstraint()) return true;
   if (groupSelfHit(group)) return true;
@@ -686,8 +641,7 @@ function groupPasses(group) {
   return (state.subgroupsCache[key] || []).some((sg) => groupPasses(sg));
 }
 
-// Recursive, any depth; subgroups before runs. `forceShowKids` (an ancestor's
-// title matched the search) exempts contents from SEARCH, not from the chip.
+// `forceShowKids` (an ancestor's title matched) exempts contents from the search, not the chip.
 function dashGroupRow(group, forceShowKids = false) {
   const constrained = anyRunsConstraint();
   if (constrained && !forceShowKids && !groupPasses(group)) return null;
@@ -709,8 +663,7 @@ function dashGroupRow(group, forceShowKids = false) {
     kids.append(groupEmptyRow(state.loadingGroup[key]
       || (isExpanded(group.id) && !groupContentsLoaded(key))));
   }
-  // Rendered under an active constraint too — a filter narrowing the LOADED rows
-  // must not hide the fact that more exist (#110).
+  // Also under a constraint: a filter narrowing the loaded rows must not hide that more exist.
   if (RunsPaging.groupHasMore(key)) {
     const p = state.groupPaging[key];
     const loadedHere = (state.subgroupsCache[key] || []).length + (state.childrenCache[key] || []).length;
@@ -751,8 +704,7 @@ function renderRuns(runs, groups = []) {
   const groupMap = new Map();
   for (const g of groups) if (!g.archived_at) groupMap.set(String(g.id), g);
 
-  // A run whose rungroup_id names no KNOWN group (nested subgroup, absent from
-  // v2's roots-only list) renders top-level instead of vanishing.
+  // A run whose rungroup_id names no known group renders top-level instead of vanishing.
   const childrenByGroup = new Map();
   const topLevel = [];
   for (const run of runs) {
@@ -790,14 +742,12 @@ function renderRuns(runs, groups = []) {
   finishRunsRender(ul, { loaded: groupMap.size + topLevel.length, shown, constrained });
 }
 
-// Order matters — the no-match state goes in BEFORE the load-more row, which is
-// a footnote to it ("only page 1 was searched"), not a sibling.
+// No-match goes before the load-more row, its footnote ("only page 1 was searched").
 function finishRunsRender(ul, { loaded, shown, constrained }) {
-  // Both renderers come through here, and the <ul> outlives every one of their replaceChildren()
-  // calls — so this wires the keyboard once and costs nothing on the renders after it.
+  // The <ul> outlives both renderers' replaceChildren(), so the keyboard is wired once.
   Roving.attach(ul, { selector: RUNS_ROW_SELECTOR });
   if (!loaded) { renderRunsEmptyCta(ul); renderFilterChips(); return; }
-  // #57: nothing loaded answered an id-shaped query — look the run up directly.
+  // Nothing loaded answered an id-shaped query: look the run up directly.
   const probeId = constrained && !shown ? RunsUrl.searchRunId() : null;
   syncRunIdProbe(probeId);
   if (constrained && !shown) {
@@ -810,8 +760,7 @@ function finishRunsRender(ul, { loaded, shown, constrained }) {
   setStatusLine('runs-status', '');
 }
 
-// Stays put under an active search/status chip, so a filtered-empty list still
-// admits it only searched page 1.
+// Stays put under an active constraint, so a filtered-empty list still admits it searched page 1.
 function renderTopLoadMore(ul) {
   const cursor = RunsPaging.listCursor();
   if (!RunsPaging.hasNextPage(cursor) && !cursor?.loading) return;
@@ -825,14 +774,12 @@ function renderTopLoadMore(ul) {
   }));
 }
 
-// Interleaved runs+rungroups in web order. Counts/filters stay client-side over
-// the loaded set; a not-yet-expanded group falls back to its own status.
+// Counts and filters stay client-side; a not-yet-expanded group falls back to its own status.
 function renderDashboard() {
   const ul = $('runs-list');
   ul.replaceChildren();
 
-  // Countable set: top-level runs + nested descendants + lazily-loaded children,
-  // DEDUPED by id — the same run appears in several caches.
+  // Countable set deduped by id: the same run appears in several caches.
   const byId = new Map();
   for (const it of state.dashItems) if (it.type === 'run') byId.set(String(it.id), it);
   for (const runs of Object.values(state.descendantRuns)) for (const r of runs) byId.set(String(r.id), r);
@@ -856,8 +803,7 @@ function renderDashboard() {
   finishRunsRender(ul, { loaded: state.dashItems.length, shown, constrained });
 }
 
-// A truly empty project only — a filter-emptied list is runsNoMatchEmpty below.
-// The primary action targets /runs/new, not the runs index.
+// A truly empty project only; a filter-emptied list gets runsNoMatchEmpty.
 function renderRunsEmptyCta(ul) {
   const s = state.settings || {};
   const actions = [];
@@ -886,8 +832,7 @@ function renderRunsEmptyCta(ul) {
   setStatusLine('runs-status', '');
 }
 
-// Rows exist, none survived the chip + search. Marked `live` — it took over the
-// status line's aria-live job. `idMiss`: the by-id lookup came back empty too (#57).
+// `live`: it takes over the status line's aria-live job; `idMiss`: the by-id lookup missed too.
 function runsNoMatchEmpty(idMiss = false) {
   const actions = [];
   if (runsSearchActive()) {
@@ -920,8 +865,7 @@ function runsNoMatchEmpty(idMiss = false) {
   });
 }
 
-// The run is probed first, so a bad id or a no-access run leaves the user on the
-// list with a toast instead of in a half-rendered run view.
+// Probed first, so a bad id or a no-access run leaves the user on the list, not a half-drawn run.
 async function openParsedRunTarget(target) {
   // The group path shows the runs list before anything can fail, so it always lands.
   if (target.kind === 'group') { await openGroupFromUrl(target.id); return true; }
@@ -943,10 +887,7 @@ async function openRunsSearchUrl() {
   await openParsedRunTarget(target);
 }
 
-// "Run in Extension" from the web app (#14). Whatever the panel is showing is replaced —
-// the tester asked for this run by clicking.
-// True when it LANDED the panel on a view — boot falls back to the restored session when a URL
-// dies on the way (a run that 404s used to leave the panel on nothing at all).
+// "Run in Extension" from the web app; true when it landed the panel on a view, else boot restores.
 async function openRunFromUrl(url) {
   const parts = RunsUrl.parseParts(url);
   if (!parts) { RunsUrl.reportNotFound(); return false; }
@@ -972,8 +913,7 @@ async function openRunFromUrl(url) {
   return openParsedRunTarget(parts);
 }
 
-// URL intent wins over any active filter/search: both reset, then the group is
-// expanded, highlighted and scrolled into view.
+// URL intent wins over any active filter or search: both reset before the group is shown.
 async function openGroupFromUrl(groupId) {
   state.runsFilter = 'all';
   resetRunsSearch();
@@ -995,8 +935,7 @@ async function openGroupFromUrl(groupId) {
     highlightGroup(top.id);
     return;
   }
-  // Nested (dashboard only): the show payload's `path` is root-first and
-  // excludes self, so each level is expanded before the target.
+  // Nested: the show payload's `path` is root-first and excludes self, so levels expand first.
   if (state.listMode === 'dashboard') {
     let detail;
     try { detail = await TestomatAPI.getRunGroup(groupId); }
@@ -1040,15 +979,12 @@ function highlightGroup(groupId) {
   }, 2500);
 }
 
-// ---------- find a run by id (#57) ----------
-// The search reaches only the loaded rows, so an id that none of them answers is read
-// straight off /runs/{id} — the run may sit deep in a folder or far down the list.
+// An id no loaded row answers is read straight off /runs/{id}: it may sit deep in a folder.
 
 // Long enough that the read waits for the typing to stop.
 const RUN_ID_PROBE_MS = 500;
 
-// The one probe kept: { query, epoch, pending, run }; a settled `run: null` = no such run.
-// Re-renders repaint it; only a NEW query reads again, and `epoch` voids it on a project switch.
+// One probe kept; a settled `run: null` means no such run, and `epoch` voids it on a project switch.
 let runIdProbe = null;
 let runIdProbeTimer = null;
 let runIdProbeToken = 0; // strands a read whose query is no longer the one on screen
@@ -1058,8 +994,7 @@ const runIdProbeFor = (query) =>
     ? runIdProbe
     : null);
 
-// Every render passes through here: it arms the read for a fresh id-shaped miss, and
-// strands the pending one the moment the query stops being one.
+// Arms the read for a fresh id-shaped miss and strands the pending one once the query changes.
 function syncRunIdProbe(query) {
   if (query && runIdProbeFor(query)) return; // settled, or already on the wire
   clearTimeout(runIdProbeTimer);
@@ -1080,8 +1015,7 @@ async function probeRunById(query, token) {
   try {
     run = await TestomatAPI.getRun(query);
   } catch (e) {
-    // Quiet on purpose (fires on a keystroke pause): only a definite miss is remembered,
-    // a network or auth blip stays retryable.
+    // Quiet, as it fires on a typing pause: only a definite miss is remembered; blips stay retryable.
     if (e?.kind !== 'notfound') { if (token === runIdProbeToken) runIdProbe = null; return; }
   }
   if (token !== runIdProbeToken || staleProject(epoch) || state.runsSearch.trim() !== query) return;
@@ -1089,8 +1023,7 @@ async function probeRunById(query, token) {
   if (state.view === 'runs') renderList();
 }
 
-// Stands in for the empty state: an explicit id ask outranks the status chip, so the
-// row appears even when the filter would have hidden it.
+// An explicit id ask outranks the status chip, so the row shows even when the filter would hide it.
 function foundByIdRows(run) {
   const label = document.createElement('li');
   label.className = 'found-by-id';

@@ -1,12 +1,6 @@
 #!/usr/bin/env node
-// The little editor-tab screen that hosts the annotator when the page under test could not host
-// it: read the capture out of the `?annotate=<key>` handoff, run the engine on it, write the
-// answer back under the SAME key and close the tab. Its one hard contract is that it writes once —
-// a second write is what would put an un-blurred original back over an applied result.
-// Run: node --test tests/editor-annotate.test.mjs
 
 // `key` and `done` are module state, so this file loads a fresh sandbox per row.
-// AnnotateCore is stubbed: nothing here draws, and `handle.hooks` only has to be recognisable.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createContext, runInContext } from 'node:vm';
@@ -60,7 +54,7 @@ function load(over = {}) {
     AnnotateCore: {
       create: (opts) => {
         calls.created.push(opts);
-        calls.annotAtCreate = win.__annot;   // line 63 runs only after create() returns
+        calls.annotAtCreate = win.__annot;   // annotate.js sets __annot again only after create() returns
         return { hooks };
       },
     },
@@ -88,13 +82,10 @@ const boot = async (over, key = KEY) => {
   return h;
 };
 
-// Hand the answer back through the callback the core was given, and let the write settle.
 async function handBack(h, how, value) {
   if (how === 'apply') h.opts().onApply(value); else h.opts().onCancel();
   await settle();
 }
-
-// ---- the four ways the boot gives up ----------------------------------------
 
 test('AN1: opening the annotator tab with no handoff key at all says there is nothing to annotate', async () => {
   for (const key of ['', null]) {
@@ -126,8 +117,6 @@ test('AN4: a handoff record that is there but carries no picture reads as expire
   assert.equal(h.root().textContent, 'Nothing to annotate (the image handoff expired).');
   assert.deepEqual(h.calls.created, []);
 });
-
-// ---- the happy path and the hand-back ---------------------------------------
 
 test('AN5: the capture reaches the engine, and the e2e handle is published before it is ready', async () => {
   const h = await boot({ store: { [KEY]: { dataUrl: SHOT } } });
@@ -183,8 +172,6 @@ test('AN9: a store that refuses the write still closes the tab instead of hangin
   assert.deepEqual(h.calls.removed, [7]);
 });
 
-// ---- closing the tab it lives in --------------------------------------------
-
 test('AN10: the annotator tab closes itself by its own tab id', async () => {
   const h = await boot({ store: { [KEY]: { dataUrl: SHOT } }, currentTab: { id: 7 } });
   await handBack(h, 'apply', 'x');
@@ -211,19 +198,14 @@ test('AN12: with no tabs API at all it still gets out of the way', async () => {
   assert.equal(h.calls.sets.length, 1, 'the answer was still written');
 });
 
-// ---- the key it trusts, and the wording it owns ------------------------------
-
-// The URL names the key this page reads AND writes back, so anything that is not the one shape
-// capture-annotate.js produces is refused before the store is touched at all.
+// The URL names the key this page reads and writes, so any other shape is refused before the store.
 test('AN13 (#318): a ?annotate= key that is not annotate-<uuid> is never read, and never written over', async () => {
   const bads = [
     'settings', 'stepRec', '../x', 'annotate-', 'annotate-nope', `x${KEY}`, `${KEY}x`,
-    // Right shape, wrong lengths: crypto.randomUUID() is 8-4-4-4-12, and a pattern loose about
-    // any of the five is a pattern that lets the caller name a key again.
+    // crypto.randomUUID() is 8-4-4-4-12, and a pattern loose about any part lets the caller name a key.
     'annotate-abcdef-1234-1234-1234-123456789012',
     'annotate-abcdef012-1234-1234-1234-123456789012',
-    // …and wrong alphabet, one segment at a time — a widened character class in ANY of the five
-    // is enough, so each has to be asked separately.
+    // Wrong alphabet one segment at a time: a widened class in any of the five is enough.
     ...KEY.slice('annotate-'.length).split('-')
       .map((_, i, segs) => `annotate-${segs.map((sg, j) => (i === j ? 'z'.repeat(sg.length) : sg)).join('-')}`),
   ];

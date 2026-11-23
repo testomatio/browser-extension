@@ -1,11 +1,9 @@
-// Loading placeholders (IIFE global `Skeleton`), composed from the real screens' own
-// components. Mounted as a SIBLING of the list, never inside it — the e2e counts rows there.
+// Mounted as a sibling of the list, never inside it: the e2e counts rows there.
 
 /* global $, Sk */
 
 const Skeleton = (() => {
-  // Bars come from shared/skeleton.js; this file is only the PLANS — which shape
-  // each panel view puts up, and when.
+  // Bars come from shared/skeleton.js; this file holds the plans: which shape each view puts up.
   const { el, bar, lines } = Sk;
 
   // Varied widths: a stack of equal bars reads as a barcode rather than a list.
@@ -16,8 +14,6 @@ const Skeleton = (() => {
 
   const pick = (arr, i) => arr[i % arr.length];
 
-  // ---------- rows, one per list the panel draws ----------
-
   // Runs list (screens/runs-list.js runRow): one line — status glyph + title.
   function runsRow(i) {
     const li = el('li');
@@ -27,8 +23,7 @@ const Skeleton = (() => {
     return li;
   }
 
-  // Run view checklist (screens/run-view.js testRow). The bar goes IN a `.title`:
-  // a row's line is 20px tall whatever it carries, where a bare bar is 13px.
+  // The bar goes in a `.title`: a row's line is 20px tall whatever it carries, a bare bar 13px.
   function testRow(i) {
     const li = el('li', 'test-row');
     const title = el('div', 'title');
@@ -40,8 +35,7 @@ const Skeleton = (() => {
     return li;
   }
 
-  // Suite tree (screens/tc-studio.js tcNode). The count is a LINE, not a chip —
-  // the real row's is plain text at the trailing edge (`.row-count`).
+  // The count is a line, not a chip: the real row's is plain text at the trailing edge.
   function treeRow(i, { folder = true } = {}) {
     const li = el('li', 'tc-item');
     const row = el('div', 'list-row tc-row list-head');
@@ -75,37 +69,27 @@ const Skeleton = (() => {
     return li;
   }
 
-  // ---------- the blocks a screen is assembled from ----------
-
   const listOf = (row, n) => {
     const ul = el('ul', 'list is-static skeleton-rows');
     for (let i = 0; i < n; i += 1) ul.append(row(i));
     return ul;
   };
 
-  // The runs toolbar: search + "New run" (Refresh lives in the project strip).
-  // 96px is that button measured at the width this panel opens at.
+  // 96px is the "New run" button measured at the width this panel opens at.
   function toolbar() {
     const row = el('div', 'toolbar runs-bar');
     row.append(bar('control sm fill'), bar('control sm', '96px'));
     return row;
   }
 
-  // Four chips where the runs list draws six: the rest go to the overflow menu at
-  // panel widths (fitFilterChips), and the taller guess would move every row under it.
-  // A filter chip is a `.btn.size-sm` on BOTH screens (buildFilterChip in runs-list.js,
-  // renderRunFilterChips in run-view.js) and never the 20px `.chip`, which is what used
-  // to lift every row below this one by 8px when the real row landed.
+  // Four chips, not six: the rest overflow at panel widths, and a taller guess would move every row.
   function filters() {
     const row = el('div', 'filters');
     for (const w of ['58px', '70px', '64px', '76px']) row.append(bar('control sm', w));
     return row;
   }
 
-  // The run screen WHOLE — its card and its controls paint empty (every field of the
-  // summary is [hidden] until the read lands, the chip row is built from the records),
-  // so a placeholder over the list alone leaves an empty box above it, which reads as a
-  // screen that failed rather than one loading. `hides` takes the real two away meanwhile.
+  // The run screen whole: a placeholder over the list alone leaves an empty card that reads as failed.
   function runScreen() {
     const box = el('div', 'sk-run');
 
@@ -114,17 +98,14 @@ const Skeleton = (() => {
     const stateRow = el('div', 'run-state-row');
     stateRow.append(bar('chip', '64px'), bar('chip', '72px'), el('span', 'bar-spacer'),
       bar('control sm', '84px'));
-    // #run-progress is an id on an unstyled div, so this is progressNodes() itself: the
-    // counts LINE (its own line box, which is where the height comes from — hence an
-    // inline bar) over the real 5px track, both keeping the margins their classes give.
+    // The counts line (its own line box gives the height, hence an inline bar) over the 5px track.
     const progress = el('div');
     const counts = el('div', 'hint counts');
     counts.append(bar('line sm inline', '26px'));
     const track = el('div', 'progress');
     track.append(bar('fill'));
     progress.append(counts, track);
-    // Run info drawn OPEN — its fold is remembered, but open is the default and the common
-    // case. Its own three classes, so the foot bleeds and the head bleeds exactly as there.
+    // Run info drawn open: its fold is remembered, but open is the default and the common case.
     const foot = el('div', 'disclosure card-foot run-info');
     const head = el('div', 'disclosure-head');
     head.append(bar('circle'), bar('line', '54px'));
@@ -140,17 +121,12 @@ const Skeleton = (() => {
     foot.append(head, kv);
     card.append(stateRow, progress, foot);
 
-    // Same blocks in the same order as the screen behind it, in the screen's own classes:
-    // card, search, chips, checklist — so the real paint lands on these pixels.
+    // The same blocks in the screen's order and classes, so the real paint lands on these pixels.
     box.append(card, bar('control sm fill'), filters(), listOf(testRow, ROWS));
     return box;
   }
 
-  // ---------- what each view puts up while it loads ----------
-  // `anchor` is the element the placeholder is inserted BEFORE — the container the
-  // screen renders into. `hides` (optional) are the elements it stands IN FOR: hidden
-  // while it is up, shown again when it comes down, for a block that would otherwise sit
-  // there empty beside the placeholder. A view missing from here gets no placeholder.
+  // Inserted before `anchor`; `hides` are blocks it stands in for, hidden only while it is up.
   const PLANS = {
     runs: { anchor: 'runs-list', build: () => listOf(runsRow, ROWS) },
     run: { anchor: 'run-header', hides: ['run-header', 'run-controls'], build: runScreen },
@@ -166,19 +142,13 @@ const Skeleton = (() => {
     return ul;
   }
 
-  // ---------- when a placeholder is drawn ----------
-  // A NAVIGATION draws its own at once. The screen it left is already gone, so a
-  // clock buys nothing: what it bought was an empty view that fills 150ms later,
-  // which reads as a flash of nothing rather than as speed. Only the boot still
-  // waits (paintBoot) — there the panel is the placeholder, and a fast open should
-  // land on the real thing having drawn none.
+  // A navigation draws its own at once: a clock only buys a flash of empty view. Boot still waits.
   const DELAY_MS = 250; // boot only
 
   // At most one placeholder on screen, `{ view, node }` — the handle a caller holds.
   let pending = null;
 
-  // Hand back a HANDLE: a stranded fetch settles AFTER a newer one put its own
-  // placeholder up, and the handle is what stops it taking down the winner's screen.
+  // A stranded fetch settles after a newer one; the handle stops it taking down the winner's screen.
   function show(view) {
     hide();
     const plan = PLANS[view];
@@ -189,8 +159,7 @@ const Skeleton = (() => {
     return handle;
   }
 
-  // The blocks the placeholder stands in for. Nothing is remembered on the way in:
-  // what a plan hides is a block the screen shows at every other moment.
+  // Nothing is remembered on the way in: a hidden block is one the screen shows at every other moment.
   function setHidden(plan, on) {
     for (const id of plan?.hides || []) {
       const node = $(id);
@@ -198,7 +167,6 @@ const Skeleton = (() => {
     }
   }
 
-  // The screen has opened with nothing in it — draw it.
   function mount(handle, plan) {
     const anchor = $(plan.anchor);
     if (!anchor) return;
@@ -210,16 +178,13 @@ const Skeleton = (() => {
     setHidden(plan, true);
   }
 
-  // With a handle: only while it is still the one in hand. Without: take down whatever
-  // is up (a view change invalidates any). Both paths give the hidden blocks back.
+  // With a handle, only while it is still the one in hand; without, whatever is up.
   function hide(handle) {
     if (!pending || (handle && handle !== pending)) return;
     if (pending.node) pending.node.remove();
     setHidden(PLANS[pending.view], false);
     pending = null;
   }
-
-  // ---------- boot ----------
 
   // The one placeholder still on a clock — only a boot that is really a wait draws one.
   let bootTimer = 0;
@@ -228,22 +193,19 @@ const Skeleton = (() => {
     bootTimer = setTimeout(drawBoot, DELAY_MS);
   }
 
-  // The whole panel. Which tab the boot lands on is not known yet (the last session
-  // is still being read out of storage), so it draws the runs list.
+  // The boot tab is not known yet (the session is still being read), so it draws the runs list.
   function drawBoot() {
     bootTimer = 0;
     const host = $('boot-skeleton');
     if (!host || host.firstChild) return;
     host.classList.add('skeleton-enter');
 
-    // The spacer stands in for the dropdown container's flex:1, which is what pushes
-    // the two square controls to the gutter on the real strip.
+    // The spacer stands in for the dropdown's flex:1, which pushes the square controls to the gutter.
     const project = el('div', 'bar project-bar');
     project.append(bar('line sm', '46px'), bar('control sm', '140px'),
       el('span', 'bar-spacer'), bar('control sm square'), bar('control sm square'));
 
-    // `.sticky` is not just looks: the real row's bottom rule is an absolutely
-    // positioned ::after, and .bar.sticky is what it positions against.
+    // `.sticky` is not just looks: the real row's bottom rule is an ::after positioned against it.
     const tabs = el('div', 'bar sticky stretch header-top');
     const nav = el('nav', 'tabs fill sk-tabs');
     for (const w of ['44px', '38px', '58px']) {
@@ -259,8 +221,7 @@ const Skeleton = (() => {
     host.append(project, tabs, body);
   }
 
-  // Both halves matter: the flag brings the real header back, and the container goes
-  // for good — a boot happens once per panel open.
+  // The flag brings the real header back, and the container goes for good: one boot per open.
   function bootDone() {
     clearTimeout(bootTimer);
     bootTimer = 0;

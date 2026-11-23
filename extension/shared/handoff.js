@@ -1,41 +1,21 @@
-// Host handoff (IIFE global `Handoff`) — how a desktop app that launched this browser with the
-// extension loaded hands the panel a ready session instead of asking the tester to paste a token.
-//
-// The host drops `handoff.json` next to the manifest and opens the panel. A file, not a command
-// line: `--load-extension` argv is readable by every process on the machine, and these are
-// credentials. `chrome.runtime.getURL()` reads it back from any of our own documents.
-//
-// One credential does it: the session opens the JSON:API and reads each project's v2 key itself.
-// A host holding a project key may send it too, which only saves the first round trip.
-//
-// The file STAYS. `jwt` is memory-only in api.js, so a panel reload has nothing left to read
-// unless the host's copy is still there; the host clears it when its browser closes. Disconnect
-// cannot delete a file it does not own, so it leaves a tombstone and a newer push wins.
-//
-// Loaded by the panel, the editor and the viewer — all three configure the API for themselves.
+// How a desktop app that launched this browser hands the panel a ready session instead of a token.
 
 /* global TestomatAPI, state, hostOf, commitSettings, openRunFromUrl, openRunsView,
    RunsUrl, fillSettingsForm, renderProjectBar */
 
 const Handoff = (() => {
+  // A file, not argv: any process can read `--load-extension` argv, and these are credentials.
   const FILE = 'handoff.json';
-  // chrome.storage.local, and deliberately outside HOST_SCOPED_KEYS: Disconnect erases those and
-  // reloads, and this is the one mark that has to survive that to stop the file re-connecting us.
+  // Not in HOST_SCOPED_KEYS: it must survive Disconnect's erase, or the file reconnects us.
   const DECLINED_KEY = 'handoffDeclinedAt';
-  // chrome.storage.session — the `at` of the last run we opened, so a reload restores the tester's
-  // own place instead of jumping back to whatever the host last asked for.
+  // The `at` of the last run opened, so a reload keeps the tester's place over the host's last ask.
   const OPENED_KEY = 'handoffOpenedAt';
 
-  // The offer this document is running on. `undefined` until read; null when there is none.
-  // Held rather than re-read so `configure()` can stay synchronous — it sits on paths (a tab
-  // switch) where an await would let a request go out between dropping one credential and
-  // installing the next.
+  // Held so configure() stays sync: an await could let a request out between two credentials.
   let offered;
 
   const hasChromeStorage = () => typeof chrome !== 'undefined' && !!chrome.storage?.local;
 
-  // A settings object holds a usable credential when it carries the account's own token, or when a
-  // host handed one over. Every document's "is this configured" check goes through here.
   const credentialed = (s) => !!(s && s.baseUrl && (s.apiToken || s.handoff));
 
   // The store writes `update_url` into what it installs, and only an unpacked copy can hold the file.
@@ -52,19 +32,16 @@ const Handoff = (() => {
     } catch {
       return null; // no host, no file — the ordinary case
     }
-    // `projectToken` is optional: the session can read a project's key itself, so a host that
-    // holds one only saves the panel a round trip.
+    // `projectToken` is optional: the session can read a project's key itself.
     if (!doc?.baseUrl || !doc.projectId || !doc.jwt) return null;
-    // https only, the same refusal Save gives a typed address: the session token below and every
-    // call after it would otherwise go out in clear text.
+    // https only, like Save: the session token and every later call would otherwise go in clear text.
     let scheme;
     try { scheme = new URL(doc.baseUrl).protocol; } catch { return null; }
     if (scheme !== 'https:') return null;
     return { ...doc, app: String(doc.app || '').trim(), at: Number(doc.at) || 0 };
   }
 
-  // A push the tester has already dismissed. Compared by `at`, so the host only has to write a
-  // fresher file to offer the connection again.
+  // Compared by `at`, so the host only has to write a fresher file to offer the connection again.
   async function declined(h) {
     if (!hasChromeStorage()) return false;
     try {
@@ -86,44 +63,33 @@ const Handoff = (() => {
   /** The offer in hand — null until `ready()` has resolved at least once. */
   const offer = () => offered || null;
 
-  // Point the API at these settings — with the host's session token when they are a handoff's.
-  // Every document that calls TestomatAPI.configure() calls this instead, settings of either kind:
-  // pointing at an account token has to CLEAR a session handed over earlier, or a Save would keep
-  // authenticating as whoever the host was.
+  // An account token must clear an earlier handed-over session, or Save stays signed in as the host.
   function configure(settings) {
     const h = settings?.handoff ? offer() : null;
-    // The host's project key is memory-only too (PRIVACY.md), so connect() leaves it out of what it
-    // saves and it is merged back in here, from the offer, next to the session it came with.
+    // The host's project key is memory-only (PRIVACY.md), so it is merged back here from the offer.
     TestomatAPI.configure(h?.projectToken
       ? { ...settings, projectToken: h.projectToken, projectTokenFor: h.projectId }
       : settings);
     TestomatAPI.useHandoffSession(h?.jwt || null);
   }
 
-  // ---- panel only ----------------------------------------------------------
-
-  // Adopt the offer as the active connection. Persists everything but the session token: that one
-  // belongs to the host, and api.js keeps it in memory alone.
+  // Persists all but the session token: that is the host's, and api.js keeps it in memory alone.
   async function connect() {
     const h = offer();
     if (!h) return null;
     const host = hostOf(h.baseUrl);
     if (!host) return null;
-    // Everything of this host's the tester owns is kept — their preferences, and their own
-    // General token. An offer is an overlay: when the host closes its browser and takes the file
-    // with it, the panel falls back to the token they pasted rather than to nothing.
+    // An offer is an overlay: when the host takes the file away, the tester's own token is still there.
     const prior = state.hostSettings[host] || {};
     const settings = {
       ...prior,
       baseUrl: h.baseUrl,
       projectId: h.projectId,
-      // The host's project key is never written down (PRIVACY.md): configure() merges it back from
-      // the offer. Named here so an older one is cleared rather than left over a newer project.
+      // Never written down (PRIVACY.md); named so an older one is cleared, not left over a newer project.
       projectToken: undefined,
       projectTokenFor: undefined,
       handoff: true,
-      // Kept because the card outlives the file: a host that has closed its browser is exactly
-      // when the tester most needs to be told whose session just ended.
+      // Kept because the card outlives the file: the tester must learn whose session just ended.
       handoffApp: h.app,
     };
     await commitSettings(settings, host);
@@ -131,8 +97,7 @@ const Handoff = (() => {
     return h;
   }
 
-  // The run the host asked for, opened once per push. Runs where the panel's own run intent does,
-  // so the project switcher is up and openRunFromUrl has a connection to check against.
+  // Runs where the panel's own run intent does, so the switcher is up and there is a connection.
   async function openRun() {
     const h = offer();
     if (!h?.runUrl) return false;
@@ -146,33 +111,28 @@ const Handoff = (() => {
     return openRunFromUrl(h.runUrl);
   }
 
-  // The host poking a panel that is already open. Reported back as a value, because the host is
-  // waiting on it and a toast inside a side panel is not an answer it can read.
+  // Answered as a value: the host is waiting on it and cannot read a toast inside a side panel.
   async function apply() {
     const h = await ready(true);
     if (!h) return { ok: false, reason: 'no-offer' };
     await connect();
     fillSettingsForm();
     renderProjectBar();
-    // A panel the host has only just opened consumed the push at boot, so openRun() answers false
-    // for the very run it is showing. The host asked whether its run is up — answer that.
+    // A just-opened panel consumed the push at boot, so openRun() is false for the run it shows.
     const run = (await openRun()) || showingRun(h);
-    // The connect screen has no tabs to leave by, so a panel that was never signed in has to be
-    // moved off it — where a Save lands, when the host named no run.
+    // The connect screen has no tabs to leave by, so a never-signed-in panel is moved off it.
     if (!run && state.view === 'settings') openRunsView();
     return { ok: true, projectId: h.projectId, run };
   }
 
-  // Is the panel already on the run this offer names — opened by its own boot, or still open from
-  // an earlier push the tester never left.
+  // Opened by the panel's own boot, or still open from an earlier push the tester never left.
   function showingRun(h) {
     if (!h.runUrl || (state.view !== 'run' && state.view !== 'test')) return false;
     const parts = RunsUrl.parseParts(h.runUrl);
     return !!parts && parts.kind === 'run' && String(state.runId) === String(parts.id);
   }
 
-  // Disconnect, for a connection the panel did not choose: the file is the host's to delete, so
-  // this marks the offer as answered instead.
+  // The file is the host's to delete, so Disconnect marks the offer as answered instead.
   async function decline() {
     const h = await readFile();
     if (!h || !hasChromeStorage()) return;

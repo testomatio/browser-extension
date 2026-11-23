@@ -1,31 +1,11 @@
-// The shared load() for extension/background.js, the worker side of the recording — the way
-// tests/helpers/recorder-harness.mjs is the page side.
-
-// LOADING. The worker publishes nothing, so its functions come back as the script's completion
-// value; `importScripts` is a no-op and the five siblings are put on the sandbox by hand.
-
-// The worker's OWN shared modules are the exception: they are evaluated in the same sandbox, before
-// background.js, so the rows exercise the moved code itself and not a stub standing in for it.
-
-// Each name is read as `typeof x === 'undefined' ? undefined : x`, so a mutated copy that deletes
-// one still loads. createContext, not runInNewContext: an injected `func` needs a document after.
-
-// TRAPS. Date.now is a value a test writes, and setTimeout is fake — an 8s capture floor would
-// otherwise cost 8 real seconds.
-
-// Every chrome event keeps an ARRAY of listeners, because the worker registers tabs.onRemoved
-// twice; lastError is a getter cleared when a callback returns, or every later capture reads failed.
-
-// storage.session round-trips through JSON on get AND set, as Chrome's clone does: sharing the
-// object would hide what the read-modify-write is guarding.
+// setTimeout is fake: an 8s capture floor would otherwise cost 8 real seconds.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createContext, runInContext } from 'node:vm';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-// BG_SRC drives the whole suite against a mutated copy, so a falsification run never has to edit
-// the shipped file and risk leaving it edited.
+// BG_SRC points the suite at a mutated copy, so a mutation run never edits the shipped file.
 export const WORKER = process.env.BG_SRC || join(repoRoot, 'extension/background.js');
 
 // The shared files background.js importScripts and then reads through its own bare names.
@@ -45,8 +25,7 @@ const sourceOf = (path) => {
 // Values built inside the vm realm have that realm's prototypes: compare them as plain JSON.
 export const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
-// One turn of the macrotask queue drains every microtask behind it; three is the cheap margin for
-// the worker's own chains (srSerial → srGet → srSet → the reply).
+// Three macrotask turns cover the worker's chains (srSerial → srGet → srSet → the reply).
 export const settle = async (turns = 3) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
@@ -68,8 +47,7 @@ export const mkSt = (over = {}) => ({
   ...over,
 });
 
-// Everything the rows reach for. A `function` declaration lands on the sandbox anyway; a lexical
-// `const` (srTrimTitle, srEcho, the constants…) exists only here.
+// Functions land on the sandbox anyway; a lexical const (srEcho, the constants…) only via this list.
 const NAMES = [
   'srGet', 'srSet', 'srClear', 'srCap', 'srPush', 'srInject', 'srInjectSync', 'srCatchUpNav',
   'srTrimTitle', 'srCleanTitle', 'srDupNavIdx', 'srPushNav', 'srOpenUrl', 'srStart', 'srOwnerIds',
@@ -126,7 +104,7 @@ export function load(opts = {}) {
 
   const log = (name, ...args) => { calls.push({ name, args }); };
 
-  // The knobs a row turns. A test overrides one of these AFTER load(); the stubs read them live.
+  // The knobs a row turns: a test overrides one after load(), and the stubs read them live.
   const hooks = {
     viewMode: () => 'sidepanel',
     resolveSiteTab: () => ({ state: 'ok', tab: { ...DEFAULT_TAB } }),
@@ -147,7 +125,6 @@ export function load(opts = {}) {
     convertToBlob: () => ({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }),
   };
 
-  // ---- fake timers --------------------------------------------------------
   const setTimeoutFake = (fn, ms = 0, ...args) => {
     const id = (timerSeq += 1);
     timers.set(id, { at: clock + Number(ms || 0), fn, args });
@@ -170,7 +147,6 @@ export function load(opts = {}) {
     return clock;
   };
 
-  // ---- chrome ------------------------------------------------------------
   const bus = () => {
     const fns = [];
     return {
@@ -269,7 +245,6 @@ export function load(opts = {}) {
     },
   };
 
-  // ---- the sandbox -------------------------------------------------------
   class FakeDate extends Date { static now() { return clock; } }
   class FakeCanvas {
     constructor(width, height) {
@@ -304,8 +279,7 @@ export function load(opts = {}) {
     ShotStore: { sweep: async (keys, maxAge) => { log('ShotStore.sweep', keys, maxAge); } },
     evStopIfRecording: (reason) => { log('evStopIfRecording', reason); },
     srecCastOwns: (tabId) => hooks.castOwns(tabId),
-    // The awaited twin, stubbed the way session.js resolves it: the mirror `castOwns` stands for,
-    // and behind it the cast the worker restart re-seeds from storage.session.
+    // The awaited twin of castOwns, stubbed the way session.js resolves it.
     srecCastOwnsReady: async (tabId) => {
       if (hooks.castOwns(tabId)) return true;
       const rec = sess.screenRec;
@@ -372,7 +346,7 @@ export function load(opts = {}) {
     pending: () => [...timers.values()].map((t) => t.at - clock),
     settle,
 
-    // Fire an event at EVERY listener registered for it, the way Chrome does.
+    // Fire an event at every listener registered for it, the way Chrome does.
     emit: (path, ...args) => {
       const b = path.split('.').reduce((o, k) => o[k], chromeStub);
       return emit(b, ...args);

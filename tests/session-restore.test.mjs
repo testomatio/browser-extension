@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/core/session-restore.js (#201): what a reopened panel is allowed to believe.
-// Two different kinds of untrusted input meet here. The stored session is JSON an OLDER panel wrote
-// — a key it never had, a key it spelled differently, a value the current build would never write —
-// and every field of it lands straight on `state`, so a guard that gives way puts the panel into a
-// shape no screen expects. The editor's `tcReturn` breadcrumb is worse than untrusted: it is a
-// one-shot, and spending it twice means the tester who came back from the editor once is dragged
-// back to that suite on every reload afterwards.
-// Both halves are cheap to get wrong in a way nothing notices, because the wrong answer is a
-// plausible screen. So each guard is driven from BOTH sides: the bad value that must be replaced,
-// and the good value that must survive — a guard stuck shut looks exactly like a guard that works
-// until you ask it to let something through.
-// `fromStored` is pure and takes the filter keys as an argument, so it loads into a sandbox with
-// NOTHING in it. `takeTcReturn` gets a sessionStorage fake and nothing else.
-// Run: node --test tests/session-restore.test.mjs
 import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,16 +7,14 @@ import { loadInto, plain } from './helpers/shared-harness.mjs';
 
 const FILE = join(CORE_SRC, 'session-restore.js');
 
-// The panel's own set, spelled out rather than loaded: screens/runs-list.js:18 builds it from
-// RUN_FILTERS, and reaching that would mean booting a screen this module deliberately does not need.
+// Spelled out, not loaded: runs-list.js builds it from RUN_FILTERS, and this module needs no screen.
 const FILTER_KEYS = new Set(['all', 'passed', 'failed', 'running', 'scheduled', 'terminated']);
 
 const DEFAULTS = {
   stepTicks: {}, expandedGroups: [], runsFilter: 'all', runInfoOpen: true, tabViews: {}, activeTab: null,
 };
 
-// The empty sandbox IS the assertion: `{}` is every global this module gets, so no stub of the
-// panel's can hold a row up. What the vm realm brings — JSON, Array — is the language, not the panel.
+// The empty sandbox is the assertion: `{}` is every global this module gets.
 const loadPure = () => loadInto({}, [[FILE, 'SessionRestore']]).value;
 
 function fakeSessionStorage(seed = {}, fails = {}) {
@@ -62,30 +46,23 @@ function loadWithStorage(seed = {}, fails = {}) {
 
 const removals = (store) => store.calls.filter(([op]) => op === 'removeItem').map(([, k]) => k);
 
-// ---------- fromStored(): the defaults ----------
-
 test('SR12z (#201): nothing stored at all is the full set of defaults, so every row below is a change from a known floor', () => {
   const SessionRestore = loadPure();
   assert.deepEqual(plain(SessionRestore.fromStored(undefined, FILTER_KEYS)), DEFAULTS);
   assert.deepEqual(plain(SessionRestore.fromStored({}, FILTER_KEYS)), DEFAULTS);
 });
 
-// ---------- fromStored(): runsFilter ----------
-
 test('SR12 (#201): a runsFilter the build no longer ships falls back to `all`, not to an empty chip row', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({ runsFilter: 'bogus' }, FILTER_KEYS).runsFilter, 'all');
 });
 
-// The other side of the same guard: a guard that answered 'all' to everything would pass the row
-// above and quietly forget the chip every tester who filters has set.
 test('SR12b (#201): a filter the build does ship survives the guard untouched', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({ runsFilter: 'failed' }, FILTER_KEYS).runsFilter, 'failed');
 });
 
-// The keys are an ARGUMENT — that is the whole reason this file loads with no stubs. A module that
-// carried its own copy of the list would pass both rows above and this one is what notices.
+// The keys are an argument: a module carrying its own copy of the list would pass the rows above.
 test('SR12c (#201): the vocabulary is the caller\'s — a key only the passed-in set knows still gets through', () => {
   const SessionRestore = loadPure();
   const keys = new Set(['flaky']);
@@ -93,8 +70,6 @@ test('SR12c (#201): the vocabulary is the caller\'s — a key only the passed-in
   assert.equal(SessionRestore.fromStored({ runsFilter: 'all' }, keys).runsFilter, 'all',
     'and a key the panel ships but this set does not is refused like any other');
 });
-
-// ---------- fromStored(): expandedGroups ----------
 
 test('SR13 (#201): expandedGroups that is not an array becomes one — the run list iterates it', () => {
   const SessionRestore = loadPure();
@@ -108,8 +83,6 @@ test('SR13b (#201): a real array of group ids is handed straight back, folds and
   assert.equal(out.expandedGroups, groups, 'the very array, not a copy — state takes ownership of it');
 });
 
-// ---------- fromStored(): runInfoOpen ----------
-
 test('SR14 (#201): a session with no runInfoOpen key opens the Run info card — the default is open', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({}, FILTER_KEYS).runInfoOpen, true);
@@ -120,8 +93,7 @@ test('SR14b (#201): a tester who closed the card keeps it closed across the relo
   assert.equal(SessionRestore.fromStored({ runInfoOpen: false }, FILTER_KEYS).runInfoOpen, false);
 });
 
-// `!== false`, not truthiness: the closed state is one exact value, so every other falsy thing an
-// older panel might have written is "no answer given" and lands on the default.
+// `!== false`, not truthiness: every other falsy value an older panel wrote means "no answer".
 test('SR14c (#201): only an exact `false` closes it — 0 and the string "false" are not that answer', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({ runInfoOpen: 0 }, FILTER_KEYS).runInfoOpen, true);
@@ -129,15 +101,12 @@ test('SR14c (#201): only an exact `false` closes it — 0 and the string "false"
   assert.equal(SessionRestore.fromStored({ runInfoOpen: null }, FILTER_KEYS).runInfoOpen, true);
 });
 
-// ---------- fromStored(): tabViews ----------
-
 test('SR15 (#201): a null tabViews becomes an empty map, so the first tab switch has something to write into', () => {
   const SessionRestore = loadPure();
   assert.deepEqual(plain(SessionRestore.fromStored({ tabViews: null }, FILTER_KEYS).tabViews), {});
 });
 
-// `null` is caught by the truthiness check alone; a non-empty STRING is what the `typeof` half is
-// for, and without this row that half could go without anything noticing.
+// `null` falls to the truthiness check; a non-empty string is what the `typeof` half is for.
 test('SR15b (#201): a truthy tabViews that is not an object is still an empty map', () => {
   const SessionRestore = loadPure();
   assert.deepEqual(plain(SessionRestore.fromStored({ tabViews: 'runs' }, FILTER_KEYS).tabViews), {});
@@ -149,15 +118,12 @@ test('SR15c (#201): a real per-tab map comes back, so each tab reopens on the vi
   assert.equal(SessionRestore.fromStored({ tabViews }, FILTER_KEYS).tabViews, tabViews);
 });
 
-// ---------- fromStored(): the activeTab inference ----------
-
 test('SR16 (#201): an old session with no activeTab but a run on screen infers the runs tab', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({ view: 'run' }, FILTER_KEYS).activeTab, 'runs');
 });
 
-// A test view lives under the runs tab too — inferring only from 'run' would drop a tester out of
-// the test they were mid-way through and back onto the list.
+// Inferring only from 'run' would drop a tester mid-test back onto the list.
 test('SR16b (#201): a persisted test view infers the runs tab as well, not just a run view', () => {
   const SessionRestore = loadPure();
   assert.equal(SessionRestore.fromStored({ view: 'test' }, FILTER_KEYS).activeTab, 'runs');
@@ -174,8 +140,6 @@ test('SR16d (#201): a session that recorded its tab is believed over anything in
   assert.equal(SessionRestore.fromStored({ activeTab: 'tests', view: 'run' }, FILTER_KEYS).activeTab, 'tests');
   assert.equal(SessionRestore.fromStored({ activeTab: 'settings' }, FILTER_KEYS).activeTab, 'settings');
 });
-
-// ---------- takeTcReturn() ----------
 
 test('SR18 (#201): the editor breadcrumb is handed over once and burnt — a later plain reload gets nothing', () => {
   const { SessionRestore, store } = loadWithStorage({
@@ -205,8 +169,7 @@ test('SR19b (#201): no breadcrumb at all is a null, and the store is left alone'
   assert.deepEqual(removals(store), []);
 });
 
-// Today's behaviour, pinned rather than praised: the removal is inside the `suiteId` check, so a
-// crumb without one is neither used nor cleared. It is inert — openTcListView is never reached.
+// The removal sits inside the `suiteId` check, so a crumb without one is neither used nor cleared.
 test('SR19c (#201): a breadcrumb with no suiteId opens nothing, and is left where it lies', () => {
   const { SessionRestore, store } = loadWithStorage({ tcReturn: JSON.stringify({ suiteTitle: 'Checkout' }) });
   assert.equal(SessionRestore.takeTcReturn(), null);
@@ -226,19 +189,12 @@ test('SR19e (#201): a removal that throws still hands the suite over — the tes
   assert.deepEqual(plain(SessionRestore.takeTcReturn()), { suiteId: 's-42', suiteTitle: 'Checkout' });
 });
 
-// ---------- the four rules that live in app.js's init() (#352) ----------
-
-// These four decide what the tester sees in the first second, and all four sit between `init()`'s
-// awaits. bootPanel() runs that boot against stubs for every panel global (tests/helpers/
-// panel-harness.mjs); the assertion is which screen opener boot chose, with what, and in what order.
-// Every row below also checks `bootError`: a boot that died on a missing stub must not be read as a
-// boot that decided something.
+// Every row also checks `bootError`: a boot that died on a missing stub decided nothing.
 
 const SETTINGS = { baseUrl: 'https://app.testomat.io', apiKey: 't', projectId: 'p1' };
 const OPENERS = ['openRunView', 'openTestView', 'openTcListView', 'openSettingsView', 'openTcStudioView', 'openRunsView'];
 
-// Everything the four contenders need at once: a configured panel with a run in its session, a
-// breadcrumb from the editor, a pending click AND a host offer. Each row below removes one.
+// Every contender at once: a run in the session, a breadcrumb, a pending click and a host offer.
 const contested = (over) => bootPanel({
   stored: { settings: SETTINGS, session: { runId: 'r1', runTitle: 'Nightly', view: 'run' } },
   restored: { activeTab: 'runs' },
@@ -288,8 +244,7 @@ test('SR20 (#201): a restored test whose record the run no longer has opens the 
   assert.deepEqual(gone.order(...OPENERS), ['openRunView'], 'the run, and no blank test screen behind it');
   assert.deepEqual(gone.argsOf('recordFor'), [['rec-9']], 'the guard did ask the loaded run');
 
-  // The other side of the same guard: one stuck shut would pass the row above and strand every
-  // tester who reopens the panel mid-test back on the run list.
+  // A guard stuck shut would strand every tester who reopens mid-test back on the run list.
   const there = await bootPanel({ stored, restored: { activeTab: 'runs' }, records: [{ id: 'rec-9' }] });
   assert.equal(there.bootError, null);
   assert.deepEqual(there.order(...OPENERS), ['openRunView', 'openTestView']);

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// The navigation shell — extension/sidepanel/core/views.js — and the first suite it has ever had:
-// every other harness in this directory stubs show(), so the one function the whole panel calls on
-// every screen change shipped unprobed (#109, and the shell half of epic #141).
-// Two things here are easy to get quietly wrong. show() toggles `hidden` on eight sections, which
-// drops the caret on the floor — a reader is left narrating the screen the tester just left — so it
-// puts the caret on the section it opened; but ONLY where the switch is what took it, or it fights
-// the two screens that focus a field of their own (applyConnectMode's token box, run from inside
-// show(), and project-pick's filter, run right after it returns). And #tabbar is three tabs over
-// EIGHT panels: aria-controls cannot be static markup, because which panel a tab names moves with
-// the section that tab is standing on, and a tab that cannot be opened must name none.
-// Run: node --test tests/views.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,12 +11,11 @@ import { loadInto } from './helpers/shared-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// core/state.js:7, verbatim — the order show() walks when it hides the other seven.
+// core/state.js's list, verbatim: the order show() walks when it hides the other seven.
 const VIEWS = ['settings', 'pick', 'runs', 'tcstudio', 'tclist', 'promote', 'run', 'test'];
 const BAR = ['tests', 'runs', 'settings'];
 
-// index.html's shell (:79-96, :117-131, :147-575), cut to the nodes the switcher touches. The eight
-// sections carry the shipped `tabindex="-1"`, which is what makes them able to hold the caret.
+// index.html's shell; the sections' shipped `tabindex="-1"` is what lets them hold the caret.
 function makePage() {
   const doc = makeDocument([]);
   const node = {};
@@ -35,7 +23,7 @@ function makePage() {
 
   const tabbar = mk('nav', 'tabbar', { role: 'tablist' });
   for (const t of BAR) {
-    // index.html:90 — the count chip lives INSIDE its tab and ships hidden, because unknown is not 0.
+    // The count chip lives inside its tab and ships hidden, because unknown is not 0.
     const btn = mk('button', `tab-${t}`, { className: 'tab', role: 'tab' });
     btn.append(mk('span', `tab-${t}-count`, { className: 'counter size-sm', hidden: true }));
     tabbar.append(btn);
@@ -67,8 +55,7 @@ function makePage() {
   return { doc, node };
 }
 
-// The real Roving, not a stub: the arrows across the bar and the tab stop they leave behind are half
-// of what this file is about, and a stub would be answering for both of them.
+// The real Roving: the bar's arrows and the tab stop they leave are half of this file.
 const roving = () => loadInto({ console }, [['shared/roving.js', 'Roving']]).value;
 
 const SETTINGS = { baseUrl: 'https://app.testomat.io', projectId: 'p1' };
@@ -76,8 +63,7 @@ const SETTINGS = { baseUrl: 'https://app.testomat.io', projectId: 'p1' };
 function load(opts = {}) {
   const o = { settings: SETTINGS, readonly: false, jwt: true, ...opts };
   const { doc, node } = makePage();
-  // `order` is every collaborator this file calls, in the order it called them: half of what the
-  // switch and the tab model promise is a sequence, not a set.
+  // Every collaborator call in order: half of what the switch and tab model promise is a sequence.
   const calls = {
     persists: 0, clicks: [], order: [], opens: [], counts: [], configures: [], projects: 0,
   };
@@ -112,12 +98,12 @@ function load(opts = {}) {
     },
     Tooltip: { set: (n, tip) => { if (n) n.dataset.tip = tip; } },
     TestomatAPI: { jwtAvailable: () => o.jwt },
-    // core/state.js:101, verbatim.
+    // core/state.js's own, verbatim.
     isConfigured: () => !!(state.settings && state.settings.projectId),
-    // core/state.js:97, verbatim — what core/gates.js asks before naming a host to sign in at.
+    // core/state.js's own, verbatim: what core/gates.js asks before naming a host.
     hostOf: (baseUrl) => { try { return new URL(baseUrl).hostname || null; } catch { return null; } },
     persistSession: () => { calls.persists += 1; calls.order.push('persist'); },
-    // The crumb factories name these at BUILD time, not on click — an absent one throws.
+    // The crumb factories name these at build time, not on click, so an absent one throws.
     openRunsView: () => { calls.opens.push(['runs']); calls.order.push('openRunsView'); },
     openRunView: (id, title) => { calls.opens.push(['run', id, title]); calls.order.push('openRunView'); },
     openTcStudioView: () => { calls.opens.push(['tcstudio']); calls.order.push('openTcStudioView'); },
@@ -130,7 +116,7 @@ function load(opts = {}) {
     loadRunsCount: (epoch) => { calls.counts.push(['runs', epoch]); return Promise.resolve(); },
     loadTestsCount: (epoch) => { calls.counts.push(['tests', epoch]); return Promise.resolve(); },
     Handoff: { configure: (s) => { calls.configures.push(s); calls.order.push('Handoff.configure'); } },
-    // shared/icons.js:238 — the arity matters: `cls` reaches classList.add, which throws on a space.
+    // The arity matters: `cls` reaches classList.add, which throws on a space.
     Icons: {
       el: (name, size = 16, ...cls) => {
         const n = el('span', { className: 'md-icon', dataset: { icon: name, size: String(size) } });
@@ -139,8 +125,7 @@ function load(opts = {}) {
       },
     },
     Sk: { bar: (kind) => el('span', { className: 'sk-bar', dataset: { kind } }) },
-    // Records the callback and never fires it: the real one re-enters fitFilterChips, and only the
-    // width guard stops that — an eager fake would recurse instead of testing the guard.
+    // Never fired: the real one re-enters fitFilterChips, and an eager fake would recurse past the guard.
     ResizeObserver: class {
       constructor(cb) { this.cb = cb; this.node = null; observers.push(this); }
       observe(n) { this.node = n; }
@@ -154,8 +139,7 @@ function load(opts = {}) {
       treeIcon: (name, cls) => el('span', { className: cls, dataset: { icon: name } }),
     },
   };
-  // shared/priority-icons.js loads before core, but the file guards on `typeof` — so a row can take
-  // it away and watch the title carry no marks rather than throw.
+  // Guarded by `typeof`, so a row can take it away and the title carries no marks instead of throwing.
   if (o.priorityIcons !== false) {
     globals.PriorityIcons = { mark: (p) => el('span', { className: 'prio', dataset: { prio: String(p || '') } }, String(p || '')) };
   }
@@ -167,23 +151,7 @@ function load(opts = {}) {
     document: doc,
     globals,
     clock,
-    // core/nav-model.js is the tab model and the two navigation decisions, loaded ahead of views the
-    // way index.html loads it. It is where the four maps and the web-link rule now live, so the
-    // names below are re-bound to the shape they had while this was one file: every row keeps
-    // asking the shipped decision the same question, and CONTEXT_WEB_TARGET's per-view closures are
-    // rebuilt over webTarget(view, state, recordFor) — the arguments the model takes instead.
-    // core/toast.js is the second, loaded the same way: views.js keeps toast(), progressToast(),
-    // hideToast(), setStatusLine() and toastDuration() as bare one-line delegates, so every toast
-    // row below still calls exactly what a screen calls; ALERT_ICON and PROGRESS_ICON are that
-    // module's own top-level consts, and a `before` script's lexicals are shared with this one.
-    // core/gates.js is the third: the read-only lockout and the basic-mode strip, with views.js
-    // keeping applyReadonlyBlock/baseUrlHost/updateDegradedBanner/dismissDegradedBanner bare. It
-    // reads updateContextBar and setImmersive back out of views.js — the forward reference the load
-    // order makes safe — so nothing below changes about what those rows call or assert.
-    // core/fit.js is the fourth: the two rows that measure themselves. views.js keeps only
-    // fitFilterChips and initActionLabelFit bare — the two names its callers use — so the rows below
-    // reach fitActionLabels and ensureFilterMore through the aliases bound after the load, and
-    // LABEL_FIT_MIN_FIELD is now that module's top-level const, shared as a lexical the same way.
+    // Loaded ahead of views as index.html does; `before` scripts share their lexicals with this one.
     before: ['nav-model', 'toast', 'gates', 'fit'],
     exported: `({
       TAB_OF_VIEW: NavModel.TAB_OF_VIEW, TABS: NavModel.TABS, TAB_ROOT: NavModel.TAB_ROOT,
@@ -192,13 +160,11 @@ function load(opts = {}) {
         .map((v) => [v, () => NavModel.webTarget(v, state, recordFor)])),
       tabCountKnown, LABEL_FIT_MIN_FIELD, ALERT_ICON, PROGRESS_ICON, progressToast, Fit })`,
   });
-  // Bound onto the same sandbox the bare names live on, so no row below has to say where the code
-  // moved: these two have no delegate in views.js, because no screen calls them.
+  // No screen calls these two, so views.js has no delegate for them; bound here for the rows below.
   h.sandbox.fitActionLabels = (bar) => h.screen.Fit.actionLabels(bar);
   h.sandbox.ensureFilterMore = (bar) => h.screen.Fit.ensureFilterMore(bar);
 
-  // Each tab's own click listener, the way app.js wires it: what Enter and Space are allowed to do,
-  // and the only place a screen load could come from.
+  // Each tab's own click listener, as app.js wires it: the only place a screen load could come from.
   for (const t of BAR) node[`tab-${t}`].addEventListener('click', () => calls.clicks.push(t));
 
   return {
@@ -219,12 +185,10 @@ function load(opts = {}) {
   };
 }
 
-// ---------- where the caret goes ----------
-
 test('V1: a switch that took the caret away hands it to the section it opened', () => {
   const h = load();
   h.fn.show('runs');
-  // Where PR-1's roving tab stop leaves it: on a row of the list inside the open section.
+  // Where the roving tab stop leaves it: on a row of the list inside the open section.
   const row = el('li');
   h.node['view-runs'].append(row);
   row.focus();
@@ -261,7 +225,7 @@ test('V2b: the token field applyConnectMode focuses INSIDE show() keeps the care
   const h = load();
   const field = el('input', { id: 'set-token' });
   h.node['view-settings'].append(field);
-  // screens/settings.js:224-241's shape: it runs from inside show(), after the sections switched.
+  // settings.js's shape: it runs from inside show(), after the sections switched.
   h.fn.applyConnectMode = () => { field.focus(); };
 
   h.fn.show('settings');
@@ -286,8 +250,6 @@ test('V2d: a caret on the tab bar stays on the bar — arrowing across it is not
   h.fn.show('tcstudio');
   assert.equal(h.at(), 'tab-tests');
 });
-
-// ---------- what a tab says it controls ----------
 
 test('V3: the panel a tab names is the section that tab is standing on right now', () => {
   const h = load();
@@ -316,8 +278,6 @@ test('V4: a disabled tab names no panel at all — it cannot open one', () => {
   h.fn.updateTabBar();
   assert.deepEqual(h.controls(), ['view-tcstudio', 'view-runs', 'view-settings']);
 });
-
-// ---------- one tab stop for the whole bar ----------
 
 test('V5: the bar is ONE tab stop — the selected tab, and the other two out of Tab’s way', () => {
   const h = load();
@@ -379,8 +339,6 @@ test('V8: unconfigured, the arrows never put the caret on a disabled tab — it 
   assert.equal(ok.at(), 'tab-tests');
 });
 
-// ---------- the wiring itself ----------
-
 test('V9: the bar is wired once, however many screens the tester walks through', () => {
   const h = load();
   for (const v of ['runs', 'run', 'test', 'runs', 'settings']) h.fn.show(v);
@@ -403,10 +361,7 @@ test('V10: everything the switch already did it still does', () => {
   assert.equal(h.calls.persists, 1);
 });
 
-// ---------- the static half ----------
-
-// The map this row reads is the shipped one (core/nav-model.js), so the markup and TAB_OF_VIEW
-// cannot drift apart.
+// The map is the shipped one, so the markup and TAB_OF_VIEW cannot drift apart.
 const { TAB_OF_VIEW } = load().lex;
 
 test('V11: every one of the eight sections is its tab’s panel, and can hold the caret show() gives it', () => {
@@ -419,8 +374,6 @@ test('V11: every one of the eight sections is its tab’s panel, and can hold th
     assert.match(open[1], new RegExp(`\\baria-labelledby="tab-${TAB_OF_VIEW[v]}"`), `view-${v} names its tab`);
   }
 });
-
-// ---------- the tab a screen belongs to ----------
 
 test('V12: every screen the panel can show belongs to exactly one of the three tabs', () => {
   const h = load();
@@ -448,7 +401,7 @@ test('V14: the switch does its steps in the order the screens after it depend on
   h.state.runId = '7';
   h.state.runTitle = 'Nightly';
   const at = {};
-  // screens/settings.js:224 focuses its token field from in here, so the sections must have switched.
+  // settings.js focuses its token field from in here, so the sections must have switched.
   h.fn.applyConnectMode = () => {
     h.calls.order.push('applyConnectMode');
     at.sectionUp = h.node['view-run'].hidden;
@@ -479,8 +432,6 @@ test('V15: the three scripts that load after core are optional — the switch ru
   assert.equal(h.node['view-settings'].hidden, false);
   assert.equal(h.calls.persists, 1, 'and the session was still written');
 });
-
-// ---------- the title above the Back arrow ----------
 
 test('V16: the title names the screen from the first frame, before its data has landed', () => {
   const h = load();
@@ -519,8 +470,6 @@ test('V18: with the priority vocabulary missing the title simply carries no mark
   assert.equal(h.node['context-title'].textContent, 'Login works', 'and prints no holes where they were');
 });
 
-// ---------- the trail ----------
-
 test('V19: the trail above a test names the run it came out of, and that crumb is the way back', () => {
   const h = load();
   h.state.runId = '7';
@@ -554,8 +503,6 @@ test('V20: a tab root has no trail — the nav goes away rather than standing th
   h.fn.renderContextCrumbs(null); // what updateContextBar passes on a root view
   assert.equal(h.node['context-crumbs'].hidden, true);
 });
-
-// ---------- the way out to the web app ----------
 
 test('V21: the web link points at the RECORD the tester is reading, not the test case behind it', () => {
   const h = load({ records: { 55: { test_id: 't7' } } });
@@ -618,8 +565,6 @@ test('V25: an http base url a handoff supplied is emitted exactly as it stands',
   assert.equal(h.node['context-open'].href, 'http://a.io/projects/p1/runs/9');
 });
 
-// ---------- the header row on a drill-down ----------
-
 test('V26: on a drill-down the Rec chip and the one Refresh ride into the only row left', () => {
   const h = load();
   h.state.runId = '7';
@@ -662,8 +607,6 @@ test('V27: a title too long for its row is offered whole as a tooltip — the NA
   assert.equal(title.dataset.tip, '');
 });
 
-// ---------- the tab bar ----------
-
 test('V28: unconfigured, the two tabs that need a project are taken away and say why', () => {
   const h = load({ settings: null });
   h.fn.updateTabBar();
@@ -683,8 +626,6 @@ test('V29: a tab the markup has not built is walked past, not thrown over', () =
   h.fn.updateTabBar(); // no throw
   assert.equal(h.tab('runs').getAttribute('aria-disabled'), 'false');
 });
-
-// ---------- the counters ----------
 
 test('V30: zero is a number the tester can see — only an UNKNOWN count hides the chip', () => {
   const h = load();
@@ -713,8 +654,7 @@ test('V31: a count that did not move does not blink — the flash replays only f
   Object.defineProperty(chip, 'className', {
     configurable: true, get: () => name, set: (v) => { name = v; churn.push(v); },
   });
-  // The read that forces the layout the class toggle just changed — without it the keyframe never
-  // restarts, and a settled count would sit there with no flash at all.
+  // Reading it forces the layout the class toggle changed; without it the keyframe never restarts.
   Object.defineProperty(chip, 'offsetWidth', {
     configurable: true, get: () => { churn.push('reflow'); return 0; },
   });
@@ -779,8 +719,6 @@ test('V35: the suite tree owns the tests number, so a refresh on that screen doe
   h.fn.refreshTabCounts();
   assert.deepEqual(plain(h.calls.counts), [['runs', 2], ['tests', 2]]);
 });
-
-// ---------- the panel-wide Refresh ----------
 
 test('V36: a second Refresh while the first is still in flight is dropped, not queued', async () => {
   let release;
@@ -847,10 +785,7 @@ test('V39: a run or test whose id is not known yet is left alone rather than re-
   assert.deepEqual(h.calls.opens, []);
 });
 
-// ---------- the filter row that sends its overflow to a menu ----------
-
-// A row that measures the way a browser measures one: what it reports is the chips it is still
-// SHOWING, plus the "…" trigger once that is up. screens/runs-list.js:457 is the chip's real shape.
+// Measures like a browser: the chips it still shows, plus the "…" trigger once that is up.
 const TRIGGER_W = 32;
 function filterBar(h, widths, clientWidth) {
   const bar = el('div', { className: 'filter-bar' });
@@ -908,7 +843,7 @@ test('V41: a row dragged narrow gives up chips from the right, and the menu list
   assert.deepEqual(options.map((li) => li.childNodes[1].className), ['counter', 'counter'],
     'each option carries the chip’s own count, cloned');
 
-  // Dragged wide again the row re-fits from the WIDE state, never from where the last fit left it.
+  // Dragged wide again the row re-fits from the wide state, never from where the last fit left it.
   bar.clientWidth = 400;
   h.fn.fitFilterChips(bar);
   assert.deepEqual(chips.map((c) => c.hidden), [false, false, false, false]);
@@ -1035,9 +970,7 @@ test('V49 (#335): Escape hands the caret back to the "…", and so does picking 
   assert.equal(menu.hidden, true);
   assert.equal(caretIn(h, bar), 'the "…"', 'Escape puts the caret back where the tester left it');
 
-  // Picking asks for the same thing. It cannot get it from close({ focus: true }): the chip's own
-  // click reaches the document-level closer first, so the menu is already shut by the time that
-  // runs. The caret has to be placed after the pick, or it is left on an <li> the render throws away.
+  // The document closer shuts the menu before close() runs, so the caret is placed after the pick.
   h.doc.body.focus();
   trigger.click();
   const option = menu.querySelectorAll('.menu-option')[0];
@@ -1046,8 +979,6 @@ test('V49 (#335): Escape hands the caret back to the "…", and so does picking 
   assert.equal(menu.hidden, true);
   assert.equal(caretIn(h, bar), 'the "…"', 'and not on a menu row the render is about to throw away');
 });
-
-// ---------- the create-button labels ----------
 
 function labelBar(h, fieldWidth) {
   const bar = el('div', { className: 'toolbar' });
@@ -1093,8 +1024,6 @@ test('V51: every toolbar is armed once at boot, and re-fits itself when the pane
   assert.equal(h.observers.length, 1);
 });
 
-// ---------- the read-only lockout ----------
-
 test('V52: the read-only lockout takes the run screen away before the tester can press anything on it', () => {
   const h = load({ readonly: true });
   h.state.runId = '7';
@@ -1132,8 +1061,6 @@ test('V54: unlocking a project gives the open screen and its header row straight
   assert.equal(h.node['context-title'].textContent, 'Nightly', 'the header row was repainted with it');
   assert.equal(h.doc.body.dataset.readonly, 'false');
 });
-
-// ---------- the basic-mode strip ----------
 
 test('V55: the basic-mode strip appears only once the missing web login is PROVEN, never on a maybe', () => {
   const unknown = load({ jwt: 'unknown' });
@@ -1196,8 +1123,6 @@ test('V60 (#336): with nothing saved there is nowhere to sign in, so the strip s
   assert.equal(h.node['degraded-banner'].hidden, true,
     'it read "need an active the web app web login" — a doubled sentence pointing at nothing');
 });
-
-// ---------- tabs, and the way back ----------
 
 test('V61: until the panel is configured a tab click goes nowhere at all', () => {
   const h = load({ settings: null });
@@ -1292,8 +1217,6 @@ test('V68: Back walks one step up the same trail the crumbs draw', () => {
     assert.deepEqual(back(root), [], `${root} is a tab root — the arrow is hidden there`);
   }
 });
-
-// ---------- the toast at the bottom ----------
 
 test('V69: a long message stays up longer, and no message holds the panel forever', () => {
   const h = load();
@@ -1416,8 +1339,6 @@ test('V79: hiding a toast on a page that has none is not an error the tester has
   h.node.toast.remove();
   h.fn.hideToast(); // no throw
 });
-
-// ---------- the line under a field ----------
 
 test('V80: a screen printing its own status line takes the running-job plaque down with it', () => {
   const h = load();

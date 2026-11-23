@@ -1,10 +1,9 @@
-// Runtime site access (IIFE global `SiteAccess` + the bare `ensureSiteAccess`). Never
-// prompts: `<all_urls>` is required, so the only "no" left is a restricted page (#198).
+// Never prompts: `<all_urls>` is required, so the only "no" left is a restricted page.
 
 /* global resolveSiteTab */
 
 const SiteAccess = (() => {
-  // `.ok` plus `.tab`/`.origin`, or `.error` — already the per-state copy to show.
+  // `.error` is already the per-state copy to show.
   async function ensureSiteAccess() {
     const site = await resolveSiteTab();
     return site.state === 'ok'
@@ -15,5 +14,4 @@ const SiteAccess = (() => {
   return { ensureSiteAccess };
 })();
 
-// Bare global for call sites (mirrors ensureCapturePermission usage).
 const ensureSiteAccess = SiteAccess.ensureSiteAccess;

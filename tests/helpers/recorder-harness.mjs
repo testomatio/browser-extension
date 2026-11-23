@@ -1,5 +1,3 @@
-// The shared load() for the step-recorder test files: it builds the sandbox, evaluates the modules
-// and the recorder into it, and hands back the handles a row needs. See `act()` for the one trap.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,18 +7,15 @@ import { makeDocument, el, text, fire, event, NodeFilter } from './mini-dom.mjs'
 export { el, text };
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
-// REC_SRC drives the whole suite against a mutated copy, so a falsification run never has to
-// edit the shipped file and risk leaving it edited.
+// REC_SRC points the suite at a mutated copy, so a mutation run never edits the shipped file.
 export const RECORDER = process.env.REC_SRC || join(repoRoot, 'extension/content/step-recorder.js');
 
 export const HOST_ID = '__testomat_step_recorder';
 
 // The same list background.js injects, minus shared/icons.js, which the `icons` option stubs.
-// An older checkout of the recorder carries these blocks inline and simply ignores the globals.
 const MODULE_FILES = ['content/rec-naming.js', 'content/rec-mask.js', 'content/rec-packet.js',
   'content/rec-outbox.js', 'content/rec-pill.js'];
-// REC_MODULES swaps one or all of them for mutated copies, the same seam REC_SRC gives the
-// recorder: a falsification run never edits a shipped file.
+// REC_MODULES swaps one or all of them for mutated copies, as REC_SRC does for the recorder.
 export const MODULES = process.env.REC_MODULES
   ? process.env.REC_MODULES.split(',').map((f) => f.trim()).filter(Boolean)
   : MODULE_FILES.map((f) => join(repoRoot, 'extension', f));
@@ -32,14 +27,12 @@ const sourceOf = (path) => {
   return sources.get(path);
 };
 
-// One turn of the macrotask queue drains every microtask waiting behind it, which is what the
-// deferred `flagRead.then(() => flushType(el))` needs; two turns is the cheap margin.
+// One macrotask turn drains the deferred `flagRead.then(() => flushType(el))`; two is margin.
 export const settle = async (turns = 2) => {
   for (let i = 0; i < turns; i += 1) await new Promise((r) => setImmediate(r));
 };
 
-// The worker's own reply shape (background.js srEcho) — a stub that answers anything else teaches
-// the recorder to handle a message the extension never sends.
+// The worker's own reply shape (srEcho); any other stub reply is a message the extension never sends.
 const echo = (msg, n) => ({ count: n, paused: false, manualPause: false, recording: true });
 
 export function load(opts = {}) {
@@ -104,8 +97,7 @@ export function load(opts = {}) {
   if (!noSendMessage) {
     runtime.sendMessage = (msg) => {
       sent.push(msg);
-      // A `.finally` runs on the returned promise, so a thenable is not enough — and a reply that
-      // throws has to reach the recorder as a rejection, the shape a sleeping worker produces.
+      // `.finally` runs on the returned promise, and a throwing reply must arrive as a rejection.
       try { return Promise.resolve(reply(msg, sent.length)); } catch (e) { return Promise.reject(e); }
     };
   }
@@ -149,8 +141,7 @@ export function load(opts = {}) {
   };
   if (!noObserver) sandbox.MutationObserver = Observer;
 
-  // In a page `window` IS the global, which is how an injected module's `window.RecMask = …`
-  // becomes the bare `RecMask` the recorder reads. The sandbox has to say the same thing.
+  // In a page `window` is the global, so an injected `window.RecMask = …` becomes bare `RecMask`.
   const context = createContext(sandbox);
   Object.assign(sandbox, win);
   sandbox.window = sandbox;
@@ -179,8 +170,7 @@ export function load(opts = {}) {
       for (const l of [...winListeners]) if (l.type === type) l.fn(ev);
       return ev;
     },
-    // THE TRAP: typing and select re-enter through the never-values flag read, so a blur fired and
-    // flushed synchronously records NOTHING and a test asserting an empty outbox is green and hollow.
+    // Typing re-enters through the flag read, so a blur flushed synchronously records nothing at all.
     act: async (node, type, props = {}) => {
       fire(doc, type, { target: node, ...props });
       await settle();
@@ -197,8 +187,7 @@ export function load(opts = {}) {
     poll: () => { if (pollFn) pollFn(); },
     pollCleared: () => pollCleared,
 
-    // JSON copies: an entry is built inside the vm realm, so a deepEqual against a plain object
-    // written here fails on the prototype alone.
+    // JSON copies: a vm-realm entry fails deepEqual against a plain object on the prototype alone.
     entries: () => sent.filter((m) => m.type === 'STEPREC_ADD').map((m) => JSON.parse(JSON.stringify(m.entry))),
     titles: () => sent.filter((m) => m.type === 'STEPREC_TITLE').map((m) => m.title),
     sent: () => sent.slice(),

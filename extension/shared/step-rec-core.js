@@ -1,18 +1,17 @@
-// Step ordering rules of the recording (IIFE global `StepRecCore`): where a line lands, which twins
-// a double-click drops, and when a line is final. Pure over the `st` record — Date.now and URL only.
+// Recording step order: where a line lands, which double-click twins drop, when a line is final.
 
 const StepRecCore = (() => {
-  // At the cap the recording PAUSES and drops the action; -1 = dropped. Mutates `st` (caller persists).
+  // At the cap the recording pauses and drops the action (-1); mutates `st`, the caller persists.
   function srPush(st, entry, cap) {
     if (st.paused || st.manualPause) return -1;
     if (st.entries.length >= cap) { st.paused = true; return -1; }
-    entry.at = Date.now(); // #160: the live pull hands an entry over once it settles
+    entry.at = Date.now(); // the live pull hands an entry over once it settles
     st.entries.push(entry);
     if (st.entries.length >= cap) st.paused = true;
     return st.entries.length - 1;
   }
 
-  // #86: a page title is a sentence, not an element name — cut at the last word/dash boundary, not mid-word.
+  // A page title is a sentence: cut at the last word/dash boundary, not mid-word.
   const SR_TITLE_MAX = 80;
   const srTrimTitle = (s) => {
     const t = String(s || '').replace(/\s+/g, ' ').trim();
@@ -30,8 +29,7 @@ const StepRecCore = (() => {
     try { return new URL(url).hostname; } catch { return url || 'the'; }
   };
 
-  // One SPA navigation fires the URL/title events twice: collapse consecutive identical AUTO entries
-  // onto the first one. A manual expected is the tester's own sentence and is never deduped.
+  // One SPA navigation fires URL/title events twice; a manual expected is never deduped.
   const srDupNavIdx = (st, text) => {
     const i = st.entries.length - 1;
     const e = st.entries[i];
@@ -42,7 +40,7 @@ const StepRecCore = (() => {
     return dup !== -1 ? dup : srPush(st, { kind: 'expected', text }, cap);
   }
 
-  // Trimmed like the recorded URL — queries carry reset tokens. A `#/…` route is the page, not a fragment.
+  // Queries are cut (they carry reset tokens); a `#/…` route is the page, not a fragment.
   function srOpenUrl(raw, full) {
     if (full) return raw;
     let u;
@@ -57,16 +55,14 @@ const StepRecCore = (() => {
     st.pendingOpen = null;
   }
 
-  // #23: the recorder holds an action for ~400ms to see what it caused, so the navigation that
-  // action triggered can reach the worker FIRST. A step landing right behind an AUTO nav line
-  // goes in front of it — the page opened BECAUSE of it, and the line belongs under it.
+  // The recorder holds an action ~400ms, so its nav can arrive first; the step goes back in front.
   const SR_NAV_LEAD_MS = 900;
   function srPlace(st, entry, cap) {
     const idx = srPush(st, entry, cap);
     if (idx < 1 || entry.kind !== 'step') return idx;
     const prev = st.entries[idx - 1];
     if (!prev || prev.kind !== 'expected' || prev.manual) return idx;
-    if (idx - 1 < (st.sent || 0)) return idx; // already in the editor — never unwrite it (#160)
+    if (idx - 1 < (st.sent || 0)) return idx; // already in the editor — never unwrite it
     if ((entry.at || 0) - (prev.at || 0) > SR_NAV_LEAD_MS) return idx;
     st.entries[idx - 1] = entry;
     st.entries[idx] = prev;
@@ -74,7 +70,7 @@ const StepRecCore = (() => {
     return idx - 1;
   }
 
-  // Copied field by field on purpose: `replaces` is a wire instruction and must never enter the recording.
+  // Field by field on purpose: `replaces` is a wire instruction and must never enter the recording.
   function srEntry(kind, text, entry) {
     const e = { kind, text };
     if (entry.action) e.action = String(entry.action);
@@ -84,31 +80,28 @@ const StepRecCore = (() => {
       for (const k of ['row', 'section', 'column']) if (entry.context[k]) c[k] = String(entry.context[k]);
       if (Object.keys(c).length) e.context = c;
     }
-    // #23: the action's context packet rides along WHOLE — it is data the editor reads (and
-    // may send to the instance's AI), not a wire instruction like `replaces`.
+    // The context packet rides along whole: it is data the editor reads, not a wire instruction.
     if (entry.ctx && typeof entry.ctx === 'object') e.ctx = entry.ctx;
     if (kind === 'expected' && entry.manual) e.manual = true; // typed by the tester, not a navigation
     return e;
   }
 
-  // A real double-click fires click, click, dblclick — up to TWO identical entries precede it.
-  // Matched on text: a control that renamed itself between the clicks keeps both steps.
+  // A double-click fires click, click, dblclick; matched on text, so a renamed control keeps both.
   function srPopTwins(st, text) {
     for (let i = 0; i < 2; i++) {
       const last = st.entries[st.entries.length - 1];
       if (!last || last.text !== text) break;
-      if (st.entries.length <= (st.sent || 0)) break; // already in the editor — never unwrite it (#160)
+      if (st.entries.length <= (st.sent || 0)) break; // already in the editor — never unwrite it
       st.entries.pop();
       if (st.lastNavIdx >= st.entries.length) st.lastNavIdx = -1;
     }
   }
 
-  // An entry may only be handed over once it can no longer change: a dblclick pops its twins within
-  // milliseconds, while a navigation's real title can land a whole load later — hence two windows.
+  // Final once it can't change: twins pop within ms, a nav's real title can land a load later.
   const SR_SETTLE_MS = 700;
   const SR_NAV_SETTLE_MS = 3000;
 
-  // The first index that is NOT final yet; everything before it may be handed over.
+  // The first index that is not final yet; everything before it may be handed over.
   function srFinalEnd(st, now) {
     const es = st.entries || [];
     for (let i = 0; i < es.length; i++) {
@@ -119,7 +112,7 @@ const StepRecCore = (() => {
     return es.length;
   }
 
-  // Chrome's URL-derived placeholder title (kept for a page with none): the host alone, or the host and more.
+  // Chrome's URL-derived placeholder title for a page with none: the host alone, or host and more.
   function srIsUrlTitle(title, url) {
     const t = (title || '').trim();
     if (!t) return true;
@@ -131,13 +124,12 @@ const StepRecCore = (() => {
     } catch { return false; }
   }
 
-  // The title lands AFTER the url change (a later onUpdated, or the re-injected script's
-  // document.title): a placeholder is ignored, the first real title wins and then stops rewriting.
+  // The title lands after the url change: placeholders are ignored, the first real title wins.
   function srRefineNav(st, title, url) {
     if (st.lastNavIdx == null || st.lastNavIdx < 0) return false;
     const e = st.entries[st.lastNavIdx];
     if (!e) return false;
-    // Already handed over: the line is the editor's — never rewrite only our copy (#160).
+    // Already handed over: the line is the editor's — never rewrite only our copy.
     if (st.lastNavIdx < (st.sent || 0)) { st.lastNavIdx = -1; return false; }
     const t = (title || '').replace(/\s+/g, ' ').trim();
     if (!t || srIsUrlTitle(t, url || st.lastUrl)) return false;

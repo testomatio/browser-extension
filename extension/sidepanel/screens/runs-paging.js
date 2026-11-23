@@ -1,11 +1,9 @@
-// The Runs tab's paging arithmetic: the cursor a v2 index answers with, the fold of its two
-// independently paged sources, and how much of the list is still missing. Over `state` alone.
+// The Runs tab's paging arithmetic, over `state` alone.
 
 /* global state */
 
 const RunsPaging = {
-  // v2 index response → paging cursor: totalPages is derived, because v2 reports a
-  // row total and no page count.
+  // v2 reports a row total but no page count, so totalPages is derived.
   v2Cursor(res, page) {
     const meta = res?.meta || {};
     const perPage = Number(meta.per_page) || (res?.data || []).length || 1;
@@ -18,8 +16,7 @@ const RunsPaging = {
     };
   },
 
-  // v2 folds two independently paged sources: more rows exist while EITHER has a
-  // next page.
+  // Runs and groups page independently: more rows exist while either has a next page.
   v2ListPaging(loading = false) {
     const r = state.v2RunsPaging || {};
     const g = state.v2GroupsPaging || {};

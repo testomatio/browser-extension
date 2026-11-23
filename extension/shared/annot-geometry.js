@@ -1,24 +1,9 @@
-// The annotator's pure geometry (IIFE global `AnnotGeometry`): the boxes, curves, hit tests and
-// grips the Select tool in shared/annotate-core.js is built on. Nothing here touches a canvas, a
-// document or `chrome.*` — a value goes in and a value comes out. That is the point of the split:
-// the maths a tester's click lands on is checkable without building a toolbar first.
-//
-// EVERYTHING IS NATURAL PIXELS. The canvas is natural-resolution but CSS-scaled; converting a CSS
-// tolerance into natural px (`natPerCss`) stays with the caller, which hands the answer in as `pad`.
-//
-// THE ENV BAG. Three facts live on the caller's canvas and cannot be derived here, so `opBox`,
-// `hitsOp` and `hitTest` take them as one object:
-//   measure(text, size) — the width of that label drawn bold at that size (the caller's
-//                         ctx.measureText; a canvas is the one thing this file may not reach for);
-//   textSize            — the size a label carrying no `size` of its own is drawn at;
-//   numberRadius        — the radius a badge carrying no `r` of its own is drawn at;
-//   pad                 — the grab tolerance in natural px (hit tests only).
-// A caller that forgets the bag gets a TypeError, not a quietly wrong box.
+// All natural pixels; `env` brings what lives on the caller's canvas: `measure`, default sizes, `pad`.
 
 const AnnotGeometry = (() => {
   'use strict';
 
-  const WIDTH = 3;          // the M weight; legacy ops with no width fall back to it
+  const WIDTH = 3;          // the M weight; ops with no width fall back to it
   const HL_WIDTH = 6;       // × the stroke weight
 
   const opWidth = (op) => op.width || WIDTH;
@@ -32,10 +17,9 @@ const AnnotGeometry = (() => {
     };
   }
 
-  // `cx, cy`: quadratic control point, absent on straight arrows and on ops stored
-  // before the bend handle existed.
+  // `cx, cy`: quadratic control point, absent on straight arrows.
   const curved = (op) => op.cx != null && op.cy != null;
-  // The point at t=0.5 — the bend handle has to sit ON the drawn curve.
+  // The point at t=0.5: the bend handle has to sit on the drawn curve.
   function arrowMid(op) {
     if (!curved(op)) return { x: (op.x1 + op.x2) / 2, y: (op.y1 + op.y2) / 2 };
     return {
@@ -43,8 +27,7 @@ const AnnotGeometry = (() => {
       y: 0.25 * op.y1 + 0.5 * op.cy + 0.25 * op.y2,
     };
   }
-  // Inverse of arrowMid: the control point that puts the curve THROUGH (px, py), so
-  // the handle drags the curve, not a point twice as far away.
+  // Inverse of arrowMid, so the handle drags the curve, not a point twice as far away.
   const arrowCtrl = (op, px, py) => ({
     cx: 2 * px - (op.x1 + op.x2) / 2,
     cy: 2 * py - (op.y1 + op.y2) / 2,
@@ -64,8 +47,7 @@ const AnnotGeometry = (() => {
     return pts;
   }
 
-  // Shared by the fill and the hit test. Points along the shaft's END tangent —
-  // on a curve that is the direction out of the control point, not out of the tail.
+  // Along the shaft's end tangent: on a curve, out of the control point, not out of the tail.
   function headLen(op) { return Math.max(10, opWidth(op) * 4); }
   function arrowHead(op) {
     const head = headLen(op);
@@ -79,7 +61,6 @@ const AnnotGeometry = (() => {
     ];
   }
 
-  // ---- hit-testing (Select tool) -----------------------------------------
   const rectOf = (op) => ({
     x1: Math.min(op.x1, op.x2), y1: Math.min(op.y1, op.y2),
     x2: Math.max(op.x1, op.x2), y2: Math.max(op.y1, op.y2),
@@ -161,7 +142,7 @@ const AnnotGeometry = (() => {
     }
     if (op.tool === 'line') return distToSeg(x, y, op.x1, op.y1, op.x2, op.y2) <= env.pad + opWidth(op) / 2;
     if (op.tool === 'pen' || op.tool === 'highlight') return hitsPath(op, x, y, env);
-    if (op.tool === 'rect' || op.tool === 'ellipse') return inBox(x, y, opBox(op, env), env.pad); // inside OR near an edge
+    if (op.tool === 'rect' || op.tool === 'ellipse') return inBox(x, y, opBox(op, env), env.pad); // inside or near an edge
     if (op.tool === 'pixelate') return inBox(x, y, opBox(op, env), 0);     // inside the region
     if (op.tool === 'text') return inBox(x, y, textBox(op, env), 0);
     if (op.tool === 'number') {
@@ -182,7 +163,6 @@ const AnnotGeometry = (() => {
     if (curved(op)) { op.cx += dx; op.cy += dy; }   // the bend travels with the arrow
   }
 
-  // ---- selection handles ---------------------------------------------------
   function handlesOf(op) {
     if (!op) return [];
     if (op.tool === 'rect' || op.tool === 'ellipse' || op.tool === 'pixelate') {
@@ -221,8 +201,7 @@ const AnnotGeometry = (() => {
     return (main !== flipped) ? 'nwse-resize' : 'nesw-resize';
   }
 
-  // WIDTH and HL_WIDTH ride along so the drawing code reads the same two numbers the boxes and
-  // the grab tolerances are built from — one definition, not two that can drift apart.
+  // Exported so the drawing code reads the same two numbers the boxes and tolerances use.
   return {
     WIDTH,
     HL_WIDTH,

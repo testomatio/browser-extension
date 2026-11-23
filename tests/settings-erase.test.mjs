@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// extension/sidepanel/screens/settings-erase.js on its own (#203): Forget instance, Disconnect and
-// Sign out, split out of the screen that also paints and saves the form. These rows are the ones the
-// module makes CHEAP, and they are all the same row underneath — THE ORDER. Storage is written first
-// and the in-memory copy follows only on success, so a rejected write leaves the panel unchanged
-// rather than half-erased; a test that reads only the end state cannot tell a correct order from a
-// lucky one, so every sequence below is asserted as a list. `HOST_SCOPED_KEYS` is the other half of
-// the promise: drop `offlineQueue` from it and a Forget leaves the tester's queued results — with the
-// raw comments they typed — sitting on a machine they were told was clean.
-// The whole of Settings still drives these through the screen in tests/settings.test.mjs, which the
-// split left untouched; what is cheaper here is reaching one path with four stubs instead of a page.
-// Run: node --test tests/settings-erase.test.mjs
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -19,9 +8,7 @@ import {
   loadScreen, fakeChrome, fakeClock, makeDocument, el, plain, settle, rejection, CORE_SRC,
 } from './helpers/panel-harness.mjs';
 
-// The REAL hostOf, not a look-alike: "a non-empty field that does not parse resolves to nothing" is
-// a rule about that function's refusal, and a stub returning the string back would pass the row while
-// the panel retargeted a destructive button at whatever was half-typed.
+// The real hostOf: a stub echoing the string would aim a destructive button at a half-typed host.
 const { hostOf } = runInNewContext(
   `${readFileSync(join(CORE_SRC, 'state.js'), 'utf8')}\n({ hostOf });`, { URL },
 );
@@ -31,8 +18,7 @@ const KEYS = ['settings', 'session', 'offlineQueue'];
 // A worker where only the named recorders refuse to stop.
 const refuses = (...types) => async (m) => (types.includes(m.type) ? { ok: false, error: 'busy' } : { ok: true });
 
-// `state` is an ACCESSOR bag, not a plain object: the safety property is that storage is written
-// before any of these is touched, and only a recorded write can show that.
+// `state` is an accessor bag: only a recorded write shows storage is written before memory moves.
 function makeState(o, order) {
   const bag = {
     settings: o.settings, hostSettings: o.hostSettings, hostHistory: o.hostHistory, booting: false,
@@ -51,9 +37,7 @@ function makeState(o, order) {
   return state;
 }
 
-// Four stubs and nothing more: `chrome`, `sessionStorage`, `location` and `ConfirmDialog`. The rest
-// are recorders the rows assert ON — a status line, a repaint, the theme carried across a wipe — not
-// stand-ins for behaviour the module owns.
+// Four stubs; the rest are recorders the rows assert on, not stand-ins for module behaviour.
 function load(opts = {}) {
   const o = {
     settings: { baseUrl: 'https://a.io', apiToken: 'tok-1', projectId: 'p1' },
@@ -151,7 +135,7 @@ function load(opts = {}) {
         mode: async () => { order.push('ViewMode.mode'); return o.surface; },
         setMode: async (v) => { order.push('ViewMode.setMode'); calls.surfaceSet.push(v); },
       },
-      // settings.js's own four, reached only when the host forgotten is NOT the active one.
+      // settings.js's own four, reached only when the host forgotten is not the active one.
       setSettingsFields: () => { calls.repaints.push('setSettingsFields'); },
       populateHostHistory: () => { calls.repaints.push('populateHostHistory'); },
       updateTokenHelpLink: () => { calls.repaints.push('updateTokenHelpLink'); },
@@ -167,8 +151,6 @@ function load(opts = {}) {
   };
 }
 
-// ---------- the order, which IS the promise ----------
-
 test('#203 Forget on the active instance runs one fixed sequence: storage first, memory last', async () => {
   const h = load({
     settings: { baseUrl: 'https://a.io', apiToken: 'tok-1', projectId: 'p1', handoff: true },
@@ -177,7 +159,7 @@ test('#203 Forget on the active instance runs one fixed sequence: storage first,
   assert.deepEqual(h.order, [
     'confirm',
     'state.booting=true',
-    'send:EVIDENCE_WIPE',       // both recorders are stopped BEFORE either write
+    'send:EVIDENCE_WIPE',       // both recorders are stopped before either write
     'send:SCREENREC_WIPE',
     'local.set',
     'local.remove(settings,session,offlineQueue)',
@@ -211,9 +193,7 @@ test('#203 a storage write the browser refuses moves NOTHING in memory, and unqu
   }
 });
 
-// `failed` is on the published surface with a default nobody in the repo reaches: both callers work
-// out a statusId first. A default no row pins is one that drifts, and this one decides WHERE the
-// tester is told the erase did not happen — on the Forget line, not somewhere they never look.
+// A default no row pins drifts, and this one decides where the tester hears the erase failed.
 test('#203 an erase failure with no line named goes to the Forget line, the default nobody exercises', () => {
   const h = load();
   h.erase.failed('forgetting a.io', new Error('disk gone'));
@@ -245,8 +225,6 @@ test('#203 forgetting an instance we are not on writes storage, then repaints �
   assert.equal(h.store.ops('local', 'remove').length, 0);
 });
 
-// ---------- what the tester is asked before any of it happens ----------
-
 test('#203 only the active instance promises the queued results and the recording as well', async () => {
   const on = load({ confirm: false });
   await on.erase.forget();
@@ -275,8 +253,6 @@ test('#203 Disconnect targets the instance the panel is ON, whatever the field s
   assert.equal(pick.lineOf('connection-status'), null);
 });
 
-// ---------- which host a destructive button is aimed at ----------
-
 test('#203 a half-typed instance targets NOTHING — a destructive control never retargets itself', async () => {
   const h = load({ baseUrl: 'nonsense' });
   assert.equal(h.erase.formHost(), null);
@@ -295,14 +271,11 @@ test('#203 an empty field means the active instance, and with none it means noth
   assert.equal(load({ baseUrl: 'https://b.io' }).erase.formHost(), 'b.io');
 });
 
-// ---------- the recorder stop ----------
-
 test('#203 the recorder wipe: a clean ok resolves, a refusal carries its own reason up', async () => {
   await load({ reply: async () => ({ ok: true }) }).erase.wipeRecording();
   const busy = load({ reply: async () => ({ ok: false, error: 'busy' }) });
   assert.equal((await rejection(busy.erase.wipeRecording())).message, 'busy');
-  // A refusal with no reason, and the STRING 'true', which is not an ok — both fail loudly rather
-  // than passing for a wipe that never happened.
+  // A reason-less refusal and the string 'true' both fail loudly, never passing for a wipe.
   for (const reply of [async () => ({ ok: false }), async () => null, async () => ({ ok: 'true' })]) {
     const h = load({ reply });
     assert.equal((await rejection(h.erase.wipeRecording())).message,
@@ -339,8 +312,6 @@ test('#203 a recorder that will not stop does not hold up the erase — the warn
     + 'Assume its log is still on this machine until you restart the browser.');
   assert.deepEqual(h.calls.status, []); // the doomed document prints nothing
 });
-
-// ---------- sign out ----------
 
 test('#203 Sign out reads theme and surface BEFORE the clear, and writes them back after', async () => {
   const h = load({ theme: 'dark', surface: 'tab' });
@@ -386,8 +357,6 @@ test('#203 a clear that is refused aborts on Sign out\'s OWN line, with every to
   assert.equal(h.order.includes('reload'), false);
 });
 
-// ---------- the warning the next panel picks up ----------
-
 test('#203 the warning an erase left behind is printed once and then really gone', () => {
   const h = load({ sessionSeed: { [WARN_KEY]: 'Signed out — but the recorder could not be stopped' } });
   h.erase.takeWarning();
@@ -408,8 +377,6 @@ test('#203 a browser that refuses sessionStorage neither throws nor invents a wa
   assert.deepEqual(h.calls.status, []);
   h.erase.leaveWarning(new Error('busy'), 'Signed out'); // the write side, same guarantee
 });
-
-// ---------- the screen recording goes too ----------
 
 test('a screen recording that will not stop is named in the warning, with its video', async () => {
   const h = load({ reply: refuses('SCREENREC_WIPE') });

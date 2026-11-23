@@ -1,5 +1,4 @@
-// Panel surface (IIFE global `ViewMode`) — Chrome's side panel vs our own popup window (#208).
-// Loaded by BOTH the service worker (importScripts) and the panel document — no document/window refs.
+// Side panel vs our own popup window; the service worker loads this too, so no window/document.
 
 const ViewMode = (() => {
   const KEY = 'viewMode';            // chrome.storage.local — the remembered choice
@@ -28,8 +27,6 @@ const ViewMode = (() => {
 
   const panelUrl = () => chrome.runtime.getURL(PANEL_PATH);
 
-  // ---------- window ids (session) ----------
-
   async function idOf(key) {
     try {
       const v = (await chrome.storage.session.get(key))[key];
@@ -52,8 +49,7 @@ const ViewMode = (() => {
     try { await chrome.storage.session.remove(PANEL_KEY); } catch { /* best effort */ }
   }
 
-  // The window the SITE is in: the last NORMAL one focused, tracked by the worker and
-  // verified before it is handed out — a closed window's id yields an empty tab query.
+  // The last normal window focused, verified first: a closed window's id yields an empty tab query.
   async function normalWindowId() {
     const tracked = await idOf(NORMAL_KEY);
     if (tracked != null) {
@@ -70,8 +66,7 @@ const ViewMode = (() => {
     } catch { return null; }
   }
 
-  // A normal window never is. Without a recorded id, a popup in window mode is taken for
-  // ours rather than mistaken for the site.
+  // Without a recorded id, a popup in window mode is taken for ours rather than for the site.
   async function isPanelWindow(win) {
     if (!win || win.type !== 'popup') return false;
     const id = await panelWindowId();
@@ -79,8 +74,7 @@ const ViewMode = (() => {
     return (await mode()) === 'window';
   }
 
-  // Weaker on purpose: this document is one of OURS, so a popup hosting it is the panel.
-  // It also settles before either write above lands, while the window is still booting.
+  // Weaker on purpose: a popup hosting our document is the panel, even before the ids are written.
   async function inPanelWindow() {
     try {
       const win = await chrome.windows.getCurrent();

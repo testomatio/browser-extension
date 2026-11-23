@@ -1,17 +1,13 @@
-// TC Studio screen: the suite tree, the per-suite TC list, and the test-page
-// hand-off (read-only view for an existing test, editor for a new one).
+// TC Studio screen: the suite tree, the per-suite TC list, and the hand-off to the test page.
 
 /* global TestomatAPI, Icons, Skeleton, Tooltip, EmptyState, PriorityIcons, TestType, Roving,
    StatusIcons, SuiteTree, TcQuickBar, TcSuiteCreate */
 
-// ---------- TC Studio: suite tree + TC list ----------
-// The tree is built SERVER-side and read whole from GET /suites/tree (#114), then
-// re-sorted by `position` — the web's order — here and in the "New test" picker (#26).
+// The tree is read whole from GET /suites/tree, then re-sorted by `position`, the web's order.
 
 const tcExpanded = (id) => !!state.tcExpanded[String(id)];
 
-// The shared `.row-count` (ROW TAIL, shared/components.css). Folders show the
-// subtree total, files their own — 0 included: an omitted badge reads "not loaded".
+// Folders show the subtree total, files their own, 0 included: an omitted badge reads "not loaded".
 function tcCounter(n) {
   if (!n || n.test_count == null) return null;
   const b = document.createElement('span');
@@ -20,8 +16,7 @@ function tcCounter(n) {
   return b;
 }
 
-// Shared `.row-actions.on-hover` — it draws over the count at the row's trailing
-// edge and hides it while up, so the two never compete for the slot.
+// It draws over the count at the row's trailing edge and hides it, so the two never compete.
 function rowActions(...kids) {
   const cell = document.createElement('div');
   cell.className = 'row-actions on-hover';
@@ -29,21 +24,18 @@ function rowActions(...kids) {
   return cell;
 }
 
-// What the arrows walk in either tree. `[data-id]` is what leaves out the inline create row,
-// which is a `.tc-row` too but belongs to the field inside it, not to the keyboard.
+// `[data-id]` leaves out the inline create row, a `.tc-row` whose keyboard belongs to its field.
 const TC_TREE_ROW_SELECTOR = '.tc-row[data-id]';
 
 // The TC list's own rows; its two empty states are <li>s without one.
 const TC_LIST_ROW_SELECTOR = 'li[data-id]';
 
-// `ctx.pick` switches the file row: studio opens its TC list, pick mode selects it
-// and calls ctx.onPick. Children are built once, shown/hidden by the expand set.
+// `ctx.pick` switches the file row: studio opens its TC list, pick mode calls ctx.onPick.
 function tcNode(node, ctx) {
   const li = document.createElement('li');
   li.className = 'tc-item tree-node';
   const row = document.createElement('div');
-  // `tree-row` puts the row's rule under its TYPE glyph, not out at the chevron
-  // column the open guide comes down (shared/components.css).
+  // `tree-row` puts the row's rule under its type glyph, not out at the chevron column.
   row.className = 'list-row tc-row list-head tree-row';
   row.dataset.id = node.id;
   // Both branches below end in a click listener, and Enter/Space run whichever it is.
@@ -52,8 +44,7 @@ function tcNode(node, ctx) {
   if (node.file_type === 'folder') {
     row.classList.add('tc-folder', 'has-chevron');
     row.append(StatusIcons.treeIcon(StatusIcons.CHEVRON, 'chevron'));
-    // `node.emoji` (api.js normSuiteNode) is the project's own mark for the
-    // folder; the folder glyph is the fallback for a node without one.
+    // `node.emoji` is the project's own folder mark; the folder glyph is the fallback.
     row.append(StatusIcons.treeIcon(StatusIcons.FOLDER, 'folder-icon', node.emoji));
     const title = document.createElement('span');
     title.className = 'title';
@@ -63,14 +54,12 @@ function tcNode(node, ctx) {
     if (badge) row.append(badge);
     li.append(row);
 
-    // `ctx.expandAll` opens every folder a search left standing, WITHOUT writing
-    // to the expand set — clearing the query must give back the tester's folding.
+    // `ctx.expandAll` opens search hits without writing the expand set, so clearing restores folding.
     let open = ctx.expandAll || tcExpanded(node.id);
     const kids = document.createElement('ul');
     kids.className = 'tc-children tree-children';
     kids.hidden = !open;
-    // Only a FOLDER folds, so only a folder says so; on a file row the attribute would claim a
-    // fold that is not there.
+    // Only a folder folds, so only a folder carries aria-expanded.
     row.setAttribute('aria-expanded', String(open));
     // The picker draws the project's own order — picking is reading the tree.
     const children = ctx.pick ? (node.children || []) : SuiteTree.hoist(node.children, TcSuiteCreate.justCreated);
@@ -84,7 +73,6 @@ function tcNode(node, ctx) {
       row.classList.toggle('expanded', open);
       row.setAttribute('aria-expanded', String(open));
     });
-    // Studio mode: folders can spawn child suites/folders (not in the pick tree).
     if (!ctx.pick) {
       row.append(rowActions(TcSuiteCreate.addButtons((fileType) => {
         state.tcExpanded[String(node.id)] = true; // reveal the input inside kids
@@ -94,8 +82,7 @@ function tcNode(node, ctx) {
         TcSuiteCreate.open({
           parentId: node.id,
           fileType,
-          // First child of its folder, scrolled to — a folder opening low in the
-          // panel can push its own first row off the bottom.
+          // Scrolled to: a folder opening low in the panel can push its own first row off the bottom.
           mount: (r) => { kids.prepend(r); r.scrollIntoView({ block: 'nearest' }); },
         });
       })));
@@ -134,8 +121,7 @@ function tcNode(node, ctx) {
   return li;
 }
 
-// In studio mode (`canCreate`) the Suite/Folder pair are its actions; the picker
-// gets only the web-app link — nothing can be created from there.
+// The picker gets only the web-app link: nothing can be created from there.
 function renderSuiteEmpty(ul, tail, canCreate) {
   const s = state.settings;
   const hasLink = !!(s?.baseUrl && s?.projectId);
@@ -168,9 +154,7 @@ function renderSuiteEmpty(ul, tail, canCreate) {
   }));
 }
 
-// ---------- tree search (Tests screen) ----------
-// Local (the tree is already in state.tcSuites) and over suite/folder TITLES only
-// — the tests themselves are searched by the TC list's own field.
+// Tree search is local and over suite/folder titles only; tests have the TC list's own field.
 
 // A query that matched nothing is not an empty project — the way out is the query.
 function tcTreeEmptySearch() {
@@ -202,7 +186,7 @@ function clearTcTreeSearch() {
   $('tc-tree-search').focus();
 }
 
-// Drops the query WITHOUT redrawing — for callers about to redraw anyway.
+// Drops the query without redrawing, for callers about to redraw anyway.
 function resetTcTreeSearch() {
   state.tcTreeSearch = '';
   syncTcTreeSearchInput();
@@ -216,8 +200,7 @@ function syncTcTreeSearchInput() {
   $('tc-tree-search-clear').hidden = state.tcTreeSearch.trim() === '';
 }
 
-// The picker's #promote-tree is built by the same tcNode, so it is wired here too — one call
-// covers both trees rather than the Tests tab getting a keyboard the picker does not have.
+// Wired here so the picker's tree gets the same keyboard as the Tests tab.
 function renderSuiteTreeInto(ul, roots, ctx) {
   Roving.attach(ul, { selector: TC_TREE_ROW_SELECTOR });
   ul.replaceChildren();
@@ -231,45 +214,39 @@ function renderSuiteTreeInto(ul, roots, ctx) {
 
 function renderSuiteTree(roots) {
   const q = state.tcTreeSearch.trim();
-  // The empty state carries its own create buttons, so the root toolbar hides
-  // there — but a query keeps it up: the search field lives in that same row.
+  // The empty state brings its own create buttons; a query keeps the bar for its search field.
   const bar = $('tc-tree-bar');
   if (bar) bar.hidden = !roots.length && !q;
-  // Hoist AFTER the filter — it returns copies, so reordering has to come last.
+  // Hoist after the filter: it returns copies, so reordering has to come last.
   renderSuiteTreeInto($('tc-tree'), SuiteTree.hoist(SuiteTree.filter(roots, q), TcSuiteCreate.justCreated), {
     pick: false,
     expandAll: !!q,               // show the branch that leads to every match
-    searching: !!q && !!roots.length, // "no match" only when there WAS something to match
+    searching: !!q && !!roots.length, // "no match" only when there was something to match
   });
-  // The tab chip counts the PROJECT, never the filter.
+  // The tab chip counts the project, never the filter.
   setTabCount('tests', SuiteTree.testCount(roots));
 }
 
-// The Tests count WITHOUT the tree (prefetchTabCounts, core/views.js). Leaves
-// state.tcSuites untouched — a tree cached here would be drawn before its refetch.
+// Leaves state.tcSuites untouched: a tree cached here would be drawn before its refetch.
 async function loadTestsCount(epoch) {
   try {
     const roots = await TestomatAPI.getSuiteTree();
     if (staleProject(epoch)) return;
     setTabCount('tests', SuiteTree.testCount(roots));
-    // The tree is dropped, but its marks are the project's — a run opened next
-    // wants them (rememberSuiteEmoji, screens/run-view.js).
+    // The tree is dropped, but a run opened next wants its marks.
     rememberSuiteEmoji(roots);
   } catch { /* best effort — the chip stays absent */ }
 }
 
 async function openTcStudioView() {
-  // A tree already read for this project is painted AT ONCE and re-read behind it:
-  // the nodes never left memory, and clearing them to fetch the same ones back is
-  // what made a return to the Tests tab blank the screen first (the piecemeal paint).
+  // A tree already read for the project paints at once and is re-read behind it.
   if (state.tcSuites?.length) {
     show('tcstudio');
-    syncTcTreeSearchInput(); // read FROM state, as on the fresh path below
-    // Before the paint, not after: the re-read below returns the project's own order,
-    // and a hoist dropped afterwards would reshuffle the tree under the tester.
+    syncTcTreeSearchInput(); // read from state, as on the fresh path below
+    // Before the paint: the re-read returns the project's order, and a late hoist drop would reshuffle.
     TcSuiteCreate.justCreated.length = 0;
     renderSuiteTree(state.tcSuites);
-    // #155: still gated — a locked project replaces the tree with the blocking panel.
+    // A locked project replaces the tree with the blocking panel.
     if (await readonlyGate()) { applyReadonlyBlock(); return; }
     const epoch = state.projectEpoch; // a project switch mid-fetch discards this tree
     try {
@@ -286,12 +263,10 @@ async function openTcStudioView() {
   }
   show('tcstudio');
   const sk = Skeleton.show('tcstudio'); // drawn at once, and before the read-only probe — a round trip too
-  // #155: settle the read-only probe before the tree fetch, so a locked project
-  // shows the blocking panel and nothing else.
+  // Read-only probe before the fetch, so a locked project shows the blocking panel and nothing else.
   if (await readonlyGate()) { Skeleton.hide(sk); applyReadonlyBlock(); return; }
   setStatusLine('tcstudio-status', 'Loading suites…');
-  // The query outlives leaving the screen but not a project switch (which clears
-  // it in state), so the field is read FROM state on every open.
+  // The query outlives leaving the screen but not a project switch, so it is read from state.
   syncTcTreeSearchInput();
   // A fresh open is the project's own order again.
   TcSuiteCreate.justCreated.length = 0;
@@ -301,8 +276,7 @@ async function openTcStudioView() {
     const suites = await TestomatAPI.getSuiteTreeOrdered();
     if (staleProject(epoch)) return;
     state.tcSuites = suites;
-    // One index: a run's suite sections wear these marks without a fetch of
-    // their own (screens/run-view.js).
+    // One index: a run's suite sections wear these marks without a fetch of their own.
     rememberSuiteEmoji(state.tcSuites);
     renderSuiteTree(state.tcSuites);
     setStatusLine('tcstudio-status', '');
@@ -319,8 +293,7 @@ function tcRowMatches(t) {
   return (t.title || t.clean_title || '').toLowerCase().includes(q);
 }
 
-// Two different nothings: an empty suite is a place to write one, a search that
-// matched nothing just needs clearing.
+// Two nothings: an empty suite is a place to write one, a search that matched nothing needs clearing.
 function tcListEmpty(searching) {
   if (searching) {
     const clear = document.createElement('button');
@@ -362,8 +335,7 @@ function renderTcList() {
     li.dataset.id = t.id;
     const head = document.createElement('div');
     head.className = 'list-head';
-    // priority → type → title, the web app's own row order. Both marks come off
-    // the v2 record already held; an absent priority draws the `normal` ring.
+    // priority → type → title, the web's own row order; an absent priority draws the `normal` ring.
     const prio = typeof PriorityIcons !== 'undefined' ? PriorityIcons.mark(t.priority) : null;
     // A custom Testomat emoji stands in the type mark's own square.
     const type = Icons.emoji(t.emoji, 'type-mark')
@@ -378,8 +350,7 @@ function renderTcList() {
     ul.append(Roving.item(li));
   }
   if (!rows.length) ul.append(tcListEmpty(all.length > 0));
-  // The caption counts what is ON SCREEN, not what the suite holds — a search
-  // narrows it, and an empty suite is a real 0.
+  // The caption counts what is on screen, not what the suite holds; an empty suite is a real 0.
   const count = $('tc-list-count');
   if (count) { paintCounter(count, rows.length); count.hidden = false; }
   setStatusLine('tclist-status', '');
@@ -397,30 +368,25 @@ function clearTcSearch() {
   $('tc-search').focus();
 }
 
-// Drops the query WITHOUT redrawing and WITHOUT taking focus — for callers about to redraw
-// anyway, and whose own field holds the caret (the quick bar's create).
+// Drops the query without redrawing or taking focus: the quick bar's field keeps the caret.
 function resetTcSearch() {
   state.tcSearch = '';
   if ($('tc-search')) $('tc-search').value = '';
   if ($('tc-search-clear')) $('tc-search-clear').hidden = true;
 }
 
-// Two reads of the SAME suite can be in flight — a refresh clicked while the quick bar's
-// create is re-reading, or the other way round — and they may answer out of order (#27).
+// Two reads of one suite can be in flight (refresh, a create's re-read) and answer out of order.
 let tcListReadSeq = 0;
 
-// The suite's rows, read and drawn. Shared by the suite open and by every create in the
-// quick bar, so a new test is read back exactly the way the list was first filled.
-// `quiet` re-reads behind the rows already up — no skeleton over a list that is still there.
+// `quiet` re-reads behind the rows already up: no skeleton over a list that is still there.
 async function loadTcList(suiteId, { quiet = false } = {}) {
   const seq = ++tcListReadSeq;
   const sk = quiet ? null : Skeleton.show('tclist');
   if (!quiet) setStatusLine('tclist-status', 'Loading tests…');
   try {
-    // v2 answers newest-first; the web orders a suite's tests by `position` ascending (#4).
+    // v2 answers newest-first; the web orders a suite's tests by `position` ascending.
     const tests = await TestomatAPI.getTestsBySuite(suiteId);
-    // A suite opened while this was on the wire owns the list now — these rows are the last one's.
-    // Same for a later read of THIS suite: only the newest one may paint.
+    // A suite opened meanwhile, or a newer read of the same suite, owns the list now.
     if (state.tcSuiteId !== suiteId || seq !== tcListReadSeq) return;
     state.tcTests = tests.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     renderTcList();
@@ -432,19 +398,16 @@ async function loadTcList(suiteId, { quiet = false } = {}) {
 }
 
 async function openTcListView(suiteId, title) {
-  if (capabilities.readonly) { show('tclist'); return; } // #155 — locked project
+  if (capabilities.readonly) { show('tclist'); return; } // locked project
   const sameSuite = String(state.tcSuiteId) === String(suiteId);
-  // A DIFFERENT suite starts the bar clean; a refresh or a return to this one keeps what is half-typed.
+  // A different suite starts the bar clean; a refresh or a return keeps what is half-typed.
   if (!sameSuite) TcQuickBar.reset();
   state.tcSuiteId = suiteId;
   state.tcSuiteTitle = title || 'Suite';
-  // Read off the tree already in memory — the callers have an id and a title,
-  // never the node. null (no tree, e.g. a restored session) draws the glyph.
+  // Read off the tree in memory: callers have an id, never the node. null draws the glyph.
   state.tcSuiteEmoji = SuiteTree.emojiOf(state.tcSuites, suiteId);
-  // Search resets on every suite open (in-memory only).
   resetTcSearch();
-  // Coming back to the suite already open — its rows are in memory, so they stay up
-  // and the re-read lands under them, the way a create in the quick bar re-reads.
+  // Back to the open suite: its rows stay up and the re-read lands under them.
   if (sameSuite && state.tcTests?.length) {
     show('tclist');
     renderTcList();
@@ -458,17 +421,13 @@ async function openTcListView(suiteId, title) {
   await loadTcList(suiteId);
 }
 
-// The panel-wide refresh's leg for the suite list (#27) — a re-read in place, not a re-open:
-// the rows stay up until it lands, and the search query and whatever is half-typed in the
-// Add-new-test bar are kept, because a refresh is not a suite change. Errors go to
-// `tclist-status` the way every other read of this list reports them (loadTcList).
+// A re-read in place, not a re-open: the rows, the query and half-typed titles all survive a refresh.
 async function refreshTcList() {
   if (!state.tcSuiteId) return;
   await loadTcList(state.tcSuiteId, { quiet: true });
 }
 
-// Reuses the TC tree in pick mode, then opens the editor in create mode bound to
-// the chosen suite. Cancel is the Back arrow (goBack → tcstudio).
+// Reuses the TC tree in pick mode; Cancel is the Back arrow (goBack → tcstudio).
 async function openTestSuitePicker() {
   show('promote');
   const sk = Skeleton.show('promote');
@@ -490,8 +449,7 @@ async function openTestSuitePicker() {
   }
 }
 
-// Navigates the panel document to the test page. Hand-off is by id only, never
-// serialized content; the sessionStorage breadcrumb is consumed once in init.
+// Hand-off by id only, never serialized content; the sessionStorage breadcrumb is read once in init.
 function openEditor({ test, suite, suiteId, suiteTitle }) {
   try {
     sessionStorage.setItem('tcReturn', JSON.stringify({ suiteId, suiteTitle }));

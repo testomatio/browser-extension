@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// The test's WORKFLOW METADATA (extension/sidepanel/screens/test-meta.js): the custom status the
-// project replies with, and the person the result is assigned to. Neither is the verdict — each is
-// its own request, its own optimistic paint and its own gate — so these rows were the substatus and
-// assignee half of tests/test-view-write.test.mjs until the pair became their own file; the status
-// write, the step writes, the attach gates and the pager stayed there.
-// Two things are easy to get quietly wrong. Both writers paint BEFORE the server answers, so every
-// refusal has to put the face back — and the face is not the record: the Dropdown has already moved
-// its closed label, and the trigger already shows the new monogram. And the assignee listbox is
-// hand-built rather than an OS menu, so its cursor, its clamp and its Escape/Tab split are the
-// panel's own code and not the platform's.
-// Rows are the ticket's 63-75, 147-158. A lettered suffix is the companion case that drives the same
-// path the other way, so a row asserting "nothing happened" cannot pass against a fixture where
-// nothing could have happened anyway.
-// Run: node --test tests/test-meta.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeClock, makeDocument, el, event, plain, settle } from './helpers/panel-harness.mjs';
@@ -20,8 +6,7 @@ import { loadScreen, fakeClock, makeDocument, el, event, plain, settle } from '.
 const ASSIGN_GATE = "Can't re-assign already marked test";
 const NONE = '— none —';
 
-// A promise this file resolves by hand: row 65 is about what a SECOND change does while the first
-// one's request is still on the wire.
+// Resolved by hand, for a second change while the first one's request is still on the wire.
 function deferred() {
   let resolve;
   let reject;
@@ -31,18 +16,14 @@ function deferred() {
 
 const rec = (id, over = {}) => ({ id, test_id: id * 100, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// index.html's shape (:645-679), cut to the nodes these two controls touch. `true` = hidden in
-// markup. There is no `test-status` here and no write-state attribute: the metadata writers speak on
-// the shared line through setAuthExpiredLine and otherwise toast.
+// index.html's shape, cut to the nodes these two controls touch; `true` = hidden in markup.
 const NODES = [
   ['div', 'test-substatus', true], ['span', 'test-substatus-mark', true],
   ['div', 'test-assignee', true], ['p', 'assignee-reason', true],
 ];
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// The panel globals test-meta.js reads, all of them real enough to be driven. There is no `chrome`
-// in this list, no OfflineQueue and no WriteCore: this pair stores nothing, queues nothing and never
-// goes through the verdict's write core.
+// No chrome, OfflineQueue or WriteCore: this pair stores nothing, queues nothing, skips the core.
 function load(opts = {}) {
   const o = {
     recordId: 7,
@@ -63,8 +44,7 @@ function load(opts = {}) {
     node[key(id)] = n;
     doc.body.append(n);
   }
-  // The assignee listbox is a real subtree: onAssigneeDocClick asks the wrapper whether the click
-  // landed inside it, so a flat fixture would answer "outside" for every option.
+  // A real subtree: onAssigneeDocClick asks the wrapper whether the click landed inside it.
   const dd = el('div', { id: 'assignee-dd' });
   const trigger = el('button', { id: 'assignee-trigger' });
   const value = el('span', { id: 'assignee-value' });
@@ -81,8 +61,7 @@ function load(opts = {}) {
   Object.assign(node, { assigneeDd: dd, assigneeTrigger: trigger, assigneeValue: value,
     assigneeMenu: menu, assigneeFilter: filter, assigneeList: list, assigneeEmpty: empty });
 
-  // scrollIntoView is the one member mini-dom does not have that this module calls, and the cursor
-  // rows go through it on every move.
+  // mini-dom lacks scrollIntoView, and the cursor rows call it on every move.
   const create = doc.createElement.bind(doc);
   doc.createElement = (tag) => {
     const made = create(tag);
@@ -102,8 +81,7 @@ function load(opts = {}) {
     ddValues: [],
   };
 
-  // Reassignable after load(), so a row can answer the second call differently from the first or
-  // change the world from inside a call the module is awaiting.
+  // Reassignable after load(), so a later call can answer differently, or mid-call.
   const on = {
     setSubstatus: async () => ({}),
     clearSubstatus: async () => ({}),
@@ -137,7 +115,7 @@ function load(opts = {}) {
     toast: (msg, tOpts) => { calls.toasts.push(tOpts ? { msg, ...tOpts } : { msg }); },
     isAuthError: (e) => e?.kind === 'auth',
     setAuthExpiredLine: (id) => { calls.authLines.push(id); },
-    // core/state.js:79's own, stringified on both sides.
+    // core/state.js's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     // screens/run-lock.js — one reason for every row here; the per-record scoping is that module's.
     RunLock: { recordWriteLock: () => o.lock },
@@ -152,8 +130,7 @@ function load(opts = {}) {
         return n;
       },
     },
-    // The real one writes data-tip on the node it is given (shared/tooltip.js:257,267); a recorder
-    // alone could not tell a tip that landed on the right element from one that went nowhere.
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -186,15 +163,10 @@ function load(opts = {}) {
     ...h,
     mod: h.screen,
     state, calls, on, node, doc, clock,
-    // What the tester sees under the cursor in the listbox.
     activeOption: () => node.assigneeList.querySelector('.active')?.id ?? null,
     optionIds: () => node.assigneeList.children.map((li) => li.dataset.userId),
   };
 }
-
-// ---------- the read-only custom-status mark ----------
-// Not in #164's table and driven by nothing until now: the extraction published it, and a mutation
-// that dropped its JWT gate left the whole suite green.
 
 test('the mark carries the row\'s own status as its tint, plus the value and a tooltip', () => {
   const h = load({ records: [rec(7, { status: 'failed', substatus: 'Blocked' })] });
@@ -202,7 +174,7 @@ test('the mark carries the row\'s own status as its tint, plus the value and a t
   const el = h.node.testSubstatusMark;
   assert.equal(el.hidden, false);
   assert.equal(el.textContent, 'Blocked');
-  assert.equal(el.className, 'badge custom-status failed'); // the STATUS tints it, not the value
+  assert.equal(el.className, 'badge custom-status failed'); // the status tints it, not the value
   assert.equal(el.dataset.tip, 'Custom status: Blocked');
 });
 
@@ -222,8 +194,6 @@ test('a value of nothing but spaces is no value at all', () => {
   h.mod.renderSubstatusMark(rec(8));
   assert.equal(h.node.testSubstatusMark.hidden, true);
 });
-
-// ---------- assignee and substatus writes (rows 63-75, 157-158) ----------
 
 test('63: a custom status is written and shown before the server answers', async () => {
   const h = load({ records: [rec(7, { status: 'failed' })], replies: { failed: ['Needs investigation'] } });
@@ -311,9 +281,6 @@ test('68b: a rejected assign puts the previous member back and toasts', async ()
   assert.deepEqual(h.calls.authLines, []); // …and no auth line: the token was fine, the write was not
 });
 
-// The substatus writer's twin is 67/67b. This one had only the toast half, so collapsing the split
-// to an unconditional toast left the suite green — an expired token would shout instead of telling
-// the tester where to sign in, the way every other write path does.
 test('68c: an expired token speaks on the LINE, not a toast — the same split the substatus makes', async () => {
   const h = load({
     users: [{ id: '12', name: 'Ann', email: 'A@x.io' }, { id: '9', name: 'Bo', email: 'b@x.io' }],
@@ -420,10 +387,7 @@ test('158: no reply group, no JWT and a pending row each hide the control and cl
   }
 });
 
-// ---------- the assignee listbox keyboard (rows 147-156) ----------
-
-// Member ids are STRINGS everywhere below because the read builds them that way (api.js:481) and
-// the cursor compares them with `===` — a number would never match the row it is sitting on.
+// Member ids are strings because the read builds them so, and the cursor compares with `===`.
 test('147: the list always opens with Unassigned above the members', () => {
   const h = load({ users: [{ id: '1', name: 'Ann' }] });
   assert.deepEqual(plain(h.mod.assigneeRows()), [

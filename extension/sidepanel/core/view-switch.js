@@ -1,5 +1,4 @@
-// The header's surface switch (#208): one control, two states — side panel ↔ window.
-// Both surfaces are the SAME document, so switching is: open the other, close this one.
+// Both surfaces are the same document, so switching is: open the other, close this one.
 
 /* global $, toast, Icons, Tooltip, ViewMode, hasChrome */
 
@@ -15,8 +14,7 @@ async function initViewSwitch() {
   inPanelWindow = await ViewMode.inPanelWindow();
   // Only the window surface can dock, and only the dock needs this id.
   if (inPanelWindow) hostWindowId = await ViewMode.normalWindowId();
-  // The worker records every focus change into a normal window; this keeps the id in
-  // step, so the dock click never has to look one up.
+  // The worker records every normal-window focus; this keeps the id in step for the dock click.
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'session' && changes[ViewMode.NORMAL_KEY]) {
       const next = changes[ViewMode.NORMAL_KEY].newValue;
@@ -24,12 +22,11 @@ async function initViewSwitch() {
     }
   });
   renderViewSwitch();
-  // Wired last, once the label has stopped lying: the caller does not await this, and a press
-  // landing earlier would read a surface nobody has answered for and open a window from inside one.
+  // Wired last: a press landing before the label settles could open a window from inside one.
   btn.addEventListener('click', onViewSwitch);
 }
 
-// The button says what pressing it DOES, in both places it can be pressed.
+// The button says what pressing it does, in both places it can be pressed.
 function renderViewSwitch() {
   const btn = $('view-switch');
   if (!btn) return;
@@ -46,8 +43,7 @@ function onViewSwitch() {
   else openInWindow();
 }
 
-// Side panel → window. The preference is written only once the window is really there:
-// a failed create must not leave the toolbar icon pointing at an unopenable surface.
+// The preference is written only once the window is there: a failed create must not strand it.
 async function openInWindow() {
   let res = null;
   try { res = await chrome.runtime.sendMessage({ type: 'VIEW_OPEN_WINDOW' }); } catch { res = null; }
@@ -59,8 +55,7 @@ async function openInWindow() {
   closeSurface();
 }
 
-// `sidePanel.open()` must run while the click is still on the stack (so: before any
-// await) and needs the id of a NORMAL window — a popup cannot host a side panel.
+// `sidePanel.open()` must run before any await, and needs a normal window: a popup can't host one.
 function dockToSidePanel() {
   if (hostWindowId == null) {
     toast('Open a browser window first — the side panel lives in one', { error: true });
@@ -73,8 +68,7 @@ function dockToSidePanel() {
     .catch((e) => toast(`Couldn't dock to the side panel — ${String(e?.message || e)}`, { error: true }));
 }
 
-// Both surfaces close the same way: there is no sidePanel.close() API, and the
-// window is our own document's — so closing the document IS closing the surface.
+// There is no sidePanel.close(), and both surfaces are our document: closing it closes the surface.
 function closeSurface() {
   try { window.close(); } catch { /* nothing else to try */ }
 }

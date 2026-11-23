@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// The "you cannot do that right now" gates (extension/sidepanel/screens/test-gates.js): what a
-// finished run, a row with no result yet or a login-blocked session does to the verdict buttons, the
-// comment, the step circles and the three attach controls — so these rows were the gate half of
-// tests/test-view-write.test.mjs until the block became its own file; the status write, the step
-// writes and the pager stayed there.
-// Two things are easy to get quietly wrong. The PRECEDENCE is not one rule: here the lock is asked
-// first, because "no saved result yet" would invite a click that can no longer create one, while
-// screens/attachments.js asks the missing result first — one helper owns the sentences and neither
-// caller's order. And a probing session answers 'unknown', which must never gate: a gate that reads
-// it as a refusal locks the attach controls of every tester whose probe has not landed yet.
-// Rows are the ticket's 96-103. The sections after them are driven by nothing before this file: the
-// extraction published the full-page toggle and the attachments fold, and a mutation in either left
-// the whole suite green.
-// Run: node --test tests/test-gates.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadScreen, fakeChrome, makeDocument, el, plain } from './helpers/panel-harness.mjs';
@@ -20,8 +6,7 @@ import { loadScreen, fakeChrome, makeDocument, el, plain } from './helpers/panel
 const HOST = 'app.testomat.io';
 const LOCK = 'Run is finished — results are read-only';
 
-// The three attach gates, verbatim. The recorder's two use commas where the others use em dashes;
-// that drift is the reason these are strings in the test and not a template.
+// Verbatim strings: the recorder's two use commas where the others use em dashes.
 const NO_RESULT = {
   shot: 'No saved result yet — screenshots attach to a test result',
   file: 'No saved result yet — files attach to a test result',
@@ -32,8 +17,7 @@ const DEGRADED = {
   file: `Attaching files needs an active ${HOST} web login — sign in there, then Refresh`,
   rec: `Attaching a recording needs an active ${HOST} web login, sign in there, then Refresh`,
 };
-// The fourth wording, which only screens/attachments.js says — bare where the three above finish the
-// sentence. tests/attachments.test.mjs drives it through the two lock functions that read it.
+// Only screens/attachments.js says this one: bare, where the three above finish the sentence.
 const DELETE = {
   noResult: 'No saved result yet',
   degraded: `Deleting needs an active ${HOST} web login — sign in there, then Refresh`,
@@ -41,8 +25,7 @@ const DELETE = {
 
 const rec = (id, over = {}) => ({ id, test_id: id * 100, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// index.html's shape (:576-744), cut to the nodes a gate touches. `true` = hidden in markup. There is
-// no `test-status` here: this module never speaks on the write's line, it only disables and explains.
+// index.html's shape, cut to the nodes a gate touches; `true` = hidden in markup.
 const NODES = [
   ['textarea', 'test-comment'],
   ['button', 'btn-passed'], ['button', 'btn-failed'], ['button', 'btn-skipped'],
@@ -55,8 +38,7 @@ const NODES = [
 ];
 const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
-// The panel globals test-gates.js reads. There is no OfflineQueue here, no WriteCore and no
-// TestomatAPI beyond `jwtAvailable`: a gate asks the world what it is, it never writes to it.
+// No OfflineQueue, WriteCore or API beyond `jwtAvailable`: a gate asks the world, it never writes.
 function load(opts = {}) {
   const o = {
     recordId: 7,
@@ -106,14 +88,13 @@ function load(opts = {}) {
     hasChrome: o.hasChrome,
     $: (id) => doc.getElementById(id),
     baseUrlHost: () => HOST,
-    // core/state.js:79's own, stringified on both sides.
+    // core/state.js's own, stringified on both sides.
     recordFor: (id) => state.records.find((r) => String(r.id) === String(id)),
     // screens/run-lock.js — one reason for every row here; the per-record scoping is that module's.
     RunLock: { recordWriteLock: () => o.lock },
     StatusIcons: { normStatus: (s) => (s === 'launching' ? 'running' : s || 'unknown') },
     renderAttachmentList: () => { calls.attachmentLists += 1; },
-    // The real one writes data-tip on the node it is given (shared/tooltip.js:257,267); a recorder
-    // alone could not tell a tip that landed on the right element from one that went nowhere.
+    // Writes data-tip like the real one, so a tip that lands on the wrong element shows.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -129,8 +110,6 @@ function load(opts = {}) {
 
   return { ...h, mod: h.screen, state, calls, node, doc, store, control };
 }
-
-// ---------- the gates and their copy (rows 96-103) ----------
 
 test('96: a lock disables every verdict control and says the reason once, above them', () => {
   const h = load({ lock: LOCK, stepButtons: 2 });
@@ -178,7 +157,7 @@ test('98: no saved result yet — the three sentences, verbatim, inline and on t
   assert.equal(h.node.screenRecReason.textContent, NO_RESULT.rec);
   assert.equal(h.node.btnScreenshotAnnotate.dataset.tip, NO_RESULT.shot);
   assert.equal(h.node.screenRecReason.hidden, false);
-  // The verdict buttons are NOT gated by a missing id — a pending row is marked into existence.
+  // The verdict buttons are not gated by a missing id: a pending row is marked into existence.
   assert.equal(h.node.btnPassed.disabled, false);
 });
 
@@ -239,8 +218,7 @@ test('103: a status the panel does not know fills nothing either', () => {
     [false, false, false]);
 });
 
-// The buttons double as the result display, and the gate repaint is the only thing that fills them
-// after a verdict lands. Dropping that one call from update() showed on no row before this one.
+// The gate repaint is the only thing that fills the buttons after a verdict lands.
 test('103b: a repaint through the gate fills the button the row actually holds', () => {
   const h = load({ records: [rec(7, { status: 'failed' })] });
   h.mod.update();
@@ -252,10 +230,6 @@ test('103b: a repaint through the gate fills the button the row actually holds',
   assert.deepEqual(['btnPassed', 'btnFailed', 'btnSkipped'].map((id) => fresh.node[id].classList.contains('solid')),
     [false, false, false]);
 });
-
-// ---------- the copy, now that one function owns it (#197) ----------
-// Four wordings for one refusal, in two files, until this module took them over. They are asserted
-// as literals rather than built from a template: a helper that composed them would drift them.
 
 // `plain` on every answer: the object is built in the vm realm, so its prototype is not this one's.
 test('the four gate sentences come back byte for byte, the host filled in', () => {
@@ -280,10 +254,6 @@ test('the sentence names whatever host the panel is pointed at', () => {
     'Attaching files needs an active staging.testomat.io web login — sign in there, then Refresh');
 });
 
-// ---------- the dropzone that repeats the gate ----------
-// An empty list draws the same reason in its own copy (screens/attachments.js), so it has to be
-// rebuilt when the gate moves — and left alone when it holds real tiles, whose thumbnails would go.
-
 test('an empty attachment list is repainted with the gate; one holding files is not', () => {
   const h = load();
   h.mod.update();
@@ -292,10 +262,6 @@ test('an empty attachment list is repainted with the gate; one holding files is 
   full.mod.update();
   assert.equal(full.calls.attachmentLists, 0);
 });
-
-// ---------- the full-page capture toggle ----------
-// Published by the extraction and driven by nothing until now: hotkeys.js reads it before every
-// capture and app.js writes it from the checkbox, so both directions are asserted here.
 
 test('the checkbox mirrors the stored setting, in both positions', () => {
   const off = load();
@@ -340,10 +306,6 @@ test('a storage that refuses still leaves the toggle where the tester put it', a
   assert.deepEqual(bare.store.ops('local', 'set'), []);
   assert.equal(bare.node.fullpageTest.checked, true);
 });
-
-// ---------- the attachments fold ----------
-// Open by default and remembered for the panel session; clickStatus reopens it on FAILED
-// (tests/test-view-write.test.mjs:92), which is the one caller that must never CLOSE it.
 
 test('the fold starts open, and a toggle closes it on the head as well as the body', () => {
   const h = load();

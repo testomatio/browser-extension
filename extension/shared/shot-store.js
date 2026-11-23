@@ -1,13 +1,6 @@
-// Staged screenshots of an unsaved editor draft (IIFE global `ShotStore`). The draft itself lives
-// in chrome.storage.session, but a staged shot is a full-page JPEG data URL — half a megabyte and
-// up, ten of them allowed — and that budget is ~10 MB shared with everything else the extension
-// keeps there, so writing them alongside the draft would lose the draft too. They get a database
-// of their own instead: `testomat-shots`, one store of `{ key, shots, at }` keyed by the draft key.
-//
-// Loaded by the editor page AND by the service worker (which sweeps), so nothing here may touch
-// `window` or `document`. Nothing here throws either: a browser that refuses IndexedDB has to
-// degrade to the old behaviour — the draft comes back without its pictures — not break the editor.
+// Draft shots live in IndexedDB: in session storage's shared ~10 MB they would lose the draft too.
 
+// The service worker loads this too, so no `window` or `document`; and nothing here throws.
 const ShotStore = (() => {
   const DB_NAME = 'testomat-shots';
   const STORE = 'shots';
@@ -27,8 +20,7 @@ const ShotStore = (() => {
     });
   }
 
-  // `run` gets the store and a `deliver` for the answer; the COMMIT hands it over, so an aborted
-  // write reports the fallback rather than a success it did not have.
+  // The commit delivers the answer, so an aborted write reports the fallback, not a false success.
   async function inStore(mode, fallback, run) {
     const db = await openDb();
     if (!db) return fallback;
@@ -70,7 +62,6 @@ const ShotStore = (() => {
     });
   }
 
-  /** Drop the record for `key`, whether or not it is there. */
   function del(key) {
     if (!key) return Promise.resolve(false);
     return inStore('readwrite', false, (store, deliver) => {

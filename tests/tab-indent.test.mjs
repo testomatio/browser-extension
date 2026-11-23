@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// extension/editor/tab-indent.js: Tab / Shift+Tab move the caret's line; Esc then Tab leaves the field.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +21,6 @@ function load({ execCommand = false } = {}) {
 
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
-// The textarea and its host, cut to what the module touches.
 function field(value, start, end = start, over = {}) {
   const ta = {
     value, selectionStart: start, selectionEnd: end, readOnly: false, disabled: false,
@@ -44,8 +42,6 @@ function key(target, k, mods = {}) {
   return e;
 }
 const press = (host, e) => { host.capture.fn(e); return e; };
-
-// ---- the line arithmetic ----
 
 test('1: Tab indents the whole line the caret is on by two spaces, and the caret rides along', () => {
   const { TabIndent } = load();
@@ -76,8 +72,6 @@ test('4: the first line, an empty first line and the last line without a newline
   assert.deepEqual(plain(TabIndent.lineEdit('a\nb', 3, false)), { start: 2, end: 3, text: '  b', caret: 5 });
   assert.deepEqual(plain(TabIndent.lineEdit('', 0, false)), { start: 0, end: 0, text: '  ', caret: 2 });
 });
-
-// ---- the key handling ----
 
 test('5: Tab with a bare caret indents in place, keeps focus and tells the editor', () => {
   const { TabIndent } = load();

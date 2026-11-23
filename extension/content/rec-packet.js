@@ -1,24 +1,18 @@
-// What a step carries besides its sentence: the control's facts, its surroundings, the page, and
-// what the page made of the action. All but `after`, which is read once the window closes.
-
 /* global RecNaming */
 
 /* global window */
 (() => {
   'use strict';
-  // Injected on demand, and a same-document re-inject runs the file again: without this the
-  // second run throws before the recorder's own latch is ever reached.
+  // A same-document re-inject runs the file again; without this the second run throws.
   if (window.RecPacket) return;
   const { trimTo, trim40, textRuns, firstAttr, inField, plainText } = RecNaming;
 
   const PACKET_MAX = 1500; // bytes of JSON per entry
   const AFTER_MS = 400;    // how long the page gets to react before the entry leaves
 
-  // The control's own visible text, badges dropped — the runs its name is built from.
   const ownText = (el) => trim40(textRuns(el).filter((r) => !r.badge).map((r) => r.text).join(' '));
 
-  // An icon-only control still says what it is: an <img alt>, an <svg><title>, or the
-  // ligature text of a material icon.
+  // An icon-only control still says what it is: <img alt>, <svg><title>, or a material icon ligature.
   function iconOf(el) {
     if (inField(el)) return ''; // an emoji typed into a composer is not its icon
     const alt = firstAttr(el, 'img[alt]', 'alt');
@@ -47,16 +41,14 @@
     icon: iconOf(el),
   });
 
-  // `origin + pathname`, the env-meta rule (sidepanel/core/env-info.js): it drops the query,
-  // the fragment and any `user:pass@` the URL carries.
+  // `origin + pathname`: drops the query, the fragment and any `user:pass@` the URL carries.
   function pageUrl() {
     try { const u = new URL(location.href); return `${u.origin}${u.pathname}`; }
     catch { return String(location.href).split(/[?#]/)[0]; }
   }
   const pageOf = () => ({ title: trimTo(document.title, 80), url: pageUrl() });
 
-  // Where the tester STANDS, for the before/after comparison only: a hash-routed app moves
-  // screens in the fragment, so it is kept — unless it reads as credentials (`=` or `&`).
+  // A hash-routed app moves screens in the fragment, so it is kept unless it reads as credentials.
   const routeHash = (h) => (h.length > 1 && !/[=&]/.test(h) ? h : '');
   function routeUrl() {
     const base = pageUrl();
@@ -64,23 +56,19 @@
     catch { return base; }
   }
 
-  // ---- what the page did next ------------------------------------------------
   const TOAST_SEL = '[role="status"], [aria-live], [class*="toast"], [class*="notification"], [class*="snackbar"]';
   const DIALOG_SEL = '[role="dialog"], [role="alertdialog"], dialog, [class*="modal"]';
-  // What the form says went wrong: the refusal a tester reads is as much "what happened next"
-  // as a toast is, and it is the half a failed login has instead of one.
+  // Form errors count as what happened next: a failed login shows one instead of a toast.
   const ERROR_SEL = '[class*="alert"], [class*="error"], [class*="invalid-feedback"],'
     + ' [class*="help-block"], [class*="validation"], [aria-invalid="true"]';
   const NOTE_SEL = `[role="alert"], ${TOAST_SEL}, ${DIALOG_SEL}, ${ERROR_SEL}`;
   const noteish = (n) => n.nodeType === 1 && (n.matches ? n.matches(NOTE_SEL) : false);
   const hits = (n, sel) => !!(n.matches && n.matches(sel));
-  // A toast stays a toast even when it is styled as an alert; everything else that reports a
-  // problem reads as the dialog half of the packet.
+  // A toast stays a toast even when styled as an alert; other problem reports read as the dialog half.
   const noteKind = (n) => (hits(n, TOAST_SEL) ? 'toast'
     : (n.tagName === 'DIALOG' || hits(n, DIALOG_SEL) || hits(n, ERROR_SEL)) ? 'dialog' : 'toast');
 
-  // An `aria-invalid` control carries no message of its own — the line it points at, or the
-  // one right after it, is the sentence the tester read.
+  // An `aria-invalid` control has no message of its own: the line it points at, or the next one, does.
   function noteText(n) {
     if (hits(n, '[aria-invalid="true"]') && !hits(n, '[class*="alert"], [class*="error"], [class*="invalid-feedback"], [class*="help-block"], [class*="validation"]')) {
       const ref = at(n, 'aria-describedby').split(/\s+/)[0];
@@ -90,8 +78,7 @@
     return trimTo(plainText(n), 80);
   }
 
-  // Nodes are KEPT, not read, until the window closes: a toast is routinely appended empty
-  // and filled a tick later.
+  // Kept, not read, until the window closes: a toast is often appended empty and filled a tick later.
   function watchNotes() {
     const found = [];
     const take = (n) => {
@@ -123,14 +110,12 @@
     for (const a of STATE_ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v != null) s[a] = v; }
     return s;
   }
-  // Only what actually moved, on BOTH sides: `aria-checked: false → true`. A key the control
-  // gained or lost prints the same arrow with that side blank — the old value carries its space.
+  // Only what moved, on both sides; a key gained or lost prints the arrow with that side blank.
   const was = (v) => (v == null ? '' : ` ${v}`);
   const stateDiff = (before, after) => Object.keys({ ...before, ...after })
     .filter((k) => before[k] !== after[k])
     .map((k) => `${k}:${was(before[k])} → ${after[k] == null ? '' : after[k]}`).join(', ');
 
-  // The badge nearest the control — inside it, else inside one of its two nearest ancestors.
   const COUNTER_SEL = '[class*="badge"], [class*="count"], [class*="counter"]';
   function counterText(el) {
     for (let n = el, up = 0; n && up < 3; n = n.parentElement, up++) {
@@ -140,7 +125,6 @@
     return '';
   }
 
-  // Over the cap the least load-bearing fields go first, then the long strings are cut.
   function fitPacket(ctx) {
     const size = () => JSON.stringify(ctx).length;
     if (size() <= PACKET_MAX) return ctx;
@@ -156,8 +140,7 @@
     return ctx;
   }
 
-  // Everything but `after` is read AT EVENT TIME; `after` is what the page made of it, read
-  // once the window closes. Returns the closure that finishes the entry.
+  // Everything but `after` is read at event time; `after` is read once the window closes.
   function armPacket(el, action, near, value, frameHost) {
     const ctx = { action, element: elementFacts(el), near, page: pageOf() };
     if (frameHost) ctx.frame = frameHost; // the reader has to know it was not the page itself

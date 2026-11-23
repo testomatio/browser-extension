@@ -1,24 +1,18 @@
-// Shared HTML sanitizer (IIFE global `HtmlSanitize` + `sanitizeHtml`) — THE XSS boundary:
-// TC markdown carries raw HTML, so a render is sanitized DETACHED before it hits the DOM.
+// The XSS boundary: test markdown carries raw HTML, so a render is sanitized detached from the DOM.
 
 const HtmlSanitize = (() => {
-  // #175: <base> retargets every relative link, <meta http-equiv=refresh> navigates,
-  // <link rel=preload> is an outbound fetch, <form> is a submit target.
+  // <base> retargets links, meta refresh navigates, link preload fetches, <form> is a submit target.
   const DROP = 'script, style, iframe, object, embed, link, meta, base, form';
-  // Two URL classes, because a nav target MOVES the user while a load only pulls bytes in.
+  // Two URL classes, because a nav target moves the user while a load only pulls bytes in.
   const NAV_ATTRS = new Set(['href', 'action', 'formaction', 'xlink:href']);
   const RES_ATTRS = new Set(['src', 'poster', 'data']);
-  // Never kept: a single-URL scheme check cannot validate a document body (`srcdoc`), a
-  // list of POST targets (`ping`) or a candidate list (`srcset`). Markdown emits none.
+  // A single-URL scheme check cannot validate `srcdoc`, `ping` or `srcset`; markdown emits none.
   const DROP_ATTRS = new Set(['srcdoc', 'ping', 'srcset']);
   const SAFE_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 
-  // Allow-list by scheme through the browser's own parser: a denylist loses to `data:`,
-  // `vbscript:` and entity-encoded `javascript:`. Protocol-relative `//host/x` fails too.
+  // Scheme allow-list via the URL parser: a denylist loses to data:, vbscript: and encoded javascript:.
 
-  // Absolute only, no base: a relative target lands on our own pages — `/handoff.json` is one.
-  // A bare `#anchor` is the exception: it reaches no document, and long descriptions link to their
-  // own headings with it.
+  // Absolute only: a relative target lands on our own pages; a bare #anchor reaches no document.
   function navAllowed(value) {
     if (/^#[^#]*$/.test(String(value))) return true;
     try { return SAFE_SCHEMES.has(new URL(value).protocol); } catch { return false; }
@@ -51,5 +45,4 @@ const HtmlSanitize = (() => {
   return { sanitize };
 })();
 
-// Bare global for call sites (mirrors resolveSiteTab in shared/site-tab.js).
 const sanitizeHtml = HtmlSanitize.sanitize;

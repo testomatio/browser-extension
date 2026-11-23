@@ -1,31 +1,4 @@
-// The shared load() for the sidepanel's three core scripts — state.js, storage.js, env-info.js —
-// the way tests/helpers/api-harness.mjs is api.js's.
-
-// LOADING. All three are plain scripts: no IIFE, no exports. Their FUNCTION declarations land on
-// the sandbox object, so `sandbox.persistSession` works. Their top-level `const`/`let` do NOT —
-// those go to the context's global LEXICAL scope, invisible as a property. `state`, `hasChrome`,
-// `hostOf`, `capabilities` are all of that kind, so state.js is read through a completion value.
-
-// THE LEXICAL SEAM IS ALSO THE LOAD ORDER. index.html runs state.js before storage.js, and a
-// second script in the SAME vm context really does see the first one's `const state` — verified,
-// not assumed. So loadStorage() evaluates state.js first and storage.js gets the real `state`,
-// the real `hasChrome` and the real `hostOf`, not copies of them.
-
-// THE PRIVATE-STATE SEAM. `projectInfo`, `usersMap`, `readonlyProbe`, `readonlyWatch` … are module
-// `let`s no caller can see. One `peek()` closure is appended to the evaluated STRING (never to the
-// shipped file) so a row can name them the way the ticket does.
-
-// STUBS. `URL` is NOT a vm-realm global — Node adds it to the main context only, and without it
-// `envTrimUrl` and `hostOf` silently take their catch branch and every URL row passes for the wrong
-// reason. It is supplied here. state.js also reaches for `document` (through `$`), `TestomatAPI`,
-// `setInterval`/`clearInterval`, and six cross-file globals behind `typeof` guards.
-
-// TRAPS. `startReadonlyWatch` arms a 60 s interval, so the timers here are fakes and h.tick() is
-// what advances them; a real one keeps the node test process alive. `persistSession` is
-// fire-and-forget, so await settle() before reading the recorded write. The session's
-// `runInfoOpen` key is read off `RunInfo.open`, which belongs to screens/run-info.js: storage.js is
-// a CORE file reaching FORWARD into a screen, so the real module is evaluated ahead of it here —
-// a context without it throws by design, which is what `withRunInfo: false` reproduces.
+// persistSession is fire-and-forget: await settle() before reading the recorded write.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,9 +7,7 @@ import { makeDocument } from './mini-dom.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
-// CORE_SRC points the whole suite at a mutated COPY of the core directory, so a falsification run
-// never has to edit the shipped files and risk leaving them edited. SCREENS_SRC is the same knob
-// for the one screen a core file reaches forward into, spelled as panel-harness.mjs spells it.
+// CORE_SRC/SCREENS_SRC point at mutated copies, so a mutation run never edits the shipped files.
 export const CORE_SRC = process.env.CORE_SRC || join(repoRoot, 'extension/sidepanel/core');
 export const SCREENS_SRC = process.env.SCREENS_SRC || join(repoRoot, 'extension/sidepanel/screens');
 
@@ -46,8 +17,7 @@ const DEFAULT_MODULES = {
   'env-info': join(CORE_SRC, 'env-info.js'),
 };
 
-// CORE_MODULES swaps ONE module for a mutated copy: `CORE_MODULES=state=/tmp/bad-state.js`.
-// Bare paths are keyed by their basename, so `CORE_MODULES=/tmp/storage.js` works too.
+// CORE_MODULES swaps one module for a mutated copy: `state=/tmp/bad-state.js` or a bare path.
 const overrides = (process.env.CORE_MODULES || '')
   .split(',').map((p) => p.trim()).filter(Boolean)
   .map((p) => {
@@ -76,16 +46,12 @@ export const rejection = async (p) => {
   throw new Error('expected a rejection, got a resolution');
 };
 
-// ---------- chrome.storage.local ----------
-
-// In memory, and every call recorded in order. `fails` makes one op reject, which is the only way
-// to reach the swallowed-rejection branches.
+// `fails` makes one op reject, the only way to reach the swallowed-rejection branches.
 export function fakeStorage(seed = {}) {
   const data = { ...seed };
   const calls = [];
   const fails = { get: null, set: null, remove: null };
-  // `raw` as well as the JSON copy: a key whose value is `undefined` vanishes from JSON, and the
-  // session write is asserted by its exact KEY SET.
+  // `raw` too: an undefined value vanishes from JSON, and the session write is asserted by key set.
   const run = (op) => async (arg) => {
     calls.push({ op, arg: plain(arg), raw: arg });
     if (fails[op]) throw fails[op];
@@ -108,10 +74,7 @@ export function fakeStorage(seed = {}) {
   return store;
 }
 
-// ---------- env-info.js ----------
-
-// Only the keys actually passed are put on the sandbox: rows 29 and 35 are about a global that is
-// genuinely MISSING, which `undefined` would not reproduce.
+// Only passed keys go on the sandbox: a missing global is not the same as one set to undefined.
 export function loadEnvInfo(over = {}) {
   const sandbox = { URL, console };
   for (const key of ['navigator', 'chrome', 'resolveSiteTab']) {
@@ -124,8 +87,7 @@ export function loadEnvInfo(over = {}) {
 
 export const nav = (userAgent, userAgentData) => ({ userAgent, userAgentData });
 
-// `answer` is the executeScript result, or a function of the options it was called with; an Error
-// value makes the call reject.
+// `answer` is the executeScript result or a function of its options; an Error value rejects.
 export function scripting(answer) {
   const calls = [];
   const executeScript = async (opts) => {
@@ -137,10 +99,7 @@ export function scripting(answer) {
   return { calls, chrome: { scripting: { executeScript } } };
 }
 
-// ---------- TestomatAPI ----------
-
-// Every method recorded; `impl` stays writable so a row can change an answer mid-flight, which is
-// what the read-only re-probe is about.
+// `impl` stays writable so a row can change an answer mid-flight, as the read-only re-probe needs.
 export function apiStub(over = {}) {
   const calls = [];
   const impl = {
@@ -180,14 +139,11 @@ export function spy(impl = () => undefined) {
 
 // The five handleApiError reaches for bare — a sandbox missing any of them throws instead of routing.
 const ROUTER_GLOBALS = ['setAuthExpiredLine', 'fillSettingsForm', 'show', 'setStatusLine', 'toast'];
-// …and the ones behind `typeof` guards, which rows about a missing global leave out on purpose.
+// Globals behind `typeof` guards, which rows about a missing global leave out on purpose.
 const GUARDED_GLOBALS = ['resetTabCounts', 'syncStop', 'applyReadonlyBlock',
   'updateDegradedBanner', 'refreshCurrentView'];
-// Guarded globals that are an OBJECT rather than a bare function: `name: method`. The spy is still
-// `spies[name]`, so `omit` and the count read the same as for the others.
+// Guarded globals that are an object, as `name: method`; the spy is still `spies[name]`.
 const GUARDED_OBJECTS = { CommentDrafts: 'dropAll' };
-
-// ---------- state.js ----------
 
 // `opts.omit` drops named globals from the sandbox; `opts.api` overrides TestomatAPI answers.
 export function loadState(opts = {}) {
@@ -225,8 +181,7 @@ export function loadState(opts = {}) {
   Object.assign(sandbox, opts.globals || {}); // anything else the panel's other files publish
 
   const file = CORE_MODULES.state;
-  // The `const`s are lexical, so the script's completion value is how they cross back; `peek` is
-  // appended to the STRING only — the shipped file keeps its module state private.
+  // `peek` is appended to the evaluated string only; the shipped file keeps its module state private.
   const exported = runInContext(
     `${sourceOf(file)}\n({ state, capabilities, recordFor, byRecordId, hostOf, isConfigured, staleProject,`
     + ` isAuthError, isReadonlyError, $, views, hasChrome, sleep, READONLY_RECHECK_MS,`
@@ -247,10 +202,7 @@ export function loadState(opts = {}) {
   };
 }
 
-// ---------- storage.js ----------
-
-// state.js first, storage.js second — index.html's order, and the only way storage.js sees the real
-// `state`/`hasChrome`/`hostOf` instead of hand-written copies of them.
+// state.js first, as index.html orders it, so storage.js sees the real state/hasChrome/hostOf.
 export function loadStorage(opts = {}) {
   const { hasChrome = true, runInfoOpen = true, withRunInfo = true } = opts;
   const store = opts.store || fakeStorage(opts.seed);
@@ -262,8 +214,7 @@ export function loadStorage(opts = {}) {
   const stateFile = CORE_MODULES.state;
   const shared = runInContext(`${sourceOf(stateFile)}\n({ state, hasChrome, hostOf })`, context,
     { filename: stateFile });
-  // The REAL screens/run-info.js, so the disclosure's default and its accessor are the shipped
-  // ones. Row 17 wants a context that GENUINELY lacks it, not one where it is undefined.
+  // The real run-info.js; one row needs a context that truly lacks it, not one where it is undefined.
   let RunInfo = null;
   if (withRunInfo) {
     const infoFile = join(SCREENS_SRC, 'run-info.js');
@@ -277,8 +228,7 @@ export function loadStorage(opts = {}) {
     ...shared,
     fn: sandbox,          // loadStored, migrateHostSettings, dropAiApiKey, persistSession
     sandbox, store, api, RunInfo,
-    // `RunInfo` is a lexical const of this context, never a sandbox property — the same seam
-    // index.html gives storage.js, which reads it as a free variable.
+    // `RunInfo` is a lexical const of this context, read by storage.js as a free variable.
     setRunInfoOpen: (v) => { RunInfo.open = v; },
     settle,
   };

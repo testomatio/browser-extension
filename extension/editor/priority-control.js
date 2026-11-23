@@ -1,9 +1,7 @@
-// The test's priority picker (IIFE global `PriorityControl`): a custom listbox, because a native
-// <option> cannot render the priority glyph. Its own file — one widget, its own test file.
+// A custom listbox, because a native <option> cannot render the priority glyph.
 
 /* global PriorityIcons, Icons, Tooltip */
 const PriorityControl = (() => {
-  // ---- priority dropdown (custom listbox; <option> can't render SVG) ------
   // Backed by the button's dataset.priority — the save path reads it too.
   function buildPriorityControl(initial, onChange) {
     const wrap = document.createElement('div');
@@ -21,8 +19,7 @@ const PriorityControl = (() => {
     menu.id = 'tc-priority-menu';
     menu.className = 'menu tc-priority-menu';
     menu.setAttribute('role', 'listbox');
-    // The open list takes the caret — focusable, never in the tab order — so it is the element that
-    // can name an option in aria-activedescendant, and the button says which list it opens.
+    // The list takes focus (outside the tab order) so it can name its option in aria-activedescendant.
     menu.setAttribute('tabindex', '-1');
     menu.setAttribute('aria-label', 'Priority');
     menu.hidden = true;
@@ -60,8 +57,7 @@ const PriorityControl = (() => {
 
     function onDocClick(e) { if (!wrap.contains(e.target)) closeMenu(); }
 
-    // Open-state keys are handled at document level (capture) so Esc / arrows work
-    // regardless of which element holds focus.
+    // Capture-phase document keys, so Esc and arrows work whatever holds focus.
     function onDocKey(e) {
       if (menu.hidden) return;
       const key = e.key;
@@ -124,8 +120,7 @@ const PriorityControl = (() => {
     return {
       wrap,
       getPriority: () => btn.dataset.priority,
-      // The e2e hook's set, like its setTitle and setMarkdown: always marks dirty, never opens
-      // the menu. Not a preselect — an editor's starting value arrives as this function's argument.
+      // The e2e hook's setter: always marks dirty, never opens the menu; not for the initial value.
       setPriority: (p) => {
         if (!PriorityIcons.ORDER.includes(p)) return;
         current = p;

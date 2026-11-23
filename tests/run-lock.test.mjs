@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// The write gate of extension/sidepanel/screens/run-lock.js (rows 7-13, 49-50, 52, 66-71, 78-80a,
-// 118 and 131, moved out of tests/run-view.test.mjs by #194): whether a result may be saved at all,
-// which of the three reasons the tester is told, and Finish run — the one act that closes a run.
-// Three things here are easy to get quietly wrong, so most of this file is about them. The reasons
-// are RANKED — archived outranks finished outranks automated — and the tester must be told the
-// ACTUAL one, not the first that happens to be true. finishBlockedReason() is deliberately not
-// runWriteLock(): an automated run keeps a working Finish button while every row of it stays
-// read-only. And the gate is asked TWICE, once before the confirm dialog and once after it resolves,
-// because a colleague can archive the run while that dialog sits open under the tester's eye.
-// Rows 132-135 are new: the falsification run behind the move found the 200 × 25 ms bound, the
-// ledger of a confirmed finish, and two whole call sites — screens/screen-rec.js and app.js have no
-// suite in this repo at all. The rows that paint over REAL checklist rows (72-76, 108a, 110, 111,
-// 113) stay in tests/run-view.test.mjs, which builds those rows and now drives this module for real.
-// Run: node --test tests/run-lock.test.mjs
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,20 +8,17 @@ import { loadScreen, CORE_SRC, SCREENS_SRC, makeDocument, el, fire, plain, settl
 import { loadState } from './helpers/core-harness.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The two switchable directories, so rows 135-136 read whatever SCREENS_SRC / CORE_SRC point at;
-// index.html belongs to neither and is read where it ships, as tests/dialog.test.mjs:139 reads it.
+// SCREENS_SRC / CORE_SRC are switchable; index.html belongs to neither and is read where it ships.
 const raw = (dir, f) => readFileSync(join(dir, f), 'utf8');
 
-// The REAL comparator: #258 was one sort rule written out three times, and a stub here would be a
-// fourth free to drift. finishRun re-sorts the checklist it re-reads with it (tests/state.test.mjs).
+// The real comparator: a stub would be one more copy of the sort rule, free to drift.
 const { byRecordId } = loadState();
 
 const ARCHIVED = 'Run is archived — results are read-only';
 const FINISHED = 'Run is finished — results are read-only';
 const AUTOMATED = 'Automated result — read-only in the panel';
 
-// index.html:540-545 and :818-824, cut to the nodes this module touches: the note it paints, the
-// button it disables while the PUT is out, the list it walks, and the dialog it asks.
+// index.html's nodes this module touches: the note, the button, the list and the dialog.
 const NODES = [
   ['button', 'btn-finish-run', true], ['p', 'run-lock-note', true], ['ul', 'run-tests', false],
   ['dialog', 'confirm-dialog', false], ['p', 'confirm-message', false],
@@ -45,16 +28,14 @@ const key = (id) => id.replace(/-(\w)/g, (_, c) => c.toUpperCase());
 
 const rec = (id, over = {}) => ({ id, test_id: id, test_title: `Test ${id}`, status: 'pending', ...over });
 
-// A promise this file resolves by hand: rows 131 park inside the 200 × 25 ms wait and let it out.
+// A promise resolved by hand, so a row can park inside the 200 × 25 ms wait and let it out.
 function deferred() {
   let resolve;
   const promise = new Promise((res) => { resolve = res; });
   return { promise, resolve };
 }
 
-// The panel globals run-lock.js reads. Four of them — updateRunActions, applyRunInfo, renderRunView
-// and awaitRunState — belong to screens/run-view.js and stay there, so they are recorders here: what
-// this module owes them is THAT it calls them, and tests/run-view.test.mjs owns what they then do.
+// Four of these belong to run-view.js, so they are recorders: this module only owes the calls.
 function load(opts = {}) {
   const o = {
     runId: 'r1',
@@ -67,7 +48,7 @@ function load(opts = {}) {
     saving: false,
     without: [],          // ids to leave out of the page
     noTestActions: false, // a panel where screens/test-gates.js was never loaded
-    holdSleep: false,     // sleep() parks instead of resolving — row 131 needs the wait held open
+    holdSleep: false,     // sleep() parks instead of resolving, so a row can hold the wait open
     chainRejects: false,  // the step-write chain answers with a rejection, which must be swallowed
     ...opts,
   };
@@ -97,15 +78,14 @@ function load(opts = {}) {
     reads: { testruns: [], finish: [] },
   };
 
-  // <dialog>'s own three members; mini-dom has no dialog element, and ConfirmDialog.ask drives all
-  // of them — showModal to open it, `open` to decide whether close() is still needed.
+  // <dialog>'s own members, which mini-dom lacks: showModal opens it, `open` decides on close().
   if (node.confirmDialog) {
     node.confirmDialog.open = false;
     node.confirmDialog.showModal = () => { node.confirmDialog.open = true; calls.order.push('showModal'); };
     node.confirmDialog.close = () => { node.confirmDialog.open = false; calls.order.push('closeModal'); };
   }
 
-  // Held promises, so row 131 can decide when the wait is allowed to end.
+  // Held promises, so a row can decide when the wait is allowed to end.
   const held = [];
   const sleep = (ms) => {
     if (!o.holdSleep) { calls.sleeps.push({ ms }); return Promise.resolve(); }
@@ -137,8 +117,7 @@ function load(opts = {}) {
   const globals = {
     state,
     sleep,
-    // A thenable, not a promise: `await Promise.resolve(stepWriteChain)` calls .then, so asking it
-    // on BOTH sides of the wait is visible rather than merely believed (row 132).
+    // A thenable, not a promise, so being awaited on both sides of the wait is visible.
     stepWriteChain: {
       then: (res, rej) => { calls.chainReads += 1; return o.chainRejects ? rej(new Error('chain')) : res(); },
     },
@@ -152,12 +131,11 @@ function load(opts = {}) {
       calls.order.push('apiError');
     },
     isAuthError: (e) => e?.kind === 'auth',
-    // core/state.js:79's own, stringified on both sides; applyRowLock's default reason goes through it.
+    // core/state.js's own, stringified on both sides; applyRowLock's default reason goes through it.
     recordFor: (recordId) => state.records.find((r) => String(r.id) === String(recordId)),
     // screens/run-view.js's own map, verbatim: the label applyRowLock puts back when the lock lifts.
     ROW_BTN_LABEL: { passed: 'Mark passed', failed: 'Mark failed', skipped: 'Mark skipped' },
-    // The real one writes data-tip on the node it is given; a recorder alone could not tell a tip
-    // that landed on the right element from one that went nowhere. (shared/tooltip.js:257)
+    // The real one writes data-tip on the node; a bare recorder could not tell where a tip landed.
     Tooltip: {
       set: (n, tip) => {
         if (n && n.dataset) { if (tip) n.dataset.tip = String(tip); else delete n.dataset.tip; }
@@ -165,7 +143,6 @@ function load(opts = {}) {
       },
     },
     TestGates: o.noTestActions ? undefined : { update: () => { calls.testActions += 1; } },
-    // screens/run-view.js's four, recorded: they stayed with the screen this module came out of.
     updateRunActions: () => { calls.runActions += 1; calls.order.push('updateRunActions'); },
     applyRunInfo: (info) => { calls.infos.push(info); Object.assign(state.runInfo, info); },
     renderRunView: () => { calls.renders += 1; calls.order.push('render'); },
@@ -181,11 +158,9 @@ function load(opts = {}) {
   const h = loadScreen('run-lock', {
     globals,
     document: doc,
-    // index.html's own order: core/dialog.js stands ahead of every screen, and finishRun asks its
-    // confirm through it. The REAL one — a stub would make the two gate rows test the stub (#194).
+    // index.html's order: the real dialog.js before every screen, or the gate rows test a stub.
     before: [['dialog', CORE_SRC]],
-    // RunLock is a lexical const: invisible as a sandbox property, reachable only off the completion
-    // value, the same seam tests/md-sections.test.mjs uses.
+    // RunLock is a lexical const: not a sandbox property, reachable only off the completion value.
     exported: 'RunLock',
   });
 
@@ -198,15 +173,11 @@ function load(opts = {}) {
   };
 }
 
-// The dialog is answered from outside, the way a tester answers it: start the call, let it reach
-// showModal, then click. `settle()` is the turn in between — never await the finishRun promise here,
-// which cannot resolve until the click that has not happened yet.
+// Never await finishRun here: it cannot resolve until the click that has not happened yet.
 async function openConfirm(h) {
   await settle();
   assert.equal(h.node.confirmDialog.open, true, 'the dialog should be open by now');
 }
-
-// ---------- the write gate: three reasons, ranked (rows 7-13, 66-71) ----------
 
 test('7: an archived run that also finished and is automated says ARCHIVED — the actual reason', () => {
   const h = load({ runInfo: { isArchived: true }, runStatus: 'finished', runKind: 'automated' });
@@ -222,7 +193,7 @@ test('9: an automated run bars every row but leaves Finish run alive', () => {
   const h = load({ runStatus: 'running', runKind: 'automated' });
   assert.equal(h.lock.runWriteLock(), AUTOMATED);
   assert.equal(h.lock.finishBlockedReason(), '');
-  // …and the two reasons Finish DOES answer to, driven the same way.
+  // The two reasons Finish does answer to, driven the same way.
   h.state.runInfo = { isArchived: true };
   assert.equal(h.lock.finishBlockedReason(), ARCHIVED);
   h.state.runInfo = {};
@@ -233,7 +204,7 @@ test('9: an automated run bars every row but leaves Finish run alive', () => {
 test('10: no run open at all is not a lock — the screen is simply empty', () => {
   const h = load({ runId: null, runInfo: { isArchived: true }, runStatus: 'finished' });
   assert.equal(h.lock.runWriteLock(), '');
-  // The identical state WITH a run id locks, so the guard is what answered and not the flags.
+  // The identical state with a run id locks, so the guard is what answered and not the flags.
   h.state.runId = 'r1';
   assert.equal(h.lock.runWriteLock(), ARCHIVED);
 });
@@ -257,7 +228,7 @@ test('12: the open row consults the JSON:API detail, and the id is compared as t
 test('13: the lock signature carries the automated rows, so a mid-poll flip repaints', () => {
   const h = load({ records: [{ id: 1, automated: true }, { id: 2 }] });
   assert.equal(h.lock.lockSignature(''), ' | 1');
-  // The second row flipping is a DIFFERENT signature — which is the whole point of listing them.
+  // The second row flipping is a different signature, which is the whole point of listing them.
   h.state.records[1].automated = true;
   assert.equal(h.lock.lockSignature(''), ' | 1,2');
   assert.equal(h.lock.lockSignature(FINISHED), `${FINISHED} | 1,2`);
@@ -314,8 +285,6 @@ test('71: a row flagged automated by the server locks without the run being auto
   assert.equal(h.lock.recordWriteLock({ id: 9, automated: true }), AUTOMATED);
 });
 
-// ---------- finishing a run: the two gates (rows 49-50, 78-80a) ----------
-
 test('49: the archive landing while the confirm sits open is caught by the second gate', async () => {
   const h = load({ runStatus: 'running', records: [rec(1)] });
   const done = h.lock.finishRun();
@@ -356,7 +325,7 @@ test('79: with no run open Finish does nothing at all — not even the state pro
   const h = load({ runId: null, runStatus: 'running' });
   await h.lock.finishRun();
   assert.deepEqual(h.calls.order, []);
-  // The same call WITH a run id gets as far as the dialog, so the guard is what stopped it.
+  // The same call with a run id gets as far as the dialog, so the guard is what stopped it.
   const open = load({ runStatus: 'running' });
   const done = open.lock.finishRun();
   await settle();
@@ -389,10 +358,7 @@ test('80a: an expired session is handled inline WITHOUT a second toast on top of
   assert.deepEqual(h.calls.toasts, []);
 });
 
-// ---------- waiting for the writes already in flight (rows 52, 118, 131) ----------
-
-// 52 (#276): the wait still gives up after 200 × 25 ms, but it now SAYS so — a finished run takes no
-// more writes, so closing the run over a save still in flight lost the result the tester had marked.
+// A finished run takes no more writes, so closing it over a save in flight loses the tester's result.
 test('52 (#276): a save still in flight stops the finish instead of being closed over', async () => {
   const stuck = load({ saving: true });
   assert.equal(await stuck.lock.settlePendingWrites(), false,
@@ -422,10 +388,6 @@ test('131: Finish waits while an inline write is still in flight, and goes on th
   assert.equal(h.calls.sleeps.length, 1, 'and it stops the moment the write lands');
 });
 
-// ---------- what nothing else pinned (rows 132-135) ----------
-
-// 132: row 52 PRINTS the count it gave up after and asserts only the answer, so cutting the bound to
-// three waits left every row above green. Pinned, not fixed — the give-up is #161's own issue.
 test('132: the wait is 200 × 25 ms, with the step chain asked on both sides and its rejection swallowed', async () => {
   const h = load({ saving: true, chainRejects: true });
   assert.equal(await h.lock.settlePendingWrites(), false, 'a rejected chain is not an exception');
@@ -434,8 +396,6 @@ test('132: the wait is 200 × 25 ms, with the step chain asked on both sides and
   assert.equal(h.calls.chainReads, 2, 'asked before the wait and again after it');
 });
 
-// 133: the ledger, not merely the outcome — dropping the progress toast and the updateRunActions in
-// the finally both left every row above green, and each is something the tester sees.
 test('133: a confirmed finish says so, then settles, writes, re-reads, repaints and re-gates the button', async () => {
   const h = load({ runStatus: 'running', records: [rec(1)] });
   h.on.listTestruns = async () => [rec(2), rec(1)];
@@ -451,8 +411,7 @@ test('133: a confirmed finish says so, then settles, writes, re-reads, repaints 
   assert.equal(h.node.btnFinishRun.disabled, false, 'released in the finally');
 });
 
-// The ids and the load order are late-bound: a renamed note or a script tag moved below its callers
-// throws only under a tester's finger, and the fixture above would go on passing.
+// Ids and load order are late-bound: a renamed note or a moved script tag fails only in use.
 test('134: the page carries the note this module paints, and loads it before every screen that asks', () => {
   const html = raw(repoRoot, 'extension/sidepanel/index.html');
   for (const id of ['run-lock-note', 'btn-finish-run', 'run-tests']) {
@@ -467,14 +426,11 @@ test('134: the page carries the note this module paints, and loads it before eve
     'screens/attachments.js', 'screens/screen-rec.js', 'screens/hotkeys.js', 'app.js']) {
     assert.ok(at('screens/run-lock.js') < at(s), `screens/run-lock.js stands before ${s}`);
   }
-  // core/write-status.js is the one caller it does NOT stand before — a core file reaching forward
-  // into a screen, exactly as it did when these names lived in run-view.js. Late-bound, unchanged.
+  // core/write-status.js loads before it: a core file reaching forward into a screen, late-bound.
   assert.ok(at('core/write-status.js') < at('screens/run-lock.js'));
 });
 
-// 135: screens/screen-rec.js and extension/sidepanel/app.js have NO suite in this repo, so the gate
-// on attaching a recording and the wiring of the Finish run button are reachable by no row above.
-// Read as text, they are: a bare old name in either would sail through the whole test run.
+// screen-rec.js and app.js have no suite, so their call sites are read as text.
 test('135: every call site asks RunLock by name, the two unsuited files included', () => {
   const callers = {
     [join(SCREENS_SRC, 'run-view.js')]: 9,
@@ -489,7 +445,7 @@ test('135: every call site asks RunLock by name, the two unsuited files included
     [join(CORE_SRC, 'write-status.js')]: 1,
     [join(repoRoot, 'extension/sidepanel/app.js')]: 1, // neither directory — read where it ships
   };
-  // Every name the module took, as a CALL: a bare one here throws only under a tester's finger.
+  // Every name the module took, as a call: a bare one here throws only under a tester's finger.
   const OLD = /(^|[^.\w])(recordWriteLock|runWriteLock|runStatusTerminal|applyRunLock|applyRowLock|lockSignature|recordAutomated|finishBlockedReason|settlePendingWrites|runFinished|runArchived|runAutomated)\s*\(/;
   for (const [file, n] of Object.entries(callers)) {
     const src = readFileSync(file, 'utf8');
@@ -499,8 +455,7 @@ test('135: every call site asks RunLock by name, the two unsuited files included
     assert.ok(/\/\* global ([\s\S]*?)\*\//.exec(src)[1].includes('RunLock'), `${file} declares the global`);
     assert.doesNotMatch(code, OLD, `${file} calls no bare old name`);
   }
-  // app.js hands the button the method itself, unbound — which is only safe because nothing in the
-  // module says `this`. One `this.` in there and every Finish run would throw under the listener.
+  // The handler is passed unbound, safe only while the module never says `this`.
   assert.match(readFileSync(join(repoRoot, 'extension/sidepanel/app.js'), 'utf8'),
     /addEventListener\('click', RunLock\.finishRun\)/);
   assert.doesNotMatch(readFileSync(join(SCREENS_SRC, 'run-lock.js'), 'utf8').replace(/\/\/.*$/gm, ''), /\bthis\b/);

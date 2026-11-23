@@ -1,5 +1,4 @@
-// Screenshot annotator, editor-page fallback for where the overlay cannot be injected. Its
-// handoff always OVERWRITES the storage.session key, so no un-blurred original survives.
+// The handoff always overwrites the storage.session key, so no un-blurred original survives.
 
 /* global chrome, AnnotateCore */
 window.Annotate = (() => {
@@ -7,8 +6,7 @@ window.Annotate = (() => {
 
   const $ = (id) => document.getElementById(id);
 
-  // The URL names the key this page reads AND overwrites on exit, so only the shape
-  // shared/capture-annotate.js ever parks a handoff under is accepted.
+  // The URL names the key this page reads and overwrites, so only the handoff key shape is accepted.
   const HANDOFF_KEY = /^annotate-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   let key = null;
@@ -41,7 +39,6 @@ window.Annotate = (() => {
     closeSelf();
   }
 
-  // ---- boot ---------------------------------------------------------------
   async function init(k) {
     document.title = 'Annotate screenshot';
     if (!HANDOFF_KEY.test(String(k ?? '')) || !chrome?.storage?.session) { fail('Nothing to annotate.'); return; }
@@ -63,7 +60,7 @@ window.Annotate = (() => {
         : 'Attach the original screenshot and drop the annotations?'),
       onReady: (hooks) => { window.__annot = hooks; },
     });
-    // Expose immediately too, so `ready` can be polled from its false state.
+    // Exposed immediately too, so `ready` can be polled from its false state.
     window.__annot = handle.hooks;
   }
 

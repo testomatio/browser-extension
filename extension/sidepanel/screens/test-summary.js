@@ -1,26 +1,16 @@
-// The result summary card (IIFE global `TestSummary`): everything the last run left BEHIND the
-// verdict — the failure body, the artifacts, the environment meta and the reported step tree — plus
-// the file tiles those lean on. The verdict path reads none of it; it only asks this to repaint. So
-// the card is a subject of its own, and it used to share one closure with the screen that marks a
-// test: a change to how a step log linkifies meant editing that screen.
-//
-// It is also the panel's ONE file-tile shape, so screens/attachments.js draws a manual upload with
-// the same `fileTileItem` and releases the same group — hence this file loads before it.
+// The result summary card, and the panel's one file-tile shape: load it before attachments.js.
 
 /* global TestomatAPI, Md, Fmt, Sk, EmptyState, ImgHydrate, Tooltip, state, hasChrome, $,
    paintStepMark, StatusIcons, recordFor */
 
 const TestSummary = (() => {
-  // Object-URL groups (shared/img-hydrate.js) — four, because each is repainted and released
-  // on its own occasion. The description body's own group stays with the screen that draws it.
+  // Four object-URL groups, because each is repainted and released on its own occasion.
   const IMG_GROUP_SHOTS = 'summary-shots';
   const IMG_GROUP_ATTS = 'result-attachments';
   const IMG_GROUP_ARTIFACTS = 'summary-artifacts';
   const IMG_GROUP_FAILURE = 'summary-failure';
 
-  // ---- result summary (#117) ----
-  // JWT-only; JSON:API attribute keys are DASHERIZED (`run-time`). `steps` is
-  // serialized only for a manual testrun — an automated one uses the lazy GET.
+  // JSON:API keys are dasherized (`run-time`); `steps` comes inline only for a manual testrun.
 
   // Remembered for the panel session (module-level), like the Attachments one.
   const summaryOpen = { failure: true, artifacts: true, meta: false, steps: false };
@@ -33,8 +23,7 @@ const TestSummary = (() => {
   let summarySteps = null;
   let summaryStepsFetch = null;
 
-  // `kind` is 'unreported' | 'bare' (falsy clears): "mark it and this fills in" vs
-  // "it IS marked and the run carried nothing behind the verdict".
+  // `kind`: 'unreported' (mark it and this fills in) or 'bare' (marked, nothing behind it); '' clears.
   function paintSummaryEmpty(kind) {
     const host = $('test-summary-empty');
     if (!host) return;
@@ -50,8 +39,7 @@ const TestSummary = (() => {
     });
   }
 
-  // Driven by what the tab actually HOLDS, not by the existence of a verdict: a
-  // marked test with an empty summary must not wear a dot.
+  // Driven by what the tab holds, not by a verdict: a marked test with an empty summary wears no dot.
   function paintSectionMark(status) {
     const tab = $('tab-test-summary');
     if (!tab) return;
@@ -137,8 +125,7 @@ const TestSummary = (() => {
     paintSectionMark(filled ? StatusIcons.normStatus(status) : '');
   }
 
-  // `status` and `message` are the ONLY fields the panel can change, so they are
-  // patched into the prefetched detail instead of costing a re-read.
+  // Status and message are the only fields the panel changes, so they patch the detail, no re-read.
   function refreshResultSummary(record) {
     const attrs = state.testrunDetail?.data?.attributes;
     if (!record) return;
@@ -148,8 +135,7 @@ const TestSummary = (() => {
     renderResultSummary();
   }
 
-  // The split matters: a reporter message is assertion output whose whitespace IS
-  // the information (verbatim text); a manual one is Markdown through the sanitizer.
+  // A reporter message's whitespace is the information (verbatim); a manual one is sanitized Markdown.
   function renderSummaryFailure(attrs) {
     const wrap = $('summary-failure');
     const out = $('summary-message');
@@ -167,8 +153,7 @@ const TestSummary = (() => {
       out.textContent = message; // pre-wrap; reporter output is not markdown
     } else {
       const tmp = Md.render(message); // shared/markdown.js — parse + sanitize
-      // Hydrate BEFORE the body reaches the document, like every other Md.render site:
-      // the CSP allows no remote <img>, so an unhydrated one is a broken box.
+      // Hydrate before the body reaches the document: CSP allows no remote <img>.
       ImgHydrate.hydrate(IMG_GROUP_FAILURE, tmp);
       // `.sections`: headings inside the panel's chrome render as muted labels.
       out.classList.add('markdown', 'sections');
@@ -177,8 +162,7 @@ const TestSummary = (() => {
     paintSummaryDisclosure('failure');
   }
 
-  // #21: on a private bucket the server presigns only the first artifacts of a result
-  // and flags the tail — signed once per URL here ('' remembers a refusal).
+  // Private buckets presign only a result's first artifacts; the rest sign once here ('' = refused).
   const artifactPresigned = new Map();
 
   async function artifactSigned(a) {
@@ -189,14 +173,11 @@ const TestSummary = (() => {
       artifactPresigned.set(a.url, signed);
     }
     const url = artifactPresigned.get(a.url);
-    // A refusal keeps the raw URL: the link still opens, and a thumbnail that fails on
-    // it drops back to that same link rather than a broken box.
+    // A refusal keeps the raw URL: the link still opens and a failed thumbnail drops back to it.
     return url ? { ...a, url, display_url: url } : a;
   }
 
-  // Web parity: the web's Summary lists EVERY file on the result — runner artifacts and manual
-  // uploads alike (one `attachments` array, told apart by the `artifact` flag) — so this fold
-  // does too. attachments.js still keeps its own fold to the manual ones.
+  // Web parity: the Summary lists every file on the result, runner artifacts and manual uploads alike.
   function renderSummaryArtifacts(attrs) {
     const wrap = $('summary-artifacts');
     const body = $('summary-artifacts-body');
@@ -214,8 +195,7 @@ const TestSummary = (() => {
     paintSummaryArtifacts(rows);
   }
 
-  // Async because of the presign: a tile is built only once its URL is final, so the
-  // preview, the viewer and the way out never start on one that is about to change.
+  // A tile is built only once its presigned URL is final, so nothing starts on a URL about to change.
   async function paintSummaryArtifacts(rows) {
     const recordId = state.currentRecordId;
     const resolved = await Promise.all(rows.map((a) => artifactSigned(a)));
@@ -225,8 +205,7 @@ const TestSummary = (() => {
     body.replaceChildren(...resolved.map((a) => fileTileItem(a, IMG_GROUP_ARTIFACTS, attachmentHref(a))));
   }
 
-  // Meta = the testrun's non-system `extras` (web `metafields`); the system entries
-  // (change/duration/substatus/testlink) are bookkeeping, never shown.
+  // Only the non-system `extras` (web metafields); system entries are bookkeeping, never shown.
   function renderSummaryMeta(attrs) {
     const wrap = $('summary-meta');
     const body = $('summary-meta-body');
@@ -284,12 +263,9 @@ const TestSummary = (() => {
     }
   }
 
-  // ---- reported steps: web-report parity (#202) ----
-  // Live contract: `attachments` exist ONLY on GET /testruns/{id}/steps (the manual
-  // route permits [status,title,message,pos]); `duration` comes back a STRING there.
+  // Step attachments come only from GET /testruns/{id}/steps, where `duration` is a string.
 
-  // Web parity (front nested-steps.js): attachments move into a child "Attachments"
-  // group so they render in one place. Length check, or an empty array grows a group.
+  // Web parity: attachments move into a child "Attachments" group; empty arrays grow no group.
   function summaryStepTree(steps) {
     return (Array.isArray(steps) ? steps : []).map((step) => {
       const node = {
@@ -317,8 +293,7 @@ const TestSummary = (() => {
   // Web default: collapsed until the tester asks. Sticky per panel session.
   let summaryStepsExpanded = false;
 
-  // http(s) URLs inside a step log become real links — built as anchor NODES around
-  // text nodes, never through innerHTML: the log is reporter output, i.e. untrusted.
+  // Log URLs become anchor nodes, never innerHTML: the log is reporter output, i.e. untrusted.
   const LOG_URL_RE = /https?:\/\/[^\s<>"']+/g;
 
   function linkifyInto(el, text) {
@@ -348,42 +323,35 @@ const TestSummary = (() => {
     return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(String(a?.name || a?.url || ''));
   }
 
-  // #21: EITHER tell, not MIME-first like the image test — a bucket serves a screencast as
-  // `application/octet-stream` often enough that the extension has to be able to answer alone.
+  // Either tell, not MIME-first: buckets often serve a screencast as application/octet-stream.
   function isVideoAttachment(a) {
     if (String(a?.type || '').startsWith('video/')) return true;
     return /\.(webm|mp4|mov|m4v|ogv)(?:$|[?#])/i.test(String(a?.name || a?.url || ''));
   }
 
-  // The tile badge: what the file IS, in the few letters an 88px card fits.
+  // The tile badge: what the file is, in the few letters an 88px card fits.
   function fileExt(a) {
     const m = String(a?.name || a?.url || '').match(/\.([a-z0-9]{1,5})(?:$|[?#])/i);
     return m ? m[1].toUpperCase() : '';
   }
 
-  // e2e-only hook: real artifact URLs are presigned bucket links the harness cannot
-  // mint, so `stepShotHook` swaps only the HOST and the whole fetch path still runs.
+  // e2e-only hook: the harness cannot mint presigned links, so `stepShotHook` swaps only the host.
   async function shotHookBase() {
     if (!hasChrome || !chrome.storage?.session) return '';
     try { return (await chrome.storage.session.get('stepShotHook')).stepShotHook || ''; } catch { return ''; }
   }
 
-  // `display_url` is the presigned inline form (no session); `url` is the app-host
-  // route behind the login, which fetchAsset carries the JWT to.
-  // The instance's own URL first: `display_url` is already a storage link the server put in
-  // the data, and the bytes are the same file — its own address redirects there authorized.
+  // `url` first: fetchAsset carries the JWT to it and it redirects to the same bytes authorized.
   async function attachmentSrc(att) {
     const base = await shotHookBase();
     if (base) return new URL(att?.name || '', base).toString();
     return att?.url || att?.display_url || '';
   }
 
-  // `display_url` is the inline form of an IMAGE; for any other type the server answers a
-  // file-type icon there, so the file itself only ever comes from `url`.
+  // `display_url` of a non-image is a file-type icon, so the file itself only comes from `url`.
   const attachmentHref = (att) => (isImageAttachment(att) ? att?.display_url || att?.url : att?.url) || '';
 
-  // An href out of server data, resolved then checked: attachment urls come root-relative too, and
-  // a relative one resolves against chrome-extension://. `javascript:` is the hole it must not open.
+  // Resolved, then checked: relative urls hit chrome-extension://, and javascript: must never pass.
   const linkHref = (raw) => {
     const url = typeof raw === 'string' ? raw.trim() : '';
     if (!url) return '';
@@ -402,8 +370,7 @@ const TestSummary = (() => {
     return el;
   }
 
-  // Bytes go through shared/img-hydrate.js because CSP img-src carries no `https:`
-  // by design (#175). `onFail` gives the caller's own row shape — never a broken box.
+  // Bytes go through img-hydrate because CSP img-src carries no `https:` by design.
   function attachmentThumb(group, att, onFail) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -420,8 +387,7 @@ const TestSummary = (() => {
     return btn;
   }
 
-  // A step's video keeps the tree's one-line density (no tile), but its click opens the
-  // same viewer the tiles use instead of handing the tester a new tab.
+  // A step video keeps the tree's one-line density but opens the tiles' viewer, not a new tab.
   function attachmentPlay(att) {
     const url = attachmentHref(att);
     if (!url) return attachmentLink(att);
@@ -441,10 +407,7 @@ const TestSummary = (() => {
     return isVideoAttachment(att) ? attachmentPlay(att) : attachmentLink(att);
   }
 
-  // ---- file tiles (#21) ----
-  // One shape everywhere the panel LISTS files: an image shows itself, a video and any other
-  // file show a card. Which one a tile is lives in `data-kind`, and the click reads it back —
-  // an image whose bytes never arrive becomes a 'file' card and opens in a tab like one.
+  // `data-kind` drives the click: an image whose bytes never arrive becomes a 'file' card.
 
   function paintTilePreview(host, kind, att) {
     host.replaceChildren();
@@ -498,22 +461,16 @@ const TestSummary = (() => {
     return StatusIcons.svgIcon('photo_camera', 13, 'summary-step-marker');
   }
 
-  // A step block is a TREE NODE, drawn with the library's own tree parts: a chevron
-  // slot, then a glyph slot, then the title — the shape the runs list and TC studio
-  // already wear, so the three lists rule at the same columns.
-  // An Attachments group node renders NO step row — the web skips it the same way
-  // (`{{#unless node.model.attachments}}`) and shows only the files.
+  // Drawn with the library's tree parts so the runs list, TC studio and steps rule at the same columns.
   function summaryStepNode(node) {
     const group = document.createElement('div');
     group.className = 'summary-step-group tree-node';
-    // The row rule hangs off `.summary-step-self`, so a step's own log stays ABOVE
-    // the line that closes it and its children start below.
+    // The row rule hangs off `.summary-step-self`, so a step's own log stays above the closing line.
     const self = document.createElement('div');
     self.className = 'summary-step-self';
     group.append(self);
     if (node?.attachments) {
-      // The files hang off the block the way a log does, so the rule that closes the
-      // block still starts at the same column as every other row's.
+      // The files hang off the block like a log, so the closing rule starts at the usual column.
       const atts = document.createElement('div');
       atts.className = 'summary-step-atts';
       for (const att of node.attachments) atts.append(summaryAttachment(att));
@@ -524,8 +481,7 @@ const TestSummary = (() => {
     row.className = 'summary-step tree-row has-chevron';
     const kids = node?.children?.length ? document.createElement('div') : null;
     if (kids) {
-      // A bare chevron in the tree's 20px slot — still a real button, so it keeps its
-      // place in the tab order. CSS rotates it 90° on aria-expanded.
+      // A bare chevron in the tree's 20px slot, still a real button so it keeps its tab-order place.
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'tree-icon chevron summary-step-toggle';
@@ -579,9 +535,7 @@ const TestSummary = (() => {
       self.append(log);
     }
     if (kids) {
-      // A `.tree-children` and nothing more: the open subtree is the library's own
-      // container, so it drops the same guide a folder does in the runs list and
-      // takes the same 28px step in — and folding it away takes the line with it.
+      // The library's own `.tree-children`, so it gets a folder's guide and 28px indent, folding included.
       kids.className = 'summary-step-kids tree-children';
       kids.hidden = !summaryStepsExpanded;
       for (const child of node.children) kids.append(summaryStepNode(child));
@@ -643,10 +597,7 @@ const TestSummary = (() => {
     syncSummaryStepsTools();
   }
 
-  // ---- file viewer (#21) ----
-  // Out of the panel entirely (at ~400px a video is a postage stamp), but not into a window of
-  // its own either: on macOS a popup cannot float over a fullscreen browser. The worker draws
-  // the viewer INTO the page under test instead (background.js openFileOverlay).
+  // Drawn into the page under test: the panel is too narrow, and a macOS popup can't top fullscreen.
 
   function openFileViewer(att, resolvedUrl) {
     const url = resolvedUrl || attachmentHref(att);
@@ -658,8 +609,7 @@ const TestSummary = (() => {
       .catch(() => { window.open(url, '_blank', 'noopener'); });
   }
 
-  // The panel itself reaches only the first four and the two screens/attachments.js needs; the
-  // rest are named because tests/test-summary.test.mjs drives them one at a time.
+  // Several of these are named only so tests can drive them one at a time.
   return {
     render: renderResultSummary,
     refresh: refreshResultSummary,
